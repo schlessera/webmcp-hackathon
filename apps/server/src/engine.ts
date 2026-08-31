@@ -11,6 +11,7 @@ const addFormats = ((addFormatsModule as never as { default?: unknown })
 import type pg from "pg";
 import {
   COMMAND_SCHEMAS,
+  PROTECTED_ATTRIBUTE_KEYS,
   type CommandType,
   type FailureEnvelope,
   type SuccessEnvelope,
@@ -59,6 +60,8 @@ interface AppendedEvent {
 interface HandlerOutcome {
   events: AppendedEvent[];
   effect: string;
+  /** Command accepted but its consequence awaits in-page confirmation. */
+  staged?: boolean;
   error?: FailureEnvelope;
 }
 
@@ -176,6 +179,7 @@ export async function submitCommand(
       ok: true,
       revision,
       effect: `${outcome.effect} ${feasibility.eligible} candidate${feasibility.eligible === 1 ? "" : "s"} eligible.`.slice(0, 200),
+      ...(outcome.staged ? { staged: true } : {}),
       outstanding,
     };
     return { success, storedRevisions, revision };
@@ -268,6 +272,19 @@ async function submitRequirement(
       `payload is required for ${cmd.visibility} requirements.`,
       "Provide a domain payload (attribute, scope, budget, or exclusion).",
     );
+  }
+
+  // Protected-category defaulting (§3.3): accessibility-class needs are
+  // forced to hard + locked server-side, whatever the client sent — the
+  // council prefers scope changes over relaxing a protected need.
+  if (
+    cmd.payload?.kind === "attribute" &&
+    (PROTECTED_ATTRIBUTE_KEYS as readonly string[]).includes(
+      String(cmd.payload.key),
+    )
+  ) {
+    cmd.hardness = "hard";
+    cmd.delegation = { mode: "locked" };
   }
 
   const id = cmd.requirementId ?? `req_${randomUUID().slice(0, 8)}`;
@@ -501,7 +518,7 @@ async function respondToProposal(
   }
   const proposal = (
     await client.query(
-      `SELECT pr.id, pr.candidate_id, c.name AS candidate_name FROM proposals pr
+      `SELECT pr.id, pr.candidate_id, pr.status, c.name AS candidate_name FROM proposals pr
         LEFT JOIN candidates c ON c.id = pr.candidate_id
        WHERE pr.id = $1 AND pr.room_id = $2`,
       [cmd.proposalId, actor.roomId],
@@ -515,8 +532,30 @@ async function respondToProposal(
     );
   }
   const room = (
-    await client.query("SELECT revision FROM rooms WHERE id = $1", [actor.roomId])
+    await client.query("SELECT revision, phase FROM rooms WHERE id = $1", [
+      actor.roomId,
+    ])
   ).rows[0];
+  // Committed and withdrawn are absorbing (§7.3), and no stance may touch a
+  // room already in arrival — a member must not be able to erase a committed
+  // destination (audit finding 1). Staged agreements are protected too: the
+  // organizer aborts or commits on the page.
+  if (room.phase === "arrival") {
+    return errorOutcome(
+      "phase_unavailable",
+      "The destination is committed; stances are closed.",
+      "Use plan_arrival and prepare_navigation in the arrival phase.",
+    );
+  }
+  if (proposal.status !== "open" && proposal.status !== "vetoed") {
+    return errorOutcome(
+      "phase_unavailable",
+      `Proposal is ${proposal.status}; stances apply to open or vetoed proposals only.`,
+      proposal.status === "staged"
+        ? "The agreement is staged: the organizer confirms or aborts it on the page."
+        : "Choose an open proposal from get_spatial_context.",
+    );
+  }
   await client.query(
     `INSERT INTO stances (room_id, participant_id, proposal_id, disposition, visibility, reason, at_revision)
      VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -533,9 +572,10 @@ async function respondToProposal(
     ],
   );
   if (cmd.disposition === "reject") {
-    await client.query("UPDATE proposals SET status = 'vetoed' WHERE id = $1", [
-      cmd.proposalId,
-    ]);
+    await client.query(
+      "UPDATE proposals SET status = 'vetoed' WHERE id = $1 AND status = 'open'",
+      [cmd.proposalId],
+    );
   } else {
     // A veto blocks only while it stands (§7.3): reopen when no standing
     // reject remains after this stance change.
@@ -661,6 +701,16 @@ async function proposeDestination(
   actor: Participant,
   cmd: { candidateId: string },
 ): Promise<HandlerOutcome> {
+  const phase = (
+    await client.query("SELECT phase FROM rooms WHERE id = $1", [actor.roomId])
+  ).rows[0].phase;
+  if (phase === "arrival") {
+    return errorOutcome(
+      "phase_unavailable",
+      "The destination is committed; no new proposals.",
+      "Use plan_arrival and prepare_navigation in the arrival phase.",
+    );
+  }
   const candidate = (
     await client.query(
       "SELECT id, name FROM candidates WHERE id = $1 AND room_id = $2",
@@ -830,6 +880,7 @@ async function resolvePrivateRequest(
     );
     return {
       events: [],
+      staged: true,
       effect:
         "Grant staged. This exceeds your delegated bound: confirm on the page to apply it.",
     };
@@ -1029,6 +1080,16 @@ async function confirmAgreement(
       "Set your stance and ready state; the organizer commits.",
     );
   }
+  const phase = (
+    await client.query("SELECT phase FROM rooms WHERE id = $1", [actor.roomId])
+  ).rows[0].phase;
+  if (phase === "arrival") {
+    return errorOutcome(
+      "phase_unavailable",
+      "A destination is already committed.",
+      "Use plan_arrival and prepare_navigation in the arrival phase.",
+    );
+  }
   const proposal = (
     await client.query(
       `SELECT pr.id, pr.status, c.name AS candidate_name FROM proposals pr
@@ -1073,6 +1134,7 @@ async function confirmAgreement(
         },
       },
     ],
+    staged: true,
     effect: `Agreement on ${proposal.candidate_name} staged. The organizer confirms on the page.`,
   };
 }
@@ -1087,6 +1149,19 @@ async function commitAgreement(
       "not_authorized",
       "Only the organizer can commit the agreement.",
       "Set your stance and ready state; the organizer commits.",
+    );
+  }
+  const room = (
+    await client.query("SELECT revision, phase FROM rooms WHERE id = $1", [
+      actor.roomId,
+    ])
+  ).rows[0];
+  // A committed room commits nothing further: single active agreement.
+  if (room.phase === "arrival") {
+    return errorOutcome(
+      "phase_unavailable",
+      "A destination is already committed.",
+      "Use plan_arrival and prepare_navigation in the arrival phase.",
     );
   }
   const proposal = (
@@ -1108,49 +1183,74 @@ async function commitAgreement(
     );
   }
   // Invariant 4: the precondition must hold at commit revision too, not only
-  // at staging — a stance may have changed in between.
+  // at staging — a stance may have changed in between. The abort is a
+  // SUCCESSFUL state transition (rolling it back would restore 'staged' and
+  // wedge the room), reported as an event.
   const blocker = await agreementBlockers(client, actor.roomId, cmd.proposalId);
   if (blocker) {
     await client.query("UPDATE proposals SET status = 'open' WHERE id = $1", [
       cmd.proposalId,
     ]);
-    return errorOutcome(
-      "consent_required",
-      `Stage aborted: ${blocker}.`,
-      "Re-stage once every participant is ready with accept/abstain and no veto stands.",
-    );
+    return {
+      events: [
+        {
+          type: "agreement_stage_aborted",
+          actorId: actor.id,
+          visibility: "shared",
+          payload: {
+            actorName: actor.displayName,
+            proposalId: cmd.proposalId,
+            candidateName: proposal.candidate_name,
+            blocker,
+          },
+        },
+      ],
+      effect: `Stage aborted: ${blocker}. The proposal is open again.`,
+    };
   }
-  const room = (
-    await client.query("SELECT revision FROM rooms WHERE id = $1", [actor.roomId])
-  ).rows[0];
   await client.query(
     "UPDATE proposals SET status = 'committed', committed_at_revision = $2 WHERE id = $1",
     [cmd.proposalId, room.revision + 1],
   );
+  // Retire every competing proposal: exactly one destination survives commit.
+  const retired = await client.query(
+    `UPDATE proposals SET status = 'withdrawn'
+      WHERE room_id = $1 AND id <> $2 AND status IN ('open', 'vetoed', 'staged')`,
+    [actor.roomId, cmd.proposalId],
+  );
   await client.query("UPDATE rooms SET phase = 'arrival' WHERE id = $1", [
     actor.roomId,
   ]);
+  const events: AppendedEvent[] = [
+    {
+      type: "agreement_committed",
+      actorId: actor.id,
+      visibility: "shared",
+      payload: {
+        actorName: actor.displayName,
+        proposalId: cmd.proposalId,
+        candidateId: proposal.candidate_id,
+        candidateName: proposal.candidate_name,
+        committedAtRevision: room.revision + 1,
+      },
+    },
+    {
+      type: "phase_changed",
+      actorId: null,
+      visibility: "shared",
+      payload: { phase: "arrival" },
+    },
+  ];
+  if ((retired.rowCount ?? 0) > 0) {
+    events.push({
+      type: "proposal_withdrawn",
+      actorId: null,
+      visibility: "shared",
+      payload: { count: retired.rowCount },
+    });
+  }
   return {
-    events: [
-      {
-        type: "agreement_committed",
-        actorId: actor.id,
-        visibility: "shared",
-        payload: {
-          actorName: actor.displayName,
-          proposalId: cmd.proposalId,
-          candidateId: proposal.candidate_id,
-          candidateName: proposal.candidate_name,
-          committedAtRevision: room.revision + 1,
-        },
-      },
-      {
-        type: "phase_changed",
-        actorId: null,
-        visibility: "shared",
-        payload: { phase: "arrival" },
-      },
-    ],
+    events,
     effect: `Agreement committed: ${proposal.candidate_name}. Arrival phase open.`,
   };
 }

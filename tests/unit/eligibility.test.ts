@@ -6,6 +6,7 @@ import {
   classifyAll,
   feasibilityOf,
   haversineMeters,
+  whyFor,
   type CandidateRow,
   type RequirementRow,
   type ScopeState,
@@ -98,7 +99,7 @@ describe("eligibility against the Berlin Mitte dataset", () => {
     const outside = rows.filter((r) => r.eligibility === "excluded");
     expect(outside.length).toBeGreaterThan(0);
     for (const row of outside) {
-      expect(row.why).toBe("outside the current search area");
+      expect(whyFor(row, "p_anyone")).toBe("outside the current search area");
       expect(
         haversineMeters(row.location, dataset.manifest.demoCenter),
       ).toBeGreaterThan(800);
@@ -120,7 +121,7 @@ describe("eligibility against the Berlin Mitte dataset", () => {
     expect(rows.find((r) => r.candidateId === "c_cheap")!.eligibility).toBe("eligible");
     const pricey = rows.find((r) => r.candidateId === "c_pricey")!;
     expect(pricey.eligibility).toBe("excluded");
-    expect(pricey.why).toBe("estimated cost above the shared budget");
+    expect(whyFor(pricey, "p_peer")).toBe("estimated cost above the shared budget");
     expect(rows.find((r) => r.candidateId === "c_unknown")!.eligibility).toBe("uncertain");
   });
 
@@ -136,10 +137,29 @@ describe("eligibility against the Berlin Mitte dataset", () => {
       null,
     );
     expect(rows[0].eligibility).toBe("excluded");
-    expect(rows[0].why).toBe("excluded italian");
+    expect(whyFor(rows[0], "p_peer")).toBe("excluded italian");
   });
 
-  it("application-private exclusions never cite content in why-strings", () => {
+  it("cuisine exclusion matches individual tokens of multi-valued OSM tags", () => {
+    const multi: CandidateRow = {
+      ...candidates[0],
+      id: "c_multi",
+      category: "restaurant",
+      attributes: [
+        { key: "cuisine", status: "verified_true", value: "pizza;italian" },
+      ],
+    };
+    const rows = classifyAll(
+      [multi],
+      [req({ kind: "exclusion", key: "cuisine", values: ["italian"], lifetime: "session" } as never)],
+      [],
+      null,
+    );
+    expect(rows[0].eligibility).toBe("excluded");
+    expect(whyFor(rows[0], "p_peer")).toBe("excluded italian");
+  });
+
+  it("application-private exclusions never cite content in peer why-strings; owners see their own", () => {
     const rows = classifyAll(
       candidates,
       [
@@ -152,11 +172,50 @@ describe("eligibility against the Berlin Mitte dataset", () => {
       scopeAt(1400),
     );
     for (const row of rows) {
-      if (row.eligibility === "excluded" && row.why !== "outside the current search area") {
-        expect(row.why).toBe("excluded by a private requirement");
-        expect(row.why).not.toContain("lactose");
-      }
+      if (row.eligibility !== "excluded") continue;
+      const peerWhy = whyFor(row, "p_sarah");
+      if (peerWhy === "outside the current search area") continue;
+      expect(peerWhy).toBe("excluded by a private requirement");
+      expect(peerWhy).not.toContain("lactose");
+      expect(whyFor(row, "p_joe")).toContain("lactose");
     }
+  });
+
+  it("peer why-strings are count-invariant: no private-requirement fingerprinting", () => {
+    // Candidate A: excluded by ONE private requirement. Candidate B: excluded
+    // by a different owner's private requirement, with TWO more private
+    // requirements pending. Peers must see identical strings for both.
+    const a: CandidateRow = {
+      ...candidates[0], id: "c_a",
+      attributes: [{ key: "vegetarian-options", status: "verified_false" }],
+    };
+    const b: CandidateRow = {
+      ...candidates[0], id: "c_b",
+      attributes: [{ key: "outdoor-seating", status: "verified_false" }],
+    };
+    const reqs = [
+      req({ kind: "attribute", key: "vegetarian-options", expect: "verified_true" },
+        { visibility: "application-private", owner_id: "p_joe" }),
+      req({ kind: "attribute", key: "outdoor-seating", expect: "verified_true" },
+        { visibility: "application-private", owner_id: "p_sarah" }),
+      req({ kind: "attribute", key: "dog-friendly", expect: "verified_true" },
+        { visibility: "application-private", owner_id: "p_org" }),
+    ];
+    const rows = classifyAll([a, b], reqs, [], null);
+    const [rowA, rowB] = rows;
+    expect(rowA.eligibility).toBe("excluded");
+    expect(rowB.eligibility).toBe("excluded");
+    expect(whyFor(rowA, "p_peer")).toBe(whyFor(rowB, "p_peer"));
+
+    // Uncertain rows too: one vs three pending private requirements read the
+    // same to a peer who owns none of them.
+    const bare: CandidateRow = { ...candidates[0], id: "c_c", attributes: [] };
+    const one = classifyAll([bare], reqs.slice(0, 1), [], null)[0];
+    const three = classifyAll([bare], reqs, [], null)[0];
+    expect(one.eligibility).toBe("uncertain");
+    expect(three.eligibility).toBe("uncertain");
+    expect(whyFor(one, "p_peer")).toBe(whyFor(three, "p_peer"));
+    expect(whyFor(one, "p_peer")).not.toContain("vegetarian");
   });
 });
 

@@ -86,7 +86,9 @@ export function MapView({ context, selectedId, focusNonce, committedId, onSelect
   };
   useEffect(() => {
     fitTo(scope.area.radiusM, true);
-  }, [scope.area.radiusM]);
+    // Center is a dependency too: SetSearchScope can move the circle without
+    // changing its radius, and the viewport must follow.
+  }, [scope.area.radiusM, center.lat, center.lng]);
 
   /* focus_destination / pin selection pans to the candidate. */
   useEffect(() => {

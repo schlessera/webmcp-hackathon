@@ -214,6 +214,22 @@ export function projectEvent(
       };
     }
 
+    case "agreement_stage_aborted":
+      return full(
+        event,
+        `The staged agreement on ${p.candidateName ?? p.proposalId} was aborted: ${p.blocker ?? "preconditions changed"}. The proposal is open again.`,
+      );
+
+    case "proposal_withdrawn": {
+      const count = (p.count as number) ?? 1;
+      return {
+        revision: event.revision,
+        type: event.type,
+        level: "aggregate",
+        text: `${count} competing proposal${count === 1 ? " was" : "s were"} retired after the agreement.`,
+      };
+    }
+
     case "agreement_staged":
       return full(
         event,

@@ -11,14 +11,21 @@ import { PRICE_LEVEL_EUR } from "@webmcp-hackathon/contracts";
  *   hard-excludes; unknown/unverified yields uncertain (attribute honesty);
  * - budget compares perPersonMax against the PRICE_LEVEL_EUR band for the
  *   candidate's price level;
- * - cuisine exclusions match the candidate's cuisine attribute value, falling
- *   back to its category;
+ * - cuisine exclusions match the candidate's cuisine attribute value
+ *   (tokenized on ';' — OSM multi-values like "pizza;italian"), falling back
+ *   to its category;
  * - agent-private declarations consult recorded screening verdicts:
  *   unacceptable -> excluded, missing/needs_info -> uncertain;
  * - soft requirements never exclude.
  *
  * The core is pure (classifyAll) so the impasse pipeline can re-run it against
  * hypothetical scopes and requirement subsets.
+ *
+ * Why-strings are PER VIEWER (whyFor): classification collects structured
+ * reasons carrying owner and visibility, and the projection collapses every
+ * contribution the viewer does not own from a non-shared requirement into one
+ * fixed token that varies neither with the count nor the identity of the
+ * private constraints involved (audit: private-requirement fingerprinting).
  */
 
 export type Eligibility = "eligible" | "uncertain" | "excluded";
@@ -61,15 +68,55 @@ export interface ScopeState {
   category: string;
 }
 
+/** One structured contribution to a candidate's classification. `text` is the
+ * description its OWNER may see; shared reasons are safe for everyone. */
+export interface EligibilityReason {
+  ownerId: string;
+  shared: boolean;
+  text: string;
+}
+
 export interface CandidateEligibility {
   candidateId: string;
   name: string;
   category: string;
   location: { lat: number; lng: number };
   eligibility: Eligibility;
-  why: string;
+  /** Present when excluded: the winning (first) exclusion reason. */
+  exclusion?: EligibilityReason;
+  /** Present when uncertain: every pending-evidence contribution. */
+  uncertainReasons?: EligibilityReason[];
   walkMin: number;
   priceLevel: number | null;
+}
+
+const PRIVATE_EXCLUDED = "excluded by a private requirement";
+const PRIVATE_PENDING = "private evidence pending";
+
+/**
+ * The viewer-safe why-string. Shared reasons pass through; every contribution
+ * from a non-shared requirement the viewer does not own collapses into one
+ * fixed token, independent of how many private constraints touch the
+ * candidate or whose they are.
+ */
+export function whyFor(row: CandidateEligibility, viewerId: string): string {
+  if (row.eligibility === "excluded") {
+    const r = row.exclusion!;
+    if (r.shared || r.ownerId === viewerId) return r.text;
+    return PRIVATE_EXCLUDED;
+  }
+  if (row.eligibility === "uncertain") {
+    const visible = (row.uncertainReasons ?? [])
+      .filter((r) => r.shared || r.ownerId === viewerId)
+      .map((r) => r.text);
+    const hasHiddenPrivate = (row.uncertainReasons ?? []).some(
+      (r) => !r.shared && r.ownerId !== viewerId,
+    );
+    const parts = [...new Set(visible)];
+    if (hasHiddenPrivate) parts.push(PRIVATE_PENDING);
+    return parts.join("; ").slice(0, 120);
+  }
+  return "meets all evaluable requirements";
 }
 
 export function haversineMeters(
@@ -132,30 +179,36 @@ function classify(
   verdicts: VerdictRow[],
   scope: ScopeState | null,
 ): CandidateEligibility {
-  let uncertain = false;
-  const reasons: string[] = [];
+  const pending: EligibilityReason[] = [];
 
   // Implicit hard constraint: the shared search scope.
   if (scope?.area?.kind === "circle") {
     const distance = haversineMeters(candidate.location, scope.area.center);
     if (distance > scope.area.radiusM) {
-      return summary(candidate, "excluded", "outside the current search area");
+      return excluded(candidate, {
+        ownerId: "",
+        shared: true,
+        text: "outside the current search area",
+      });
     }
   }
 
   for (const req of requirements) {
     if (req.hardness !== "hard") continue;
+    const owner = { ownerId: req.owner_id, shared: req.visibility === "shared" };
 
     if (req.visibility === "agent-private") {
       const verdict = verdicts.find(
         (v) => v.owner_id === req.owner_id && v.candidate_id === candidate.id,
       );
       if (!verdict || verdict.verdict === "needs_info") {
-        uncertain = true;
-        reasons.push("private screen pending");
+        pending.push({ ...owner, shared: false, text: "your private screening is pending" });
       } else if (verdict.verdict === "unacceptable") {
-        // Never cite owner or reason for agent-private exclusions.
-        return summary(candidate, "excluded", "excluded by a private requirement");
+        return excluded(candidate, {
+          ...owner,
+          shared: false,
+          text: "your screening verdict: unacceptable",
+        });
       }
       continue;
     }
@@ -163,10 +216,8 @@ function classify(
     // Every accepted hard requirement kind is evaluated; nothing the command
     // schema admits may silently pass. Where the dossier carries no evidence
     // for a dimension, the answer is uncertain — never eligible (attribute
-    // honesty: unknown != verified).
-    // Public why-strings cite evidence status and SHARED requirements only
-    // (SPATIAL-PROTOCOL.md §8): application-private details stay generic.
-    const shared = req.visibility === "shared";
+    // honesty: unknown != verified). Reason texts are owner-visible; whyFor
+    // decides what peers see.
     const p = req.payload;
     switch (p?.kind) {
       case "attribute": {
@@ -174,47 +225,37 @@ function classify(
         const status = attr?.status ?? "unknown";
         const expect = p.expect ?? "verified_true";
         if (status === "unknown" || status === "unverified") {
-          uncertain = true;
-          reasons.push(shared ? `${p.key} unverified` : "evidence pending");
+          pending.push({ ...owner, text: `${p.key} unverified` });
         } else if (status !== expect) {
           // A verified status contradicting the expectation hard-excludes.
-          return summary(
-            candidate,
-            "excluded",
-            shared
-              ? expect === "verified_true"
+          return excluded(candidate, {
+            ...owner,
+            text:
+              expect === "verified_true"
                 ? `no verified ${p.key}`
-                : `verified ${p.key}`
-              : "excluded by a private requirement",
-          );
+                : `verified ${p.key}`,
+          });
         }
         break;
       }
       case "scope": {
         if (p.dimension === "walk_min" && typeof p.max === "number") {
           if (candidate.walk_min > p.max) {
-            return summary(
-              candidate,
-              "excluded",
-              shared ? `beyond ${p.max} min walk` : "excluded by a private requirement",
-            );
+            return excluded(candidate, {
+              ...owner,
+              text: `beyond ${p.max} min walk`,
+            });
           }
         } else if (p.dimension === "radius_m" && typeof p.max === "number") {
           if (!scope?.area?.center) {
-            uncertain = true;
-            reasons.push("scope evidence pending");
+            pending.push({ ...owner, text: "scope evidence pending" });
           } else if (
             haversineMeters(candidate.location, scope.area.center) > p.max
           ) {
-            return summary(
-              candidate,
-              "excluded",
-              shared ? `beyond ${p.max} m` : "excluded by a private requirement",
-            );
+            return excluded(candidate, { ...owner, text: `beyond ${p.max} m` });
           }
         } else {
-          uncertain = true;
-          reasons.push("scope evidence pending");
+          pending.push({ ...owner, text: "scope evidence pending" });
         }
         break;
       }
@@ -225,62 +266,62 @@ function classify(
           PRICE_LEVEL_EUR[candidate.price_level as keyof typeof PRICE_LEVEL_EUR];
         const max = p.perPersonMax?.amount;
         if (band === undefined || typeof max !== "number") {
-          uncertain = true;
-          reasons.push("budget evidence pending");
+          pending.push({ ...owner, text: "budget evidence pending" });
         } else if (band > max) {
-          return summary(
-            candidate,
-            "excluded",
-            shared
-              ? "estimated cost above the shared budget"
-              : "excluded by a private requirement",
-          );
+          return excluded(candidate, {
+            ...owner,
+            text: "estimated cost above the shared budget",
+          });
         }
         break;
       }
       case "exclusion": {
         if (p.key === "cuisine") {
           const attr = candidate.attributes.find((a) => a.key === "cuisine");
-          const cuisine =
-            typeof attr?.value === "string" ? attr.value : candidate.category;
-          if (p.values?.includes(cuisine)) {
-            return summary(
-              candidate,
-              "excluded",
-              shared ? `excluded ${cuisine}` : "excluded by a private requirement",
-            );
+          // OSM cuisine tags are multi-valued ("pizza;italian"): match per
+          // token, never against the raw joined string.
+          const tokens =
+            typeof attr?.value === "string"
+              ? attr.value.split(";").map((t) => t.trim()).filter(Boolean)
+              : [candidate.category];
+          const hit = tokens.find((t) => p.values?.includes(t));
+          if (hit) {
+            return excluded(candidate, { ...owner, text: `excluded ${hit}` });
           }
         } else {
-          uncertain = true;
-          reasons.push("exclusion evidence pending");
+          pending.push({ ...owner, text: "exclusion evidence pending" });
         }
         break;
       }
       default:
         // A hard requirement whose payload we cannot evaluate must not pass.
-        uncertain = true;
-        reasons.push("unevaluated requirement");
+        pending.push({ ...owner, text: "unevaluated requirement" });
     }
   }
 
-  if (uncertain) {
-    return summary(candidate, "uncertain", reasons.join("; ").slice(0, 120));
+  if (pending.length > 0) {
+    return {
+      ...base(candidate),
+      eligibility: "uncertain",
+      uncertainReasons: pending,
+    };
   }
-  return summary(candidate, "eligible", "meets all evaluable requirements");
+  return { ...base(candidate), eligibility: "eligible" };
 }
 
-function summary(
+function excluded(
   c: CandidateRow,
-  eligibility: Eligibility,
-  why: string,
+  reason: EligibilityReason,
 ): CandidateEligibility {
+  return { ...base(c), eligibility: "excluded", exclusion: reason };
+}
+
+function base(c: CandidateRow) {
   return {
     candidateId: c.id,
     name: c.name,
     category: c.category,
     location: c.location,
-    eligibility,
-    why,
     walkMin: c.walk_min,
     priceLevel: c.price_level,
   };

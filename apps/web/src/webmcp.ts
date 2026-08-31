@@ -119,7 +119,7 @@ function trimContext(context: SpatialContext) {
     candidateId: c.candidateId,
     name: c.name,
     eligibility: c.eligibility,
-    why: trimWhy(c.why),
+    why: c.why ? trimWhy(c.why) : undefined,
     walkMin: c.walkMin,
     priceLevel: c.priceLevel,
   });
@@ -145,20 +145,26 @@ function trimContext(context: SpatialContext) {
   };
 }
 
-/** Compact a dossier's attribute rows so 3 dossiers fit the result budget. */
+/**
+ * Compact dossier rows so 3 dossiers fit the ~1.5K result budget. The server
+ * returns the dossier array as `candidates` (InspectCandidatesResult).
+ */
 function trimInspect(result: unknown): unknown {
   const r = result as {
     ok?: boolean;
-    dossiers?: Array<Record<string, unknown> & {
+    candidates?: Array<Record<string, unknown> & {
       attributes?: Array<{ key: string; value?: unknown; status: string; source: string }>;
     }>;
   };
-  if (!r?.ok || !Array.isArray(r.dossiers)) return result;
+  if (!r?.ok || !Array.isArray(r.candidates)) return result;
   return {
     ...r,
-    dossiers: r.dossiers.map((d) => ({
+    candidates: r.candidates.map((d) => ({
       ...d,
+      // Hours and coordinates cost more budget than an agent's decision needs;
+      // attribute rows compress to "key=status(value) [provenance]".
       hours: undefined,
+      location: undefined,
       attributes: d.attributes?.map(
         (a) =>
           `${a.key}=${a.status}${a.value !== undefined ? `(${String(a.value)})` : ""} [${a.source.split(":")[0]}]`,
@@ -262,17 +268,10 @@ async function executeTool(
       if (result.ok) {
         // UI-before-return: the visible map/panels reflect the change before
         // the agent's tool call resolves (agents plan against what they see).
+        // A grant beyond the delegated bound also lands here as ok:true — the
+        // refreshed outstanding list carries staged:true, which is what makes
+        // the in-page confirm card visible; no error branch is involved.
         await spatial.refetch();
-      } else if (result.error?.code === "consent_required") {
-        // Make sure the in-page confirmation card is visible; the result's
-        // recovery text already tells the agent the human must confirm here.
-        const requestId = String(input.requestId ?? input.proposalId ?? "");
-        if (name === "resolve_private_request" && requestId) {
-          spatial.stageConfirm({
-            requestId,
-            summary: result.error.message,
-          });
-        }
       }
       return result;
     }

@@ -82,10 +82,25 @@ await withTransaction(async (client) => {
     await client.query("DELETE FROM rooms WHERE id = $1", [ROOM_ID]);
   }
 
+  const demoScope = JSON.stringify({
+    scopeId: "scope_1",
+    area: {
+      kind: "circle",
+      center,
+      radiusM: dataset.manifest.demoRadii.narrow,
+    },
+    transport: ["walk", "bike", "car"],
+    category: "food",
+  });
   await client.query(
     `INSERT INTO rooms (id, goal, phase, domain, revision, policy, scope, scope_seq)
      VALUES ($1, $2, 'gathering', $3, 0, $4, $5, 1)
-     ON CONFLICT (id) DO NOTHING`,
+     ON CONFLICT (id) DO UPDATE SET
+       goal = $2,
+       -- Upgrade path for a pre-scope room_demo: backfill the scope exactly
+       -- once; a live room's widened scope is never clobbered.
+       scope = COALESCE(rooms.scope, EXCLUDED.scope),
+       scope_seq = GREATEST(rooms.scope_seq, 1)`,
     [
       ROOM_ID,
       GOAL,
@@ -95,18 +110,35 @@ await withTransaction(async (client) => {
         allowedVisibilities: ALLOWED_VISIBILITIES,
         guestAccess: true,
       }),
-      JSON.stringify({
-        scopeId: "scope_1",
-        area: {
-          kind: "circle",
-          center,
-          radiusM: dataset.manifest.demoRadii.narrow,
-        },
-        transport: ["walk", "bike", "car"],
-        category: "food",
-      }),
+      demoScope,
     ],
   );
+
+  // Upgrade path: drop demo candidates that are not part of the current
+  // dataset (the pre-slice seed shipped 4 Kreuzberg venues). Their verdicts
+  // go with them, and proposals pointing at a vanished venue are withdrawn.
+  const datasetIds = dataset.venues.map((v) => v.candidateId);
+  const stale = (
+    await client.query(
+      "SELECT id FROM candidates WHERE room_id = $1 AND id <> ALL($2)",
+      [ROOM_ID, datasetIds],
+    )
+  ).rows.map((r) => r.id as string);
+  if (stale.length > 0) {
+    await client.query(
+      "DELETE FROM verdicts WHERE room_id = $1 AND candidate_id = ANY($2)",
+      [ROOM_ID, stale],
+    );
+    await client.query(
+      `UPDATE proposals SET status = 'withdrawn'
+        WHERE room_id = $1 AND candidate_id = ANY($2) AND status <> 'withdrawn'`,
+      [ROOM_ID, stale],
+    );
+    await client.query(
+      "DELETE FROM candidates WHERE room_id = $1 AND id = ANY($2)",
+      [ROOM_ID, stale],
+    );
+  }
 
   for (const p of PARTICIPANTS) {
     await client.query(

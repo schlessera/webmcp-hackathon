@@ -30,7 +30,7 @@ export function canonicalStringify(value: unknown): string {
  * contract hash too.
  */
 export const RESULT_CONTRACT = {
-  successEnvelope: ["ok", "revision", "effect", "outstanding", "syncHint"],
+  successEnvelope: ["ok", "revision", "effect", "staged", "outstanding", "syncHint"],
   failureEnvelope: ["ok", "error.code", "error.message", "error.recovery", "delta"],
   syncSessionResult: [
     "ok", "revision", "buildId", "toolContractVersion", "phase", "identity",
@@ -50,7 +50,7 @@ export const RESULT_CONTRACT = {
     "candidateId", "name", "location", "category", "eligibility", "why",
     "walkMin", "priceLevel",
   ],
-  proposalView: ["proposalId", "candidateId", "status", "stanceCounts", "ownStance"],
+  proposalView: ["proposalId", "candidateId", "status", "stanceCounts", "vetoStands", "ownStance"],
   inspectCandidatesResult: ["ok", "revision", "candidates"],
   prepareNavigationResult: ["ok", "target", "links.geo", "links.googleMaps", "links.appleMaps"],
   realtime: {

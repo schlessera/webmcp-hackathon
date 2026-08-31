@@ -55,11 +55,13 @@ export function CandidateSheet({ candidate, proposal, phase, onClose, run }: Pro
     setDossier(null);
     let cancelled = false;
     void (async () => {
+      // The contract's InspectCandidatesResult returns the dossier array as
+      // `candidates` (matching the server), not `dossiers`.
       const result = (await spatialInspectRaw({
         candidateIds: [candidate.candidateId],
-      })) as { ok?: boolean; dossiers?: CandidateDossier[] };
-      if (!cancelled && result.ok && result.dossiers?.[0]) {
-        setDossier(result.dossiers[0]);
+      })) as { ok?: boolean; candidates?: CandidateDossier[] };
+      if (!cancelled && result.ok && result.candidates?.[0]) {
+        setDossier(result.candidates[0]);
       }
     })();
     return () => {
@@ -92,7 +94,8 @@ export function CandidateSheet({ candidate, proposal, phase, onClose, run }: Pro
         <button className="sheet-close" onClick={onClose} aria-label="Close">×</button>
       </div>
       <p className="sheet-why" data-eligibility={candidate.eligibility} data-testid="sheet-why">
-        {candidate.why}
+        {candidate.why ??
+          (candidate.eligibility === "eligible" ? "Meets every confirmed need." : "")}
       </p>
       {attributes.length > 0 && (
         <div className="attr-chips">

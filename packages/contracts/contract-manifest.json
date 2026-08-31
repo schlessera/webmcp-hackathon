@@ -1,6 +1,6 @@
 {
   "toolContractVersion": "1",
-  "sha256": "4f69caf6b0ab9eff46351db2a2117e5279d93b0ddc8f264e18a50b0150c2c0a8",
+  "sha256": "ef223f83291afb30e292b81dbaaf308049451a55966f1c3e5c7d9bfb00123362",
   "manifest": {
     "capabilityManifest": {
       "agreement": {
@@ -848,6 +848,7 @@
         "candidateId",
         "status",
         "stanceCounts",
+        "vetoStands",
         "ownStance"
       ],
       "realtime": {
@@ -893,6 +894,7 @@
         "ok",
         "revision",
         "effect",
+        "staged",
         "outstanding",
         "syncHint"
       ],

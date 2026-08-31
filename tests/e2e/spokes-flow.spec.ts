@@ -178,6 +178,12 @@ test("demo trajectory through the product UI", async () => {
       candidateId: target.candidateId,
       baseRevision: sync.parsed.revision,
     });
+    // Trimmed inspect: three full dossiers must fit the ~1.5K result budget.
+    const inspect = await call("inspect_candidates", {
+      candidateIds: (context.parsed.candidates as Array<{ candidateId: string }>)
+        .slice(0, 3)
+        .map((c) => c.candidateId),
+    });
     return {
       contextOk: context.parsed.ok,
       contextLen: context.rawLen,
@@ -186,6 +192,10 @@ test("demo trajectory through the product UI", async () => {
       focusOk: focus.parsed.ok,
       proposeOk: propose.parsed.ok,
       proposeEffect: propose.parsed.effect ?? propose.parsed.error?.message,
+      inspectOk: inspect.parsed.ok,
+      inspectLen: inspect.rawLen,
+      inspectAttrsCompact:
+        typeof inspect.parsed.candidates?.[0]?.attributes?.[0] === "string",
     };
   });
   expect(toolPropose.contextOk).toBe(true);
@@ -194,6 +204,9 @@ test("demo trajectory through the product UI", async () => {
   expect(toolPropose.contextLen, "tool result exceeds the ~1.5K budget").toBeLessThanOrEqual(2000);
   expect(toolPropose.focusOk).toBe(true);
   expect(toolPropose.proposeOk, String(toolPropose.proposeEffect)).toBe(true);
+  expect(toolPropose.inspectOk).toBe(true);
+  expect(toolPropose.inspectAttrsCompact, "inspect trim not applied").toBe(true);
+  expect(toolPropose.inspectLen, "3 dossiers exceed the ~1.5K budget").toBeLessThanOrEqual(2000);
   // The agent's action landed on the org's own map (UI-before-return)…
   await expect(pages.org.locator('.pin[data-proposed="true"]')).toHaveCount(1);
   await pages.sarah.getByTestId("tab-decisions").click();
@@ -205,8 +218,20 @@ test("demo trajectory through the product UI", async () => {
   });
 
   // Propose The Barn from the org's sheet; everyone accepts via their stance
-  // card and flips ready.
+  // card and flips ready. The sheet's dossier comes from the REAL
+  // /api/spatial/inspect here — attribute chips and evidence must render
+  // (regression guard: the client once read a key the server never returns).
   await pin(pages.org, "The Barn").click({ force: true });
+  const sheet = pages.org.getByTestId("candidate-sheet");
+  await expect(sheet.locator(".attr-chip").first()).toBeVisible({ timeout: 10000 });
+  await expect(sheet.locator('.attr-chip[data-status="verified_true"]').first()).toBeVisible();
+  await sheet.getByTestId("details-btn").click();
+  await expect(sheet.getByTestId("dossier-details")).toContainText("osm:");
+  await pages.org.screenshot({
+    path: "test-results/spokes-live-details.png",
+    fullPage: true,
+  });
+  await sheet.getByTestId("details-btn").click(); // collapse again
   await pages.org.getByTestId("propose-btn").click();
   for (const key of ["org", "sarah", "joe"] as const) {
     await pages[key].getByTestId("tab-decisions").click();

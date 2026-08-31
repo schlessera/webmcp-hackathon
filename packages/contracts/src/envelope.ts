@@ -53,6 +53,9 @@ export interface SuccessEnvelope {
   revision: number;
   /** ≤200 chars */
   effect?: string;
+  /** True when the command was accepted but its consequence is STAGED pending
+   * the human's in-page confirmation (over-bound consent grants). */
+  staged?: boolean;
   outstanding: OutstandingItem[];
   syncHint?: { eventsSinceYourLastSync: number };
 }
@@ -132,7 +135,11 @@ export interface ProposalView {
   proposalId: string;
   candidateId: string;
   status: "open" | "withdrawn" | "vetoed" | "staged" | "committed";
-  stanceCounts: { accept: number; reject: number; other: number };
+  /** Counts over the viewer's own stance plus shared-visible stances only —
+   * raw totals would de-anonymize private stances by subtraction. */
+  stanceCounts: { accept: number; other: number };
+  /** A standing veto blocks agreement; reported as a boolean, never a count. */
+  vetoStands: boolean;
   ownStance?: string;
 }
 

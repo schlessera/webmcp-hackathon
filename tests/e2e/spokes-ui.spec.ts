@@ -121,11 +121,14 @@ async function mockApi(page: Page, state: { context: unknown; outstanding?: unkn
     }),
   );
   await page.route("**/api/spatial/context", (r) => json(r, state.context));
+  // Shape matches the real InspectCandidatesResult: dossiers ride in
+  // `candidates` (a `dossiers` key here once masked a real client bug).
   await page.route("**/api/spatial/inspect", (r) => {
     const ids = (r.request().postDataJSON() as { candidateIds: string[] }).candidateIds;
     return json(r, {
       ok: true,
-      dossiers: dataset.venues.filter((v) => ids.includes(v.candidateId)),
+      revision: 30,
+      candidates: dataset.venues.filter((v) => ids.includes(v.candidateId)),
     });
   });
   await page.route("**/api/spatial/navigation", (r) =>
@@ -221,13 +224,13 @@ test("deliberation at 1400m: eligible pins, proposal rings, sheet actions, veto 
           proposalId: "prop_1",
           candidateId: "place_30",
           status: "vetoed",
-          stanceCounts: { accept: 1, reject: 1, other: 0 },
+          stanceCounts: { accept: 1, other: 0 }, vetoStands: true,
         },
         {
           proposalId: "prop_2",
           candidateId: "place_24",
           status: "open",
-          stanceCounts: { accept: 2, reject: 0, other: 0 },
+          stanceCounts: { accept: 2, other: 0 }, vetoStands: false,
           ownStance: undefined,
         },
       ],
@@ -270,7 +273,7 @@ test("arrival: banner, mode picker, navigation handoff link", async ({ page }) =
           proposalId: "prop_2",
           candidateId: "place_24",
           status: "committed",
-          stanceCounts: { accept: 3, reject: 0, other: 0 },
+          stanceCounts: { accept: 3, other: 0 }, vetoStands: false,
         },
       ],
       agreement: { proposalId: "prop_2", candidateId: "place_24", committedAtRevision: 43 },

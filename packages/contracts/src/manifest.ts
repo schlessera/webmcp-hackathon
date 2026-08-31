@@ -56,6 +56,14 @@ export const AGREEMENT_RULE = "all-accept-organizer-commit" as const;
  */
 export const PRICE_LEVEL_EUR = { 1: 10, 2: 15, 3: 25, 4: 40 } as const;
 
+/**
+ * Protected-category attribute keys (NEGOTIATION-PROTOCOL.md §3.3): a
+ * requirement on one of these is forced to hard + locked server-side,
+ * whatever the client sent — the council prefers scope changes over asking
+ * anyone to compromise a protected need.
+ */
+export const PROTECTED_ATTRIBUTE_KEYS = ["wheelchair-accessible"] as const;
+
 export const CONDUCT =
   "You act for exactly one participant. Submit only what your user authorizes. " +
   "Private info can stay private: use visibility levels and screening verdicts " +

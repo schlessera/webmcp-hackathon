@@ -22,10 +22,10 @@ export interface SpatialState {
   selectedId: string | null;
   /** Bumped by focus_destination so the map pans even to the same pin. */
   focusNonce: number;
-  /** Latest outstanding list for THIS participant (from sync/command results). */
+  /** Latest outstanding list for THIS participant (from sync/command results).
+   * A grant beyond the delegated bound comes back as an adjustment_request
+   * with staged:true — that flag alone drives the in-page confirm card. */
   outstanding: OutstandingItem[];
-  /** A grant that the server staged pending in-page confirmation. */
-  stagedConfirm: { requestId: string; summary: string } | null;
 }
 
 type Listener = () => void;
@@ -36,7 +36,6 @@ class SpatialStore {
     selectedId: null,
     focusNonce: 0,
     outstanding: [],
-    stagedConfirm: null,
   };
   private listeners = new Set<Listener>();
   private inflight: Promise<SpatialContext | null> | null = null;
@@ -59,9 +58,6 @@ class SpatialStore {
   }
   setOutstanding(outstanding: OutstandingItem[] | undefined): void {
     if (outstanding) this.update({ outstanding });
-  }
-  stageConfirm(value: SpatialState["stagedConfirm"]): void {
-    this.update({ stagedConfirm: value });
   }
 
   /** Coalesced refetch; resolves with the freshest context it observed. */

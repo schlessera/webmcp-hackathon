@@ -277,9 +277,20 @@ Beyond the per-protocol invariants:
    `untrustedContentHint`, with length caps (`note` ≤200 chars). Feed
    projections are server-composed template strings, not raw user text, where
    redaction applies.
-4. **Consequential actions are page-confirmed**: committing agreement,
-   granting disclosure escalation, and relaxing outside delegated bounds all
-   stage + require an in-page human confirmation. ChatGPT additionally runs
+4. **Consequential actions have no agent tool route**: committing agreement
+   and applying an over-bound grant are two-step — the negotiation tool
+   (`confirm_agreement`, `resolve_private_request`) only *stages*, and the
+   applying command (`CommitAgreement`, `ConfirmPrivateRequest`) is registered
+   in `COMMAND_SCHEMAS` but bound to no WebMCP tool, so a personal agent — the
+   threat model that matters here, a prompt-injected model acting through the
+   tool surface — cannot reach it; only an in-page UI gesture dispatches it.
+   This is a binding-layer control, not a server-side one: the applying
+   commands are still ordinary `/api/commands` types, so a participant using
+   their own bearer token directly (outside the agent surface) can call them
+   without a page gesture. Closing that gap fully would require a short-lived
+   confirmation nonce minted by the UI; it is a documented v1 limitation
+   (POC), acceptable because the un-gated caller can only act as themselves,
+   within their own room, on their own decisions. ChatGPT additionally runs
    its own per-invocation safety review; ours does not rely on it.
 5. **Least exposure**: no `exposedTo` in v1 (no cross-origin consumers); the
    `tools` permissions policy stays default (`'self'`).

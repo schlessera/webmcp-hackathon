@@ -44,7 +44,7 @@ interface SpatialContext {
   scope: { scopeId: string; area: { radiusM: number } } | null;
   feasibility: { state: string; eligible: number };
   candidates: Array<{ candidateId: string; eligibility: string; why: string }>;
-  proposals: Array<{ proposalId: string; candidateId: string; status: string; stanceCounts: { accept: number; reject: number }; ownStance?: string }>;
+  proposals: Array<{ proposalId: string; candidateId: string; status: string; stanceCounts: { accept: number; other: number; reject?: number }; vetoStands: boolean; ownStance?: string }>;
   agreement?: { proposalId: string; candidateId: string; status: string };
   arrival?: { mode: string; pickupNote?: string };
   impasse?: { active: boolean; text: string };
@@ -282,6 +282,33 @@ describe("proposal, veto, agreement, arrival", () => {
     expect(premature.body.error!.code).toBe("consent_required");
   });
 
+  it("stanceCounts count only own + shared stances; no raw reject count", async () => {
+    const privateAccept = await command(room.tokens.joe, "RespondToProposal", {
+      baseRevision: revision,
+      proposalId: agreedProposalId,
+      disposition: "accept",
+      visibility: "application-private",
+    });
+    expect(privateAccept.body.ok).toBe(true);
+    revision = privateAccept.body.revision!;
+
+    const own = (await context(room.tokens.joe)).body.proposals
+      .find((p) => p.proposalId === agreedProposalId)!;
+    expect(own.stanceCounts.accept).toBe(1);
+    expect(own.ownStance).toBe("accept");
+
+    const peer = (await context(room.tokens.sarah)).body.proposals
+      .find((p) => p.proposalId === agreedProposalId)!;
+    // Joe's application-private stance is invisible to peers, and no reject
+    // count exists to subtract against — only the veto boolean.
+    expect(peer.stanceCounts.accept).toBe(0);
+    expect(peer.stanceCounts.reject).toBeUndefined();
+    expect(peer.vetoStands).toBe(false);
+    const vetoed = (await context(room.tokens.sarah)).body.proposals
+      .find((p) => p.proposalId === vetoProposalId)!;
+    expect(vetoed.vetoStands).toBe(true);
+  });
+
   it("all accept + ready, organizer stages, page commit moves to arrival", async () => {
     for (const key of ["org", "sarah", "joe"] as const) {
       const accept = await command(room.tokens[key], "RespondToProposal", {
@@ -319,6 +346,63 @@ describe("proposal, veto, agreement, arrival", () => {
     expect(after.body.phase).toBe("arrival");
     expect(after.body.agreement!.status).toBe("committed");
     expect(after.body.agreement!.candidateId).toBe(agreedCandidateId);
+  });
+
+  it("committed is absorbing: no stance, proposal, or second commit can touch it", async () => {
+    // A member cannot veto the committed destination away (audit finding 1).
+    const veto = await command(room.tokens.joe, "RespondToProposal", {
+      baseRevision: revision,
+      proposalId: agreedProposalId,
+      disposition: "reject",
+      visibility: "shared",
+    });
+    expect(veto.body.ok).toBe(false);
+    expect(veto.body.error!.code).toBe("phase_unavailable");
+
+    const spatial = await context(room.tokens.org);
+    expect(spatial.body.agreement!.status).toBe("committed");
+    expect(spatial.body.agreement!.candidateId).toBe(agreedCandidateId);
+    // Competing proposals were retired at commit; nothing else is stageable.
+    for (const p of spatial.body.proposals) {
+      if (p.proposalId !== agreedProposalId) {
+        expect(p.status).toBe("withdrawn");
+      }
+    }
+
+    const propose = await command(room.tokens.joe, "ProposeDestination", {
+      baseRevision: revision,
+      candidateId: spatial.body.candidates[0].candidateId,
+    });
+    expect(propose.body.ok).toBe(false);
+    expect(propose.body.error!.code).toBe("phase_unavailable");
+
+    const recommit = await command(room.tokens.org, "CommitAgreement", {
+      baseRevision: revision,
+      proposalId: agreedProposalId,
+    });
+    expect(recommit.body.ok).toBe(false);
+    expect(recommit.body.error!.code).toBe("phase_unavailable");
+  });
+
+  it("protected-category attributes are forced hard + locked server-side", async () => {
+    const submit = await command(room.tokens.org, "SubmitRequirement", {
+      baseRevision: revision,
+      visibility: "shared",
+      hardness: "soft",
+      delegation: { mode: "negotiable", bound: { dimension: "radius_m", max: 2000 } },
+      payload: { kind: "attribute", key: "wheelchair-accessible", expect: "verified_true" },
+    });
+    expect(submit.body.ok).toBe(true);
+    revision = submit.body.revision!;
+    const row = (
+      await room.pool.query(
+        `SELECT hardness, delegation FROM requirements
+          WHERE room_id = $1 AND payload->>'key' = 'wheelchair-accessible'`,
+        [room.roomId],
+      )
+    ).rows[0];
+    expect(row.hardness).toBe("hard");
+    expect(row.delegation.mode).toBe("locked");
   });
 
   it("arrival plans stay per-participant; pickup notes never leak", async () => {

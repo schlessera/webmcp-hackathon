@@ -18,8 +18,8 @@ describe("new event projections", () => {
     const types = [
       "scope_change_proposed", "scope_change_applied", "proposal_created",
       "impasse_detected", "adjustment_resolved", "requirement_relaxed",
-      "impasse_resolved", "agreement_staged", "agreement_committed",
-      "arrival_plan_updated",
+      "impasse_resolved", "agreement_staged", "agreement_stage_aborted",
+      "agreement_committed", "proposal_withdrawn", "arrival_plan_updated",
     ];
     for (const type of types) {
       const projected = projectEvent(

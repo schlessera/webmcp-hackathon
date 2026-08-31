@@ -4,7 +4,6 @@ import type {
   OutstandingItem,
   SpatialContext,
 } from "../spatial-types.ts";
-import type { SpatialState } from "../spatial-store.ts";
 
 /**
  * "Decisions": everything pending for THIS participant — private adjustment
@@ -30,10 +29,8 @@ function describeAdjustment(item: OutstandingAdjustment): string {
 interface Props {
   context: SpatialContext;
   outstanding: OutstandingItem[];
-  stagedConfirm: SpatialState["stagedConfirm"];
   isOrganizer: boolean;
   candidateName(candidateId: string): string;
-  onStageConfirm(value: SpatialState["stagedConfirm"]): void;
   onSelectCandidate(candidateId: string): void;
   run(type: string, input: Record<string, unknown>): Promise<CommandEnvelope>;
 }
@@ -41,27 +38,19 @@ interface Props {
 export function DecisionsPanel({
   context,
   outstanding,
-  stagedConfirm,
   isOrganizer,
   candidateName,
-  onStageConfirm,
   onSelectCandidate,
   run,
 }: Props) {
-  const resolve = async (requestId: string, decision: "grant" | "deny") => {
-    const result = await run("ResolvePrivateRequest", { requestId, decision });
-    if (!result.ok && result.error?.code === "consent_required") {
-      onStageConfirm({
-        requestId,
-        summary: result.error.message,
-      });
-    }
-  };
+  // A grant beyond the delegated bound succeeds (ok:true) and comes back as
+  // an outstanding adjustment with staged:true — the result's refreshed
+  // outstanding list is the single source for the confirm card below.
+  const resolve = (requestId: string, decision: "grant" | "deny") =>
+    run("ResolvePrivateRequest", { requestId, decision });
 
-  const confirmStaged = async (requestId: string) => {
-    const result = await run("ConfirmPrivateRequest", { requestId });
-    if (result.ok) onStageConfirm(null);
-  };
+  const confirmStaged = (requestId: string) =>
+    run("ConfirmPrivateRequest", { requestId });
 
   const adjustments = outstanding.filter(
     (i): i is OutstandingAdjustment => i.type === "adjustment_request",
@@ -79,34 +68,11 @@ export function DecisionsPanel({
     adjustments.length === 0 &&
     evaluations.length === 0 &&
     stancesNeeded.length === 0 &&
-    !stagedConfirm &&
     stagedProposals.length === 0 &&
     !(isOrganizer && deliberating && openProposals.length > 0);
 
   return (
     <div data-testid="decisions-panel">
-      {stagedConfirm && (
-        <div className="decision-card decision-confirm" data-testid="confirm-card">
-          <h4>Confirm on this page</h4>
-          <p>
-            {stagedConfirm.summary ||
-              "This change exceeds what you delegated — it needs your direct confirmation."}
-          </p>
-          <div className="decision-actions">
-            <button
-              className="btn btn-primary"
-              data-testid="confirm-grant"
-              onClick={() => void confirmStaged(stagedConfirm.requestId)}
-            >
-              Confirm
-            </button>
-            <button className="btn" onClick={() => onStageConfirm(null)}>
-              Not now
-            </button>
-          </div>
-        </div>
-      )}
-
       {adjustments.map((item) =>
         item.staged ? (
           // Granted beyond the delegated bound: applies only after this
@@ -187,7 +153,8 @@ export function DecisionsPanel({
           <div className="decision-card" data-testid="stance-card" key={proposalId}>
             <h4>Your call: {candidateName(proposal.candidateId)}</h4>
             <p>
-              {proposal.stanceCounts.accept} in favor · {proposal.stanceCounts.reject} against
+              {proposal.stanceCounts.accept} in favor
+              {proposal.vetoStands ? " · a veto stands" : ""}
             </p>
             <div className="decision-actions">
               <button
@@ -221,9 +188,9 @@ export function DecisionsPanel({
           <div className="decision-card" data-testid="stage-card" key={p.proposalId}>
             <h4>Stage the agreement?</h4>
             <p>
-              {candidateName(p.candidateId)} — {p.stanceCounts.accept} in favor,{" "}
-              {p.stanceCounts.reject} against. Staging checks that everyone is ready and no
-              veto stands.
+              {candidateName(p.candidateId)} — {p.stanceCounts.accept} in favor
+              {p.vetoStands ? ", a veto stands" : ""}. Staging checks that everyone is ready
+              and no veto stands.
             </p>
             <div className="decision-actions">
               <button

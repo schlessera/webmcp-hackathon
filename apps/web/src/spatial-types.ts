@@ -12,7 +12,8 @@ export interface CandidateSummary {
   location: { lat: number; lng: number };
   category: string;
   eligibility: Eligibility;
-  why: string;
+  /** Redacted explanation; the server may omit it (e.g. plainly eligible). */
+  why?: string;
   walkMin: number;
   priceLevel: number | null;
 }
@@ -21,7 +22,8 @@ export interface ProposalView {
   proposalId: string;
   candidateId: string;
   status: "open" | "withdrawn" | "vetoed" | "staged" | "committed";
-  stanceCounts: { accept: number; reject: number; other: number };
+  stanceCounts: { accept: number; other: number };
+  vetoStands: boolean;
   ownStance?: string;
 }
 

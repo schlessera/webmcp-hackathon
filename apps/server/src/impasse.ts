@@ -223,14 +223,18 @@ export async function impasseBracket(
 ): Promise<ImpasseEvent[]> {
   const room = (
     await client.query(
-      "SELECT revision, impasse_active FROM rooms WHERE id = $1",
+      "SELECT revision, phase, impasse_active FROM rooms WHERE id = $1",
       [roomId],
     )
   ).rows[0];
   if (!room) return [];
+  // The decision is committed: recovery negotiation is over, whatever late
+  // requirement edits do to the eligibility picture.
+  if (room.phase === "arrival") return [];
   const feasibility = feasibilityOf(after);
 
-  if (room.impasse_active && feasibility.eligible > 0) {
+  if (feasibility.eligible > 0) {
+    if (!room.impasse_active) return [];
     await client.query("UPDATE rooms SET impasse_active = false WHERE id = $1", [
       roomId,
     ]);
@@ -248,8 +252,6 @@ export async function impasseBracket(
       },
     ];
   }
-
-  if (room.impasse_active || feasibility.eligible > 0) return [];
 
   const [candidates, requirements, verdicts, scopeRow] = await Promise.all([
     client.query("SELECT * FROM candidates WHERE room_id = $1 ORDER BY id", [roomId]),
@@ -286,27 +288,60 @@ export async function impasseBracket(
     await organizerOf(client, roomId),
   );
 
-  await client.query("UPDATE rooms SET impasse_active = true WHERE id = $1", [
-    roomId,
-  ]);
+  // Regeneration discipline: while the impasse stands, every
+  // eligibility-perturbing command may contribute NEW recovery options (the
+  // requirement set has changed), but an adjustment already open is never
+  // duplicated and one the addressee denied is never resurrected in this
+  // session (denial is persisted by its canonical change key).
+  const existingRows = (
+    await client.query(
+      "SELECT id, kind, target, change, requires_consent_of, status FROM adjustments WHERE room_id = $1",
+      [roomId],
+    )
+  ).rows as Array<{
+    id: string;
+    kind: string;
+    target: unknown;
+    change: { dimension?: unknown; from?: unknown; to?: unknown };
+    requires_consent_of: string;
+    status: string;
+  }>;
+  const keyOf = (
+    kind: string,
+    consentOf: string,
+    target: unknown,
+    change: { dimension?: unknown; from?: unknown; to?: unknown },
+  ) =>
+    [
+      kind, consentOf, JSON.stringify(target),
+      String(change.dimension), String(change.from), String(change.to),
+    ].join("|");
+  const suppressed = new Set(
+    existingRows
+      .filter((r) => ["proposed", "staged_grant", "denied"].includes(r.status))
+      .map((r) => keyOf(r.kind, r.requires_consent_of, r.target, r.change)),
+  );
+  const newDrafts = drafts.filter(
+    (d) => !suppressed.has(keyOf(d.kind, d.requiresConsentOf, d.target, d.change)),
+  );
 
-  const events: ImpasseEvent[] = [
-    {
+  const events: ImpasseEvent[] = [];
+  if (!room.impasse_active) {
+    await client.query("UPDATE rooms SET impasse_active = true WHERE id = $1", [
+      roomId,
+    ]);
+    events.push({
       type: "impasse_detected",
       actorId: null,
       visibility: "shared",
       payload: { conflictSize: conflict.length },
-    },
-  ];
+    });
+  } else if (newDrafts.length === 0) {
+    return [];
+  }
 
-  const existing = (
-    await client.query(
-      "SELECT count(*)::int AS n FROM adjustments WHERE room_id = $1",
-      [roomId],
-    )
-  ).rows[0].n as number;
-  let seq = existing;
-  for (const draft of drafts) {
+  let seq = existingRows.length;
+  for (const draft of newDrafts) {
     seq += 1;
     // adjustments.id is a global PK: scope the deterministic counter by room.
     const id = `adj_${roomId.replace(/^room_/, "")}_${seq}`;

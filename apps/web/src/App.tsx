@@ -273,7 +273,6 @@ export function App() {
     (context
       ? context.proposals.filter((p) => p.status === "open" && !p.ownStance).length
       : 0) +
-    (spatialState.stagedConfirm ? 1 : 0) +
     (context && isOrganizer
       ? context.proposals.filter((p) => p.status === "staged").length
       : 0);
@@ -437,10 +436,8 @@ export function App() {
                 <DecisionsPanel
                   context={context}
                   outstanding={spatialState.outstanding}
-                  stagedConfirm={spatialState.stagedConfirm}
                   isOrganizer={isOrganizer}
                   candidateName={candidateName}
-                  onStageConfirm={(v) => spatial.stageConfirm(v)}
                   onSelectCandidate={(cid) => spatial.focus(cid)}
                   run={run}
                 />

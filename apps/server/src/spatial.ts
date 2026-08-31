@@ -10,6 +10,7 @@ import {
   computeEligibility,
   feasibilityOf,
   loadScope,
+  whyFor,
 } from "./eligibility.ts";
 import { IMPASSE_TEXT } from "./impasse.ts";
 
@@ -42,7 +43,7 @@ export async function spatialContext(
           [actor.roomId],
         ),
         client.query(
-          "SELECT proposal_id, participant_id, disposition FROM stances WHERE room_id = $1",
+          "SELECT proposal_id, participant_id, disposition, visibility FROM stances WHERE room_id = $1",
           [actor.roomId],
         ),
         client.query(
@@ -61,6 +62,7 @@ export async function spatialContext(
       proposal_id: string;
       participant_id: string;
       disposition: string;
+      visibility: string;
     }>;
     const proposalViews = (proposals.rows as Array<{
       id: string;
@@ -70,20 +72,30 @@ export async function spatialContext(
       const own = stanceRows.find(
         (s) => s.proposal_id === pr.id && s.participant_id === actor.id,
       );
-      const forProposal = stanceRows.filter((s) => s.proposal_id === pr.id);
+      // Count only what this viewer can already derive: their own stance plus
+      // shared-visible stances. Raw totals over private stances would let a
+      // small room de-anonymize them by subtraction (audit finding 3). A
+      // standing veto is reported as a boolean, never a count — the proposal
+      // status reveals that much already.
+      const visible = stanceRows.filter(
+        (s) =>
+          s.proposal_id === pr.id &&
+          (s.participant_id === actor.id || s.visibility === "shared"),
+      );
+      const vetoStands = stanceRows.some(
+        (s) => s.proposal_id === pr.id && s.disposition === "reject",
+      );
       return {
         proposalId: pr.id,
         candidateId: pr.candidate_id,
         status: pr.status as "open" | "withdrawn" | "vetoed" | "staged" | "committed",
-        // Aggregate counts only: per-peer attribution stays in projected
-        // events where visibility rules apply.
         stanceCounts: {
-          accept: forProposal.filter((s) => s.disposition === "accept").length,
-          reject: forProposal.filter((s) => s.disposition === "reject").length,
-          other: forProposal.filter(
+          accept: visible.filter((s) => s.disposition === "accept").length,
+          other: visible.filter(
             (s) => s.disposition !== "accept" && s.disposition !== "reject",
           ).length,
         },
+        vetoStands,
         ...(own ? { ownStance: own.disposition } : {}),
       };
     });
@@ -121,7 +133,9 @@ export async function spatialContext(
         location: r.location,
         category: r.category,
         eligibility: r.eligibility,
-        why: r.why,
+        // Per-viewer redaction: private contributions collapse to fixed
+        // tokens for everyone but their owner.
+        why: whyFor(r, actor.id),
         walkMin: r.walkMin,
         priceLevel: r.priceLevel ?? 0,
       })),
