@@ -1,0 +1,110 @@
+services:
+  db:
+    image: postgres:17.6-alpine
+    environment:
+      POSTGRES_USER: webmcp
+      POSTGRES_PASSWORD: webmcp
+      POSTGRES_DB: webmcp
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U webmcp -d webmcp"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+  migrate:
+    build: .
+    command: ["node", "apps/server/src/migrate.ts"]
+    environment:
+      DATABASE_URL: postgres://webmcp:webmcp@db:5432/webmcp
+    depends_on:
+      db:
+        condition: service_healthy
+
+  app:
+    build: .
+    command: ["node", "apps/server/src/server.ts"]
+    environment:
+      DATABASE_URL: postgres://webmcp:webmcp@db:5432/webmcp
+      NODE_ENV: ${APP_ENV:-development}
+      PORT: "4173"
+      ORIGIN_TRIAL_TOKEN: ${ORIGIN_TRIAL_TOKEN:-}
+      DEMO_SECRET_KEY: ${DEMO_SECRET_KEY:-local-dev-only}
+    ports:
+      - "127.0.0.1:4173:4173"
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    develop:
+      watch:
+        # Ordinary UI code: sync into the container, Vite handles HMR.
+        - action: sync
+          path: ./apps/web/src
+          target: /repo/apps/web/src
+        - action: sync
+          path: ./apps/web/index.html
+          target: /repo/apps/web/index.html
+        # Server or contract changes: restart (new buildId -> clients reload).
+        - action: sync+restart
+          path: ./apps/server/src
+          target: /repo/apps/server/src
+        - action: sync+restart
+          path: ./packages/contracts/src
+          target: /repo/packages/contracts/src
+        # Dependency or image changes: rebuild.
+        - action: rebuild
+          path: ./pnpm-lock.yaml
+        - action: rebuild
+          path: ./Dockerfile
+        - action: rebuild
+          path: ./packages/contracts/contract-manifest.json
+
+  seed-demo:
+    build: .
+    profiles: ["seed"]
+    command: ["node", "apps/server/src/seed.ts"]
+    environment:
+      DATABASE_URL: postgres://webmcp:webmcp@db:5432/webmcp
+      DEMO_SECRET_KEY: ${DEMO_SECRET_KEY:-local-dev-only}
+      APP_URL: ${APP_URL:-http://127.0.0.1:4173}
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  e2e:
+    profiles: ["e2e"]
+    # Must match the @playwright/test version the lockfile resolves.
+    image: mcr.microsoft.com/playwright:v1.62.1-noble
+    working_dir: /repo
+    volumes:
+      - .:/repo
+    environment:
+      # The spec spawns its own server inside the container; it needs only db.
+      DATABASE_URL: postgres://webmcp:webmcp@db:5432/webmcp
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    command: ["npx", "playwright", "test", "tests/e2e/three-user.spec.ts"]
+
+  cloudflared:
+    profiles: ["public"]
+    image: cloudflare/cloudflared:2026.8.0
+    command: ["tunnel", "--no-autoupdate", "run"]
+    environment:
+      # Required for the public profile; validated by cloudflared at startup.
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN:-}
+    depends_on:
+      app:
+        condition: service_started
+
+volumes:
+  dbdata:

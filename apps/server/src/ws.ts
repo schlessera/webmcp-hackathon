@@ -1,0 +1,165 @@
+import type { Server } from "node:http";
+import { WebSocketServer, WebSocket } from "ws";
+import {
+  TOOL_CONTRACT_VERSION,
+  type ClientMessage,
+  type ServerMessage,
+} from "@webmcp-hackathon/contracts";
+import { pool } from "./db.ts";
+import { authenticateToken } from "./auth.ts";
+import { config } from "./config.ts";
+import { onCommit, type CommitNotification } from "./engine.ts";
+import { projectEvent } from "./projection.ts";
+
+interface Connection {
+  socket: WebSocket;
+  participantId: string;
+  roomId: string;
+}
+
+const connections = new Set<Connection>();
+
+export function attachWebSocket(server: Server): void {
+  const wss = new WebSocketServer({ server, path: "/ws" });
+
+  wss.on("connection", (socket) => {
+    let connection: Connection | null = null;
+    // Set synchronously before the async token lookup so a second auth frame
+    // on the same socket cannot register a duplicate connection.
+    let authenticating = false;
+    // The socket authenticates with its first message (Gate 3 rule 5).
+    const authTimer = setTimeout(() => {
+      if (!connection) socket.close(4001, "auth timeout");
+    }, 5000);
+
+    socket.on("message", (raw) => {
+      (async () => {
+        let message: ClientMessage;
+        try {
+          message = JSON.parse(String(raw));
+        } catch {
+          return send(socket, {
+            type: "error",
+            code: "invalid_message",
+            message: "Messages must be JSON.",
+          });
+        }
+        // Runtime validation: unauthenticated input must never throw.
+        if (
+          message === null ||
+          typeof message !== "object" ||
+          message.type !== "auth" ||
+          typeof message.token !== "string"
+        ) {
+          if (!connection) {
+            send(socket, {
+              type: "error",
+              code: "invalid_message",
+              message: "First message must be { type: 'auth', token }.",
+            });
+          }
+          return;
+        }
+        if (connection || authenticating) return;
+        authenticating = true;
+        const participant = await authenticateToken(message.token);
+        if (!participant) {
+          authenticating = false;
+          send(socket, {
+            type: "error",
+            code: "not_authenticated",
+            message: "Unknown participant token. Re-exchange your invite.",
+          });
+          socket.close(4003, "not authenticated");
+          return;
+        }
+        clearTimeout(authTimer);
+        connection = {
+          socket,
+          participantId: participant.id,
+          roomId: participant.roomId,
+        };
+        connections.add(connection);
+        const room = (
+          await pool.query("SELECT revision FROM rooms WHERE id = $1", [
+            participant.roomId,
+          ])
+        ).rows[0];
+        // Gate 5: welcome carries buildId + toolContractVersion so stale
+        // bundles reload (Chromium) or banner (ChatGPT surface).
+        send(socket, {
+          type: "welcome",
+          buildId: config.buildId,
+          toolContractVersion: TOOL_CONTRACT_VERSION,
+          revision: room?.revision ?? 0,
+          participantId: participant.id,
+          displayName: participant.displayName,
+          role: participant.role,
+        });
+        // Belt-and-braces: also tell a contract-stale client explicitly.
+        if (
+          typeof message.clientToolContractVersion === "string" &&
+          message.clientToolContractVersion !== TOOL_CONTRACT_VERSION
+        ) {
+          send(socket, {
+            type: "error",
+            code: "upgrade_required",
+            message: `Client contract v${message.clientToolContractVersion} != server v${TOOL_CONTRACT_VERSION}. Reload the page.`,
+          });
+        }
+      })().catch((err) => {
+        // Unauthenticated input must never take the server down.
+        console.error("ws message handling failed:", err);
+        socket.close(1011, "internal error");
+      });
+    });
+
+    socket.on("close", () => {
+      clearTimeout(authTimer);
+      if (connection) connections.delete(connection);
+    });
+  });
+
+  // Notifications are sent only after the database transaction commits
+  // (Gate 4). A broadcast failure must never surface as an unhandled
+  // rejection — the command has already committed and returned.
+  onCommit((n) => {
+    broadcast(n).catch((err) => {
+      console.error("post-commit broadcast failed:", err);
+    });
+  });
+}
+
+async function broadcast(n: CommitNotification): Promise<void> {
+  if (n.storedRevisions.length === 0) return;
+  const rows = (
+    await pool.query(
+      `SELECT revision, type, actor_id, visibility, payload FROM events
+        WHERE room_id = $1 AND revision = ANY($2) ORDER BY revision`,
+      [n.roomId, n.storedRevisions],
+    )
+  ).rows;
+  for (const connection of connections) {
+    if (connection.roomId !== n.roomId) continue;
+    if (connection.socket.readyState !== WebSocket.OPEN) continue;
+    const events = rows
+      .map((row) =>
+        projectEvent(
+          {
+            revision: row.revision,
+            type: row.type,
+            actorId: row.actor_id,
+            visibility: row.visibility,
+            payload: row.payload,
+          },
+          connection.participantId,
+        ),
+      )
+      .filter((e) => e !== null);
+    send(connection.socket, { type: "event", revision: n.revision, events });
+  }
+}
+
+function send(socket: WebSocket, message: ServerMessage): void {
+  socket.send(JSON.stringify(message));
+}

@@ -1,0 +1,215 @@
+# System Architecture
+
+## Architectural thesis
+
+Separate facts, mediation, and advocacy:
+
+```text
+World-knowledge backend
+        |
+        | Candidate dossiers: facts, sources, timestamps, confidence
+        v
+Shared council and session coordinator
+        |
+        | Participant-specific projections and negotiation commands
+        v
+Personal agents participating through WebMCP
+
+Humans <------> Live participant map views <------> Shared session
+```
+
+An opaque model must not both invent available options and decide which person
+should compromise.
+
+## Major components
+
+### Participant web client
+
+- Renders the shared map, activity feed, candidate cards, and personal prompts.
+- Establishes the participant's session identity from a guest invite or account.
+- Receives a server-generated projection rather than the complete session.
+- Registers contextual WebMCP tools on `document.modelContext`.
+- Sends human and WebMCP actions through the same domain command path.
+- Maintains live UI updates through WebSockets or Server-Sent Events.
+
+### Authoritative session service
+
+- Stores participants, goals, requirements, visibility, delegation, and state.
+- Appends all accepted commands to a monotonically revisioned event stream.
+- Produces a separately authorized projection for every participant.
+- Enforces optimistic concurrency and rejects or rebases stale operations.
+- Tracks which revision an agent last observed.
+- Records acceptance and consent as explicit events.
+
+### Constraint and council engine
+
+- Separates hard constraints from soft preferences.
+- Applies verified attributes to candidate eligibility.
+- Ranks remaining candidates using aggregate utility and tradeoffs.
+- Detects fragile, infeasible, or uncertain states.
+- Finds small conflicting constraint sets and grounded counterfactuals.
+- Never automatically relaxes a constraint beyond delegated authority.
+
+Deterministic logic should decide eligibility and calculate counterfactuals. An
+internal generative model may normalize ambiguous evidence or phrase useful
+explanations, but it must not invent feasibility facts.
+
+### World-knowledge service
+
+- Searches a bounded geographic and temporal area.
+- Normalizes destinations into stable candidate dossiers.
+- Attaches provenance, retrieval time, and confidence to claims.
+- Supports neutral expansions such as a wider area or later time.
+- Keeps provider-specific APIs behind adapters.
+
+The POC can prepopulate and cache a selected geographic area to provide
+reliable, low-latency experimentation without pretending to operate at global
+scale.
+
+### Realtime transport
+
+The application, not ChatGPT, is the realtime bus. Browser clients receive live
+session projections. ChatGPT is not assumed to maintain a background
+subscription; it catches up through WebMCP on its next interaction.
+
+## State and event model
+
+The canonical event stream has a monotonically increasing revision. Example
+events include:
+
+```text
+participant_joined
+requirement_added
+requirement_changed
+option_proposed
+option_vetoed
+participant_ready
+option_accepted
+meeting_point_selected
+impasse_detected
+private_adjustment_requested
+search_scope_change_proposed
+requirement_relaxed
+impasse_resolved
+```
+
+Every event is stored once but projected differently. A participant may see:
+
+```text
+Joe added a private requirement.
+```
+
+Joe and Joe's authorized agent may instead see the full content. For stronger
+inference minimization, even ownership can be redacted:
+
+```text
+A private requirement was updated.
+```
+
+Client-side hiding is insufficient. The server must omit unauthorized fields
+and events from responses entirely.
+
+## ChatGPT connection and catch-up
+
+WebMCP tool descriptions and schemas are the discovery mechanism. WebMCP does
+not provide a separate standardized application-protocol instruction channel,
+so the application defines a first-connection contract.
+
+An initial `connect_to_session` or `sync_session` result should include:
+
+- Negotiation protocol and map-domain protocol versions.
+- The current participant identity and permissions.
+- Privacy and delegation rules.
+- Current session revision.
+- Current goal and concise participant-specific state.
+- Events since the agent last participated.
+- Supported actions and domain capabilities.
+- Any outstanding decision that requires this participant.
+
+Every mutation includes the base revision the agent observed. If the session is
+stale, the application returns a structured `sync_required` result with a
+concise delta rather than silently acting on old information.
+
+The map may already have updated in realtime while ChatGPT was idle. This is not
+fake push. ChatGPT receives the semantic delta when it next invokes a tool.
+
+## Asynchronous personal agents
+
+A ChatGPT conversation participating through WebMCP is not a continuously
+running daemon. The application therefore stores a bounded delegation policy:
+
+- **Locked:** never relax automatically.
+- **Approval required:** ask the human before changing.
+- **Negotiable range:** may compromise within an explicit bound.
+- **Soft:** optimize when possible but do not block.
+
+The server can continue mediation within that envelope. Anything outside it is
+queued privately until the participant or their agent returns.
+
+## Privacy boundaries
+
+### What peers may receive
+
+- Shared requirements and statements.
+- Aggregate candidate compatibility.
+- Redacted private activity.
+- Group-level explanations and outstanding decisions.
+
+### What a participant and their agent may receive
+
+- Their own private requirements and delegation policy.
+- Private adjustment requests directed to them.
+- The same shared information every authorized participant receives.
+
+### What the coordinator may receive
+
+- Application-private requirements needed for server-side evaluation.
+- Agent-private stances without their hidden reasons.
+- Authorization metadata and audit events.
+
+### What the world-knowledge service should receive
+
+- Geographic, temporal, and attribute search queries.
+- No participant identity or personal explanation unless strictly required.
+
+When possible, the coordinator should fetch a broader candidate set and apply
+sensitive filters itself so the provider does not receive a user-linked query.
+
+## Data model sketch
+
+```text
+Room
+  id, revision, goal, area, time, status
+
+Participant
+  id, displayName, role, connectionState
+
+Requirement
+  id, ownerId, domainPayload, hardness, visibility, delegation
+
+Candidate
+  id, facts[], evidence[], freshness, confidence
+
+Proposal
+  id, candidateId, createdAtRevision, status
+
+Stance
+  participantId, proposalId, disposition, visibility, conditions
+
+Agreement
+  proposalId, confirmations[], committedAtRevision
+```
+
+## Core invariants
+
+- UI actions and WebMCP actions invoke the same application commands.
+- The map is a projection, not the authoritative source of session truth.
+- Candidate facts reference evidence and freshness.
+- Personal agents advocate but do not invent map facts.
+- The world backend supplies possibilities but does not negotiate.
+- Only the council commits shared agreement.
+- No participant can alter another participant's requirements.
+- No constraint is relaxed outside its owner's delegated authority.
+- Tool results update the visible UI before returning where appropriate.
+- Protocol versions and domain capabilities are explicit.
+

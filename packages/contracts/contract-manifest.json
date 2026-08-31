@@ -1,0 +1,667 @@
+{
+  "toolContractVersion": "1",
+  "sha256": "3056f71c62b9e6952c4ccb6fb08aca75ab12dec087e70c8086b58758ff2c4b76",
+  "manifest": {
+    "capabilityManifest": {
+      "agreement": {
+        "rule": "all-accept-organizer-commit"
+      },
+      "attributeVocabulary": [
+        "vegetarian-options",
+        "lactose-free-options",
+        "wheelchair-accessible",
+        "outdoor-seating",
+        "dog-friendly",
+        "price-level",
+        "cuisine"
+      ],
+      "capabilities": [
+        "destination-search",
+        "map-selection",
+        "meeting-points",
+        "navigation-handoff",
+        "private-screening",
+        "impasse-resolution"
+      ],
+      "conduct": "You act for exactly one participant. Submit only what your user authorizes. Private info can stay private: use visibility levels and screening verdicts instead of disclosing. Mutations need baseRevision from your last sync.",
+      "privacy": {
+        "allowedVisibilities": [
+          "shared",
+          "application-private",
+          "agent-private"
+        ],
+        "disclosureLevels": [
+          "verdicts-only",
+          "category-hint",
+          "predicate",
+          "shared"
+        ],
+        "hintTaxonomy": [
+          "dietary",
+          "accessibility",
+          "budget",
+          "distance",
+          "time",
+          "personal-history",
+          "atmosphere",
+          "other"
+        ]
+      },
+      "protocols": {
+        "domain": "spatial-destination/v1",
+        "negotiation": "v1"
+      }
+    },
+    "commands": {
+      "EvaluateCandidates": {
+        "additionalProperties": false,
+        "properties": {
+          "baseRevision": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "verdicts": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "candidateId": {
+                  "maxLength": 40,
+                  "type": "string"
+                },
+                "infoNeeded": {
+                  "maxLength": 100,
+                  "type": "string"
+                },
+                "verdict": {
+                  "anyOf": [
+                    {
+                      "const": "acceptable",
+                      "type": "string"
+                    },
+                    {
+                      "const": "unacceptable",
+                      "type": "string"
+                    },
+                    {
+                      "const": "needs_info",
+                      "type": "string"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "candidateId",
+                "verdict"
+              ],
+              "type": "object"
+            },
+            "maxItems": 10,
+            "minItems": 1,
+            "type": "array"
+          }
+        },
+        "required": [
+          "baseRevision",
+          "verdicts"
+        ],
+        "type": "object"
+      },
+      "RespondToProposal": {
+        "additionalProperties": false,
+        "properties": {
+          "baseRevision": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "disposition": {
+            "anyOf": [
+              {
+                "const": "accept",
+                "type": "string"
+              },
+              {
+                "const": "reject",
+                "type": "string"
+              },
+              {
+                "const": "abstain",
+                "type": "string"
+              },
+              {
+                "const": "conditionally_accept",
+                "type": "string"
+              }
+            ]
+          },
+          "proposalId": {
+            "maxLength": 40,
+            "type": "string"
+          },
+          "reason": {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "anyOf": [
+                  {
+                    "const": "history",
+                    "type": "string"
+                  },
+                  {
+                    "const": "domain",
+                    "type": "string"
+                  }
+                ]
+              },
+              "note": {
+                "maxLength": 200,
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          },
+          "visibility": {
+            "anyOf": [
+              {
+                "const": "shared",
+                "type": "string"
+              },
+              {
+                "const": "application-private",
+                "type": "string"
+              },
+              {
+                "const": "agent-private",
+                "type": "string"
+              }
+            ]
+          }
+        },
+        "required": [
+          "baseRevision",
+          "proposalId",
+          "disposition",
+          "visibility"
+        ],
+        "type": "object"
+      },
+      "SetReadyState": {
+        "additionalProperties": false,
+        "properties": {
+          "baseRevision": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "state": {
+            "anyOf": [
+              {
+                "const": "contributing",
+                "type": "string"
+              },
+              {
+                "const": "ready",
+                "type": "string"
+              }
+            ]
+          }
+        },
+        "required": [
+          "baseRevision",
+          "state"
+        ],
+        "type": "object"
+      },
+      "SubmitRequirement": {
+        "additionalProperties": false,
+        "properties": {
+          "baseRevision": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "delegation": {
+            "additionalProperties": false,
+            "properties": {
+              "bound": {
+                "additionalProperties": false,
+                "properties": {
+                  "dimension": {
+                    "anyOf": [
+                      {
+                        "const": "radius_m",
+                        "type": "string"
+                      },
+                      {
+                        "const": "per_person_eur",
+                        "type": "string"
+                      },
+                      {
+                        "const": "walk_min",
+                        "type": "string"
+                      }
+                    ]
+                  },
+                  "max": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "dimension",
+                  "max"
+                ],
+                "type": "object"
+              },
+              "mode": {
+                "anyOf": [
+                  {
+                    "const": "locked",
+                    "type": "string"
+                  },
+                  {
+                    "const": "approval_required",
+                    "type": "string"
+                  },
+                  {
+                    "const": "negotiable",
+                    "type": "string"
+                  },
+                  {
+                    "const": "soft",
+                    "type": "string"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "mode"
+            ],
+            "type": "object"
+          },
+          "hardness": {
+            "anyOf": [
+              {
+                "const": "hard",
+                "type": "string"
+              },
+              {
+                "const": "soft",
+                "type": "string"
+              }
+            ]
+          },
+          "note": {
+            "maxLength": 200,
+            "type": "string"
+          },
+          "payload": {
+            "anyOf": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "expect": {
+                    "anyOf": [
+                      {
+                        "const": "verified_true",
+                        "type": "string"
+                      },
+                      {
+                        "const": "verified_false",
+                        "type": "string"
+                      }
+                    ]
+                  },
+                  "key": {
+                    "anyOf": [
+                      {
+                        "const": "vegetarian-options",
+                        "type": "string"
+                      },
+                      {
+                        "const": "lactose-free-options",
+                        "type": "string"
+                      },
+                      {
+                        "const": "wheelchair-accessible",
+                        "type": "string"
+                      },
+                      {
+                        "const": "outdoor-seating",
+                        "type": "string"
+                      },
+                      {
+                        "const": "dog-friendly",
+                        "type": "string"
+                      },
+                      {
+                        "const": "price-level",
+                        "type": "string"
+                      },
+                      {
+                        "const": "cuisine",
+                        "type": "string"
+                      }
+                    ]
+                  },
+                  "kind": {
+                    "const": "attribute",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "key",
+                  "expect"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "dimension": {
+                    "anyOf": [
+                      {
+                        "const": "walk_min",
+                        "type": "string"
+                      },
+                      {
+                        "const": "radius_m",
+                        "type": "string"
+                      }
+                    ]
+                  },
+                  "kind": {
+                    "const": "scope",
+                    "type": "string"
+                  },
+                  "max": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "dimension",
+                  "max"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "kind": {
+                    "const": "budget",
+                    "type": "string"
+                  },
+                  "perPersonMax": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "amount": {
+                        "minimum": 0,
+                        "type": "number"
+                      },
+                      "currency": {
+                        "const": "EUR",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "amount",
+                      "currency"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "perPersonMax"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "key": {
+                    "const": "cuisine",
+                    "type": "string"
+                  },
+                  "kind": {
+                    "const": "exclusion",
+                    "type": "string"
+                  },
+                  "lifetime": {
+                    "anyOf": [
+                      {
+                        "const": "session",
+                        "type": "string"
+                      },
+                      {
+                        "const": "durable",
+                        "type": "string"
+                      }
+                    ]
+                  },
+                  "values": {
+                    "items": {
+                      "maxLength": 60,
+                      "type": "string"
+                    },
+                    "maxItems": 8,
+                    "minItems": 1,
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "key",
+                  "values",
+                  "lifetime"
+                ],
+                "type": "object"
+              }
+            ]
+          },
+          "requirementId": {
+            "maxLength": 40,
+            "type": "string"
+          },
+          "scopeHint": {
+            "additionalProperties": false,
+            "properties": {
+              "affects": {
+                "const": "candidate-eligibility",
+                "type": "string"
+              },
+              "category": {
+                "anyOf": [
+                  {
+                    "const": "dietary",
+                    "type": "string"
+                  },
+                  {
+                    "const": "accessibility",
+                    "type": "string"
+                  },
+                  {
+                    "const": "budget",
+                    "type": "string"
+                  },
+                  {
+                    "const": "distance",
+                    "type": "string"
+                  },
+                  {
+                    "const": "time",
+                    "type": "string"
+                  },
+                  {
+                    "const": "personal-history",
+                    "type": "string"
+                  },
+                  {
+                    "const": "atmosphere",
+                    "type": "string"
+                  },
+                  {
+                    "const": "other",
+                    "type": "string"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "affects"
+            ],
+            "type": "object"
+          },
+          "visibility": {
+            "anyOf": [
+              {
+                "const": "shared",
+                "type": "string"
+              },
+              {
+                "const": "application-private",
+                "type": "string"
+              },
+              {
+                "const": "agent-private",
+                "type": "string"
+              }
+            ]
+          }
+        },
+        "required": [
+          "baseRevision",
+          "visibility",
+          "hardness",
+          "delegation"
+        ],
+        "type": "object"
+      },
+      "WithdrawRequirement": {
+        "additionalProperties": false,
+        "properties": {
+          "baseRevision": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "requirementId": {
+            "maxLength": 40,
+            "type": "string"
+          }
+        },
+        "required": [
+          "baseRevision",
+          "requirementId"
+        ],
+        "type": "object"
+      }
+    },
+    "errorCodes": [
+      "sync_required",
+      "not_authorized",
+      "invalid_input",
+      "not_found",
+      "phase_unavailable",
+      "consent_required",
+      "bound_exceeded",
+      "not_authenticated",
+      "upgrade_required"
+    ],
+    "protocols": {
+      "domain": "spatial-destination/v1",
+      "negotiation": "v1"
+    },
+    "results": {
+      "delta": [
+        "fromRevision",
+        "events",
+        "truncated",
+        "cursor"
+      ],
+      "failureEnvelope": [
+        "ok",
+        "error.code",
+        "error.message",
+        "error.recovery",
+        "delta"
+      ],
+      "projectedEvent": [
+        "revision",
+        "type",
+        "level",
+        "text",
+        "payload"
+      ],
+      "realtime": {
+        "auth": [
+          "type",
+          "token",
+          "clientBuildId",
+          "clientToolContractVersion"
+        ],
+        "error": [
+          "type",
+          "code",
+          "message"
+        ],
+        "event": [
+          "type",
+          "revision",
+          "events"
+        ],
+        "welcome": [
+          "type",
+          "buildId",
+          "toolContractVersion",
+          "revision",
+          "participantId",
+          "displayName",
+          "role"
+        ]
+      },
+      "successEnvelope": [
+        "ok",
+        "revision",
+        "effect",
+        "outstanding",
+        "syncHint"
+      ],
+      "syncSessionResult": [
+        "ok",
+        "revision",
+        "buildId",
+        "toolContractVersion",
+        "phase",
+        "identity",
+        "manifest",
+        "feasibility",
+        "brief",
+        "delta",
+        "outstanding"
+      ]
+    },
+    "toolContractVersion": "1",
+    "tools": [
+      {
+        "annotations": {
+          "readOnlyHint": true,
+          "untrustedContentHint": true
+        },
+        "description": "The first tool to call on this planning page. Connects you to the shared planning session as one participant and returns your identity, protocol versions, current revision, privacy rules, a brief of what happened, and your outstanding decisions. Call without sinceRevision on first connection to receive the capability manifest; call with sinceRevision from your last sync to receive the delta of missed events. Read-only.",
+        "inputSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "sinceRevision": {
+              "description": "Revision from your last sync. Omit on first connection to receive the capability manifest.",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "type": "object"
+        },
+        "name": "sync_session"
+      }
+    ]
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "name": "webmcp-hackathon",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "test:unit": "vitest run tests/unit",
+    "test:api": "vitest run tests/api",
+    "test:e2e": "playwright test tests/e2e/three-user.spec.ts",
+    "test:native": "playwright test tests/e2e/native-webmcp.spec.ts"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.62.1",
+    "@types/pg": "^8.23.1",
+    "@webmcp-hackathon/contracts": "workspace:*",
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
+    "pg": "^8.23.0",
+    "typescript": "^5.6.0",
+    "vitest": "^3.0.0"
+  }
+}

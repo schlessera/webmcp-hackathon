@@ -1,0 +1,23 @@
+{
+  "name": "@webmcp-hackathon/contracts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./hash": "./src/hash.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "generate:manifest": "node --experimental-strip-types src/generate-manifest.ts"
+  },
+  "dependencies": {
+    "@sinclair/typebox": "^0.34.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.1",
+    "typescript": "^5.6.0"
+  }
+}

@@ -1,0 +1,267 @@
+# Spatial/Map Domain Protocol — `spatial-destination/v1`
+
+Status: initial design, 2026-08-31. This document defines the domain payloads
+and spatial commands carried by [NEGOTIATION-PROTOCOL.md](NEGOTIATION-PROTOCOL.md)
+and bound to WebMCP in [INTERACTION-AND-BINDING.md](INTERACTION-AND-BINDING.md).
+
+## 1. Purpose and position
+
+The spatial protocol gives the map UI, human gestures, the world-knowledge
+service, and personal agents **the same referents** for one spatial situation:
+candidates, pins, search scope, routes, and meeting points. It exposes
+semantic state an agent cannot reliably recover from pixels.
+
+It owns spatial facts and interaction semantics. It does **not** own identity,
+privacy, consent, or agreement — any spatial action with negotiation meaning
+(veto a pin, propose a destination) compiles down to a negotiation command.
+
+## 2. Identifier rules
+
+All references are stable, opaque IDs — never labels, coordinates, or screen
+positions:
+
+| ID | Meaning | Stability |
+|---|---|---|
+| `candidateId` (`place_42`) | A destination. The map pin for a candidate **is** the candidate — there is no separate pin ID. | Stable for the session; survives re-ranking and scope changes. |
+| `scopeId` (`scope_2`) | A search-scope snapshot (area + time + transport). | New ID per applied change; previous scopes remain referencable in history. |
+| `routeId` (`route_p_joe_1`) | A computed route for one participant. | Stable until inputs change. |
+| `meetingPointId` (`meet_1`) | A proposed meeting/pickup point. | Stable for the session. |
+
+Tool schemas accept and return these IDs. Free-text venue names appear only in
+human-readable fields, never as command arguments.
+
+## 3. Search scope
+
+The shared spatial question being asked. Owned by the session (shared
+visibility); changes flow through negotiation as `scope_change_proposed` /
+`scope_change_applied`.
+
+```jsonc
+{
+  "scopeId": "scope_2",
+  "area": { "kind": "circle", "center": { "lat": 52.499, "lng": 13.425 }, "radiusM": 800 },
+  // also: { "kind": "bbox", ... } — polygon deferred
+  "timeWindow": { "start": "2026-09-01T18:30:00+02:00", "end": "2026-09-01T22:00:00+02:00" },
+  "transport": ["walk", "transit", "car"],
+  "category": "food"                     // room goal category
+}
+```
+
+Time is a first-class scope dimension ("plan for later, not now"). Neutral
+impasse expansions manipulate exactly these fields: `radiusM`, `timeWindow`,
+`transport` — which is why adjustments quantify in these units ("widen by
+600 m to add 3 candidates").
+
+## 4. Candidate dossier
+
+The unit of world knowledge. Produced by the world-knowledge service,
+consumed by the council and (projected) by participants and agents.
+
+```jsonc
+{
+  "candidateId": "place_42",
+  "name": "Garden Cafe Window",
+  "location": { "lat": 52.4981, "lng": 13.4262 },
+  "category": "cafe",
+  "priceLevel": 2,                        // 1–4, provider-normalized
+  "hours": [ { "day": "mon", "open": "09:00", "close": "22:00" } ],
+  "attributes": [
+    {
+      "key": "dog-friendly-outdoor-seating",
+      "status": "verified_true",          // verified_true | verified_false | unverified | unknown
+      "source": "curated:berlin-kreuzberg-2026-08",
+      "observedAt": "2026-08-31T10:00:00Z",
+      "confidence": 0.9
+    }
+  ],
+  "mapRevision": 8                        // bumps when facts change; drives re-screening
+}
+```
+
+**Attribute honesty is normative.** Four distinct states — an absent attribute
+(`unknown`), an unverified claim, a verified positive, and a verified negative
+— and eligibility logic must treat them differently: only `verified_false`
+hard-excludes against a hard requirement; `unknown`/`unverified` yields
+`uncertain`, which triggers evidence requests rather than silent exclusion.
+
+Attribute `key`s come from a session-scoped controlled vocabulary published in
+the capability manifest (e.g. `vegetarian-options`, `lactose-free-options`,
+`wheelchair-accessible`, `outdoor-seating`, `dog-friendly`, `price-level`,
+`cuisine`). Predicates in requirement payloads and L2 disclosures reference
+these keys, which is what makes them machine-checkable.
+
+### 4.1 Projected candidate summary
+
+Full dossiers are too large for tool-result budgets. The standard projection
+in sync results and spatial context is a summary row:
+
+```jsonc
+{
+  "candidateId": "place_42", "name": "Garden Cafe Window",
+  "eligibility": "eligible" | "uncertain" | "excluded",
+  "why": "meets all shared requirements; 1 private screen pending", // redacted per §7
+  "walkMin": 6, "priceLevel": 2
+}
+```
+
+## 5. Domain payloads for negotiation objects
+
+These are the `payload` shapes the negotiation envelope carries when
+`domain: "spatial-destination/v1"`.
+
+### 5.1 Requirement payloads
+
+```jsonc
+// Attribute predicate (machine-checkable — also the L2 disclosure shape)
+{ "kind": "attribute", "key": "vegetarian-options", "expect": "verified_true" }
+
+// Scope predicate
+{ "kind": "scope", "dimension": "walk_min", "max": 15, "origin": { "lat": 52.5, "lng": 13.42 } }
+
+// Budget
+{ "kind": "budget", "perPersonMax": { "amount": 18, "currency": "EUR" } }
+
+// Exclusion (temporary preference: "not Italian today")
+{ "kind": "exclusion", "key": "cuisine", "values": ["italian"], "lifetime": "session" }
+```
+
+### 5.2 Delegation bounds
+
+```jsonc
+{ "dimension": "radius_m", "max": 1500 }          // scope requirement, negotiable up to
+{ "dimension": "per_person_eur", "max": 20 }      // budget, negotiable up to
+```
+
+### 5.3 Stance condition / reason payloads
+
+```jsonc
+// condition on conditionally_accept
+{ "kind": "attribute", "key": "outdoor-seating", "expect": "verified_true" }
+
+// veto reason (optional, from the map's reason menu)
+{ "kind": "history", "note": "visited too recently" }
+```
+
+### 5.4 Adjustment change payloads
+
+```jsonc
+{ "dimension": "radius_m", "from": 800, "to": 1400 }
+{ "dimension": "time_start", "from": "18:30", "to": "19:00" }
+{ "dimension": "per_person_eur", "from": 15, "to": 18 }
+```
+
+### 5.5 Hint taxonomy (L1 disclosure)
+
+The categorical hints an agent-private owner may reveal, one enum value, no
+free text: `dietary`, `accessibility`, `budget`, `distance`, `time`,
+`personal-history`, `atmosphere`, `other`.
+
+## 6. Spatial commands
+
+Transport-agnostic, like the negotiation command set. Mutations carry
+`baseRevision` and follow the same sync discipline.
+
+| Command | Kind | Effect |
+|---|---|---|
+| `GetSpatialContext` | read | scope, feasibility counts, candidate summaries, current proposal, selection state |
+| `InspectCandidates { candidateIds[1..3] }` | read | full dossiers (side-by-side when >1 — this is "compare") |
+| `SetSearchScope { area?, timeWindow?, transport? }` | mutate | emits `scope_change_proposed`; auto-applies when within the proposer's authority (organizer, or an accepted adjustment), else routes through negotiation |
+| `ProposeDestination { candidateId }` | mutate | emits negotiation `proposal_created` with `domainRef` |
+| `FocusDestination { candidateId }` | local | pans/highlights the caller's own map view; **no shared state change** |
+| `PlanArrival { mode, origin? , pickup? }` | mutate | per-participant arrival plan: transport mode, meeting/pickup point, route preview; emits `arrival_plan_updated` |
+| `PrepareNavigation { candidateId | meetingPointId }` | read | one-click handoff links (§9) |
+
+Negotiation-meaningful map actions do **not** get spatial commands: vetoing a
+pin is `RespondToProposal { proposalId, disposition: "reject", reason: {…} }`.
+The map resolves pin → candidate → proposal and dispatches the negotiation
+command. One command model, two entry surfaces.
+
+## 7. Gesture ↔ command ↔ event mapping
+
+| Human gesture on the map | Command dispatched | Resulting event(s) |
+|---|---|---|
+| Tap a pin | `FocusDestination` (local) | none (local UI) |
+| Open a pin's card, tap "Details" | `InspectCandidates` | none (read) |
+| Long-press two pins, "Compare" | `InspectCandidates[2]` | none (read) |
+| Drag the search-radius handle | `SetSearchScope` | `scope_change_proposed` (+ `_applied`) |
+| Pin card → "Propose this" | `ProposeDestination` | `proposal_created` |
+| Pin card → "Veto…" + reason menu | `RespondToProposal(reject)` | `stance_submitted` |
+| Pin card → "Works for me" | `RespondToProposal(accept)` | `stance_submitted` |
+| "I'm done adding" toggle | `SetReadyState` | `ready_state_changed` |
+| Arrival panel → mode + pickup | `PlanArrival` | `arrival_plan_updated` |
+| "Navigate" button | `PrepareNavigation` | none (read) |
+
+An agent invoking the equivalent tool produces the identical command, so both
+surfaces update every projection identically and immediately. **Tool results
+return only after the local UI reflects the change** (agents plan against
+what they can see).
+
+## 8. Eligibility semantics
+
+The council's deterministic check per candidate, per current requirement set:
+
+```text
+for each hard requirement:
+    shared / application-private → evaluate predicate against dossier
+        verified_false vs expectation      → excluded (cite requirement class only)
+        unknown / unverified               → uncertain (evidence request)
+        satisfied                          → pass
+    agent-private (L0/L1)                  → consult recorded screening verdict
+        unacceptable → excluded            (never cite owner or reason)
+        no verdict yet → uncertain         (screening request outstanding)
+    agent-private (L2 predicate granted)   → evaluate server-side like application-private
+soft requirements & preferences            → scoring only, never exclusion
+```
+
+Public explanation strings for exclusions cite **evidence status and shared
+requirements only** ("no verified vegetarian options") or aggregates
+("excluded by a private requirement") — never a private owner or reason.
+
+## 9. Navigation handoff
+
+`PrepareNavigation` returns provider-agnostic links; the room stays the
+coordination surface, the installed map app is the execution surface:
+
+```jsonc
+{
+  "target": { "candidateId": "place_42", "name": "Garden Cafe Window" },
+  "links": {
+    "geo": "geo:52.4981,13.4262?q=Garden+Cafe+Window",
+    "googleMaps": "https://www.google.com/maps/dir/?api=1&destination=52.4981,13.4262",
+    "appleMaps": "https://maps.apple.com/?daddr=52.4981,13.4262"
+  },
+  "forParticipant": { "mode": "transit", "from": "meet_1" }
+}
+```
+
+Links are constructed from coordinates the session already holds — no
+provider API call is required at handoff time.
+
+## 10. World-knowledge boundary
+
+- The world service receives **scope + attribute queries only** — no
+  participant identity, no requirement ownership, no free-text explanations.
+  The council over-fetches (broader attribute set) and filters sensitively
+  itself, so the provider never sees a user-linked query.
+- Provider access sits behind adapters; the POC uses a prepared, curated area
+  (`source: "curated:…"`) with honest `observedAt` timestamps. Base geography
+  and live overlays are separate layers with separate freshness.
+- The world service proposes possibilities; it never negotiates, ranks whose
+  needs yield, or sees stances.
+
+## 11. Invariants (testable)
+
+1. Every spatial command argument that references a place/route/meeting point
+   uses a stable ID from §2 — never coordinates-as-identity or labels.
+2. A dossier attribute is one of exactly four states; eligibility treats
+   `unknown` ≠ `verified_false`.
+3. `FocusDestination` never mutates shared session state.
+4. Any spatial action with negotiation meaning produces the corresponding
+   negotiation event — there is no spatial side channel to stances, scope
+   consensus, or agreement.
+5. Exclusion explanations never contain private owner identity or reason.
+6. `mapRevision` changes on any fact change, and screening requests are
+   re-issued for affected candidates.
+7. Scope mutations outside the caller's authority always route through
+   `scope_change_proposed` and consent — including the organizer's, when a
+   bounded-negotiable requirement of another participant is affected.
