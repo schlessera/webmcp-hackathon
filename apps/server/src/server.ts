@@ -4,17 +4,25 @@ import { existsSync } from "node:fs";
 import Fastify from "fastify";
 import AjvModule from "ajv";
 import {
+  INSPECT_CANDIDATES_INPUT,
+  PREPARE_NAVIGATION_INPUT,
+  SPATIAL_CONTEXT_INPUT,
   SYNC_SESSION_INPUT,
   TOOL_CONTRACT_VERSION,
 } from "@webmcp-hackathon/contracts";
 
 const Ajv = ((AjvModule as never as { default?: unknown }).default ??
   AjvModule) as typeof AjvModule.default;
-const validateSyncInput = new Ajv({ strict: false }).compile(SYNC_SESSION_INPUT);
+const readAjv = new Ajv({ strict: false });
+const validateSyncInput = readAjv.compile(SYNC_SESSION_INPUT);
+const validateContextInput = readAjv.compile(SPATIAL_CONTEXT_INPUT);
+const validateInspectInput = readAjv.compile(INSPECT_CANDIDATES_INPUT);
+const validateNavigationInput = readAjv.compile(PREPARE_NAVIGATION_INPUT);
 import { config } from "./config.ts";
 import { authenticateToken, exchangeInviteSecret } from "./auth.ts";
 import { submitCommand } from "./engine.ts";
 import { syncSession } from "./sync.ts";
+import { inspectCandidates, prepareNavigation, spatialContext } from "./spatial.ts";
 import { attachWebSocket } from "./ws.ts";
 
 /**
@@ -127,6 +135,70 @@ app.post("/api/sync", async (req) => {
   );
   return result;
 });
+
+// Spatial read paths — same auth and validation discipline as /api/sync.
+// Reads carry no baseRevision and no contract-version gate (they cannot act
+// on stale intent; results carry the current revision).
+function invalidInput(message: string, recovery: string) {
+  return { ok: false, error: { code: "invalid_input", message, recovery } };
+}
+
+app.post("/api/spatial/context", async (req) => {
+  const actor = await bearer(req);
+  if (!actor) return notAuthenticated;
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  if (!validateContextInput(body)) {
+    return invalidInput(
+      "get_spatial_context takes no arguments.",
+      "Call it with an empty object.",
+    );
+  }
+  const result = await spatialContext(actor);
+  logRead(req, actor.id, "GetSpatialContext", result.ok);
+  return result;
+});
+
+app.post("/api/spatial/inspect", async (req) => {
+  const actor = await bearer(req);
+  if (!actor) return notAuthenticated;
+  const body = (req.body ?? {}) as { candidateIds?: string[] };
+  if (!validateInspectInput(body)) {
+    return invalidInput(
+      "candidateIds must be 1-3 candidate ID strings.",
+      "Pass candidateIds from get_spatial_context.",
+    );
+  }
+  const result = await inspectCandidates(actor, body.candidateIds!);
+  logRead(req, actor.id, "InspectCandidates", result.ok);
+  return result;
+});
+
+app.post("/api/spatial/navigation", async (req) => {
+  const actor = await bearer(req);
+  if (!actor) return notAuthenticated;
+  const body = (req.body ?? {}) as { candidateId?: string };
+  if (!validateNavigationInput(body)) {
+    return invalidInput(
+      "candidateId must be a string when present.",
+      "Pass a candidateId, or omit it to navigate to the committed destination.",
+    );
+  }
+  const result = await prepareNavigation(actor, body.candidateId);
+  logRead(req, actor.id, "PrepareNavigation", result.ok);
+  return result;
+});
+
+function logRead(
+  req: { log: { info: (o: object, m: string) => void }; headers: Record<string, unknown> },
+  participantId: string,
+  command: string,
+  ok: boolean,
+) {
+  req.log.info(
+    { correlationId: correlationId(req), participantId, command, outcome: ok ? "ok" : "error" },
+    "command executed",
+  );
+}
 
 app.post("/api/commands", async (req) => {
   const actor = await bearer(req);

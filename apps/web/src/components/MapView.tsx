@@ -1,0 +1,197 @@
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Layer, Map, Marker, Source, type MapRef } from "@vis.gl/react-maplibre";
+import "maplibre-gl/dist/maplibre-gl.css";
+import type { SpatialContext } from "../spatial-types.ts";
+
+/**
+ * The shared map: scope ring, one pin per candidate colored by eligibility
+ * (excluded pins stay visible but dimmed — the room keeps a constant visual
+ * representation as options change), proposal rings, committed star.
+ * Pins are DOM markers, so the room stays legible (and testable) even when
+ * WebGL tiles cannot load.
+ */
+
+const TILE_STYLE = "https://tiles.openfreemap.org/styles/liberty";
+
+interface Props {
+  context: SpatialContext;
+  selectedId: string | null;
+  focusNonce: number;
+  committedId: string | null;
+  onSelect(candidateId: string | null): void;
+}
+
+/** GeoJSON circle polygon (64 segments) around a lat/lng center. */
+function circlePolygon(center: { lat: number; lng: number }, radiusM: number) {
+  const points: [number, number][] = [];
+  const latR = radiusM / 111320;
+  const lngR = radiusM / (111320 * Math.cos((center.lat * Math.PI) / 180));
+  for (let i = 0; i <= 64; i += 1) {
+    const angle = (i / 64) * 2 * Math.PI;
+    points.push([
+      center.lng + lngR * Math.cos(angle),
+      center.lat + latR * Math.sin(angle),
+    ]);
+  }
+  return {
+    type: "Feature" as const,
+    properties: {},
+    geometry: { type: "Polygon" as const, coordinates: [points] },
+  };
+}
+
+export function MapView({ context, selectedId, focusNonce, committedId, onSelect }: Props) {
+  const mapRef = useRef<MapRef>(null);
+  const { scope, candidates, proposals } = context;
+  const center = scope.area.center;
+
+  /* The widen-the-area beat: animate the ring radius with an ease-out tween
+     instead of snapping, so consent visibly grows the shared search space. */
+  const [drawnRadius, setDrawnRadius] = useState(scope.area.radiusM);
+  const animFrom = useRef(scope.area.radiusM);
+  useEffect(() => {
+    const from = animFrom.current;
+    const to = scope.area.radiusM;
+    if (from === to) return;
+    const start = performance.now();
+    const duration = 700;
+    let raf = 0;
+    const tick = (now: number) => {
+      const t = Math.min(1, (now - start) / duration);
+      const eased = 1 - Math.pow(1 - t, 3);
+      setDrawnRadius(from + (to - from) * eased);
+      if (t < 1) raf = requestAnimationFrame(tick);
+      else animFrom.current = to;
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [scope.area.radiusM]);
+
+  const ring = useMemo(
+    () => circlePolygon(center, drawnRadius),
+    [center.lat, center.lng, drawnRadius],
+  );
+
+  /* Fit the scope circle once on load, and again when the radius settles. */
+  const fitTo = (radiusM: number, animate: boolean) => {
+    const latR = radiusM / 111320;
+    const lngR = radiusM / (111320 * Math.cos((center.lat * Math.PI) / 180));
+    mapRef.current?.fitBounds(
+      [
+        [center.lng - lngR, center.lat - latR],
+        [center.lng + lngR, center.lat + latR],
+      ],
+      { padding: 28, duration: animate ? 800 : 0 },
+    );
+  };
+  useEffect(() => {
+    fitTo(scope.area.radiusM, true);
+  }, [scope.area.radiusM]);
+
+  /* focus_destination / pin selection pans to the candidate. */
+  useEffect(() => {
+    if (!selectedId || focusNonce === 0) return;
+    const c = candidates.find((v) => v.candidateId === selectedId);
+    if (c) {
+      mapRef.current?.flyTo({
+        center: [c.location.lng, c.location.lat],
+        zoom: Math.max(mapRef.current?.getZoom() ?? 14, 15),
+        duration: 600,
+      });
+    }
+  }, [focusNonce, selectedId]);
+
+  const proposalByCandidate = useMemo(() => {
+    const map = new Map_<string, string>();
+    for (const p of proposals) {
+      if (p.status === "open" || p.status === "staged") map.set(p.candidateId, "open");
+      if (p.status === "vetoed") map.set(p.candidateId, "vetoed");
+    }
+    return map;
+  }, [proposals]);
+
+  return (
+    <div
+      className="map-region"
+      data-testid="map-region"
+      data-scope-radius={Math.round(scope.area.radiusM)}
+      data-phase={context.phase}
+    >
+      <Map
+        ref={mapRef}
+        initialViewState={{ latitude: center.lat, longitude: center.lng, zoom: 14 }}
+        mapStyle={TILE_STYLE}
+        attributionControl={{ compact: true }}
+        onLoad={() => fitTo(scope.area.radiusM, false)}
+        onClick={() => onSelect(null)}
+      >
+        <Source id="scope-ring" type="geojson" data={ring}>
+          <Layer
+            id="scope-fill"
+            type="fill"
+            paint={{ "fill-color": "#4735d8", "fill-opacity": 0.05 }}
+          />
+          <Layer
+            id="scope-line"
+            type="line"
+            paint={{
+              "line-color": "#4735d8",
+              "line-width": 2,
+              "line-opacity": 0.55,
+              "line-dasharray": [1.5, 1.5],
+            }}
+          />
+        </Source>
+        {candidates.map((c) => {
+          const committed = c.candidateId === committedId;
+          const proposal = proposalByCandidate.get(c.candidateId);
+          return (
+            <Marker
+              key={c.candidateId}
+              longitude={c.location.lng}
+              latitude={c.location.lat}
+              anchor="center"
+              style={{ zIndex: committed ? 5 : c.eligibility === "excluded" ? 1 : 2 }}
+            >
+              {committed ? (
+                <div
+                  className="pin-star"
+                  data-testid={`pin-${c.candidateId}`}
+                  data-committed="true"
+                  role="button"
+                  aria-label={`${c.name} — agreed destination`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onSelect(c.candidateId);
+                  }}
+                >
+                  ★
+                </div>
+              ) : (
+                <div
+                  className="pin"
+                  data-testid={`pin-${c.candidateId}`}
+                  data-eligibility={c.eligibility}
+                  data-proposed={proposal === "open" || undefined}
+                  data-vetoed={proposal === "vetoed" || undefined}
+                  data-selected={c.candidateId === selectedId || undefined}
+                  role="button"
+                  aria-label={`${c.name} (${c.eligibility})`}
+                  title={c.name}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onSelect(c.candidateId);
+                  }}
+                />
+              )}
+            </Marker>
+          );
+        })}
+      </Map>
+      <div className="map-attrib-extra">Routing © OSRM/FOSSGIS</div>
+    </div>
+  );
+}
+
+/* Local alias: `Map` is taken by the react-maplibre component in this module. */
+const Map_ = globalThis.Map;

@@ -10,7 +10,7 @@
     "typecheck": "pnpm -r typecheck",
     "test:unit": "vitest run tests/unit",
     "test:api": "vitest run tests/api",
-    "test:e2e": "playwright test tests/e2e/three-user.spec.ts",
+    "test:e2e": "playwright test tests/e2e/three-user.spec.ts tests/e2e/spokes-ui.spec.ts tests/e2e/spokes-flow.spec.ts",
     "test:native": "playwright test tests/e2e/native-webmcp.spec.ts"
   },
   "devDependencies": {

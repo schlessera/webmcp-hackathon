@@ -38,6 +38,21 @@ export const RESULT_CONTRACT = {
   ],
   delta: ["fromRevision", "events", "truncated", "cursor"],
   projectedEvent: ["revision", "type", "level", "text", "payload"],
+  outstandingAdjustmentRequest: [
+    "type", "requestId", "issuedAtRevision", "kind", "change",
+    "projectedGain", "withinDelegatedBound", "staged",
+  ],
+  spatialContextResult: [
+    "ok", "revision", "phase", "scope", "feasibility", "candidates",
+    "proposals", "agreement", "arrival", "impasse",
+  ],
+  candidateSummary: [
+    "candidateId", "name", "location", "category", "eligibility", "why",
+    "walkMin", "priceLevel",
+  ],
+  proposalView: ["proposalId", "candidateId", "status", "stanceCounts", "ownStance"],
+  inspectCandidatesResult: ["ok", "revision", "candidates"],
+  prepareNavigationResult: ["ok", "target", "links.geo", "links.googleMaps", "links.appleMaps"],
   realtime: {
     auth: ["type", "token", "clientBuildId", "clientToolContractVersion"],
     welcome: [

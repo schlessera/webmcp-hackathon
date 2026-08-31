@@ -90,3 +90,26 @@ export function syncSessionRaw(
 export function submitCommand(type: string, input: unknown): Promise<unknown> {
   return post("/api/commands", { type, input });
 }
+
+/**
+ * Spatial reads (same auth/contract-header discipline as /api/sync). The raw
+ * variants forward tool arguments verbatim for the same reason syncSessionRaw
+ * does: server-side Ajv is the enforcement point.
+ */
+export function spatialContext(signal?: AbortSignal): Promise<unknown> {
+  return post("/api/spatial/context", {}, signal);
+}
+
+export function spatialInspectRaw(
+  input: unknown,
+  signal?: AbortSignal,
+): Promise<unknown> {
+  return post("/api/spatial/inspect", input === undefined ? {} : input, signal);
+}
+
+export function spatialNavigationRaw(
+  input: unknown,
+  signal?: AbortSignal,
+): Promise<unknown> {
+  return post("/api/spatial/navigation", input === undefined ? {} : input, signal);
+}

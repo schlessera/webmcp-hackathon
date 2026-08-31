@@ -19,7 +19,8 @@ import {
 import { withTransaction } from "./db.ts";
 import type { Participant } from "./auth.ts";
 import { buildDelta } from "./delta.ts";
-import { computeEligibility, feasibilityOf } from "./eligibility.ts";
+import { computeEligibility, feasibilityOf, type ScopeState } from "./eligibility.ts";
+import { impasseBracket } from "./impasse.ts";
 import { outstandingFor } from "./outstanding.ts";
 
 /**
@@ -149,6 +150,10 @@ export async function submitCommand(
       });
     }
 
+    // Impasse bracket (NEGOTIATION-PROTOCOL.md §7.2): detect entry into or
+    // recovery from an impasse after every eligibility-perturbing command.
+    outcome.events.push(...(await impasseBracket(client, actor.roomId, after)));
+
     let revision = current;
     const storedRevisions: number[] = [];
     for (const event of outcome.events) {
@@ -215,6 +220,20 @@ async function dispatch(
       return respondToProposal(client, actor, input as never);
     case "SetReadyState":
       return setReadyState(client, actor, input as never);
+    case "SetSearchScope":
+      return setSearchScope(client, actor, input as never);
+    case "ProposeDestination":
+      return proposeDestination(client, actor, input as never);
+    case "PlanArrival":
+      return planArrival(client, actor, input as never);
+    case "ResolvePrivateRequest":
+      return resolvePrivateRequest(client, actor, input as never);
+    case "ConfirmPrivateRequest":
+      return confirmPrivateRequest(client, actor, input as never);
+    case "ConfirmAgreement":
+      return confirmAgreement(client, actor, input as never);
+    case "CommitAgreement":
+      return commitAgreement(client, actor, input as never);
   }
 }
 
@@ -271,8 +290,9 @@ async function submitRequirement(
   }
 
   const upserted = await client.query(
-    `INSERT INTO requirements (id, room_id, owner_id, visibility, hardness, delegation, payload, scope_hint, note, withdrawn)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, false)
+    `INSERT INTO requirements (id, room_id, owner_id, visibility, hardness, delegation, payload, scope_hint, note, withdrawn, created_at_revision)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, false,
+             (SELECT revision + 1 FROM rooms WHERE id = $2))
      ON CONFLICT (id) DO UPDATE SET visibility = $4, hardness = $5,
        delegation = $6, payload = $7, scope_hint = $8, note = $9, withdrawn = false
      WHERE requirements.room_id = $2 AND requirements.owner_id = $3`,
@@ -567,6 +587,571 @@ async function setReadyState(
       },
     ],
     effect: `Ready state set to "${cmd.state}".`,
+  };
+}
+
+async function setSearchScope(
+  client: pg.PoolClient,
+  actor: Participant,
+  cmd: {
+    area?: { kind: "circle"; center: { lat: number; lng: number }; radiusM: number };
+    transport?: string[];
+  },
+): Promise<HandlerOutcome> {
+  // v1 POC simplification: only the organizer holds scope authority; a
+  // member's scope wish would route through negotiation (not implemented).
+  if (actor.role !== "organizer") {
+    return errorOutcome(
+      "not_authorized",
+      "Only the organizer can change the shared search scope in this version.",
+      "Ask the organizer, or propose an adjustment during an impasse.",
+    );
+  }
+  if (!cmd.area && !cmd.transport) {
+    return errorOutcome(
+      "invalid_input",
+      "Nothing to change: provide area and/or transport.",
+      "Pass an area circle and/or a transport mode list.",
+    );
+  }
+  const room = (
+    await client.query("SELECT scope, scope_seq FROM rooms WHERE id = $1", [
+      actor.roomId,
+    ])
+  ).rows[0];
+  const previous = (room.scope ?? null) as ScopeState | null;
+  const seq = (room.scope_seq as number) + 1;
+  const next: ScopeState = {
+    scopeId: `scope_${seq}`,
+    area: cmd.area ?? previous?.area ?? {
+      kind: "circle",
+      center: { lat: 0, lng: 0 },
+      radiusM: 1000,
+    },
+    transport: cmd.transport ?? previous?.transport ?? ["walk"],
+    category: previous?.category ?? "food",
+  };
+  await client.query(
+    "UPDATE rooms SET scope = $2, scope_seq = $3 WHERE id = $1",
+    [actor.roomId, JSON.stringify(next), seq],
+  );
+  const summary = `${next.area.radiusM} m around the center; ${next.transport.join("/")}`;
+  return {
+    events: [
+      {
+        type: "scope_change_proposed",
+        actorId: actor.id,
+        visibility: "shared",
+        payload: { actorName: actor.displayName, scopeId: next.scopeId, summary },
+      },
+      {
+        // Organizer authority: proposed and applied in one step.
+        type: "scope_change_applied",
+        actorId: actor.id,
+        visibility: "shared",
+        payload: { actorName: actor.displayName, scopeId: next.scopeId, summary, scope: next },
+      },
+    ],
+    effect: `Search scope is now ${summary}.`,
+  };
+}
+
+async function proposeDestination(
+  client: pg.PoolClient,
+  actor: Participant,
+  cmd: { candidateId: string },
+): Promise<HandlerOutcome> {
+  const candidate = (
+    await client.query(
+      "SELECT id, name FROM candidates WHERE id = $1 AND room_id = $2",
+      [cmd.candidateId, actor.roomId],
+    )
+  ).rows[0];
+  if (!candidate) {
+    return errorOutcome(
+      "not_found",
+      "Unknown candidateId.",
+      "Call get_spatial_context to refresh candidate IDs.",
+    );
+  }
+  const duplicate = (
+    await client.query(
+      `SELECT id FROM proposals WHERE room_id = $1 AND candidate_id = $2
+        AND status IN ('open', 'vetoed', 'staged')`,
+      [actor.roomId, cmd.candidateId],
+    )
+  ).rows[0];
+  if (duplicate) {
+    return errorOutcome(
+      "invalid_input",
+      `${candidate.name} already has proposal ${duplicate.id}.`,
+      `Respond to proposal ${duplicate.id} instead of creating a duplicate.`,
+    );
+  }
+  const count = (
+    await client.query(
+      "SELECT count(*)::int AS n FROM proposals WHERE room_id = $1",
+      [actor.roomId],
+    )
+  ).rows[0].n as number;
+  const room = (
+    await client.query("SELECT revision FROM rooms WHERE id = $1", [actor.roomId])
+  ).rows[0];
+  // proposals.id is a global PK: scope the deterministic counter by room.
+  const id = `prop_${actor.roomId.replace(/^room_/, "")}_${count + 1}`;
+  await client.query(
+    `INSERT INTO proposals (id, room_id, candidate_id, created_by, created_at_revision, status)
+     VALUES ($1, $2, $3, $4, $5, 'open')`,
+    [id, actor.roomId, cmd.candidateId, actor.id, room.revision + 1],
+  );
+  return {
+    events: [
+      {
+        type: "proposal_created",
+        actorId: actor.id,
+        visibility: "shared",
+        payload: {
+          actorName: actor.displayName,
+          proposalId: id,
+          candidateId: cmd.candidateId,
+          candidateName: candidate.name,
+        },
+      },
+    ],
+    effect: `Proposed ${candidate.name} (${id}).`,
+  };
+}
+
+async function planArrival(
+  client: pg.PoolClient,
+  actor: Participant,
+  cmd: { mode: "walk" | "bike" | "car"; pickupNote?: string },
+): Promise<HandlerOutcome> {
+  const room = (
+    await client.query("SELECT phase, revision FROM rooms WHERE id = $1", [
+      actor.roomId,
+    ])
+  ).rows[0];
+  if (room.phase !== "arrival") {
+    return errorOutcome(
+      "phase_unavailable",
+      `Arrival plans open once a destination is committed (phase is "${room.phase}").`,
+      "Reach agreement first; then plan_arrival becomes available.",
+    );
+  }
+  await client.query(
+    `INSERT INTO arrival_plans (room_id, participant_id, mode, pickup_note, at_revision)
+     VALUES ($1, $2, $3, $4, $5)
+     ON CONFLICT (room_id, participant_id)
+     DO UPDATE SET mode = $3, pickup_note = $4, at_revision = $5`,
+    [actor.roomId, actor.id, cmd.mode, cmd.pickupNote ?? null, room.revision + 1],
+  );
+  return {
+    events: [
+      {
+        // The mode is shared coordination state; the pickup note may carry
+        // personal detail and stays out of the event payload (own plan is
+        // read back via /api/spatial/context).
+        type: "arrival_plan_updated",
+        actorId: actor.id,
+        visibility: "shared",
+        payload: { actorName: actor.displayName, mode: cmd.mode },
+      },
+    ],
+    effect: `Arrival plan recorded (${cmd.mode}).`,
+  };
+}
+
+interface AdjustmentRow {
+  id: string;
+  kind: "scope_change" | "requirement_relaxation";
+  target: { requirementId?: string; dimension?: string };
+  change: { dimension?: string; from?: unknown; to?: unknown };
+  projected_gain: { newCandidates: number };
+  requires_consent_of: string;
+  within_delegated_bound: boolean;
+  status: string;
+}
+
+async function loadAdjustment(
+  client: pg.PoolClient,
+  roomId: string,
+  requestId: string,
+  actorId: string,
+): Promise<AdjustmentRow | HandlerOutcome> {
+  const row = (
+    await client.query(
+      "SELECT * FROM adjustments WHERE id = $1 AND room_id = $2",
+      [requestId, roomId],
+    )
+  ).rows[0] as AdjustmentRow | undefined;
+  // Same not_found for foreign addressees as for unknown IDs — never confirm
+  // a private request exists for someone else (existence oracle).
+  if (!row || row.requires_consent_of !== actorId) {
+    return errorOutcome(
+      "not_found",
+      "No private request with that ID is addressed to you.",
+      "Check your outstanding list via sync_session.",
+    );
+  }
+  return row;
+}
+
+async function resolvePrivateRequest(
+  client: pg.PoolClient,
+  actor: Participant,
+  cmd: { requestId: string; decision: "grant" | "deny" },
+): Promise<HandlerOutcome> {
+  const adj = await loadAdjustment(client, actor.roomId, cmd.requestId, actor.id);
+  if ("events" in adj) return adj;
+  if (adj.status !== "proposed" && adj.status !== "staged_grant") {
+    return errorOutcome(
+      "phase_unavailable",
+      `This request is already ${adj.status}.`,
+      "Call sync_session for your current outstanding decisions.",
+    );
+  }
+
+  if (cmd.decision === "deny") {
+    await client.query("UPDATE adjustments SET status = 'denied' WHERE id = $1", [
+      adj.id,
+    ]);
+    return {
+      events: [resolvedEvent(actor, adj, "denied")],
+      effect: "Adjustment declined. Denying is always safe.",
+    };
+  }
+
+  if (!adj.within_delegated_bound) {
+    // Consent beyond the delegated envelope needs the human, on the page.
+    await client.query(
+      "UPDATE adjustments SET status = 'staged_grant' WHERE id = $1",
+      [adj.id],
+    );
+    return {
+      events: [],
+      effect:
+        "Grant staged. This exceeds your delegated bound: confirm on the page to apply it.",
+    };
+  }
+  return applyAdjustment(client, actor, adj);
+}
+
+async function confirmPrivateRequest(
+  client: pg.PoolClient,
+  actor: Participant,
+  cmd: { requestId: string },
+): Promise<HandlerOutcome> {
+  const adj = await loadAdjustment(client, actor.roomId, cmd.requestId, actor.id);
+  if ("events" in adj) return adj;
+  if (adj.status !== "staged_grant") {
+    return errorOutcome(
+      "phase_unavailable",
+      `No staged grant to confirm (request is ${adj.status}).`,
+      "Stage a grant first via resolve_private_request.",
+    );
+  }
+  return applyAdjustment(client, actor, adj);
+}
+
+async function applyAdjustment(
+  client: pg.PoolClient,
+  actor: Participant,
+  adj: AdjustmentRow,
+): Promise<HandlerOutcome> {
+  await client.query("UPDATE adjustments SET status = 'granted' WHERE id = $1", [
+    adj.id,
+  ]);
+  const events: AppendedEvent[] = [];
+
+  if (adj.kind === "scope_change") {
+    const room = (
+      await client.query("SELECT scope, scope_seq FROM rooms WHERE id = $1", [
+        actor.roomId,
+      ])
+    ).rows[0];
+    const previous = room.scope as ScopeState | null;
+    if (!previous) {
+      return errorOutcome(
+        "invalid_input",
+        "No scope to adjust.",
+        "The room has no search scope; set one via set_search_scope.",
+      );
+    }
+    const seq = (room.scope_seq as number) + 1;
+    const next: ScopeState = {
+      ...previous,
+      scopeId: `scope_${seq}`,
+      area: { ...previous.area, radiusM: Number(adj.change.to) },
+    };
+    await client.query(
+      "UPDATE rooms SET scope = $2, scope_seq = $3 WHERE id = $1",
+      [actor.roomId, JSON.stringify(next), seq],
+    );
+    events.push({
+      type: "scope_change_applied",
+      actorId: null,
+      visibility: "shared",
+      payload: {
+        scopeId: next.scopeId,
+        summary: `${next.area.radiusM} m around the center; ${next.transport.join("/")}`,
+        scope: next,
+      },
+    });
+  } else {
+    const requirementId = adj.target.requirementId!;
+    const req = (
+      await client.query(
+        "SELECT owner_id, payload, visibility FROM requirements WHERE id = $1 AND room_id = $2 AND NOT withdrawn",
+        [requirementId, actor.roomId],
+      )
+    ).rows[0];
+    if (!req) {
+      return errorOutcome(
+        "not_found",
+        "The target requirement no longer exists.",
+        "Call sync_session; the impasse may already be resolved.",
+      );
+    }
+    if (adj.change.dimension === "per_person_eur") {
+      const payload = req.payload as { perPersonMax: { amount: number } };
+      payload.perPersonMax.amount = Number(adj.change.to);
+      await client.query("UPDATE requirements SET payload = $2 WHERE id = $1", [
+        requirementId,
+        JSON.stringify(payload),
+      ]);
+    } else {
+      // Exclusion relaxation: the requirement is dropped entirely.
+      await client.query(
+        "UPDATE requirements SET withdrawn = true WHERE id = $1",
+        [requirementId],
+      );
+    }
+    events.push({
+      type: "requirement_relaxed",
+      actorId: actor.id,
+      visibility: req.visibility,
+      payload: {
+        actorName: actor.displayName,
+        requirementId,
+        change: adj.change,
+      },
+    });
+  }
+
+  events.push(resolvedEvent(actor, adj, "granted"));
+  return {
+    events,
+    effect: `Adjustment applied: ${describeChange(adj)}.`,
+  };
+}
+
+function resolvedEvent(
+  actor: Participant,
+  adj: AdjustmentRow,
+  decision: "granted" | "denied",
+): AppendedEvent {
+  return {
+    type: "adjustment_resolved",
+    actorId: actor.id,
+    visibility: "application-private",
+    payload: {
+      actorName: actor.displayName,
+      targetParticipantId: actor.id,
+      adjustmentId: adj.id,
+      kind: adj.kind,
+      decision,
+      // For peers the projection collapses this to an ownerless aggregate;
+      // the gain number is safe to publish.
+      newCandidates: adj.projected_gain?.newCandidates ?? 0,
+    },
+  };
+}
+
+function describeChange(adj: AdjustmentRow): string {
+  if (adj.kind === "scope_change") {
+    return `search radius ${adj.change.from} m -> ${adj.change.to} m`;
+  }
+  if (adj.change.dimension === "per_person_eur") {
+    return `budget ${adj.change.from} -> ${adj.change.to} EUR`;
+  }
+  return "requirement relaxed";
+}
+
+/** Shared §3.7 precondition check for staging and committing agreement. */
+async function agreementBlockers(
+  client: pg.PoolClient,
+  roomId: string,
+  proposalId: string,
+): Promise<string | null> {
+  const participants = (
+    await client.query(
+      "SELECT id, ready_state FROM participants WHERE room_id = $1",
+      [roomId],
+    )
+  ).rows as Array<{ id: string; ready_state: string }>;
+  const notReady = participants.filter((p) => p.ready_state !== "ready");
+  if (notReady.length > 0) {
+    return `${notReady.length} participant${notReady.length === 1 ? " is" : "s are"} not ready yet`;
+  }
+  const stances = (
+    await client.query(
+      "SELECT participant_id, disposition FROM stances WHERE room_id = $1 AND proposal_id = $2",
+      [roomId, proposalId],
+    )
+  ).rows as Array<{ participant_id: string; disposition: string }>;
+  const byParticipant = new Map(stances.map((s) => [s.participant_id, s.disposition]));
+  if (stances.some((s) => s.disposition === "reject")) {
+    return "a standing veto blocks this proposal";
+  }
+  if (stances.some((s) => s.disposition === "conditionally_accept")) {
+    return "conditional acceptances must be resolved by re-stancing before commit";
+  }
+  const missing = participants.filter((p) => {
+    const d = byParticipant.get(p.id);
+    return d !== "accept" && d !== "abstain";
+  });
+  if (missing.length > 0) {
+    return `${missing.length} participant${missing.length === 1 ? " has" : "s have"} not accepted or abstained`;
+  }
+  return null;
+}
+
+async function confirmAgreement(
+  client: pg.PoolClient,
+  actor: Participant,
+  cmd: { proposalId: string },
+): Promise<HandlerOutcome> {
+  if (actor.role !== "organizer") {
+    return errorOutcome(
+      "not_authorized",
+      "Only the organizer can stage the agreement.",
+      "Set your stance and ready state; the organizer commits.",
+    );
+  }
+  const proposal = (
+    await client.query(
+      `SELECT pr.id, pr.status, c.name AS candidate_name FROM proposals pr
+        LEFT JOIN candidates c ON c.id = pr.candidate_id
+       WHERE pr.id = $1 AND pr.room_id = $2`,
+      [cmd.proposalId, actor.roomId],
+    )
+  ).rows[0];
+  if (!proposal) {
+    return errorOutcome("not_found", "Unknown proposalId.", "Call sync_session to refresh IDs.");
+  }
+  if (proposal.status !== "open") {
+    return errorOutcome(
+      "phase_unavailable",
+      `Proposal is ${proposal.status}, not open.`,
+      proposal.status === "staged"
+        ? "Already staged: the organizer confirms the commit on the page."
+        : "Choose an open proposal.",
+    );
+  }
+  const blocker = await agreementBlockers(client, actor.roomId, cmd.proposalId);
+  if (blocker) {
+    return errorOutcome(
+      "consent_required",
+      `Cannot stage agreement: ${blocker}.`,
+      "Every participant must be ready with an accept or abstain stance and no standing veto.",
+    );
+  }
+  await client.query("UPDATE proposals SET status = 'staged' WHERE id = $1", [
+    cmd.proposalId,
+  ]);
+  return {
+    events: [
+      {
+        type: "agreement_staged",
+        actorId: actor.id,
+        visibility: "shared",
+        payload: {
+          actorName: actor.displayName,
+          proposalId: cmd.proposalId,
+          candidateName: proposal.candidate_name,
+        },
+      },
+    ],
+    effect: `Agreement on ${proposal.candidate_name} staged. The organizer confirms on the page.`,
+  };
+}
+
+async function commitAgreement(
+  client: pg.PoolClient,
+  actor: Participant,
+  cmd: { proposalId: string },
+): Promise<HandlerOutcome> {
+  if (actor.role !== "organizer") {
+    return errorOutcome(
+      "not_authorized",
+      "Only the organizer can commit the agreement.",
+      "Set your stance and ready state; the organizer commits.",
+    );
+  }
+  const proposal = (
+    await client.query(
+      `SELECT pr.id, pr.status, pr.candidate_id, c.name AS candidate_name FROM proposals pr
+        LEFT JOIN candidates c ON c.id = pr.candidate_id
+       WHERE pr.id = $1 AND pr.room_id = $2`,
+      [cmd.proposalId, actor.roomId],
+    )
+  ).rows[0];
+  if (!proposal) {
+    return errorOutcome("not_found", "Unknown proposalId.", "Call sync_session to refresh IDs.");
+  }
+  if (proposal.status !== "staged") {
+    return errorOutcome(
+      "phase_unavailable",
+      `Proposal is ${proposal.status}, not staged.`,
+      "Stage via confirm_agreement first.",
+    );
+  }
+  // Invariant 4: the precondition must hold at commit revision too, not only
+  // at staging — a stance may have changed in between.
+  const blocker = await agreementBlockers(client, actor.roomId, cmd.proposalId);
+  if (blocker) {
+    await client.query("UPDATE proposals SET status = 'open' WHERE id = $1", [
+      cmd.proposalId,
+    ]);
+    return errorOutcome(
+      "consent_required",
+      `Stage aborted: ${blocker}.`,
+      "Re-stage once every participant is ready with accept/abstain and no veto stands.",
+    );
+  }
+  const room = (
+    await client.query("SELECT revision FROM rooms WHERE id = $1", [actor.roomId])
+  ).rows[0];
+  await client.query(
+    "UPDATE proposals SET status = 'committed', committed_at_revision = $2 WHERE id = $1",
+    [cmd.proposalId, room.revision + 1],
+  );
+  await client.query("UPDATE rooms SET phase = 'arrival' WHERE id = $1", [
+    actor.roomId,
+  ]);
+  return {
+    events: [
+      {
+        type: "agreement_committed",
+        actorId: actor.id,
+        visibility: "shared",
+        payload: {
+          actorName: actor.displayName,
+          proposalId: cmd.proposalId,
+          candidateId: proposal.candidate_id,
+          candidateName: proposal.candidate_name,
+          committedAtRevision: room.revision + 1,
+        },
+      },
+      {
+        type: "phase_changed",
+        actorId: null,
+        visibility: "shared",
+        payload: { phase: "arrival" },
+      },
+    ],
+    effect: `Agreement committed: ${proposal.candidate_name}. Arrival phase open.`,
   };
 }
 

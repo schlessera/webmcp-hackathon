@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import pg from "pg";
@@ -74,8 +75,17 @@ export interface TestRoom {
   cleanup: () => Promise<void>;
 }
 
+export interface TestRoomOptions {
+  /** Load the real Berlin Mitte dataset + demo scope instead of the three
+   * synthetic candidates (and seed no proposal). */
+  berlin?: boolean;
+}
+
 /** Create one fresh room and three exchanged tokens straight against the DB. */
-export async function createTestRoom(baseUrl: string): Promise<TestRoom> {
+export async function createTestRoom(
+  baseUrl: string,
+  options: TestRoomOptions = {},
+): Promise<TestRoom> {
   const pool = new pg.Pool({ connectionString: DATABASE_URL });
   const suffix = randomBytes(4).toString("hex");
   const roomId = `room_test_${suffix}`;
@@ -85,10 +95,41 @@ export async function createTestRoom(baseUrl: string): Promise<TestRoom> {
     { key: "joe", id: `p_joe_${suffix}`, name: "Joe", role: "member" },
   ] as const;
 
+  const berlin = options.berlin
+    ? (JSON.parse(
+        readFileSync(
+          join(repoRoot, "packages", "contracts", "data", "berlin-mitte-venues.json"),
+          "utf8",
+        ),
+      ) as {
+        manifest: { demoCenter: { lat: number; lng: number }; demoRadii: { narrow: number } };
+        venues: Array<{
+          candidateId: string; name: string; category: string;
+          priceLevel: number | null; location: { lat: number; lng: number };
+          attributes: unknown[]; hours: unknown[];
+        }>;
+      })
+    : null;
+
   await pool.query(
-    `INSERT INTO rooms (id, goal, phase, domain, revision, policy)
-     VALUES ($1, 'test dinner', 'gathering', 'spatial-destination/v1', 0, '{}')`,
-    [roomId],
+    `INSERT INTO rooms (id, goal, phase, domain, revision, policy, scope, scope_seq)
+     VALUES ($1, 'test dinner', 'gathering', 'spatial-destination/v1', 0, '{}', $2, $3)`,
+    [
+      roomId,
+      berlin
+        ? JSON.stringify({
+            scopeId: "scope_1",
+            area: {
+              kind: "circle",
+              center: berlin.manifest.demoCenter,
+              radiusM: berlin.manifest.demoRadii.narrow,
+            },
+            transport: ["walk", "bike", "car"],
+            category: "food",
+          })
+        : null,
+      berlin ? 1 : 0,
+    ],
   );
   const secrets: Record<string, string> = {};
   for (const m of members) {
@@ -103,24 +144,40 @@ export async function createTestRoom(baseUrl: string): Promise<TestRoom> {
       [createHash("sha256").update(secret).digest("hex"), m.id, roomId],
     );
   }
-  for (const c of [
-    { id: `place_a_${suffix}`, name: "Alpha", attrs: [{ key: "vegetarian-options", status: "verified_true" }] },
-    { id: `place_b_${suffix}`, name: "Beta", attrs: [{ key: "vegetarian-options", status: "verified_false" }] },
-    { id: `place_c_${suffix}`, name: "Gamma", attrs: [{ key: "vegetarian-options", status: "unverified" }] },
-  ]) {
+  if (berlin) {
+    for (const v of berlin.venues) {
+      // candidates.id is a global PK: suffix per room so parallel test rooms
+      // (and a seeded room_demo) never collide.
+      await pool.query(
+        `INSERT INTO candidates (id, room_id, name, category, price_level, walk_min, location, attributes, hours)
+         VALUES ($1, $2, $3, $4, $5, 5, $6, $7, $8)`,
+        [
+          `${v.candidateId}_${suffix}`, roomId, v.name, v.category, v.priceLevel ?? 2,
+          JSON.stringify(v.location), JSON.stringify(v.attributes),
+          JSON.stringify(v.hours ?? []),
+        ],
+      );
+    }
+  } else {
+    for (const c of [
+      { id: `place_a_${suffix}`, name: "Alpha", attrs: [{ key: "vegetarian-options", status: "verified_true" }] },
+      { id: `place_b_${suffix}`, name: "Beta", attrs: [{ key: "vegetarian-options", status: "verified_false" }] },
+      { id: `place_c_${suffix}`, name: "Gamma", attrs: [{ key: "vegetarian-options", status: "unverified" }] },
+    ]) {
+      await pool.query(
+        `INSERT INTO candidates (id, room_id, name, category, price_level, walk_min, location, attributes)
+         VALUES ($1, $2, $3, 'cafe', 2, 5, '{"lat":52.5,"lng":13.4}', $4)`,
+        [c.id, roomId, c.name, JSON.stringify(c.attrs)],
+      );
+    }
+
+    // An open proposal so RespondToProposal and stance_needed are exercisable.
     await pool.query(
-      `INSERT INTO candidates (id, room_id, name, category, price_level, walk_min, location, attributes)
-       VALUES ($1, $2, $3, 'cafe', 2, 5, '{"lat":52.5,"lng":13.4}', $4)`,
-      [c.id, roomId, c.name, JSON.stringify(c.attrs)],
+      `INSERT INTO proposals (id, room_id, candidate_id, created_by, created_at_revision, status)
+       VALUES ($1, $2, $3, $4, 0, 'open')`,
+      [`prop_${suffix}`, roomId, `place_a_${suffix}`, members[0].id],
     );
   }
-
-  // An open proposal so RespondToProposal and stance_needed are exercisable.
-  await pool.query(
-    `INSERT INTO proposals (id, room_id, candidate_id, created_by, created_at_revision, status)
-     VALUES ($1, $2, $3, $4, 0, 'open')`,
-    [`prop_${suffix}`, roomId, `place_a_${suffix}`, members[0].id],
-  );
 
   const tokens = {} as TestRoom["tokens"];
   const participantIds = {} as TestRoom["participantIds"];
@@ -143,7 +200,7 @@ export async function createTestRoom(baseUrl: string): Promise<TestRoom> {
     proposalId: `prop_${suffix}`,
     pool,
     cleanup: async () => {
-      for (const table of ["stances", "proposals", "verdicts", "requirements", "events", "candidates", "invite_secrets"]) {
+      for (const table of ["stances", "proposals", "verdicts", "requirements", "adjustments", "arrival_plans", "events", "candidates", "invite_secrets"]) {
         await pool.query(`DELETE FROM ${table} WHERE room_id = $1`, [roomId]);
       }
       await pool.query(

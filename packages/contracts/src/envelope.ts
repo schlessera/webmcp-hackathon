@@ -16,6 +16,13 @@ export interface OutstandingAdjustmentRequest {
   type: "adjustment_request";
   requestId: string;
   issuedAtRevision: number;
+  kind: "scope_change" | "requirement_relaxation";
+  /** Domain change payload, e.g. { dimension: "radius_m", from: 800, to: 1400 }. */
+  change: Record<string, unknown>;
+  projectedGain: { newCandidates: number };
+  withinDelegatedBound: boolean;
+  /** True when a grant awaits the human's in-page confirmation. */
+  staged: boolean;
 }
 export type OutstandingItem =
   | OutstandingEvaluationRequest
@@ -94,5 +101,99 @@ export interface SyncSessionResult {
 }
 
 export type SyncSessionResponse = SyncSessionResult | FailureEnvelope;
+
+/** Spatial read results — SPATIAL-PROTOCOL.md §4.1/§6/§9. Reads carry no baseRevision. */
+
+export interface LatLng {
+  lat: number;
+  lng: number;
+}
+
+export interface ScopeView {
+  scopeId: string;
+  area: { kind: "circle"; center: LatLng; radiusM: number };
+  transport: string[];
+  category: string;
+}
+
+export interface CandidateSummary {
+  candidateId: string;
+  name: string;
+  location: LatLng;
+  category: string;
+  eligibility: "eligible" | "uncertain" | "excluded";
+  /** Redacted: cites evidence status and shared requirements only. */
+  why: string;
+  walkMin: number;
+  priceLevel: number;
+}
+
+export interface ProposalView {
+  proposalId: string;
+  candidateId: string;
+  status: "open" | "withdrawn" | "vetoed" | "staged" | "committed";
+  stanceCounts: { accept: number; reject: number; other: number };
+  ownStance?: string;
+}
+
+export interface AgreementView {
+  proposalId: string;
+  candidateId: string;
+  status: "staged" | "committed";
+  committedAtRevision?: number;
+}
+
+export interface ArrivalPlanView {
+  mode: "walk" | "bike" | "car";
+  pickupNote?: string;
+}
+
+export interface SpatialContextResult {
+  ok: true;
+  revision: number;
+  phase: string;
+  scope: ScopeView | null;
+  feasibility: Feasibility;
+  candidates: CandidateSummary[];
+  proposals: ProposalView[];
+  agreement?: AgreementView;
+  /** The caller's own plan only — peers' plans are never returned here. */
+  arrival?: ArrivalPlanView;
+  impasse?: { active: true; text: string };
+}
+
+export interface CandidateDossier {
+  candidateId: string;
+  name: string;
+  location: LatLng;
+  category: string;
+  priceLevel: number;
+  hours: Array<{ day: string; open: string; close: string }>;
+  attributes: Array<{
+    key: string;
+    value?: string | number;
+    status: string;
+    source: string;
+    observedAt: string;
+    confidence: number;
+  }>;
+  mapRevision: number;
+}
+
+export interface InspectCandidatesResult {
+  ok: true;
+  revision: number;
+  candidates: CandidateDossier[];
+}
+
+export interface PrepareNavigationResult {
+  ok: true;
+  target: { candidateId: string; name: string; location: LatLng };
+  links: { geo: string; googleMaps: string; appleMaps: string };
+}
+
+export type SpatialContextResponse = SpatialContextResult | FailureEnvelope;
+export type InspectCandidatesResponse = InspectCandidatesResult | FailureEnvelope;
+export type PrepareNavigationResponse = PrepareNavigationResult | FailureEnvelope;
 
 export type { Visibility };

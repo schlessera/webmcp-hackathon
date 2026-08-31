@@ -1,10 +1,24 @@
 import { Type, type TSchema } from "@sinclair/typebox";
+import {
+  ConfirmAgreementInput,
+  EvaluateCandidatesInput,
+  PlanArrivalInput,
+  ProposeDestinationInput,
+  ResolvePrivateRequestInput,
+  RespondToProposalInput,
+  SetReadyStateInput,
+  SetSearchScopeInput,
+  SubmitRequirementInput,
+  WithdrawRequirementInput,
+} from "./commands.ts";
 
 /**
- * WebMCP tool surface — VALIDATION-SPIKE-1 Gate 1 registers exactly one tool:
- * sync_session (INTERACTION-AND-BINDING.md §2.3). Names ≤30 chars,
- * descriptions ≤500 chars, results ≤1.5K chars. All schemas
+ * WebMCP tool surface — INTERACTION-AND-BINDING.md §2.3: the full static
+ * 15-tool surface (8 negotiation + 7 spatial), registered once at page load.
+ * Names ≤30 chars, descriptions ≤500 chars, results ≤1.5K chars. All schemas
  * additionalProperties: false. v1 names carry no version suffix.
+ * ConfirmPrivateRequest and CommitAgreement are deliberately NOT bound to
+ * tools: consequential steps are confirmed by the human in the page UI.
  */
 
 export interface ToolAnnotations {
@@ -45,8 +59,189 @@ export const syncSessionTool: ToolDefinition = {
   annotations: { readOnlyHint: true, untrustedContentHint: true },
 };
 
-/** The full registered tool catalog. Gate 1: exactly one tool. */
-export const TOOLS: ToolDefinition[] = [syncSessionTool];
+/** Spatial read inputs (no baseRevision: reads never conflict). */
+export const SPATIAL_CONTEXT_INPUT = Type.Object(
+  {},
+  { additionalProperties: false },
+);
+export const INSPECT_CANDIDATES_INPUT = Type.Object(
+  {
+    candidateIds: Type.Array(
+      Type.String({
+        maxLength: 40,
+        description: "Stable candidateId from get_spatial_context.",
+      }),
+      { minItems: 1, maxItems: 3 },
+    ),
+  },
+  { additionalProperties: false },
+);
+export const PREPARE_NAVIGATION_INPUT = Type.Object(
+  {
+    candidateId: Type.Optional(
+      Type.String({
+        maxLength: 40,
+        description:
+          "Destination to navigate to. Omit to use the committed agreement.",
+      }),
+    ),
+  },
+  { additionalProperties: false },
+);
+export const FOCUS_DESTINATION_INPUT = Type.Object(
+  {
+    candidateId: Type.String({
+      maxLength: 40,
+      description: "Candidate to pan/highlight on this participant's map view.",
+    }),
+  },
+  { additionalProperties: false },
+);
+
+const negotiationTools: ToolDefinition[] = [
+  syncSessionTool,
+  {
+    name: "submit_requirement",
+    description:
+      "Add or update your own requirement in the shared decision. Choose " +
+      "visibility: shared (room sees content), application-private (only the " +
+      "app evaluates it; peers see aggregate effects), or agent-private (send " +
+      "a declaration only — no payload or note; content stays with you and " +
+      "you screen candidates via evaluate_candidates). Hard requirements " +
+      "exclude candidates; soft ones only rank. Pass requirementId to update.",
+    inputSchema: SubmitRequirementInput,
+    annotations: {},
+  },
+  {
+    name: "withdraw_requirement",
+    description:
+      "Withdraw one of your own requirements by requirementId. Eligibility is " +
+      "recomputed immediately.",
+    inputSchema: WithdrawRequirementInput,
+    annotations: {},
+  },
+  {
+    name: "evaluate_candidates",
+    description:
+      "Return bulk screening verdicts (acceptable / unacceptable / needs_info) " +
+      "for candidates against your agent-private requirement. Use when your " +
+      "outstanding list carries an evaluation_request. Verdicts are recorded " +
+      "disposition-only: the room never learns your reason. Up to 10 per call.",
+    inputSchema: EvaluateCandidatesInput,
+    annotations: {},
+  },
+  {
+    name: "respond_to_proposal",
+    description:
+      "Submit your stance on a proposal: accept, reject (a veto that blocks " +
+      "agreement while it stands), abstain, or conditionally_accept. Vetoing " +
+      "a map pin uses this same command. reason is optional and never " +
+      "required; agent-private stances are disposition-only.",
+    inputSchema: RespondToProposalInput,
+    annotations: { untrustedContentHint: true },
+  },
+  {
+    name: "resolve_private_request",
+    description:
+      "Grant or deny a private adjustment request addressed to you (see your " +
+      "outstanding list). Denying is always safe. A grant within your " +
+      "delegated bound applies immediately; a grant outside it is staged and " +
+      "the human confirms on the page — this tool does not apply it by itself.",
+    inputSchema: ResolvePrivateRequestInput,
+    annotations: {},
+  },
+  {
+    name: "set_ready_state",
+    description:
+      "Mark this participant as ready (done contributing) or back to " +
+      "contributing. Agreement can only be staged when every participant is " +
+      "ready.",
+    inputSchema: SetReadyStateInput,
+    annotations: {},
+  },
+  {
+    name: "confirm_agreement",
+    description:
+      "Stage the group agreement on a proposal for final confirmation. " +
+      "Requires organizer role, all participants ready, and no standing veto. " +
+      "The human confirms on the page; this does not commit by itself.",
+    inputSchema: ConfirmAgreementInput,
+    annotations: {},
+  },
+];
+
+const spatialTools: ToolDefinition[] = [
+  {
+    name: "get_spatial_context",
+    description:
+      "Read the current spatial situation: search scope (area, transport), " +
+      "feasibility counts, candidate summary rows with eligibility and stable " +
+      "candidateIds, open proposals with stance counts, and any agreement or " +
+      "impasse state. Use candidateIds from here in every other spatial tool. " +
+      "Read-only.",
+    inputSchema: SPATIAL_CONTEXT_INPUT,
+    annotations: { readOnlyHint: true, untrustedContentHint: true },
+  },
+  {
+    name: "inspect_candidates",
+    description:
+      "Fetch full dossiers for 1-3 candidates: attributes with verification " +
+      "status (verified_true / verified_false / unverified / unknown), " +
+      "sources, freshness, hours, price level. Two or three IDs give a " +
+      "side-by-side comparison. Read-only.",
+    inputSchema: INSPECT_CANDIDATES_INPUT,
+    annotations: { readOnlyHint: true, untrustedContentHint: true },
+  },
+  {
+    name: "set_search_scope",
+    description:
+      "Change the shared search scope (area circle and/or transport modes). " +
+      "Organizer authority applies the change for the whole room and " +
+      "eligibility is recomputed. Scope is shared state: every participant " +
+      "sees the change.",
+    inputSchema: SetSearchScopeInput,
+    annotations: {},
+  },
+  {
+    name: "propose_destination",
+    description:
+      "Create a shared proposal on a candidate so participants can take " +
+      "stances on it. A high rank is never agreement: proposals collect " +
+      "explicit accepts.",
+    inputSchema: ProposeDestinationInput,
+    annotations: {},
+  },
+  {
+    name: "focus_destination",
+    description:
+      "Pan and highlight one candidate on this participant's own map view. " +
+      "Local presentation only — changes no shared session state and other " +
+      "participants see nothing.",
+    inputSchema: FOCUS_DESTINATION_INPUT,
+    annotations: { readOnlyHint: true },
+  },
+  {
+    name: "plan_arrival",
+    description:
+      "Record your arrival plan for the committed destination: transport mode " +
+      "and an optional pickup note. Available once the room reaches the " +
+      "arrival phase.",
+    inputSchema: PlanArrivalInput,
+    annotations: {},
+  },
+  {
+    name: "prepare_navigation",
+    description:
+      "Get one-click navigation handoff links (geo:, Google Maps, Apple Maps) " +
+      "for a candidate or the committed destination, built from coordinates " +
+      "the session already holds. Read-only.",
+    inputSchema: PREPARE_NAVIGATION_INPUT,
+    annotations: { readOnlyHint: true },
+  },
+];
+
+/** The full registered tool catalog — static surface, no state-gated registration. */
+export const TOOLS: ToolDefinition[] = [...negotiationTools, ...spatialTools];
 
 /** Chrome budget guidance (INTERACTION-AND-BINDING.md §2.3). */
 export const BUDGETS = {

@@ -1,6 +1,6 @@
 {
   "toolContractVersion": "1",
-  "sha256": "3056f71c62b9e6952c4ccb6fb08aca75ab12dec087e70c8086b58758ff2c4b76",
+  "sha256": "4f69caf6b0ab9eff46351db2a2117e5279d93b0ddc8f264e18a50b0150c2c0a8",
   "manifest": {
     "capabilityManifest": {
       "agreement": {
@@ -24,6 +24,12 @@
         "impasse-resolution"
       ],
       "conduct": "You act for exactly one participant. Submit only what your user authorizes. Private info can stay private: use visibility levels and screening verdicts instead of disclosing. Mutations need baseRevision from your last sync.",
+      "priceLevelEur": {
+        "1": 10,
+        "2": 15,
+        "3": 25,
+        "4": 40
+      },
       "privacy": {
         "allowedVisibilities": [
           "shared",
@@ -53,6 +59,60 @@
       }
     },
     "commands": {
+      "CommitAgreement": {
+        "additionalProperties": false,
+        "properties": {
+          "baseRevision": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "proposalId": {
+            "maxLength": 40,
+            "type": "string"
+          }
+        },
+        "required": [
+          "baseRevision",
+          "proposalId"
+        ],
+        "type": "object"
+      },
+      "ConfirmAgreement": {
+        "additionalProperties": false,
+        "properties": {
+          "baseRevision": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "proposalId": {
+            "maxLength": 40,
+            "type": "string"
+          }
+        },
+        "required": [
+          "baseRevision",
+          "proposalId"
+        ],
+        "type": "object"
+      },
+      "ConfirmPrivateRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "baseRevision": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "requestId": {
+            "maxLength": 40,
+            "type": "string"
+          }
+        },
+        "required": [
+          "baseRevision",
+          "requestId"
+        ],
+        "type": "object"
+      },
       "EvaluateCandidates": {
         "additionalProperties": false,
         "properties": {
@@ -103,6 +163,89 @@
         "required": [
           "baseRevision",
           "verdicts"
+        ],
+        "type": "object"
+      },
+      "PlanArrival": {
+        "additionalProperties": false,
+        "properties": {
+          "baseRevision": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "mode": {
+            "anyOf": [
+              {
+                "const": "walk",
+                "type": "string"
+              },
+              {
+                "const": "bike",
+                "type": "string"
+              },
+              {
+                "const": "car",
+                "type": "string"
+              }
+            ]
+          },
+          "pickupNote": {
+            "maxLength": 200,
+            "type": "string"
+          }
+        },
+        "required": [
+          "baseRevision",
+          "mode"
+        ],
+        "type": "object"
+      },
+      "ProposeDestination": {
+        "additionalProperties": false,
+        "properties": {
+          "baseRevision": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "candidateId": {
+            "maxLength": 40,
+            "type": "string"
+          }
+        },
+        "required": [
+          "baseRevision",
+          "candidateId"
+        ],
+        "type": "object"
+      },
+      "ResolvePrivateRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "baseRevision": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "decision": {
+            "anyOf": [
+              {
+                "const": "grant",
+                "type": "string"
+              },
+              {
+                "const": "deny",
+                "type": "string"
+              }
+            ]
+          },
+          "requestId": {
+            "maxLength": 40,
+            "type": "string"
+          }
+        },
+        "required": [
+          "baseRevision",
+          "requestId",
+          "decision"
         ],
         "type": "object"
       },
@@ -210,6 +353,81 @@
         "required": [
           "baseRevision",
           "state"
+        ],
+        "type": "object"
+      },
+      "SetSearchScope": {
+        "additionalProperties": false,
+        "properties": {
+          "area": {
+            "additionalProperties": false,
+            "properties": {
+              "center": {
+                "additionalProperties": false,
+                "properties": {
+                  "lat": {
+                    "maximum": 90,
+                    "minimum": -90,
+                    "type": "number"
+                  },
+                  "lng": {
+                    "maximum": 180,
+                    "minimum": -180,
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "lat",
+                  "lng"
+                ],
+                "type": "object"
+              },
+              "kind": {
+                "const": "circle",
+                "type": "string"
+              },
+              "radiusM": {
+                "maximum": 5000,
+                "minimum": 100,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "kind",
+              "center",
+              "radiusM"
+            ],
+            "type": "object"
+          },
+          "baseRevision": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "transport": {
+            "items": {
+              "anyOf": [
+                {
+                  "const": "walk",
+                  "type": "string"
+                },
+                {
+                  "const": "bike",
+                  "type": "string"
+                },
+                {
+                  "const": "car",
+                  "type": "string"
+                }
+              ]
+            },
+            "maxItems": 3,
+            "minItems": 1,
+            "type": "array",
+            "uniqueItems": true
+          }
+        },
+        "required": [
+          "baseRevision"
         ],
         "type": "object"
       },
@@ -573,6 +791,16 @@
       "negotiation": "v1"
     },
     "results": {
+      "candidateSummary": [
+        "candidateId",
+        "name",
+        "location",
+        "category",
+        "eligibility",
+        "why",
+        "walkMin",
+        "priceLevel"
+      ],
       "delta": [
         "fromRevision",
         "events",
@@ -586,12 +814,41 @@
         "error.recovery",
         "delta"
       ],
+      "inspectCandidatesResult": [
+        "ok",
+        "revision",
+        "candidates"
+      ],
+      "outstandingAdjustmentRequest": [
+        "type",
+        "requestId",
+        "issuedAtRevision",
+        "kind",
+        "change",
+        "projectedGain",
+        "withinDelegatedBound",
+        "staged"
+      ],
+      "prepareNavigationResult": [
+        "ok",
+        "target",
+        "links.geo",
+        "links.googleMaps",
+        "links.appleMaps"
+      ],
       "projectedEvent": [
         "revision",
         "type",
         "level",
         "text",
         "payload"
+      ],
+      "proposalView": [
+        "proposalId",
+        "candidateId",
+        "status",
+        "stanceCounts",
+        "ownStance"
       ],
       "realtime": {
         "auth": [
@@ -620,6 +877,18 @@
           "role"
         ]
       },
+      "spatialContextResult": [
+        "ok",
+        "revision",
+        "phase",
+        "scope",
+        "feasibility",
+        "candidates",
+        "proposals",
+        "agreement",
+        "arrival",
+        "impasse"
+      ],
       "successEnvelope": [
         "ok",
         "revision",
@@ -661,6 +930,816 @@
           "type": "object"
         },
         "name": "sync_session"
+      },
+      {
+        "annotations": {},
+        "description": "Add or update your own requirement in the shared decision. Choose visibility: shared (room sees content), application-private (only the app evaluates it; peers see aggregate effects), or agent-private (send a declaration only — no payload or note; content stays with you and you screen candidates via evaluate_candidates). Hard requirements exclude candidates; soft ones only rank. Pass requirementId to update.",
+        "inputSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "baseRevision": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "delegation": {
+              "additionalProperties": false,
+              "properties": {
+                "bound": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "dimension": {
+                      "anyOf": [
+                        {
+                          "const": "radius_m",
+                          "type": "string"
+                        },
+                        {
+                          "const": "per_person_eur",
+                          "type": "string"
+                        },
+                        {
+                          "const": "walk_min",
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "max": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "dimension",
+                    "max"
+                  ],
+                  "type": "object"
+                },
+                "mode": {
+                  "anyOf": [
+                    {
+                      "const": "locked",
+                      "type": "string"
+                    },
+                    {
+                      "const": "approval_required",
+                      "type": "string"
+                    },
+                    {
+                      "const": "negotiable",
+                      "type": "string"
+                    },
+                    {
+                      "const": "soft",
+                      "type": "string"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "mode"
+              ],
+              "type": "object"
+            },
+            "hardness": {
+              "anyOf": [
+                {
+                  "const": "hard",
+                  "type": "string"
+                },
+                {
+                  "const": "soft",
+                  "type": "string"
+                }
+              ]
+            },
+            "note": {
+              "maxLength": 200,
+              "type": "string"
+            },
+            "payload": {
+              "anyOf": [
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "expect": {
+                      "anyOf": [
+                        {
+                          "const": "verified_true",
+                          "type": "string"
+                        },
+                        {
+                          "const": "verified_false",
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "key": {
+                      "anyOf": [
+                        {
+                          "const": "vegetarian-options",
+                          "type": "string"
+                        },
+                        {
+                          "const": "lactose-free-options",
+                          "type": "string"
+                        },
+                        {
+                          "const": "wheelchair-accessible",
+                          "type": "string"
+                        },
+                        {
+                          "const": "outdoor-seating",
+                          "type": "string"
+                        },
+                        {
+                          "const": "dog-friendly",
+                          "type": "string"
+                        },
+                        {
+                          "const": "price-level",
+                          "type": "string"
+                        },
+                        {
+                          "const": "cuisine",
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "kind": {
+                      "const": "attribute",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "key",
+                    "expect"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "dimension": {
+                      "anyOf": [
+                        {
+                          "const": "walk_min",
+                          "type": "string"
+                        },
+                        {
+                          "const": "radius_m",
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "kind": {
+                      "const": "scope",
+                      "type": "string"
+                    },
+                    "max": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "dimension",
+                    "max"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "kind": {
+                      "const": "budget",
+                      "type": "string"
+                    },
+                    "perPersonMax": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "amount": {
+                          "minimum": 0,
+                          "type": "number"
+                        },
+                        "currency": {
+                          "const": "EUR",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "amount",
+                        "currency"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "perPersonMax"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "key": {
+                      "const": "cuisine",
+                      "type": "string"
+                    },
+                    "kind": {
+                      "const": "exclusion",
+                      "type": "string"
+                    },
+                    "lifetime": {
+                      "anyOf": [
+                        {
+                          "const": "session",
+                          "type": "string"
+                        },
+                        {
+                          "const": "durable",
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "values": {
+                      "items": {
+                        "maxLength": 60,
+                        "type": "string"
+                      },
+                      "maxItems": 8,
+                      "minItems": 1,
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "key",
+                    "values",
+                    "lifetime"
+                  ],
+                  "type": "object"
+                }
+              ]
+            },
+            "requirementId": {
+              "maxLength": 40,
+              "type": "string"
+            },
+            "scopeHint": {
+              "additionalProperties": false,
+              "properties": {
+                "affects": {
+                  "const": "candidate-eligibility",
+                  "type": "string"
+                },
+                "category": {
+                  "anyOf": [
+                    {
+                      "const": "dietary",
+                      "type": "string"
+                    },
+                    {
+                      "const": "accessibility",
+                      "type": "string"
+                    },
+                    {
+                      "const": "budget",
+                      "type": "string"
+                    },
+                    {
+                      "const": "distance",
+                      "type": "string"
+                    },
+                    {
+                      "const": "time",
+                      "type": "string"
+                    },
+                    {
+                      "const": "personal-history",
+                      "type": "string"
+                    },
+                    {
+                      "const": "atmosphere",
+                      "type": "string"
+                    },
+                    {
+                      "const": "other",
+                      "type": "string"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "affects"
+              ],
+              "type": "object"
+            },
+            "visibility": {
+              "anyOf": [
+                {
+                  "const": "shared",
+                  "type": "string"
+                },
+                {
+                  "const": "application-private",
+                  "type": "string"
+                },
+                {
+                  "const": "agent-private",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "required": [
+            "baseRevision",
+            "visibility",
+            "hardness",
+            "delegation"
+          ],
+          "type": "object"
+        },
+        "name": "submit_requirement"
+      },
+      {
+        "annotations": {},
+        "description": "Withdraw one of your own requirements by requirementId. Eligibility is recomputed immediately.",
+        "inputSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "baseRevision": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "requirementId": {
+              "maxLength": 40,
+              "type": "string"
+            }
+          },
+          "required": [
+            "baseRevision",
+            "requirementId"
+          ],
+          "type": "object"
+        },
+        "name": "withdraw_requirement"
+      },
+      {
+        "annotations": {},
+        "description": "Return bulk screening verdicts (acceptable / unacceptable / needs_info) for candidates against your agent-private requirement. Use when your outstanding list carries an evaluation_request. Verdicts are recorded disposition-only: the room never learns your reason. Up to 10 per call.",
+        "inputSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "baseRevision": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "verdicts": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "candidateId": {
+                    "maxLength": 40,
+                    "type": "string"
+                  },
+                  "infoNeeded": {
+                    "maxLength": 100,
+                    "type": "string"
+                  },
+                  "verdict": {
+                    "anyOf": [
+                      {
+                        "const": "acceptable",
+                        "type": "string"
+                      },
+                      {
+                        "const": "unacceptable",
+                        "type": "string"
+                      },
+                      {
+                        "const": "needs_info",
+                        "type": "string"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "candidateId",
+                  "verdict"
+                ],
+                "type": "object"
+              },
+              "maxItems": 10,
+              "minItems": 1,
+              "type": "array"
+            }
+          },
+          "required": [
+            "baseRevision",
+            "verdicts"
+          ],
+          "type": "object"
+        },
+        "name": "evaluate_candidates"
+      },
+      {
+        "annotations": {
+          "untrustedContentHint": true
+        },
+        "description": "Submit your stance on a proposal: accept, reject (a veto that blocks agreement while it stands), abstain, or conditionally_accept. Vetoing a map pin uses this same command. reason is optional and never required; agent-private stances are disposition-only.",
+        "inputSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "baseRevision": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "disposition": {
+              "anyOf": [
+                {
+                  "const": "accept",
+                  "type": "string"
+                },
+                {
+                  "const": "reject",
+                  "type": "string"
+                },
+                {
+                  "const": "abstain",
+                  "type": "string"
+                },
+                {
+                  "const": "conditionally_accept",
+                  "type": "string"
+                }
+              ]
+            },
+            "proposalId": {
+              "maxLength": 40,
+              "type": "string"
+            },
+            "reason": {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "anyOf": [
+                    {
+                      "const": "history",
+                      "type": "string"
+                    },
+                    {
+                      "const": "domain",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "note": {
+                  "maxLength": 200,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind"
+              ],
+              "type": "object"
+            },
+            "visibility": {
+              "anyOf": [
+                {
+                  "const": "shared",
+                  "type": "string"
+                },
+                {
+                  "const": "application-private",
+                  "type": "string"
+                },
+                {
+                  "const": "agent-private",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "required": [
+            "baseRevision",
+            "proposalId",
+            "disposition",
+            "visibility"
+          ],
+          "type": "object"
+        },
+        "name": "respond_to_proposal"
+      },
+      {
+        "annotations": {},
+        "description": "Grant or deny a private adjustment request addressed to you (see your outstanding list). Denying is always safe. A grant within your delegated bound applies immediately; a grant outside it is staged and the human confirms on the page — this tool does not apply it by itself.",
+        "inputSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "baseRevision": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "decision": {
+              "anyOf": [
+                {
+                  "const": "grant",
+                  "type": "string"
+                },
+                {
+                  "const": "deny",
+                  "type": "string"
+                }
+              ]
+            },
+            "requestId": {
+              "maxLength": 40,
+              "type": "string"
+            }
+          },
+          "required": [
+            "baseRevision",
+            "requestId",
+            "decision"
+          ],
+          "type": "object"
+        },
+        "name": "resolve_private_request"
+      },
+      {
+        "annotations": {},
+        "description": "Mark this participant as ready (done contributing) or back to contributing. Agreement can only be staged when every participant is ready.",
+        "inputSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "baseRevision": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "state": {
+              "anyOf": [
+                {
+                  "const": "contributing",
+                  "type": "string"
+                },
+                {
+                  "const": "ready",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "required": [
+            "baseRevision",
+            "state"
+          ],
+          "type": "object"
+        },
+        "name": "set_ready_state"
+      },
+      {
+        "annotations": {},
+        "description": "Stage the group agreement on a proposal for final confirmation. Requires organizer role, all participants ready, and no standing veto. The human confirms on the page; this does not commit by itself.",
+        "inputSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "baseRevision": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "proposalId": {
+              "maxLength": 40,
+              "type": "string"
+            }
+          },
+          "required": [
+            "baseRevision",
+            "proposalId"
+          ],
+          "type": "object"
+        },
+        "name": "confirm_agreement"
+      },
+      {
+        "annotations": {
+          "readOnlyHint": true,
+          "untrustedContentHint": true
+        },
+        "description": "Read the current spatial situation: search scope (area, transport), feasibility counts, candidate summary rows with eligibility and stable candidateIds, open proposals with stance counts, and any agreement or impasse state. Use candidateIds from here in every other spatial tool. Read-only.",
+        "inputSchema": {
+          "additionalProperties": false,
+          "properties": {},
+          "type": "object"
+        },
+        "name": "get_spatial_context"
+      },
+      {
+        "annotations": {
+          "readOnlyHint": true,
+          "untrustedContentHint": true
+        },
+        "description": "Fetch full dossiers for 1-3 candidates: attributes with verification status (verified_true / verified_false / unverified / unknown), sources, freshness, hours, price level. Two or three IDs give a side-by-side comparison. Read-only.",
+        "inputSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "candidateIds": {
+              "items": {
+                "description": "Stable candidateId from get_spatial_context.",
+                "maxLength": 40,
+                "type": "string"
+              },
+              "maxItems": 3,
+              "minItems": 1,
+              "type": "array"
+            }
+          },
+          "required": [
+            "candidateIds"
+          ],
+          "type": "object"
+        },
+        "name": "inspect_candidates"
+      },
+      {
+        "annotations": {},
+        "description": "Change the shared search scope (area circle and/or transport modes). Organizer authority applies the change for the whole room and eligibility is recomputed. Scope is shared state: every participant sees the change.",
+        "inputSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "area": {
+              "additionalProperties": false,
+              "properties": {
+                "center": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "lat": {
+                      "maximum": 90,
+                      "minimum": -90,
+                      "type": "number"
+                    },
+                    "lng": {
+                      "maximum": 180,
+                      "minimum": -180,
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "lat",
+                    "lng"
+                  ],
+                  "type": "object"
+                },
+                "kind": {
+                  "const": "circle",
+                  "type": "string"
+                },
+                "radiusM": {
+                  "maximum": 5000,
+                  "minimum": 100,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "kind",
+                "center",
+                "radiusM"
+              ],
+              "type": "object"
+            },
+            "baseRevision": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "transport": {
+              "items": {
+                "anyOf": [
+                  {
+                    "const": "walk",
+                    "type": "string"
+                  },
+                  {
+                    "const": "bike",
+                    "type": "string"
+                  },
+                  {
+                    "const": "car",
+                    "type": "string"
+                  }
+                ]
+              },
+              "maxItems": 3,
+              "minItems": 1,
+              "type": "array",
+              "uniqueItems": true
+            }
+          },
+          "required": [
+            "baseRevision"
+          ],
+          "type": "object"
+        },
+        "name": "set_search_scope"
+      },
+      {
+        "annotations": {},
+        "description": "Create a shared proposal on a candidate so participants can take stances on it. A high rank is never agreement: proposals collect explicit accepts.",
+        "inputSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "baseRevision": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "candidateId": {
+              "maxLength": 40,
+              "type": "string"
+            }
+          },
+          "required": [
+            "baseRevision",
+            "candidateId"
+          ],
+          "type": "object"
+        },
+        "name": "propose_destination"
+      },
+      {
+        "annotations": {
+          "readOnlyHint": true
+        },
+        "description": "Pan and highlight one candidate on this participant's own map view. Local presentation only — changes no shared session state and other participants see nothing.",
+        "inputSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "candidateId": {
+              "description": "Candidate to pan/highlight on this participant's map view.",
+              "maxLength": 40,
+              "type": "string"
+            }
+          },
+          "required": [
+            "candidateId"
+          ],
+          "type": "object"
+        },
+        "name": "focus_destination"
+      },
+      {
+        "annotations": {},
+        "description": "Record your arrival plan for the committed destination: transport mode and an optional pickup note. Available once the room reaches the arrival phase.",
+        "inputSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "baseRevision": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "mode": {
+              "anyOf": [
+                {
+                  "const": "walk",
+                  "type": "string"
+                },
+                {
+                  "const": "bike",
+                  "type": "string"
+                },
+                {
+                  "const": "car",
+                  "type": "string"
+                }
+              ]
+            },
+            "pickupNote": {
+              "maxLength": 200,
+              "type": "string"
+            }
+          },
+          "required": [
+            "baseRevision",
+            "mode"
+          ],
+          "type": "object"
+        },
+        "name": "plan_arrival"
+      },
+      {
+        "annotations": {
+          "readOnlyHint": true
+        },
+        "description": "Get one-click navigation handoff links (geo:, Google Maps, Apple Maps) for a candidate or the committed destination, built from coordinates the session already holds. Read-only.",
+        "inputSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "candidateId": {
+              "description": "Destination to navigate to. Omit to use the committed agreement.",
+              "maxLength": 40,
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "name": "prepare_navigation"
       }
     ]
   }

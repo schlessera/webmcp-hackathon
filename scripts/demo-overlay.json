@@ -1,0 +1,46 @@
+{
+  "$comment": "Hand-written demo determinism overlay. Attributes here are curated fiction for the scripted demo (not verified facts about the real venues) and are merged by curate-venues.mjs with source curated:demo-2026-08 so their provenance is always distinguishable from real OSM data. expectName guards against candidateId drift.",
+  "vetoTargetId": "place_30",
+  "venues": {
+    "place_9": {
+      "expectName": "Chupenga",
+      "attributes": [
+        { "key": "lactose-free-options", "status": "verified_false", "confidence": 0.85 }
+      ]
+    },
+    "place_17": {
+      "expectName": "dean&david",
+      "attributes": [
+        { "key": "lactose-free-options", "status": "verified_false", "confidence": 0.85 }
+      ]
+    },
+    "place_24": {
+      "expectName": "The Barn",
+      "priceLevel": 2,
+      "attributes": [
+        { "key": "lactose-free-options", "status": "verified_true", "confidence": 0.9 }
+      ]
+    },
+    "place_25": {
+      "expectName": "Kebap with Attitude",
+      "priceLevel": 1,
+      "attributes": [
+        { "key": "lactose-free-options", "status": "verified_true", "confidence": 0.9 }
+      ]
+    },
+    "place_30": {
+      "expectName": "Chén Ché",
+      "priceLevel": 2,
+      "attributes": [
+        { "key": "lactose-free-options", "status": "verified_true", "confidence": 0.9 }
+      ]
+    },
+    "place_31": {
+      "expectName": "District Một",
+      "priceLevel": 2,
+      "attributes": [
+        { "key": "lactose-free-options", "status": "verified_true", "confidence": 0.9 }
+      ]
+    }
+  }
+}

@@ -1,72 +1,60 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 import { withTransaction, pool } from "./db.ts";
 import { demoInviteSecret, sha256 } from "./auth.ts";
-import { PROTOCOL_VERSIONS, AGREEMENT_RULE, ALLOWED_VISIBILITIES } from "@webmcp-hackathon/contracts";
+import {
+  PROTOCOL_VERSIONS,
+  AGREEMENT_RULE,
+  ALLOWED_VISIBILITIES,
+} from "@webmcp-hackathon/contracts";
+import { haversineMeters } from "./eligibility.ts";
 
 /**
- * Idempotent demo seeder (Gate 3): transactionally upserts one stable scenario
- * — one room, organizer + Sarah + Joe, three participant-scoped invite
- * secrets, and prepared curated candidates. Never wipes the volume; running it
+ * Idempotent demo seeder: transactionally upserts one stable scenario — one
+ * Berlin Mitte room, organizer + Sarah + Joe, three participant-scoped invite
+ * secrets, and the full curated venue dataset. No seeded requirements or
+ * proposals: the demo builds them live. Never wipes the volume; running it
  * twice is a no-op. Destructive reset lives in `make demo-reset` only
  * (--reset flag), which clears just the named demo room.
  */
 
 const ROOM_ID = "room_demo";
+const GOAL = "Dinner tonight in Berlin Mitte";
 const PARTICIPANTS = [
   { id: "p_org", name: "Alex", role: "organizer" },
   { id: "p_sarah", name: "Sarah", role: "member" },
   { id: "p_joe", name: "Joe", role: "member" },
 ] as const;
 
-const CANDIDATES = [
-  {
-    id: "place_42",
-    name: "Garden Cafe Window",
-    category: "cafe",
-    priceLevel: 2,
-    walkMin: 6,
-    location: { lat: 52.4981, lng: 13.4262 },
-    attributes: [
-      { key: "vegetarian-options", status: "verified_true", source: "curated:berlin-kreuzberg-2026-08", observedAt: "2026-08-31T10:00:00Z", confidence: 0.9 },
-      { key: "outdoor-seating", status: "verified_true", source: "curated:berlin-kreuzberg-2026-08", observedAt: "2026-08-31T10:00:00Z", confidence: 0.9 },
-      { key: "dog-friendly", status: "verified_true", source: "curated:berlin-kreuzberg-2026-08", observedAt: "2026-08-31T10:00:00Z", confidence: 0.9 },
-    ],
-  },
-  {
-    id: "place_17",
-    name: "Cedar Table",
-    category: "restaurant",
-    priceLevel: 3,
-    walkMin: 12,
-    location: { lat: 52.4952, lng: 13.4211 },
-    attributes: [
-      { key: "vegetarian-options", status: "verified_true", source: "curated:berlin-kreuzberg-2026-08", observedAt: "2026-08-31T10:00:00Z", confidence: 0.9 },
-      { key: "wheelchair-accessible", status: "unverified", source: "curated:berlin-kreuzberg-2026-08", observedAt: "2026-08-31T10:00:00Z", confidence: 0.4 },
-    ],
-  },
-  {
-    id: "place_29",
-    name: "Brick Lane Diner",
-    category: "restaurant",
-    priceLevel: 1,
-    walkMin: 9,
-    location: { lat: 52.5009, lng: 13.4301 },
-    attributes: [
-      { key: "vegetarian-options", status: "verified_false", source: "curated:berlin-kreuzberg-2026-08", observedAt: "2026-08-31T10:00:00Z", confidence: 0.9 },
-    ],
-  },
-  {
-    id: "place_51",
-    name: "Kanal Garten",
-    category: "beer-garden",
-    priceLevel: 2,
-    walkMin: 14,
-    location: { lat: 52.4933, lng: 13.4402 },
-    attributes: [
-      { key: "vegetarian-options", status: "verified_true", source: "curated:berlin-kreuzberg-2026-08", observedAt: "2026-08-31T10:00:00Z", confidence: 0.8 },
-      { key: "outdoor-seating", status: "verified_true", source: "curated:berlin-kreuzberg-2026-08", observedAt: "2026-08-31T10:00:00Z", confidence: 0.9 },
-    ],
-  },
-] as const;
+interface VenueFile {
+  manifest: {
+    demoCenter: { lat: number; lng: number };
+    demoRadii: { narrow: number; wide: number };
+  };
+  venues: Array<{
+    candidateId: string;
+    name: string;
+    location: { lat: number; lng: number };
+    category: string;
+    priceLevel: number | null;
+    hours: Array<{ day: string; open: string; close: string }>;
+    attributes: Array<Record<string, unknown>>;
+  }>;
+}
+
+const dataPath = join(
+  dirname(fileURLToPath(import.meta.url)),
+  "..", "..", "..", "packages", "contracts", "data", "berlin-mitte-venues.json",
+);
+const dataset = JSON.parse(readFileSync(dataPath, "utf8")) as VenueFile;
+// The manifest center carries an annotation field; the scope holds bare coords.
+const center = {
+  lat: dataset.manifest.demoCenter.lat,
+  lng: dataset.manifest.demoCenter.lng,
+};
+
+const WALK_SPEED_M_PER_MIN = 4500 / 60;
 
 const reset = process.argv.includes("--reset");
 
@@ -74,8 +62,9 @@ await withTransaction(async (client) => {
   if (reset) {
     // Destructive path, explicitly named: clears only the demo room.
     for (const table of [
-      "stances", "proposals", "verdicts", "requirements", "events",
-      "invite_secrets", "participant_tokens", "candidates",
+      "stances", "proposals", "verdicts", "requirements", "adjustments",
+      "arrival_plans", "events", "invite_secrets", "participant_tokens",
+      "candidates",
     ]) {
       if (table === "participant_tokens") {
         await client.query(
@@ -94,17 +83,27 @@ await withTransaction(async (client) => {
   }
 
   await client.query(
-    `INSERT INTO rooms (id, goal, phase, domain, revision, policy)
-     VALUES ($1, $2, 'gathering', $3, 0, $4)
+    `INSERT INTO rooms (id, goal, phase, domain, revision, policy, scope, scope_seq)
+     VALUES ($1, $2, 'gathering', $3, 0, $4, $5, 1)
      ON CONFLICT (id) DO NOTHING`,
     [
       ROOM_ID,
-      "Dinner tonight near Kreuzberg",
+      GOAL,
       PROTOCOL_VERSIONS.domain,
       JSON.stringify({
         agreementRule: AGREEMENT_RULE,
         allowedVisibilities: ALLOWED_VISIBILITIES,
         guestAccess: true,
+      }),
+      JSON.stringify({
+        scopeId: "scope_1",
+        area: {
+          kind: "circle",
+          center,
+          radiusM: dataset.manifest.demoRadii.narrow,
+        },
+        transport: ["walk", "bike", "car"],
+        category: "food",
       }),
     ],
   );
@@ -123,24 +122,35 @@ await withTransaction(async (client) => {
     );
   }
 
-  for (const c of CANDIDATES) {
+  for (const v of dataset.venues) {
+    const walkMin = Math.max(
+      1,
+      Math.round(haversineMeters(v.location, center) / WALK_SPEED_M_PER_MIN),
+    );
     await client.query(
-      `INSERT INTO candidates (id, room_id, name, category, price_level, walk_min, location, attributes)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT (id) DO NOTHING`,
+      `INSERT INTO candidates (id, room_id, name, category, price_level, walk_min, location, attributes, hours)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) ON CONFLICT (id) DO NOTHING`,
       [
-        c.id, ROOM_ID, c.name, c.category, c.priceLevel, c.walkMin,
-        JSON.stringify(c.location), JSON.stringify(c.attributes),
+        v.candidateId, ROOM_ID, v.name, v.category, v.priceLevel ?? 2, walkMin,
+        JSON.stringify(v.location), JSON.stringify(v.attributes),
+        JSON.stringify(v.hours ?? []),
       ],
     );
   }
-
-  // One open proposal so the stance/veto path (§4.3) is live from the start.
-  await client.query(
-    `INSERT INTO proposals (id, room_id, candidate_id, created_by, created_at_revision, status)
-     VALUES ('prop_1', $1, 'place_42', 'p_org', 0, 'open')
-     ON CONFLICT (id) DO NOTHING`,
-    [ROOM_ID],
-  );
+  // candidates.id is a global PK: a bare place_N held by another room would
+  // make ON CONFLICT silently under-seed the demo. Fail loudly instead.
+  const seeded = (
+    await client.query(
+      "SELECT count(*)::int AS n FROM candidates WHERE room_id = $1",
+      [ROOM_ID],
+    )
+  ).rows[0].n as number;
+  if (seeded !== dataset.venues.length) {
+    throw new Error(
+      `demo seed incomplete: ${seeded}/${dataset.venues.length} venues landed — ` +
+      "another room holds colliding candidate IDs; clean stale rooms and reseed.",
+    );
+  }
 
   const hasEvents = (
     await client.query(
@@ -152,13 +162,16 @@ await withTransaction(async (client) => {
     await client.query(
       `INSERT INTO events (room_id, revision, type, actor_id, visibility, payload)
        VALUES ($1, 0, 'session_created', NULL, 'shared', $2)`,
-      [ROOM_ID, JSON.stringify({ actorName: "System", goal: "Dinner tonight near Kreuzberg" })],
+      [ROOM_ID, JSON.stringify({ actorName: "System", goal: GOAL })],
     );
   }
 });
 
 const base = process.env.APP_URL ?? "http://127.0.0.1:4173";
-console.log("demo room seeded (idempotent).");
+console.log(
+  `demo room seeded (idempotent): ${dataset.venues.length} Berlin Mitte venues, ` +
+  `scope ${dataset.manifest.demoRadii.narrow} m around ${center.lat},${center.lng}.`,
+);
 console.log("");
 console.log("Invite URLs (secret rides in the URL fragment):");
 for (const p of PARTICIPANTS) {

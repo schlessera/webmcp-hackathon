@@ -105,7 +105,8 @@ test("three-user trajectory", async () => {
   expect(identities.size).toBe(3);
   expect(builds.size).toBe(1);
 
-  // 3. Shared action from Sarah.
+  // 3. Shared action from Sarah (dev quick-action inside the diagnostics
+  // panel, which stays open under ?shim=webmcp).
   await pages.sarah.getByTestId("submit-shared").click();
   await expect(pages.sarah.getByTestId("last-result")).toContainText(
     "Requirement recorded",
@@ -122,7 +123,8 @@ test("three-user trajectory", async () => {
   for (const key of ["org", "sarah", "joe"] as const) {
     await expect(pages[key].getByTestId("revision")).toHaveText(target);
   }
-  // Feeds observed the events live via WS.
+  // Feeds observed the events live via WS (feed lives in the Activity tab).
+  await pages.org.getByTestId("tab-activity").click();
   await expect(pages.org.getByTestId("feed")).toContainText("Sarah");
   await expect(pages.org.getByTestId("feed")).toContainText(
     "private requirement",

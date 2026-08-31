@@ -48,6 +48,14 @@ export const CAPABILITIES = [
 
 export const AGREEMENT_RULE = "all-accept-organizer-commit" as const;
 
+/**
+ * Provider-normalized price level → estimated per-person EUR band (upper
+ * bound). Part of the eligibility semantics: budget requirements compare
+ * their perPersonMax against this band, so it is published in the manifest
+ * for agents to reason with.
+ */
+export const PRICE_LEVEL_EUR = { 1: 10, 2: 15, 3: 25, 4: 40 } as const;
+
 export const CONDUCT =
   "You act for exactly one participant. Submit only what your user authorizes. " +
   "Private info can stay private: use visibility levels and screening verdicts " +
@@ -63,6 +71,7 @@ export interface CapabilityManifest {
   };
   agreement: { rule: string };
   attributeVocabulary: readonly string[];
+  priceLevelEur: Record<string, number>;
   conduct: string;
 }
 
@@ -76,5 +85,6 @@ export const CAPABILITY_MANIFEST: CapabilityManifest = {
   },
   agreement: { rule: AGREEMENT_RULE },
   attributeVocabulary: ATTRIBUTE_VOCABULARY,
+  priceLevelEur: PRICE_LEVEL_EUR,
   conduct: CONDUCT,
 };

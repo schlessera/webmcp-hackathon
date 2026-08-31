@@ -1,0 +1,3236 @@
+{
+  "manifest": {
+    "name": "berlin-mitte-venues",
+    "description": "Curated venue dossiers for the demo, Berlin Mitte (Friedrichstraße / Hackescher Markt area)",
+    "source": "OpenStreetMap via Overpass API (see scripts/extract-venues.mjs)",
+    "license": "ODbL 1.0 — https://opendatacommons.org/licenses/odbl/1-0/",
+    "attribution": "© OpenStreetMap contributors",
+    "extractTimestamp": "2026-08-31T21:52:21Z",
+    "demoCenter": {
+      "lat": 52.5219,
+      "lng": 13.3899,
+      "note": "Weidendammer Brücke / Friedrichstraße, dense venue cluster between Friedrichstraße station and Hackescher Markt"
+    },
+    "demoRadii": {
+      "narrow": 800,
+      "wide": 1400
+    },
+    "vetoTargetId": "place_30",
+    "demoOverlaySource": "curated:demo-2026-08"
+  },
+  "venues": [
+    {
+      "candidateId": "place_1",
+      "name": "Grill Royal",
+      "location": {
+        "lat": 52.5225633,
+        "lng": 13.3884395
+      },
+      "category": "restaurant",
+      "priceLevel": 4,
+      "hours": [
+        {
+          "day": "mon",
+          "open": "09:00",
+          "close": "22:00"
+        },
+        {
+          "day": "tue",
+          "open": "09:00",
+          "close": "22:00"
+        },
+        {
+          "day": "wed",
+          "open": "09:00",
+          "close": "22:00"
+        },
+        {
+          "day": "thu",
+          "open": "09:00",
+          "close": "22:00"
+        },
+        {
+          "day": "fri",
+          "open": "09:00",
+          "close": "22:00"
+        },
+        {
+          "day": "sat",
+          "open": "09:00",
+          "close": "22:00"
+        },
+        {
+          "day": "sun",
+          "open": "09:00",
+          "close": "22:00"
+        }
+      ],
+      "attributes": [
+        {
+          "key": "vegetarian-options",
+          "source": "osm:diet:vegetarian",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "unknown",
+          "confidence": 0.6
+        },
+        {
+          "key": "lactose-free-options",
+          "source": "osm:diet:lactose_free",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "unknown",
+          "confidence": 0.6
+        },
+        {
+          "key": "wheelchair-accessible",
+          "source": "osm:wheelchair",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "verified_false",
+          "confidence": 0.8
+        },
+        {
+          "key": "outdoor-seating",
+          "source": "osm:outdoor_seating",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "verified_true",
+          "confidence": 0.8
+        },
+        {
+          "key": "dog-friendly",
+          "source": "osm:dog",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "unknown",
+          "confidence": 0.6
+        },
+        {
+          "key": "cuisine",
+          "value": "steak_house",
+          "status": "verified_true",
+          "source": "osm:cuisine",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "confidence": 0.8
+        },
+        {
+          "key": "price-level",
+          "value": 4,
+          "status": "unverified",
+          "source": "curated:berlin-mitte-2026-08",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "confidence": 0.6
+        },
+        {
+          "key": "hours",
+          "status": "unverified",
+          "source": "curated:berlin-mitte-2026-08",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "confidence": 0.6
+        }
+      ],
+      "mapRevision": 1,
+      "osmRef": "node/2884321484"
+    },
+    {
+      "candidateId": "place_2",
+      "name": "Hans im Glück",
+      "location": {
+        "lat": 52.5210934,
+        "lng": 13.3883972
+      },
+      "category": "restaurant",
+      "priceLevel": 2,
+      "hours": [
+        {
+          "day": "mon",
+          "open": "09:00",
+          "close": "22:00"
+        },
+        {
+          "day": "tue",
+          "open": "09:00",
+          "close": "22:00"
+        },
+        {
+          "day": "wed",
+          "open": "09:00",
+          "close": "22:00"
+        },
+        {
+          "day": "thu",
+          "open": "09:00",
+          "close": "22:00"
+        },
+        {
+          "day": "fri",
+          "open": "09:00",
+          "close": "22:00"
+        },
+        {
+          "day": "sat",
+          "open": "09:00",
+          "close": "22:00"
+        },
+        {
+          "day": "sun",
+          "open": "09:00",
+          "close": "22:00"
+        }
+      ],
+      "attributes": [
+        {
+          "key": "vegetarian-options",
+          "source": "osm:diet:vegetarian",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "unknown",
+          "confidence": 0.6
+        },
+        {
+          "key": "lactose-free-options",
+          "source": "osm:diet:lactose_free",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "unknown",
+          "confidence": 0.6
+        },
+        {
+          "key": "wheelchair-accessible",
+          "source": "osm:wheelchair",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "unknown",
+          "confidence": 0.6
+        },
+        {
+          "key": "outdoor-seating",
+          "source": "osm:outdoor_seating",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "unknown",
+          "confidence": 0.6
+        },
+        {
+          "key": "dog-friendly",
+          "source": "osm:dog",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "unknown",
+          "confidence": 0.6
+        },
+        {
+          "key": "cuisine",
+          "value": "burger",
+          "status": "verified_true",
+          "source": "osm:cuisine",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "confidence": 0.8
+        },
+        {
+          "key": "price-level",
+          "value": 2,
+          "status": "unverified",
+          "source": "curated:berlin-mitte-2026-08",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "confidence": 0.6
+        },
+        {
+          "key": "hours",
+          "status": "unverified",
+          "source": "curated:berlin-mitte-2026-08",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "confidence": 0.6
+        }
+      ],
+      "mapRevision": 1,
+      "osmRef": "node/333160361"
+    },
+    {
+      "candidateId": "place_3",
+      "name": "Italofritzen",
+      "location": {
+        "lat": 52.5226168,
+        "lng": 13.3882443
+      },
+      "category": "restaurant",
+      "priceLevel": 2,
+      "hours": [
+        {
+          "day": "mon",
+          "open": "07:00",
+          "close": "23:59"
+        },
+        {
+          "day": "tue",
+          "open": "07:00",
+          "close": "23:59"
+        },
+        {
+          "day": "wed",
+          "open": "07:00",
+          "close": "23:59"
+        },
+        {
+          "day": "thu",
+          "open": "07:00",
+          "close": "23:59"
+        },
+        {
+          "day": "fri",
+          "open": "07:00",
+          "close": "23:59"
+        },
+        {
+          "day": "sat",
+          "open": "07:00",
+          "close": "23:59"
+        },
+        {
+          "day": "sun",
+          "open": "07:00",
+          "close": "23:59"
+        }
+      ],
+      "attributes": [
+        {
+          "key": "vegetarian-options",
+          "source": "osm:diet:vegetarian",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "unknown",
+          "confidence": 0.6
+        },
+        {
+          "key": "lactose-free-options",
+          "source": "osm:diet:lactose_free",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "unknown",
+          "confidence": 0.6
+        },
+        {
+          "key": "wheelchair-accessible",
+          "source": "osm:wheelchair",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "verified_true",
+          "confidence": 0.8
+        },
+        {
+          "key": "outdoor-seating",
+          "source": "osm:outdoor_seating",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "verified_true",
+          "confidence": 0.8
+        },
+        {
+          "key": "dog-friendly",
+          "source": "osm:dog",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "unknown",
+          "confidence": 0.6
+        },
+        {
+          "key": "cuisine",
+          "value": "pizza;italian",
+          "status": "verified_true",
+          "source": "osm:cuisine",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "confidence": 0.8
+        },
+        {
+          "key": "price-level",
+          "value": 2,
+          "status": "unverified",
+          "source": "curated:berlin-mitte-2026-08",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "confidence": 0.6
+        }
+      ],
+      "mapRevision": 1,
+      "osmRef": "node/387772992"
+    },
+    {
+      "candidateId": "place_4",
+      "name": "Peter Pane",
+      "location": {
+        "lat": 52.5208138,
+        "lng": 13.3884622
+      },
+      "category": "restaurant",
+      "priceLevel": 2,
+      "hours": [
+        {
+          "day": "mon",
+          "open": "09:00",
+          "close": "22:00"
+        },
+        {
+          "day": "tue",
+          "open": "09:00",
+          "close": "22:00"
+        },
+        {
+          "day": "wed",
+          "open": "09:00",
+          "close": "22:00"
+        },
+        {
+          "day": "thu",
+          "open": "09:00",
+          "close": "22:00"
+        },
+        {
+          "day": "fri",
+          "open": "09:00",
+          "close": "22:00"
+        },
+        {
+          "day": "sat",
+          "open": "09:00",
+          "close": "22:00"
+        },
+        {
+          "day": "sun",
+          "open": "09:00",
+          "close": "22:00"
+        }
+      ],
+      "attributes": [
+        {
+          "key": "vegetarian-options",
+          "source": "osm:diet:vegetarian",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "verified_true",
+          "confidence": 0.8
+        },
+        {
+          "key": "lactose-free-options",
+          "source": "osm:diet:lactose_free",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "unknown",
+          "confidence": 0.6
+        },
+        {
+          "key": "wheelchair-accessible",
+          "source": "osm:wheelchair",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "verified_true",
+          "confidence": 0.8
+        },
+        {
+          "key": "outdoor-seating",
+          "source": "osm:outdoor_seating",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "verified_true",
+          "confidence": 0.8
+        },
+        {
+          "key": "dog-friendly",
+          "source": "osm:dog",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "unknown",
+          "confidence": 0.6
+        },
+        {
+          "key": "cuisine",
+          "value": "burger",
+          "status": "verified_true",
+          "source": "osm:cuisine",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "confidence": 0.8
+        },
+        {
+          "key": "price-level",
+          "value": 2,
+          "status": "unverified",
+          "source": "curated:berlin-mitte-2026-08",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "confidence": 0.6
+        },
+        {
+          "key": "hours",
+          "status": "unverified",
+          "source": "curated:berlin-mitte-2026-08",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "confidence": 0.6
+        }
+      ],
+      "mapRevision": 1,
+      "osmRef": "node/333160358"
+    },
+    {
+      "candidateId": "place_5",
+      "name": "Bombay",
+      "location": {
+        "lat": 52.5231491,
+        "lng": 13.3884968
+      },
+      "category": "restaurant",
+      "priceLevel": 2,
+      "hours": [
+        {
+          "day": "mon",
+          "open": "09:00",
+          "close": "22:00"
+        },
+        {
+          "day": "tue",
+          "open": "09:00",
+          "close": "22:00"
+        },
+        {
+          "day": "wed",
+          "open": "09:00",
+          "close": "22:00"
+        },
+        {
+          "day": "thu",
+          "open": "09:00",
+          "close": "22:00"
+        },
+        {
+          "day": "fri",
+          "open": "09:00",
+          "close": "22:00"
+        },
+        {
+          "day": "sat",
+          "open": "09:00",
+          "close": "22:00"
+        },
+        {
+          "day": "sun",
+          "open": "09:00",
+          "close": "22:00"
+        }
+      ],
+      "attributes": [
+        {
+          "key": "vegetarian-options",
+          "source": "osm:diet:vegetarian",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "verified_true",
+          "confidence": 0.8
+        },
+        {
+          "key": "lactose-free-options",
+          "source": "osm:diet:lactose_free",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "unknown",
+          "confidence": 0.6
+        },
+        {
+          "key": "wheelchair-accessible",
+          "source": "osm:wheelchair",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "verified_true",
+          "confidence": 0.8
+        },
+        {
+          "key": "outdoor-seating",
+          "source": "osm:outdoor_seating",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "verified_true",
+          "confidence": 0.8
+        },
+        {
+          "key": "dog-friendly",
+          "source": "osm:dog",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "unknown",
+          "confidence": 0.6
+        },
+        {
+          "key": "cuisine",
+          "value": "indian",
+          "status": "verified_true",
+          "source": "osm:cuisine",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "confidence": 0.8
+        },
+        {
+          "key": "price-level",
+          "value": 2,
+          "status": "unverified",
+          "source": "curated:berlin-mitte-2026-08",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "confidence": 0.6
+        },
+        {
+          "key": "hours",
+          "status": "unverified",
+          "source": "curated:berlin-mitte-2026-08",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "confidence": 0.6
+        }
+      ],
+      "mapRevision": 1,
+      "osmRef": "node/333136723"
+    },
+    {
+      "candidateId": "place_6",
+      "name": "Grimm Café",
+      "location": {
+        "lat": 52.5203576,
+        "lng": 13.3904824
+      },
+      "category": "cafe",
+      "priceLevel": 2,
+      "hours": [
+        {
+          "day": "mon",
+          "open": "08:00",
+          "close": "19:00"
+        },
+        {
+          "day": "tue",
+          "open": "08:00",
+          "close": "19:00"
+        },
+        {
+          "day": "wed",
+          "open": "08:00",
+          "close": "19:00"
+        },
+        {
+          "day": "thu",
+          "open": "08:00",
+          "close": "19:00"
+        },
+        {
+          "day": "fri",
+          "open": "08:00",
+          "close": "19:00"
+        },
+        {
+          "day": "sat",
+          "open": "12:00",
+          "close": "17:00"
+        },
+        {
+          "day": "sun",
+          "open": "12:00",
+          "close": "17:00"
+        }
+      ],
+      "attributes": [
+        {
+          "key": "vegetarian-options",
+          "source": "osm:diet:vegetarian",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "verified_true",
+          "confidence": 0.8
+        },
+        {
+          "key": "lactose-free-options",
+          "source": "osm:diet:lactose_free",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "unknown",
+          "confidence": 0.6
+        },
+        {
+          "key": "wheelchair-accessible",
+          "source": "osm:wheelchair",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "verified_true",
+          "confidence": 0.8
+        },
+        {
+          "key": "outdoor-seating",
+          "source": "osm:outdoor_seating",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "verified_true",
+          "confidence": 0.8
+        },
+        {
+          "key": "dog-friendly",
+          "source": "osm:dog",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "unknown",
+          "confidence": 0.6
+        },
+        {
+          "key": "cuisine",
+          "value": "coffee_shop;sandwich;ice_cream",
+          "status": "verified_true",
+          "source": "osm:cuisine",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "confidence": 0.8
+        },
+        {
+          "key": "price-level",
+          "value": 2,
+          "status": "unverified",
+          "source": "curated:berlin-mitte-2026-08",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "confidence": 0.6
+        }
+      ],
+      "mapRevision": 1,
+      "osmRef": "node/1811815459"
+    },
+    {
+      "candidateId": "place_7",
+      "name": "Sushi Miyabi",
+      "location": {
+        "lat": 52.5200705,
+        "lng": 13.3907181
+      },
+      "category": "restaurant",
+      "priceLevel": 2,
+      "hours": [
+        {
+          "day": "mon",
+          "open": "11:00",
+          "close": "23:59"
+        },
+        {
+          "day": "tue",
+          "open": "11:00",
+          "close": "23:59"
+        },
+        {
+          "day": "wed",
+          "open": "11:00",
+          "close": "23:59"
+        },
+        {
+          "day": "thu",
+          "open": "11:00",
+          "close": "23:59"
+        },
+        {
+          "day": "fri",
+          "open": "11:00",
+          "close": "23:59"
+        },
+        {
+          "day": "sat",
+          "open": "11:00",
+          "close": "23:59"
+        },
+        {
+          "day": "sun",
+          "open": "11:00",
+          "close": "23:59"
+        }
+      ],
+      "attributes": [
+        {
+          "key": "vegetarian-options",
+          "source": "osm:diet:vegetarian",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "verified_true",
+          "confidence": 0.8
+        },
+        {
+          "key": "lactose-free-options",
+          "source": "osm:diet:lactose_free",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "unknown",
+          "confidence": 0.6
+        },
+        {
+          "key": "wheelchair-accessible",
+          "source": "osm:wheelchair",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "verified_true",
+          "confidence": 0.8
+        },
+        {
+          "key": "outdoor-seating",
+          "source": "osm:outdoor_seating",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "verified_true",
+          "confidence": 0.8
+        },
+        {
+          "key": "dog-friendly",
+          "source": "osm:dog",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "unknown",
+          "confidence": 0.6
+        },
+        {
+          "key": "cuisine",
+          "status": "unknown",
+          "source": "osm:cuisine",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "confidence": 0.6
+        },
+        {
+          "key": "price-level",
+          "value": 2,
+          "status": "unverified",
+          "source": "curated:berlin-mitte-2026-08",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "confidence": 0.6
+        }
+      ],
+      "mapRevision": 1,
+      "osmRef": "node/2121102691"
+    },
+    {
+      "candidateId": "place_8",
+      "name": "Tex-Mex Cantina",
+      "location": {
+        "lat": 52.5199995,
+        "lng": 13.390001
+      },
+      "category": "restaurant",
+      "priceLevel": 2,
+      "hours": [
+        {
+          "day": "mon",
+          "open": "09:00",
+          "close": "22:00"
+        },
+        {
+          "day": "tue",
+          "open": "09:00",
+          "close": "22:00"
+        },
+        {
+          "day": "wed",
+          "open": "09:00",
+          "close": "22:00"
+        },
+        {
+          "day": "thu",
+          "open": "09:00",
+          "close": "22:00"
+        },
+        {
+          "day": "fri",
+          "open": "09:00",
+          "close": "22:00"
+        },
+        {
+          "day": "sat",
+          "open": "09:00",
+          "close": "22:00"
+        },
+        {
+          "day": "sun",
+          "open": "09:00",
+          "close": "22:00"
+        }
+      ],
+      "attributes": [
+        {
+          "key": "vegetarian-options",
+          "source": "osm:diet:vegetarian",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "verified_true",
+          "confidence": 0.8
+        },
+        {
+          "key": "lactose-free-options",
+          "source": "osm:diet:lactose_free",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "unknown",
+          "confidence": 0.6
+        },
+        {
+          "key": "wheelchair-accessible",
+          "source": "osm:wheelchair",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "verified_false",
+          "confidence": 0.8
+        },
+        {
+          "key": "outdoor-seating",
+          "source": "osm:outdoor_seating",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "verified_true",
+          "confidence": 0.8
+        },
+        {
+          "key": "dog-friendly",
+          "source": "osm:dog",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "unknown",
+          "confidence": 0.6
+        },
+        {
+          "key": "cuisine",
+          "value": "mexican",
+          "status": "verified_true",
+          "source": "osm:cuisine",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "confidence": 0.8
+        },
+        {
+          "key": "price-level",
+          "value": 2,
+          "status": "unverified",
+          "source": "curated:berlin-mitte-2026-08",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "confidence": 0.6
+        },
+        {
+          "key": "hours",
+          "status": "unverified",
+          "source": "curated:berlin-mitte-2026-08",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "confidence": 0.6
+        }
+      ],
+      "mapRevision": 1,
+      "osmRef": "node/530810715"
+    },
+    {
+      "candidateId": "place_9",
+      "name": "Chupenga",
+      "location": {
+        "lat": 52.5200022,
+        "lng": 13.3896382
+      },
+      "category": "fast_food",
+      "priceLevel": 1,
+      "hours": [
+        {
+          "day": "mon",
+          "open": "11:30",
+          "close": "20:00"
+        },
+        {
+          "day": "tue",
+          "open": "11:30",
+          "close": "20:00"
+        },
+        {
+          "day": "wed",
+          "open": "11:30",
+          "close": "20:00"
+        },
+        {
+          "day": "thu",
+          "open": "11:30",
+          "close": "20:00"
+        },
+        {
+          "day": "fri",
+          "open": "11:30",
+          "close": "20:00"
+        },
+        {
+          "day": "sat",
+          "open": "12:00",
+          "close": "20:00"
+        }
+      ],
+      "attributes": [
+        {
+          "key": "vegetarian-options",
+          "source": "osm:diet:vegetarian",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "verified_true",
+          "confidence": 0.8
+        },
+        {
+          "key": "lactose-free-options",
+          "status": "verified_false",
+          "confidence": 0.85,
+          "source": "curated:demo-2026-08",
+          "observedAt": "2026-08-31T21:52:21Z"
+        },
+        {
+          "key": "wheelchair-accessible",
+          "source": "osm:wheelchair",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "verified_false",
+          "confidence": 0.8
+        },
+        {
+          "key": "outdoor-seating",
+          "source": "osm:outdoor_seating",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "verified_true",
+          "confidence": 0.8
+        },
+        {
+          "key": "dog-friendly",
+          "source": "osm:dog",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "unknown",
+          "confidence": 0.6
+        },
+        {
+          "key": "cuisine",
+          "value": "burrito;salad",
+          "status": "verified_true",
+          "source": "osm:cuisine",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "confidence": 0.8
+        },
+        {
+          "key": "price-level",
+          "value": 1,
+          "status": "unverified",
+          "source": "curated:berlin-mitte-2026-08",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "confidence": 0.6
+        }
+      ],
+      "mapRevision": 1,
+      "osmRef": "node/9641470250"
+    },
+    {
+      "candidateId": "place_10",
+      "name": "Pure Origins",
+      "location": {
+        "lat": 52.5200936,
+        "lng": 13.3911123
+      },
+      "category": "cafe",
+      "priceLevel": 2,
+      "hours": [
+        {
+          "day": "mon",
+          "open": "09:00",
+          "close": "23:59"
+        },
+        {
+          "day": "tue",
+          "open": "09:00",
+          "close": "23:59"
+        },
+        {
+          "day": "wed",
+          "open": "09:00",
+          "close": "23:59"
+        },
+        {
+          "day": "thu",
+          "open": "09:00",
+          "close": "23:59"
+        },
+        {
+          "day": "fri",
+          "open": "09:00",
+          "close": "23:59"
+        },
+        {
+          "day": "sat",
+          "open": "09:00",
+          "close": "23:59"
+        },
+        {
+          "day": "sun",
+          "open": "09:00",
+          "close": "23:59"
+        }
+      ],
+      "attributes": [
+        {
+          "key": "vegetarian-options",
+          "source": "osm:diet:vegetarian",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "verified_true",
+          "confidence": 0.8
+        },
+        {
+          "key": "lactose-free-options",
+          "source": "osm:diet:lactose_free",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "unknown",
+          "confidence": 0.6
+        },
+        {
+          "key": "wheelchair-accessible",
+          "source": "osm:wheelchair",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "verified_true",
+          "confidence": 0.8
+        },
+        {
+          "key": "outdoor-seating",
+          "source": "osm:outdoor_seating",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "verified_true",
+          "confidence": 0.8
+        },
+        {
+          "key": "dog-friendly",
+          "source": "osm:dog",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "unknown",
+          "confidence": 0.6
+        },
+        {
+          "key": "cuisine",
+          "value": "coffee_shop",
+          "status": "verified_true",
+          "source": "osm:cuisine",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "confidence": 0.8
+        },
+        {
+          "key": "price-level",
+          "value": 2,
+          "status": "unverified",
+          "source": "curated:berlin-mitte-2026-08",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "confidence": 0.6
+        }
+      ],
+      "mapRevision": 1,
+      "osmRef": "node/989022916"
+    },
+    {
+      "candidateId": "place_11",
+      "name": "Haferkater",
+      "location": {
+        "lat": 52.5202791,
+        "lng": 13.3880524
+      },
+      "category": "cafe",
+      "priceLevel": 2,
+      "hours": [
+        {
+          "day": "mon",
+          "open": "06:00",
+          "close": "20:00"
+        },
+        {
+          "day": "tue",
+          "open": "06:00",
+          "close": "20:00"
+        },
+        {
+          "day": "wed",
+          "open": "06:00",
+          "close": "20:00"
+        },
+        {
+          "day": "thu",
+          "open": "06:00",
+          "close": "20:00"
+        },
+        {
+          "day": "fri",
+          "open": "06:00",
+          "close": "20:00"
+        },
+        {
+          "day": "sat",
+          "open": "07:00",
+          "close": "19:00"
+        },
+        {
+          "day": "sun",
+          "open": "07:00",
+          "close": "19:00"
+        }
+      ],
+      "attributes": [
+        {
+          "key": "vegetarian-options",
+          "source": "osm:diet:vegetarian",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "unknown",
+          "confidence": 0.6
+        },
+        {
+          "key": "lactose-free-options",
+          "source": "osm:diet:lactose_free",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "unknown",
+          "confidence": 0.6
+        },
+        {
+          "key": "wheelchair-accessible",
+          "source": "osm:wheelchair",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "verified_true",
+          "confidence": 0.8
+        },
+        {
+          "key": "outdoor-seating",
+          "source": "osm:outdoor_seating",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "verified_false",
+          "confidence": 0.8
+        },
+        {
+          "key": "dog-friendly",
+          "source": "osm:dog",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "unknown",
+          "confidence": 0.6
+        },
+        {
+          "key": "cuisine",
+          "status": "unknown",
+          "source": "osm:cuisine",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "confidence": 0.6
+        },
+        {
+          "key": "price-level",
+          "value": 2,
+          "status": "unverified",
+          "source": "curated:berlin-mitte-2026-08",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "confidence": 0.6
+        }
+      ],
+      "mapRevision": 1,
+      "osmRef": "way/397579531"
+    },
+    {
+      "candidateId": "place_12",
+      "name": "Restaurant Nolle",
+      "location": {
+        "lat": 52.5199871,
+        "lng": 13.3890697
+      },
+      "category": "restaurant",
+      "priceLevel": 2,
+      "hours": [
+        {
+          "day": "mon",
+          "open": "09:00",
+          "close": "22:00"
+        },
+        {
+          "day": "tue",
+          "open": "09:00",
+          "close": "22:00"
+        },
+        {
+          "day": "wed",
+          "open": "09:00",
+          "close": "22:00"
+        },
+        {
+          "day": "thu",
+          "open": "09:00",
+          "close": "22:00"
+        },
+        {
+          "day": "fri",
+          "open": "09:00",
+          "close": "22:00"
+        },
+        {
+          "day": "sat",
+          "open": "09:00",
+          "close": "22:00"
+        },
+        {
+          "day": "sun",
+          "open": "09:00",
+          "close": "22:00"
+        }
+      ],
+      "attributes": [
+        {
+          "key": "vegetarian-options",
+          "source": "osm:diet:vegetarian",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "verified_true",
+          "confidence": 0.8
+        },
+        {
+          "key": "lactose-free-options",
+          "source": "osm:diet:lactose_free",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "unknown",
+          "confidence": 0.6
+        },
+        {
+          "key": "wheelchair-accessible",
+          "source": "osm:wheelchair",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "verified_true",
+          "confidence": 0.8
+        },
+        {
+          "key": "outdoor-seating",
+          "source": "osm:outdoor_seating",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "verified_true",
+          "confidence": 0.8
+        },
+        {
+          "key": "dog-friendly",
+          "source": "osm:dog",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "unknown",
+          "confidence": 0.6
+        },
+        {
+          "key": "cuisine",
+          "value": "regional",
+          "status": "verified_true",
+          "source": "osm:cuisine",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "confidence": 0.8
+        },
+        {
+          "key": "price-level",
+          "value": 2,
+          "status": "unverified",
+          "source": "curated:berlin-mitte-2026-08",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "confidence": 0.6
+        },
+        {
+          "key": "hours",
+          "status": "unverified",
+          "source": "curated:berlin-mitte-2026-08",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "confidence": 0.6
+        }
+      ],
+      "mapRevision": 1,
+      "osmRef": "node/622085173"
+    },
+    {
+      "candidateId": "place_13",
+      "name": "Witty's Bio-Currywurst",
+      "location": {
+        "lat": 52.5202451,
+        "lng": 13.3881131
+      },
+      "category": "fast_food",
+      "priceLevel": 1,
+      "hours": [
+        {
+          "day": "mon",
+          "open": "10:00",
+          "close": "23:30"
+        },
+        {
+          "day": "tue",
+          "open": "10:00",
+          "close": "23:30"
+        },
+        {
+          "day": "wed",
+          "open": "10:00",
+          "close": "23:30"
+        },
+        {
+          "day": "thu",
+          "open": "10:00",
+          "close": "23:30"
+        },
+        {
+          "day": "fri",
+          "open": "10:00",
+          "close": "23:30"
+        },
+        {
+          "day": "sat",
+          "open": "10:00",
+          "close": "23:30"
+        },
+        {
+          "day": "sun",
+          "open": "10:00",
+          "close": "23:30"
+        }
+      ],
+      "attributes": [
+        {
+          "key": "vegetarian-options",
+          "source": "osm:diet:vegetarian",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "unknown",
+          "confidence": 0.6
+        },
+        {
+          "key": "lactose-free-options",
+          "source": "osm:diet:lactose_free",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "unknown",
+          "confidence": 0.6
+        },
+        {
+          "key": "wheelchair-accessible",
+          "source": "osm:wheelchair",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "verified_true",
+          "confidence": 0.8
+        },
+        {
+          "key": "outdoor-seating",
+          "source": "osm:outdoor_seating",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "verified_false",
+          "confidence": 0.8
+        },
+        {
+          "key": "dog-friendly",
+          "source": "osm:dog",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "unknown",
+          "confidence": 0.6
+        },
+        {
+          "key": "cuisine",
+          "status": "unknown",
+          "source": "osm:cuisine",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "confidence": 0.6
+        },
+        {
+          "key": "price-level",
+          "value": 1,
+          "status": "unverified",
+          "source": "curated:berlin-mitte-2026-08",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "confidence": 0.6
+        }
+      ],
+      "mapRevision": 1,
+      "osmRef": "node/10134091439"
+    },
+    {
+      "candidateId": "place_14",
+      "name": "DaVinci",
+      "location": {
+        "lat": 52.5201096,
+        "lng": 13.3912976
+      },
+      "category": "restaurant",
+      "priceLevel": 2,
+      "hours": [
+        {
+          "day": "mon",
+          "open": "10:00",
+          "close": "23:59"
+        },
+        {
+          "day": "tue",
+          "open": "10:00",
+          "close": "23:59"
+        },
+        {
+          "day": "wed",
+          "open": "10:00",
+          "close": "23:59"
+        },
+        {
+          "day": "thu",
+          "open": "10:00",
+          "close": "23:59"
+        },
+        {
+          "day": "fri",
+          "open": "10:00",
+          "close": "23:59"
+        },
+        {
+          "day": "sat",
+          "open": "10:00",
+          "close": "23:59"
+        },
+        {
+          "day": "sun",
+          "open": "10:00",
+          "close": "23:59"
+        }
+      ],
+      "attributes": [
+        {
+          "key": "vegetarian-options",
+          "source": "osm:diet:vegetarian",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "verified_true",
+          "confidence": 0.8
+        },
+        {
+          "key": "lactose-free-options",
+          "source": "osm:diet:lactose_free",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "unknown",
+          "confidence": 0.6
+        },
+        {
+          "key": "wheelchair-accessible",
+          "source": "osm:wheelchair",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "verified_true",
+          "confidence": 0.8
+        },
+        {
+          "key": "outdoor-seating",
+          "source": "osm:outdoor_seating",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "verified_true",
+          "confidence": 0.8
+        },
+        {
+          "key": "dog-friendly",
+          "source": "osm:dog",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "unknown",
+          "confidence": 0.6
+        },
+        {
+          "key": "cuisine",
+          "value": "italian",
+          "status": "verified_true",
+          "source": "osm:cuisine",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "confidence": 0.8
+        },
+        {
+          "key": "price-level",
+          "value": 2,
+          "status": "unverified",
+          "source": "curated:berlin-mitte-2026-08",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "confidence": 0.6
+        }
+      ],
+      "mapRevision": 1,
+      "osmRef": "node/989022912"
+    },
+    {
+      "candidateId": "place_15",
+      "name": "Bertolt-Brecht-Platz",
+      "location": {
+        "lat": 52.5222104,
+        "lng": 13.3866637
+      },
+      "category": "park",
+      "priceLevel": 1,
+      "hours": [
+        {
+          "day": "mon",
+          "open": "09:00",
+          "close": "22:00"
+        },
+        {
+          "day": "tue",
+          "open": "09:00",
+          "close": "22:00"
+        },
+        {
+          "day": "wed",
+          "open": "09:00",
+          "close": "22:00"
+        },
+        {
+          "day": "thu",
+          "open": "09:00",
+          "close": "22:00"
+        },
+        {
+          "day": "fri",
+          "open": "09:00",
+          "close": "22:00"
+        },
+        {
+          "day": "sat",
+          "open": "09:00",
+          "close": "22:00"
+        },
+        {
+          "day": "sun",
+          "open": "09:00",
+          "close": "22:00"
+        }
+      ],
+      "attributes": [
+        {
+          "key": "vegetarian-options",
+          "source": "osm:diet:vegetarian",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "unknown",
+          "confidence": 0.6
+        },
+        {
+          "key": "lactose-free-options",
+          "source": "osm:diet:lactose_free",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "unknown",
+          "confidence": 0.6
+        },
+        {
+          "key": "wheelchair-accessible",
+          "source": "osm:wheelchair",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "unknown",
+          "confidence": 0.6
+        },
+        {
+          "key": "outdoor-seating",
+          "source": "osm:outdoor_seating",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "unknown",
+          "confidence": 0.6
+        },
+        {
+          "key": "dog-friendly",
+          "source": "osm:dog",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "unknown",
+          "confidence": 0.6
+        },
+        {
+          "key": "cuisine",
+          "status": "unknown",
+          "source": "osm:cuisine",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "confidence": 0.6
+        },
+        {
+          "key": "price-level",
+          "value": 1,
+          "status": "unverified",
+          "source": "curated:berlin-mitte-2026-08",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "confidence": 0.6
+        },
+        {
+          "key": "hours",
+          "status": "unverified",
+          "source": "curated:berlin-mitte-2026-08",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "confidence": 0.6
+        }
+      ],
+      "mapRevision": 1,
+      "osmRef": "way/164039096"
+    },
+    {
+      "candidateId": "place_16",
+      "name": "Mishba",
+      "location": {
+        "lat": 52.5199855,
+        "lng": 13.3884973
+      },
+      "category": "fast_food",
+      "priceLevel": 1,
+      "hours": [
+        {
+          "day": "mon",
+          "open": "10:00",
+          "close": "19:00"
+        },
+        {
+          "day": "tue",
+          "open": "10:00",
+          "close": "19:00"
+        },
+        {
+          "day": "wed",
+          "open": "10:00",
+          "close": "19:00"
+        },
+        {
+          "day": "thu",
+          "open": "10:00",
+          "close": "19:00"
+        },
+        {
+          "day": "fri",
+          "open": "10:00",
+          "close": "19:00"
+        },
+        {
+          "day": "sat",
+          "open": "10:00",
+          "close": "18:00"
+        }
+      ],
+      "attributes": [
+        {
+          "key": "vegetarian-options",
+          "source": "osm:diet:vegetarian",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "verified_true",
+          "confidence": 0.8
+        },
+        {
+          "key": "lactose-free-options",
+          "source": "osm:diet:lactose_free",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "unknown",
+          "confidence": 0.6
+        },
+        {
+          "key": "wheelchair-accessible",
+          "source": "osm:wheelchair",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "verified_true",
+          "confidence": 0.8
+        },
+        {
+          "key": "outdoor-seating",
+          "source": "osm:outdoor_seating",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "verified_false",
+          "confidence": 0.8
+        },
+        {
+          "key": "dog-friendly",
+          "source": "osm:dog",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "unknown",
+          "confidence": 0.6
+        },
+        {
+          "key": "cuisine",
+          "value": "mexican;burrito;kumpir;salad",
+          "status": "verified_true",
+          "source": "osm:cuisine",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "confidence": 0.8
+        },
+        {
+          "key": "price-level",
+          "value": 1,
+          "status": "unverified",
+          "source": "curated:berlin-mitte-2026-08",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "confidence": 0.6
+        }
+      ],
+      "mapRevision": 1,
+      "osmRef": "node/6498044658"
+    },
+    {
+      "candidateId": "place_17",
+      "name": "dean&david",
+      "location": {
+        "lat": 52.5197964,
+        "lng": 13.3892871
+      },
+      "category": "fast_food",
+      "priceLevel": 1,
+      "hours": [
+        {
+          "day": "mon",
+          "open": "10:00",
+          "close": "21:00"
+        },
+        {
+          "day": "tue",
+          "open": "10:00",
+          "close": "21:00"
+        },
+        {
+          "day": "wed",
+          "open": "10:00",
+          "close": "21:00"
+        },
+        {
+          "day": "thu",
+          "open": "10:00",
+          "close": "21:00"
+        },
+        {
+          "day": "fri",
+          "open": "10:00",
+          "close": "21:00"
+        },
+        {
+          "day": "sat",
+          "open": "11:00",
+          "close": "20:00"
+        },
+        {
+          "day": "sun",
+          "open": "11:00",
+          "close": "20:00"
+        }
+      ],
+      "attributes": [
+        {
+          "key": "vegetarian-options",
+          "source": "osm:diet:vegetarian",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "verified_true",
+          "confidence": 0.8
+        },
+        {
+          "key": "lactose-free-options",
+          "status": "verified_false",
+          "confidence": 0.85,
+          "source": "curated:demo-2026-08",
+          "observedAt": "2026-08-31T21:52:21Z"
+        },
+        {
+          "key": "wheelchair-accessible",
+          "source": "osm:wheelchair",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "unverified",
+          "confidence": 0.6
+        },
+        {
+          "key": "outdoor-seating",
+          "source": "osm:outdoor_seating",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "verified_true",
+          "confidence": 0.8
+        },
+        {
+          "key": "dog-friendly",
+          "source": "osm:dog",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "unknown",
+          "confidence": 0.6
+        },
+        {
+          "key": "cuisine",
+          "value": "salad;sandwich",
+          "status": "verified_true",
+          "source": "osm:cuisine",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "confidence": 0.8
+        },
+        {
+          "key": "price-level",
+          "value": 1,
+          "status": "unverified",
+          "source": "curated:berlin-mitte-2026-08",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "confidence": 0.6
+        }
+      ],
+      "mapRevision": 1,
+      "osmRef": "node/333136725"
+    },
+    {
+      "candidateId": "place_18",
+      "name": "AsiaGourmet",
+      "location": {
+        "lat": 52.5205148,
+        "lng": 13.3869402
+      },
+      "category": "fast_food",
+      "priceLevel": 1,
+      "hours": [
+        {
+          "day": "mon",
+          "open": "08:00",
+          "close": "20:00"
+        },
+        {
+          "day": "tue",
+          "open": "08:00",
+          "close": "20:00"
+        },
+        {
+          "day": "wed",
+          "open": "08:00",
+          "close": "20:00"
+        },
+        {
+          "day": "thu",
+          "open": "08:00",
+          "close": "20:00"
+        },
+        {
+          "day": "fri",
+          "open": "08:00",
+          "close": "20:00"
+        },
+        {
+          "day": "sat",
+          "open": "08:00",
+          "close": "20:00"
+        },
+        {
+          "day": "sun",
+          "open": "08:00",
+          "close": "20:00"
+        }
+      ],
+      "attributes": [
+        {
+          "key": "vegetarian-options",
+          "source": "osm:diet:vegetarian",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "verified_true",
+          "confidence": 0.8
+        },
+        {
+          "key": "lactose-free-options",
+          "source": "osm:diet:lactose_free",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "unknown",
+          "confidence": 0.6
+        },
+        {
+          "key": "wheelchair-accessible",
+          "source": "osm:wheelchair",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "verified_true",
+          "confidence": 0.8
+        },
+        {
+          "key": "outdoor-seating",
+          "source": "osm:outdoor_seating",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "verified_true",
+          "confidence": 0.8
+        },
+        {
+          "key": "dog-friendly",
+          "source": "osm:dog",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "unknown",
+          "confidence": 0.6
+        },
+        {
+          "key": "cuisine",
+          "value": "asian",
+          "status": "verified_true",
+          "source": "osm:cuisine",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "confidence": 0.8
+        },
+        {
+          "key": "price-level",
+          "value": 1,
+          "status": "unverified",
+          "source": "curated:berlin-mitte-2026-08",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "confidence": 0.6
+        }
+      ],
+      "mapRevision": 1,
+      "osmRef": "way/335561910"
+    },
+    {
+      "candidateId": "place_19",
+      "name": "Giotto",
+      "location": {
+        "lat": 52.5237305,
+        "lng": 13.387434
+      },
+      "category": "restaurant",
+      "priceLevel": 2,
+      "hours": [
+        {
+          "day": "mon",
+          "open": "09:00",
+          "close": "22:00"
+        },
+        {
+          "day": "tue",
+          "open": "09:00",
+          "close": "22:00"
+        },
+        {
+          "day": "wed",
+          "open": "09:00",
+          "close": "22:00"
+        },
+        {
+          "day": "thu",
+          "open": "09:00",
+          "close": "22:00"
+        },
+        {
+          "day": "fri",
+          "open": "09:00",
+          "close": "22:00"
+        },
+        {
+          "day": "sat",
+          "open": "09:00",
+          "close": "22:00"
+        },
+        {
+          "day": "sun",
+          "open": "09:00",
+          "close": "22:00"
+        }
+      ],
+      "attributes": [
+        {
+          "key": "vegetarian-options",
+          "source": "osm:diet:vegetarian",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "unknown",
+          "confidence": 0.6
+        },
+        {
+          "key": "lactose-free-options",
+          "source": "osm:diet:lactose_free",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "unknown",
+          "confidence": 0.6
+        },
+        {
+          "key": "wheelchair-accessible",
+          "source": "osm:wheelchair",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "verified_false",
+          "confidence": 0.8
+        },
+        {
+          "key": "outdoor-seating",
+          "source": "osm:outdoor_seating",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "verified_true",
+          "confidence": 0.8
+        },
+        {
+          "key": "dog-friendly",
+          "source": "osm:dog",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "unknown",
+          "confidence": 0.6
+        },
+        {
+          "key": "cuisine",
+          "value": "italian",
+          "status": "verified_true",
+          "source": "osm:cuisine",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "confidence": 0.8
+        },
+        {
+          "key": "price-level",
+          "value": 2,
+          "status": "unverified",
+          "source": "curated:berlin-mitte-2026-08",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "confidence": 0.6
+        },
+        {
+          "key": "hours",
+          "status": "unverified",
+          "source": "curated:berlin-mitte-2026-08",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "confidence": 0.6
+        }
+      ],
+      "mapRevision": 1,
+      "osmRef": "node/622642558"
+    },
+    {
+      "candidateId": "place_20",
+      "name": "Monbijoupark",
+      "location": {
+        "lat": 52.5231766,
+        "lng": 13.3968173
+      },
+      "category": "park",
+      "priceLevel": 1,
+      "hours": [
+        {
+          "day": "mon",
+          "open": "09:00",
+          "close": "22:00"
+        },
+        {
+          "day": "tue",
+          "open": "09:00",
+          "close": "22:00"
+        },
+        {
+          "day": "wed",
+          "open": "09:00",
+          "close": "22:00"
+        },
+        {
+          "day": "thu",
+          "open": "09:00",
+          "close": "22:00"
+        },
+        {
+          "day": "fri",
+          "open": "09:00",
+          "close": "22:00"
+        },
+        {
+          "day": "sat",
+          "open": "09:00",
+          "close": "22:00"
+        },
+        {
+          "day": "sun",
+          "open": "09:00",
+          "close": "22:00"
+        }
+      ],
+      "attributes": [
+        {
+          "key": "vegetarian-options",
+          "source": "osm:diet:vegetarian",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "unknown",
+          "confidence": 0.6
+        },
+        {
+          "key": "lactose-free-options",
+          "source": "osm:diet:lactose_free",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "unknown",
+          "confidence": 0.6
+        },
+        {
+          "key": "wheelchair-accessible",
+          "source": "osm:wheelchair",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "unknown",
+          "confidence": 0.6
+        },
+        {
+          "key": "outdoor-seating",
+          "source": "osm:outdoor_seating",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "unknown",
+          "confidence": 0.6
+        },
+        {
+          "key": "dog-friendly",
+          "source": "osm:dog",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "unknown",
+          "confidence": 0.6
+        },
+        {
+          "key": "cuisine",
+          "status": "unknown",
+          "source": "osm:cuisine",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "confidence": 0.6
+        },
+        {
+          "key": "price-level",
+          "value": 1,
+          "status": "unverified",
+          "source": "curated:berlin-mitte-2026-08",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "confidence": 0.6
+        },
+        {
+          "key": "hours",
+          "status": "unverified",
+          "source": "curated:berlin-mitte-2026-08",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "confidence": 0.6
+        }
+      ],
+      "mapRevision": 1,
+      "osmRef": "way/340138573"
+    },
+    {
+      "candidateId": "place_21",
+      "name": "James-Simon-Park",
+      "location": {
+        "lat": 52.5218237,
+        "lng": 13.3990281
+      },
+      "category": "park",
+      "priceLevel": 1,
+      "hours": [
+        {
+          "day": "mon",
+          "open": "09:00",
+          "close": "22:00"
+        },
+        {
+          "day": "tue",
+          "open": "09:00",
+          "close": "22:00"
+        },
+        {
+          "day": "wed",
+          "open": "09:00",
+          "close": "22:00"
+        },
+        {
+          "day": "thu",
+          "open": "09:00",
+          "close": "22:00"
+        },
+        {
+          "day": "fri",
+          "open": "09:00",
+          "close": "22:00"
+        },
+        {
+          "day": "sat",
+          "open": "09:00",
+          "close": "22:00"
+        },
+        {
+          "day": "sun",
+          "open": "09:00",
+          "close": "22:00"
+        }
+      ],
+      "attributes": [
+        {
+          "key": "vegetarian-options",
+          "source": "osm:diet:vegetarian",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "unknown",
+          "confidence": 0.6
+        },
+        {
+          "key": "lactose-free-options",
+          "source": "osm:diet:lactose_free",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "unknown",
+          "confidence": 0.6
+        },
+        {
+          "key": "wheelchair-accessible",
+          "source": "osm:wheelchair",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "unknown",
+          "confidence": 0.6
+        },
+        {
+          "key": "outdoor-seating",
+          "source": "osm:outdoor_seating",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "unknown",
+          "confidence": 0.6
+        },
+        {
+          "key": "dog-friendly",
+          "source": "osm:dog",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "unknown",
+          "confidence": 0.6
+        },
+        {
+          "key": "cuisine",
+          "status": "unknown",
+          "source": "osm:cuisine",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "confidence": 0.6
+        },
+        {
+          "key": "price-level",
+          "value": 1,
+          "status": "unverified",
+          "source": "curated:berlin-mitte-2026-08",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "confidence": 0.6
+        },
+        {
+          "key": "hours",
+          "status": "unverified",
+          "source": "curated:berlin-mitte-2026-08",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "confidence": 0.6
+        }
+      ],
+      "mapRevision": 1,
+      "osmRef": "way/23852021"
+    },
+    {
+      "candidateId": "place_22",
+      "name": "Salamat",
+      "location": {
+        "lat": 52.5287165,
+        "lng": 13.3938491
+      },
+      "category": "restaurant",
+      "priceLevel": 2,
+      "hours": [
+        {
+          "day": "mon",
+          "open": "12:00",
+          "close": "23:00"
+        },
+        {
+          "day": "tue",
+          "open": "12:00",
+          "close": "23:00"
+        },
+        {
+          "day": "wed",
+          "open": "12:00",
+          "close": "23:00"
+        },
+        {
+          "day": "thu",
+          "open": "12:00",
+          "close": "23:00"
+        },
+        {
+          "day": "fri",
+          "open": "12:00",
+          "close": "23:00"
+        },
+        {
+          "day": "sat",
+          "open": "12:00",
+          "close": "23:00"
+        },
+        {
+          "day": "sun",
+          "open": "12:00",
+          "close": "23:00"
+        }
+      ],
+      "attributes": [
+        {
+          "key": "vegetarian-options",
+          "source": "osm:diet:vegetarian",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "verified_true",
+          "confidence": 0.8
+        },
+        {
+          "key": "lactose-free-options",
+          "source": "osm:diet:lactose_free",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "unknown",
+          "confidence": 0.6
+        },
+        {
+          "key": "wheelchair-accessible",
+          "source": "osm:wheelchair",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "verified_false",
+          "confidence": 0.8
+        },
+        {
+          "key": "outdoor-seating",
+          "source": "osm:outdoor_seating",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "verified_true",
+          "confidence": 0.8
+        },
+        {
+          "key": "dog-friendly",
+          "source": "osm:dog",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "unknown",
+          "confidence": 0.6
+        },
+        {
+          "key": "cuisine",
+          "value": "arab;oriental",
+          "status": "verified_true",
+          "source": "osm:cuisine",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "confidence": 0.8
+        },
+        {
+          "key": "price-level",
+          "value": 2,
+          "status": "unverified",
+          "source": "curated:berlin-mitte-2026-08",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "confidence": 0.6
+        }
+      ],
+      "mapRevision": 1,
+      "osmRef": "node/4948138026"
+    },
+    {
+      "candidateId": "place_23",
+      "name": "Coréen",
+      "location": {
+        "lat": 52.5287357,
+        "lng": 13.3939791
+      },
+      "category": "restaurant",
+      "priceLevel": 2,
+      "hours": [
+        {
+          "day": "mon",
+          "open": "12:00",
+          "close": "22:00"
+        },
+        {
+          "day": "tue",
+          "open": "12:00",
+          "close": "22:00"
+        },
+        {
+          "day": "wed",
+          "open": "12:00",
+          "close": "22:00"
+        },
+        {
+          "day": "thu",
+          "open": "12:00",
+          "close": "22:00"
+        },
+        {
+          "day": "fri",
+          "open": "12:00",
+          "close": "22:00"
+        },
+        {
+          "day": "sat",
+          "open": "13:00",
+          "close": "22:00"
+        },
+        {
+          "day": "sun",
+          "open": "13:00",
+          "close": "20:00"
+        }
+      ],
+      "attributes": [
+        {
+          "key": "vegetarian-options",
+          "source": "osm:diet:vegetarian",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "verified_true",
+          "confidence": 0.8
+        },
+        {
+          "key": "lactose-free-options",
+          "source": "osm:diet:lactose_free",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "unknown",
+          "confidence": 0.6
+        },
+        {
+          "key": "wheelchair-accessible",
+          "source": "osm:wheelchair",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "verified_false",
+          "confidence": 0.8
+        },
+        {
+          "key": "outdoor-seating",
+          "source": "osm:outdoor_seating",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "verified_true",
+          "confidence": 0.8
+        },
+        {
+          "key": "dog-friendly",
+          "source": "osm:dog",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "unknown",
+          "confidence": 0.6
+        },
+        {
+          "key": "cuisine",
+          "value": "korean",
+          "status": "verified_true",
+          "source": "osm:cuisine",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "confidence": 0.8
+        },
+        {
+          "key": "price-level",
+          "value": 2,
+          "status": "unverified",
+          "source": "curated:berlin-mitte-2026-08",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "confidence": 0.6
+        }
+      ],
+      "mapRevision": 1,
+      "osmRef": "node/6411599293"
+    },
+    {
+      "candidateId": "place_24",
+      "name": "The Barn",
+      "location": {
+        "lat": 52.5274504,
+        "lng": 13.3981267
+      },
+      "category": "cafe",
+      "priceLevel": 2,
+      "hours": [
+        {
+          "day": "mon",
+          "open": "09:00",
+          "close": "22:00"
+        },
+        {
+          "day": "tue",
+          "open": "09:00",
+          "close": "22:00"
+        },
+        {
+          "day": "wed",
+          "open": "09:00",
+          "close": "22:00"
+        },
+        {
+          "day": "thu",
+          "open": "09:00",
+          "close": "22:00"
+        },
+        {
+          "day": "fri",
+          "open": "09:00",
+          "close": "22:00"
+        },
+        {
+          "day": "sat",
+          "open": "09:00",
+          "close": "22:00"
+        },
+        {
+          "day": "sun",
+          "open": "09:00",
+          "close": "22:00"
+        }
+      ],
+      "attributes": [
+        {
+          "key": "vegetarian-options",
+          "source": "osm:diet:vegetarian",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "verified_true",
+          "confidence": 0.8
+        },
+        {
+          "key": "lactose-free-options",
+          "status": "verified_true",
+          "confidence": 0.9,
+          "source": "curated:demo-2026-08",
+          "observedAt": "2026-08-31T21:52:21Z"
+        },
+        {
+          "key": "wheelchair-accessible",
+          "source": "osm:wheelchair",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "verified_true",
+          "confidence": 0.8
+        },
+        {
+          "key": "outdoor-seating",
+          "source": "osm:outdoor_seating",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "verified_true",
+          "confidence": 0.8
+        },
+        {
+          "key": "dog-friendly",
+          "source": "osm:dog",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "unknown",
+          "confidence": 0.6
+        },
+        {
+          "key": "cuisine",
+          "value": "coffee_shop",
+          "status": "verified_true",
+          "source": "osm:cuisine",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "confidence": 0.8
+        },
+        {
+          "key": "price-level",
+          "value": 2,
+          "status": "verified_true",
+          "source": "curated:demo-2026-08",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "confidence": 0.9
+        },
+        {
+          "key": "hours",
+          "status": "unverified",
+          "source": "curated:berlin-mitte-2026-08",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "confidence": 0.6
+        }
+      ],
+      "mapRevision": 1,
+      "osmRef": "node/3868790051"
+    },
+    {
+      "candidateId": "place_25",
+      "name": "Kebap with Attitude",
+      "location": {
+        "lat": 52.5272448,
+        "lng": 13.3991334
+      },
+      "category": "restaurant",
+      "priceLevel": 1,
+      "hours": [
+        {
+          "day": "mon",
+          "open": "12:00",
+          "close": "23:00"
+        },
+        {
+          "day": "tue",
+          "open": "12:00",
+          "close": "23:00"
+        },
+        {
+          "day": "wed",
+          "open": "12:00",
+          "close": "23:00"
+        },
+        {
+          "day": "thu",
+          "open": "12:00",
+          "close": "23:00"
+        },
+        {
+          "day": "fri",
+          "open": "12:00",
+          "close": "23:00"
+        },
+        {
+          "day": "sat",
+          "open": "12:00",
+          "close": "23:00"
+        },
+        {
+          "day": "sun",
+          "open": "12:00",
+          "close": "23:00"
+        }
+      ],
+      "attributes": [
+        {
+          "key": "vegetarian-options",
+          "source": "osm:diet:vegetarian",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "verified_true",
+          "confidence": 0.8
+        },
+        {
+          "key": "lactose-free-options",
+          "status": "verified_true",
+          "confidence": 0.9,
+          "source": "curated:demo-2026-08",
+          "observedAt": "2026-08-31T21:52:21Z"
+        },
+        {
+          "key": "wheelchair-accessible",
+          "source": "osm:wheelchair",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "verified_false",
+          "confidence": 0.8
+        },
+        {
+          "key": "outdoor-seating",
+          "source": "osm:outdoor_seating",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "verified_true",
+          "confidence": 0.8
+        },
+        {
+          "key": "dog-friendly",
+          "source": "osm:dog",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "unknown",
+          "confidence": 0.6
+        },
+        {
+          "key": "cuisine",
+          "value": "kebab",
+          "status": "verified_true",
+          "source": "osm:cuisine",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "confidence": 0.8
+        },
+        {
+          "key": "price-level",
+          "value": 1,
+          "status": "verified_true",
+          "source": "curated:demo-2026-08",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "confidence": 0.9
+        }
+      ],
+      "mapRevision": 1,
+      "osmRef": "node/6708250137"
+    },
+    {
+      "candidateId": "place_26",
+      "name": "Takumi Nine 2",
+      "location": {
+        "lat": 52.5290127,
+        "lng": 13.3847516
+      },
+      "category": "restaurant",
+      "priceLevel": 2,
+      "hours": [
+        {
+          "day": "mon",
+          "open": "12:00",
+          "close": "14:30"
+        },
+        {
+          "day": "tue",
+          "open": "12:00",
+          "close": "14:30"
+        },
+        {
+          "day": "wed",
+          "open": "12:00",
+          "close": "14:30"
+        },
+        {
+          "day": "thu",
+          "open": "12:00",
+          "close": "14:30"
+        },
+        {
+          "day": "fri",
+          "open": "12:00",
+          "close": "14:30"
+        },
+        {
+          "day": "sat",
+          "open": "12:30",
+          "close": "21:30"
+        },
+        {
+          "day": "sun",
+          "open": "12:30",
+          "close": "21:30"
+        }
+      ],
+      "attributes": [
+        {
+          "key": "vegetarian-options",
+          "source": "osm:diet:vegetarian",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "verified_true",
+          "confidence": 0.8
+        },
+        {
+          "key": "lactose-free-options",
+          "source": "osm:diet:lactose_free",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "unknown",
+          "confidence": 0.6
+        },
+        {
+          "key": "wheelchair-accessible",
+          "source": "osm:wheelchair",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "verified_false",
+          "confidence": 0.8
+        },
+        {
+          "key": "outdoor-seating",
+          "source": "osm:outdoor_seating",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "verified_true",
+          "confidence": 0.8
+        },
+        {
+          "key": "dog-friendly",
+          "source": "osm:dog",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "unknown",
+          "confidence": 0.6
+        },
+        {
+          "key": "cuisine",
+          "value": "japanese;ramen",
+          "status": "verified_true",
+          "source": "osm:cuisine",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "confidence": 0.8
+        },
+        {
+          "key": "price-level",
+          "value": 2,
+          "status": "unverified",
+          "source": "curated:berlin-mitte-2026-08",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "confidence": 0.6
+        }
+      ],
+      "mapRevision": 1,
+      "osmRef": "node/5299293914"
+    },
+    {
+      "candidateId": "place_27",
+      "name": "Röststätte",
+      "location": {
+        "lat": 52.5241937,
+        "lng": 13.4022118
+      },
+      "category": "cafe",
+      "priceLevel": 2,
+      "hours": [
+        {
+          "day": "mon",
+          "open": "09:00",
+          "close": "18:00"
+        },
+        {
+          "day": "tue",
+          "open": "09:00",
+          "close": "18:00"
+        },
+        {
+          "day": "wed",
+          "open": "09:00",
+          "close": "18:00"
+        },
+        {
+          "day": "thu",
+          "open": "09:00",
+          "close": "18:00"
+        },
+        {
+          "day": "fri",
+          "open": "09:00",
+          "close": "18:00"
+        },
+        {
+          "day": "sat",
+          "open": "10:00",
+          "close": "18:30"
+        }
+      ],
+      "attributes": [
+        {
+          "key": "vegetarian-options",
+          "source": "osm:diet:vegetarian",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "verified_true",
+          "confidence": 0.8
+        },
+        {
+          "key": "lactose-free-options",
+          "source": "osm:diet:lactose_free",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "unknown",
+          "confidence": 0.6
+        },
+        {
+          "key": "wheelchair-accessible",
+          "source": "osm:wheelchair",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "unverified",
+          "confidence": 0.6
+        },
+        {
+          "key": "outdoor-seating",
+          "source": "osm:outdoor_seating",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "verified_true",
+          "confidence": 0.8
+        },
+        {
+          "key": "dog-friendly",
+          "source": "osm:dog",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "unknown",
+          "confidence": 0.6
+        },
+        {
+          "key": "cuisine",
+          "value": "coffee_shop",
+          "status": "verified_true",
+          "source": "osm:cuisine",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "confidence": 0.8
+        },
+        {
+          "key": "price-level",
+          "value": 2,
+          "status": "unverified",
+          "source": "curated:berlin-mitte-2026-08",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "confidence": 0.6
+        }
+      ],
+      "mapRevision": 1,
+      "osmRef": "node/615147093"
+    },
+    {
+      "candidateId": "place_28",
+      "name": "Hackescher Hof",
+      "location": {
+        "lat": 52.5239323,
+        "lng": 13.4024078
+      },
+      "category": "restaurant",
+      "priceLevel": 2,
+      "hours": [
+        {
+          "day": "mon",
+          "open": "09:00",
+          "close": "23:00"
+        },
+        {
+          "day": "tue",
+          "open": "09:00",
+          "close": "23:00"
+        },
+        {
+          "day": "wed",
+          "open": "09:00",
+          "close": "23:00"
+        },
+        {
+          "day": "thu",
+          "open": "09:00",
+          "close": "23:00"
+        },
+        {
+          "day": "fri",
+          "open": "09:00",
+          "close": "23:00"
+        },
+        {
+          "day": "sat",
+          "open": "09:00",
+          "close": "23:00"
+        },
+        {
+          "day": "sun",
+          "open": "09:00",
+          "close": "23:00"
+        }
+      ],
+      "attributes": [
+        {
+          "key": "vegetarian-options",
+          "source": "osm:diet:vegetarian",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "verified_true",
+          "confidence": 0.8
+        },
+        {
+          "key": "lactose-free-options",
+          "source": "osm:diet:lactose_free",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "unknown",
+          "confidence": 0.6
+        },
+        {
+          "key": "wheelchair-accessible",
+          "source": "osm:wheelchair",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "unverified",
+          "confidence": 0.6
+        },
+        {
+          "key": "outdoor-seating",
+          "source": "osm:outdoor_seating",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "verified_true",
+          "confidence": 0.8
+        },
+        {
+          "key": "dog-friendly",
+          "source": "osm:dog",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "unknown",
+          "confidence": 0.6
+        },
+        {
+          "key": "cuisine",
+          "value": "german",
+          "status": "verified_true",
+          "source": "osm:cuisine",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "confidence": 0.8
+        },
+        {
+          "key": "price-level",
+          "value": 2,
+          "status": "unverified",
+          "source": "curated:berlin-mitte-2026-08",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "confidence": 0.6
+        }
+      ],
+      "mapRevision": 1,
+      "osmRef": "node/615149024"
+    },
+    {
+      "candidateId": "place_29",
+      "name": "Sisaket",
+      "location": {
+        "lat": 52.5235156,
+        "lng": 13.404871
+      },
+      "category": "restaurant",
+      "priceLevel": 2,
+      "hours": [
+        {
+          "day": "tue",
+          "open": "12:00",
+          "close": "22:00"
+        },
+        {
+          "day": "wed",
+          "open": "12:00",
+          "close": "22:00"
+        },
+        {
+          "day": "thu",
+          "open": "12:00",
+          "close": "22:00"
+        },
+        {
+          "day": "fri",
+          "open": "12:00",
+          "close": "22:00"
+        },
+        {
+          "day": "sat",
+          "open": "13:00",
+          "close": "22:00"
+        },
+        {
+          "day": "sun",
+          "open": "13:00",
+          "close": "22:00"
+        }
+      ],
+      "attributes": [
+        {
+          "key": "vegetarian-options",
+          "source": "osm:diet:vegetarian",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "verified_true",
+          "confidence": 0.8
+        },
+        {
+          "key": "lactose-free-options",
+          "source": "osm:diet:lactose_free",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "unknown",
+          "confidence": 0.6
+        },
+        {
+          "key": "wheelchair-accessible",
+          "source": "osm:wheelchair",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "unverified",
+          "confidence": 0.6
+        },
+        {
+          "key": "outdoor-seating",
+          "source": "osm:outdoor_seating",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "verified_true",
+          "confidence": 0.8
+        },
+        {
+          "key": "dog-friendly",
+          "source": "osm:dog",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "unknown",
+          "confidence": 0.6
+        },
+        {
+          "key": "cuisine",
+          "value": "thai",
+          "status": "verified_true",
+          "source": "osm:cuisine",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "confidence": 0.8
+        },
+        {
+          "key": "price-level",
+          "value": 2,
+          "status": "unverified",
+          "source": "curated:berlin-mitte-2026-08",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "confidence": 0.6
+        }
+      ],
+      "mapRevision": 1,
+      "osmRef": "node/667815238"
+    },
+    {
+      "candidateId": "place_30",
+      "name": "Chén Ché",
+      "location": {
+        "lat": 52.5273747,
+        "lng": 13.4023822
+      },
+      "category": "restaurant",
+      "priceLevel": 2,
+      "hours": [
+        {
+          "day": "mon",
+          "open": "12:00",
+          "close": "23:59"
+        },
+        {
+          "day": "tue",
+          "open": "12:00",
+          "close": "23:59"
+        },
+        {
+          "day": "wed",
+          "open": "12:00",
+          "close": "23:59"
+        },
+        {
+          "day": "thu",
+          "open": "12:00",
+          "close": "23:59"
+        },
+        {
+          "day": "fri",
+          "open": "12:00",
+          "close": "23:59"
+        },
+        {
+          "day": "sat",
+          "open": "12:00",
+          "close": "23:59"
+        },
+        {
+          "day": "sun",
+          "open": "12:00",
+          "close": "23:59"
+        }
+      ],
+      "attributes": [
+        {
+          "key": "vegetarian-options",
+          "source": "osm:diet:vegetarian",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "verified_true",
+          "confidence": 0.8
+        },
+        {
+          "key": "lactose-free-options",
+          "status": "verified_true",
+          "confidence": 0.9,
+          "source": "curated:demo-2026-08",
+          "observedAt": "2026-08-31T21:52:21Z"
+        },
+        {
+          "key": "wheelchair-accessible",
+          "source": "osm:wheelchair",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "unverified",
+          "confidence": 0.6
+        },
+        {
+          "key": "outdoor-seating",
+          "source": "osm:outdoor_seating",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "verified_true",
+          "confidence": 0.8
+        },
+        {
+          "key": "dog-friendly",
+          "source": "osm:dog",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "unknown",
+          "confidence": 0.6
+        },
+        {
+          "key": "cuisine",
+          "value": "vietnamese",
+          "status": "verified_true",
+          "source": "osm:cuisine",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "confidence": 0.8
+        },
+        {
+          "key": "price-level",
+          "value": 2,
+          "status": "verified_true",
+          "source": "curated:demo-2026-08",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "confidence": 0.9
+        }
+      ],
+      "mapRevision": 1,
+      "osmRef": "node/1278254651"
+    },
+    {
+      "candidateId": "place_31",
+      "name": "District Một",
+      "location": {
+        "lat": 52.5277092,
+        "lng": 13.4034228
+      },
+      "category": "restaurant",
+      "priceLevel": 2,
+      "hours": [
+        {
+          "day": "mon",
+          "open": "12:00",
+          "close": "00:00"
+        },
+        {
+          "day": "tue",
+          "open": "12:00",
+          "close": "00:00"
+        },
+        {
+          "day": "wed",
+          "open": "12:00",
+          "close": "00:00"
+        },
+        {
+          "day": "thu",
+          "open": "12:00",
+          "close": "00:00"
+        },
+        {
+          "day": "fri",
+          "open": "12:00",
+          "close": "00:00"
+        },
+        {
+          "day": "sat",
+          "open": "12:00",
+          "close": "00:00"
+        },
+        {
+          "day": "sun",
+          "open": "12:00",
+          "close": "00:00"
+        }
+      ],
+      "attributes": [
+        {
+          "key": "vegetarian-options",
+          "source": "osm:diet:vegetarian",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "verified_true",
+          "confidence": 0.8
+        },
+        {
+          "key": "lactose-free-options",
+          "status": "verified_true",
+          "confidence": 0.9,
+          "source": "curated:demo-2026-08",
+          "observedAt": "2026-08-31T21:52:21Z"
+        },
+        {
+          "key": "wheelchair-accessible",
+          "source": "osm:wheelchair",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "verified_false",
+          "confidence": 0.8
+        },
+        {
+          "key": "outdoor-seating",
+          "source": "osm:outdoor_seating",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "verified_true",
+          "confidence": 0.8
+        },
+        {
+          "key": "dog-friendly",
+          "source": "osm:dog",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "status": "unknown",
+          "confidence": 0.6
+        },
+        {
+          "key": "cuisine",
+          "value": "vietnamese",
+          "status": "verified_true",
+          "source": "osm:cuisine",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "confidence": 0.8
+        },
+        {
+          "key": "price-level",
+          "value": 2,
+          "status": "verified_true",
+          "source": "curated:demo-2026-08",
+          "observedAt": "2026-08-31T21:52:21Z",
+          "confidence": 0.9
+        }
+      ],
+      "mapRevision": 1,
+      "osmRef": "node/3239758866"
+    }
+  ]
+}

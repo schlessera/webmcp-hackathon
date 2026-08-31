@@ -187,6 +187,97 @@ export const SetReadyStateInput = Type.Object(
   { additionalProperties: false },
 );
 
+/** Spatial mutations — SPATIAL-PROTOCOL.md §6. */
+
+const CircleArea = Type.Object(
+  {
+    kind: Type.Literal("circle"),
+    center: Type.Object(
+      {
+        lat: Type.Number({ minimum: -90, maximum: 90 }),
+        lng: Type.Number({ minimum: -180, maximum: 180 }),
+      },
+      { additionalProperties: false },
+    ),
+    radiusM: Type.Integer({ minimum: 100, maximum: 5000 }),
+  },
+  { additionalProperties: false },
+);
+const TransportEnum = Type.Union([
+  Type.Literal("walk"),
+  Type.Literal("bike"),
+  Type.Literal("car"),
+]);
+
+export const SetSearchScopeInput = Type.Object(
+  {
+    baseRevision: Type.Integer({ minimum: 0 }),
+    area: Type.Optional(CircleArea),
+    transport: Type.Optional(
+      Type.Array(TransportEnum, { minItems: 1, maxItems: 3, uniqueItems: true }),
+    ),
+  },
+  { additionalProperties: false },
+);
+
+export const ProposeDestinationInput = Type.Object(
+  {
+    baseRevision: Type.Integer({ minimum: 0 }),
+    candidateId: Type.String({ maxLength: 40 }),
+  },
+  { additionalProperties: false },
+);
+
+export const PlanArrivalInput = Type.Object(
+  {
+    baseRevision: Type.Integer({ minimum: 0 }),
+    mode: TransportEnum,
+    pickupNote: Type.Optional(Type.String({ maxLength: 200 })),
+  },
+  { additionalProperties: false },
+);
+
+/** Adjustment/consent — NEGOTIATION-PROTOCOL.md §3.6. */
+export const ResolvePrivateRequestInput = Type.Object(
+  {
+    baseRevision: Type.Integer({ minimum: 0 }),
+    requestId: Type.String({ maxLength: 40 }),
+    decision: Type.Union([Type.Literal("grant"), Type.Literal("deny")]),
+  },
+  { additionalProperties: false },
+);
+
+/**
+ * UI-only: applies a staged grant after the human confirms on the page. In
+ * COMMAND_SCHEMAS but bound to no WebMCP tool — the page's executeTool switch
+ * has no route to it, which is the binding-layer enforcement of "the human
+ * confirms on the page" (INTERACTION-AND-BINDING.md §5.4).
+ */
+export const ConfirmPrivateRequestInput = Type.Object(
+  {
+    baseRevision: Type.Integer({ minimum: 0 }),
+    requestId: Type.String({ maxLength: 40 }),
+  },
+  { additionalProperties: false },
+);
+
+export const ConfirmAgreementInput = Type.Object(
+  {
+    baseRevision: Type.Integer({ minimum: 0 }),
+    proposalId: Type.String({ maxLength: 40 }),
+  },
+  { additionalProperties: false },
+);
+
+/** UI-only: commits a staged agreement (same enforcement as ConfirmPrivateRequest). */
+export const CommitAgreementInput = Type.Object(
+  {
+    baseRevision: Type.Integer({ minimum: 0 }),
+    proposalId: Type.String({ maxLength: 40 }),
+  },
+  { additionalProperties: false },
+);
+
 /** Command bus registry: one shared entry point for UI gestures and WebMCP tools. */
 export const COMMAND_SCHEMAS = {
   SubmitRequirement: SubmitRequirementInput,
@@ -194,6 +285,13 @@ export const COMMAND_SCHEMAS = {
   EvaluateCandidates: EvaluateCandidatesInput,
   RespondToProposal: RespondToProposalInput,
   SetReadyState: SetReadyStateInput,
+  SetSearchScope: SetSearchScopeInput,
+  ProposeDestination: ProposeDestinationInput,
+  PlanArrival: PlanArrivalInput,
+  ResolvePrivateRequest: ResolvePrivateRequestInput,
+  ConfirmPrivateRequest: ConfirmPrivateRequestInput,
+  ConfirmAgreement: ConfirmAgreementInput,
+  CommitAgreement: CommitAgreementInput,
 } as const;
 export type CommandType = keyof typeof COMMAND_SCHEMAS;
 export const COMMAND_TYPES = Object.keys(COMMAND_SCHEMAS) as CommandType[];

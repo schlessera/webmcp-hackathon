@@ -136,10 +136,122 @@ export function projectEvent(
       };
     }
 
+    case "scope_change_proposed":
+      return full(event, `${isActor ? "You" : actorName} proposed a search scope change.`, false);
+
+    case "scope_change_applied":
+      return full(
+        event,
+        `Search scope is now ${p.summary ?? "updated"}.`,
+      );
+
+    case "proposal_created":
+      return full(
+        event,
+        `${isActor ? "You" : actorName} proposed ${p.candidateName ?? p.candidateId}.`,
+      );
+
+    case "impasse_detected":
+      // Council event, deliberately neutral for everyone: never announce who
+      // is "blocking" (EXPERIENCE-AND-DEMO.md).
+      return {
+        revision: event.revision,
+        type: event.type,
+        level: "aggregate",
+        text: "No option currently satisfies every confirmed requirement. The council is privately checking possible adjustments.",
+      };
+
+    case "adjustment_proposed":
+      // Council -> addressee only; absent from every peer's delta.
+      if (!isActorTarget(event, viewerId)) return null;
+      return full(
+        event,
+        `Private adjustment available: ${describeAdjustment(p)}.`,
+      );
+
+    case "adjustment_resolved": {
+      if (isActorTarget(event, viewerId)) {
+        return full(
+          event,
+          `You ${p.decision === "granted" ? "granted" : "declined"} the adjustment ${p.adjustmentId}.`,
+        );
+      }
+      const gain = (p.newCandidates as number) ?? 0;
+      return {
+        revision: event.revision,
+        type: event.type,
+        level: "aggregate",
+        text:
+          p.decision === "granted" && gain > 0
+            ? `Search adjusted. ${gain} new candidate${gain === 1 ? "" : "s"}.`
+            : "A private adjustment was resolved.",
+      };
+    }
+
+    case "requirement_relaxed": {
+      if (event.visibility === "shared" || isActor) {
+        return full(
+          event,
+          `${isActor ? "You" : actorName} relaxed a requirement.`,
+          isActor || event.visibility === "shared",
+        );
+      }
+      return {
+        revision: event.revision,
+        type: event.type,
+        level: "aggregate",
+        text: "A requirement was adjusted.",
+      };
+    }
+
+    case "impasse_resolved": {
+      const eligible = (p.eligible as number) ?? 0;
+      return {
+        revision: event.revision,
+        type: event.type,
+        level: "aggregate",
+        text: `The impasse is resolved. ${eligible} candidate${eligible === 1 ? " is" : "s are"} now eligible.`,
+      };
+    }
+
+    case "agreement_staged":
+      return full(
+        event,
+        `${isActor ? "You" : actorName} staged the agreement on ${p.candidateName ?? p.proposalId}. The organizer confirms on the page.`,
+      );
+
+    case "agreement_committed":
+      return full(
+        event,
+        `Agreement committed: ${p.candidateName ?? p.proposalId}. Time to plan arrivals.`,
+      );
+
+    case "arrival_plan_updated":
+      return full(
+        event,
+        `${isActor ? "You" : actorName} plan${isActor ? "" : "s"} to arrive by ${p.mode}.`,
+      );
+
     default:
       // Unknown-to-projection types are omitted rather than leaked.
       return null;
   }
+}
+
+function describeAdjustment(p: Record<string, unknown>): string {
+  const change = p.change as { dimension?: string; from?: unknown; to?: unknown } | undefined;
+  const gain = (p.projectedGain as { newCandidates?: number })?.newCandidates ?? 0;
+  const gainText = `adds ${gain} candidate${gain === 1 ? "" : "s"}`;
+  if (change?.dimension === "radius_m") {
+    return `widen the search area from ${change.from} m to ${change.to} m (${gainText})`;
+  }
+  if (change?.dimension === "per_person_eur") {
+    return `raise the budget from ${change.from} to ${change.to} EUR per person (${gainText})`;
+  }
+  if (change?.dimension === "exclusion") {
+    return `drop an exclusion (${gainText})`;
+  }
+  return gainText;
 }
 
 function isActorTarget(event: StoredEvent, viewerId: string): boolean {

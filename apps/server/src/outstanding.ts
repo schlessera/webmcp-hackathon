@@ -47,6 +47,31 @@ export async function outstandingFor(
     }
   }
 
+  // Private adjustment requests awaiting this participant's decision or
+  // in-page confirmation. Addressee-only: peers never see these rows.
+  const adjustments = (
+    await q.query(
+      `SELECT id, kind, change, projected_gain, within_delegated_bound, status, created_at_revision
+         FROM adjustments
+        WHERE room_id = $1 AND requires_consent_of = $2
+          AND status IN ('proposed', 'staged_grant')
+        ORDER BY id`,
+      [roomId, participantId],
+    )
+  ).rows;
+  for (const row of adjustments) {
+    items.push({
+      type: "adjustment_request",
+      requestId: row.id,
+      issuedAtRevision: Number(row.created_at_revision),
+      kind: row.kind,
+      change: row.change,
+      projectedGain: row.projected_gain,
+      withinDelegatedBound: row.within_delegated_bound,
+      staged: row.status === "staged_grant",
+    });
+  }
+
   // Open proposals without a stance from this participant.
   const stanceNeeded = (
     await q.query(
