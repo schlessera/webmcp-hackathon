@@ -112,6 +112,19 @@ export function MapView({ context, selectedId, focusNonce, committedId, onSelect
     return map;
   }, [proposals]);
 
+  /* The legend teaches the color language and narrates it live: counts move
+     the moment eligibility shifts, and the proposal/agreed rows exist only
+     while such a pin is on the map. */
+  const counts = useMemo(() => {
+    const c = { eligible: 0, uncertain: 0, excluded: 0 };
+    for (const v of candidates) {
+      if (v.candidateId === committedId) continue;
+      c[v.eligibility as keyof typeof c] += 1;
+    }
+    return c;
+  }, [candidates, committedId]);
+  const proposedCount = [...proposalByCandidate.values()].filter((s) => s === "open").length;
+
   return (
     <div
       className="map-region"
@@ -190,6 +203,29 @@ export function MapView({ context, selectedId, focusNonce, committedId, onSelect
           );
         })}
       </Map>
+      <div className="map-legend" data-testid="map-legend" aria-label="Map key">
+        <span className="legend-item">
+          <i className="legend-dot" data-k="eligible" /> {counts.eligible} eligible
+        </span>
+        {counts.uncertain > 0 && (
+          <span className="legend-item">
+            <i className="legend-dot" data-k="uncertain" /> {counts.uncertain} checking
+          </span>
+        )}
+        {counts.excluded > 0 && (
+          <span className="legend-item">
+            <i className="legend-dot" data-k="excluded" /> {counts.excluded} out
+          </span>
+        )}
+        {proposedCount > 0 && (
+          <span className="legend-item">
+            <i className="legend-dot" data-k="proposed" /> proposed
+          </span>
+        )}
+        {committedId && (
+          <span className="legend-item legend-agreed">★ agreed</span>
+        )}
+      </div>
       <div className="map-attrib-extra">Routing © OSRM/FOSSGIS</div>
     </div>
   );
