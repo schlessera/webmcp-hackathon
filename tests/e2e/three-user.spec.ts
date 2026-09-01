@@ -127,7 +127,7 @@ test("three-user trajectory", async () => {
   await pages.org.getByTestId("tab-activity").click();
   await expect(pages.org.getByTestId("feed")).toContainText("Sarah");
   await expect(pages.org.getByTestId("feed")).toContainText(
-    "private requirement",
+    "private need",
   );
 
   // 6. Only Joe's network responses contain the private payload. Every page

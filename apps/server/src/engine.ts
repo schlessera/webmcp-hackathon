@@ -1305,18 +1305,29 @@ async function commitAgreement(
   };
 }
 
+/** Human line for feeds and requirement cards; the raw payload stays on the
+ * wire and in the wire view — this is presentation, not the record. */
 function summarizePayload(payload: Record<string, unknown>): string {
   switch (payload.kind) {
-    case "attribute":
-      return `requires ${payload.key} = ${payload.expect}`;
+    case "attribute": {
+      const need = String(payload.key).replace(/-/g, " ");
+      return payload.expect === "verified_true"
+        ? need
+        : `${need} (${String(payload.expect).replace(/_/g, " ")})`;
+    }
     case "scope":
-      return `max ${payload.dimension} ${payload.max}`;
+      return `within ${payload.max} ${String(payload.dimension).replace(/M$/, " m")}`;
     case "budget": {
       const b = payload.perPersonMax as { amount: number; currency: string };
-      return `budget <= ${b.amount} ${b.currency} per person`;
+      const symbol = b.currency === "EUR" ? "€" : `${b.currency} `;
+      return `budget ≤ ${symbol}${b.amount} per person`;
     }
-    case "exclusion":
-      return `excludes ${payload.key}: ${(payload.values as string[]).join(", ")}`;
+    case "exclusion": {
+      const values = (payload.values as string[])
+        .map((v) => v.charAt(0).toUpperCase() + v.slice(1))
+        .join(", ");
+      return `no ${values}${payload.key === "cuisine" ? " food" : ""}`;
+    }
     default:
       return "requirement";
   }

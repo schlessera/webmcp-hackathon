@@ -38,7 +38,7 @@ export function projectEvent(
           event,
           `${isActor ? "You" : actorName} ${
             event.type === "requirement_updated" ? "updated" : "added"
-          } a ${event.visibility} requirement: ${p.summary ?? ""}`.trim(),
+          } a ${event.visibility === "shared" ? "shared" : "private"} need: ${p.summary ?? ""}`.trim(),
           isActor || event.visibility === "shared",
         );
       }
@@ -47,7 +47,7 @@ export function projectEvent(
         revision: event.revision,
         type: event.type,
         level: "aggregate",
-        text: "A private requirement was updated.",
+        text: "A private need was updated.",
       };
     }
 
@@ -62,7 +62,7 @@ export function projectEvent(
         revision: event.revision,
         type: event.type,
         level: "existence",
-        text: `${actorName} added a private requirement.`,
+        text: `${actorName} added a private need.`,
       };
     }
 
