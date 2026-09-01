@@ -87,6 +87,30 @@ export function MapView({ context, selectedId, focusNonce, committedId, onSelect
     [center.lat, center.lng, drawnRadius],
   );
 
+  /* Inverse of the scope circle: the world with the search area punched out,
+     so everything beyond the current range reads dimmed while the area itself
+     stays at full brightness. Follows the same tweened radius as the ring. */
+  const outsideMask = useMemo(
+    () => ({
+      type: "Feature" as const,
+      properties: {},
+      geometry: {
+        type: "Polygon" as const,
+        coordinates: [
+          [
+            [-180, -85],
+            [180, -85],
+            [180, 85],
+            [-180, 85],
+            [-180, -85],
+          ] as [number, number][],
+          ring.geometry.coordinates[0],
+        ],
+      },
+    }),
+    [ring],
+  );
+
   /* Fit the scope circle once on load, and again when the radius settles. */
   const fitTo = (radiusM: number, animate: boolean) => {
     const latR = radiusM / 111320;
@@ -139,6 +163,7 @@ export function MapView({ context, selectedId, focusNonce, committedId, onSelect
     return c;
   }, [candidates, committedId]);
   const proposedCount = [...proposalByCandidate.values()].filter((s) => s === "open").length;
+  const vetoedCount = [...proposalByCandidate.values()].filter((s) => s === "vetoed").length;
 
   return (
     <div
@@ -155,12 +180,14 @@ export function MapView({ context, selectedId, focusNonce, committedId, onSelect
         onLoad={() => fitTo(scope.area.radiusM, false)}
         onClick={() => onSelect(null)}
       >
-        <Source id="scope-ring" type="geojson" data={ring}>
+        <Source id="scope-mask" type="geojson" data={outsideMask}>
           <Layer
-            id="scope-fill"
+            id="scope-dim"
             type="fill"
-            paint={{ "fill-color": "#4735d8", "fill-opacity": 0.05 }}
+            paint={{ "fill-color": "#23252d", "fill-opacity": 0.14 }}
           />
+        </Source>
+        <Source id="scope-ring" type="geojson" data={ring}>
           <Layer
             id="scope-line"
             type="line"
@@ -257,6 +284,11 @@ export function MapView({ context, selectedId, focusNonce, committedId, onSelect
         {proposedCount > 0 && (
           <span className="legend-item">
             <i className="legend-dot" data-k="proposed" /> proposed
+          </span>
+        )}
+        {vetoedCount > 0 && (
+          <span className="legend-item">
+            <i className="legend-dot" data-k="vetoed" /> vetoed
           </span>
         )}
         {committedId && (

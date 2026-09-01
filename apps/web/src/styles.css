@@ -200,14 +200,46 @@ button { font: inherit; }
   height: 14px;
   opacity: 0.65;
 }
-.pin[data-proposed="true"]::after {
+.pin[data-proposed="true"]::after,
+.pin[data-vetoed="true"]::after {
   content: "";
   position: absolute;
   inset: -6px;
   border-radius: 50%;
   border: 2.5px solid var(--spoke);
 }
-.pin[data-vetoed="true"]::after { border-color: var(--danger); border-style: dashed; }
+.pin[data-proposed="true"] { transform: scale(1.15); z-index: 3; }
+.pin[data-proposed="true"]:hover { transform: scale(1.3); }
+.pin[data-proposed="true"]::after {
+  animation: proposal-pulse 2200ms ease-in-out infinite;
+}
+@keyframes proposal-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(71, 53, 216, 0.35); }
+  50% { box-shadow: 0 0 0 7px rgba(71, 53, 216, 0); }
+}
+.pin[data-vetoed="true"] { filter: saturate(0.35); }
+.pin[data-vetoed="true"]::after {
+  border-color: var(--danger);
+  border-style: dashed;
+  animation: none;
+}
+.pin[data-vetoed="true"]::before {
+  content: "✕";
+  position: absolute;
+  top: -9px;
+  right: -9px;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: var(--danger);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 15px;
+  text-align: center;
+  box-shadow: 0 1px 2px rgba(35, 37, 45, 0.4);
+  z-index: 1;
+}
 .pin[data-selected="true"] {
   transform: scale(1.3);
   z-index: 4;
@@ -261,6 +293,7 @@ button { font: inherit; }
 @media (prefers-reduced-motion: reduce) {
   .pin-star[data-burst] { animation: none; }
   .commit-burst { display: none; }
+  .pin[data-proposed="true"]::after { animation: none; }
 }
 
 /* Legend pill, bottom-left, clear of the attribution controls on the right. */
@@ -297,6 +330,12 @@ button { font: inherit; }
 .legend-dot[data-k="proposed"] {
   background: none;
   border: 2px solid var(--spoke);
+  width: 7px;
+  height: 7px;
+}
+.legend-dot[data-k="vetoed"] {
+  background: none;
+  border: 2px dashed var(--danger);
   width: 7px;
   height: 7px;
 }

@@ -28,7 +28,11 @@ geometry, never only as text. Excluded options dim but never disappear.
   color language with real counts (`21 eligible · 3 checking · 7 out`);
   proposed/agreed rows exist only while such a pin does. Pointer-inert,
   never covers attribution.
-- Scope ring: dashed indigo circle, 5% fill; radius changes tween ~700ms
+- Scope ring: dashed indigo circle; everything OUTSIDE the range is dimmed by
+  an inverse mask (ink at 14%), so the searchable area reads as the bright
+  spotlight. Proposed pins scale up with a soft pulsing indigo ring (paused
+  under prefers-reduced-motion); vetoed pins desaturate, keep a dashed red
+  ring, and carry a red ✕ badge. Radius changes tween ~700ms
   ease-out (the widen-the-area demo beat). The page's TWO authored motion
   moments are this tween and the commit celebration (six gold spokes — the
   wordmark motif — converge on the star once, on commit only, disabled
