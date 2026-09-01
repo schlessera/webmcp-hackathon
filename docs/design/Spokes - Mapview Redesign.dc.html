@@ -1,0 +1,1158 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics><meta name="design_doc_mode" content="canvas">
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,300..600;1,6..72,300..500&family=IBM+Plex+Mono:wght@400;500;600&family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=Nunito:wght@400..900&family=Archivo:wght@400..800&family=Anton&family=Space+Grotesk:wght@400..700&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#e9e7e1;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:#23252d}
+*{box-sizing:border-box}
+a{color:#372ab3}a:hover{color:#4735d8}
+@keyframes ring-breathe{0%,100%{box-shadow:0 0 0 0 rgba(71,53,216,.34)}50%{box-shadow:0 0 0 9px rgba(71,53,216,0)}}
+@keyframes narrow-sweep{0%{opacity:0;transform:scale(.6)}60%{opacity:.55}100%{opacity:0;transform:scale(1)}}
+@keyframes squish{0%,100%{transform:scale(1)}50%{transform:scale(1.06,.94)}}
+@keyframes sticker-pop{0%,100%{transform:translateY(0) rotate(-2deg)}50%{transform:translateY(-3px) rotate(-2deg)}}
+@keyframes blip{0%,100%{opacity:1}50%{opacity:.35}}
+@keyframes sway{0%,100%{transform:rotate(-1.2deg)}50%{transform:rotate(1.2deg)}}
+@keyframes neon-hum{0%,100%{opacity:.9}50%{opacity:.62}}
+/* No button label may wrap: "{ }" contains a space, and a ~26px content box makes it a break opportunity. */
+button{white-space:nowrap}
+.maplibregl-ctrl-attrib{font-size:9.5px}
+.maplibregl-ctrl-attrib-button{display:none}
+/* maplibre ships .maplibregl-ctrl-attrib.maplibregl-compact .maplibregl-ctrl-attrib-button{display:block} at 0,3,0 — match it to keep the "i" toggle hidden. */
+.maplibregl-ctrl-attrib.maplibregl-compact .maplibregl-ctrl-attrib-button{display:none}
+/* Attribution stays visible above the floating card / sheet (DESIGN.md commitment). */
+/* Attribution: 7px, hugging its type. Legal requirement, not a UI element — SPOKES-UI.md §3. */
+[id^="rd-map-"] .maplibregl-ctrl-attrib{max-width:none;white-space:nowrap;font-size:7px;line-height:9px;min-height:0;height:auto;padding:0 3px;margin:0;border-radius:2px;background:rgba(255,255,255,.62);color:rgba(0,0,0,.42)}
+[id^="rd-map-"] .maplibregl-ctrl-attrib a{color:rgba(0,0,0,.42)}
+[id^="rd-map-"] .maplibregl-ctrl-bottom-right{padding:0}
+[id^="rd-map-"] .maplibregl-ctrl-bottom-right .maplibregl-ctrl{margin:0}
+a{color:#2b4159}
+a:hover{color:#2c6b52}
+</style></helmet>
+
+<!-- ═══════════════════ TURN 9 ═══════════════════ -->
+<section id="t9" style="padding:40px 44px 40px;border-bottom:1px solid rgba(0,0,0,.09)">
+<div style="display:flex;align-items:baseline;gap:10px;margin:0 0 6px">
+<a href="#t9" style="font:600 10px 'IBM Plex Mono',monospace;padding:3px 7px;background:#1a1a1a;color:#fff;border-radius:4px;text-decoration:none">9</a>
+<span style="font:600 13px/1.2 system-ui,sans-serif">The accent for “someone acting” — woad, and why</span>
+</div>
+<p style="margin:0 0 24px;font:400 12.5px/1.65 system-ui,sans-serif;color:rgba(0,0,0,.66);max-width:880px;text-wrap:pretty">Indigo was right about the <em>job</em> and wrong about the family — it's fully saturated and cool where everything else is desaturated and earthy. Woad keeps the job (proposals and agent actions — who moved, never who may see) but is mixed from the same muted mid-value family as the green and terracotta. The card shows it doing all three of its real jobs — filled action, quiet tint, map ring — with the green/terracotta/violet neighbours alongside, because adjacency is what had to be judged, not swatches. Three alternatives were built and rejected: petrol read too close to “works” at pin size, aubergine collided with the private violet, and bronze already means <em>committed</em> in the repo.</p>
+
+<div style="display:flex;flex-wrap:nowrap;gap:24px;align-items:flex-start;width:max-content">
+
+<!-- 9b WOAD -->
+<div id="9b" style="flex:none;display:flex;flex-direction:column;gap:9px;scroll-margin-top:16px">
+<div style="display:flex;align-items:baseline;gap:8px;font:400 11px/1.45 system-ui,sans-serif;color:rgba(0,0,0,.66);width:390px">
+<a href="#9b" style="font:600 10.5px 'IBM Plex Mono',monospace;padding:3px 7px;background:#3d5a80;color:#fdf8ee;border-radius:5px;text-decoration:none">9b</a>
+<span><strong style="color:#23252d">Woad.</strong> <code style="font:500 11px 'IBM Plex Mono',monospace">#3d5a80</code> — a dusty denim. Keeps indigo's “this is a decision” feel at a third of the saturation; furthest from every other hue on the map.</span>
+</div>
+<div style="width:390px;background:#fdf8ee;border:1px solid rgba(0,0,0,.1);border-radius:16px;padding:15px;box-shadow:0 4px 18px rgba(0,0,0,.1)">
+  <div style="display:flex;gap:7px;margin-bottom:13px">
+    <button style="border:1.5px solid #3d5a80;background:#3d5a80;box-shadow:2px 2px 0 rgba(51,65,54,.30);border-radius:11px;padding:11px 14px;font:700 12.5px system-ui,sans-serif;color:#fdf8ee;cursor:pointer">Put it forward</button>
+    <button style="border:1.5px solid #3d5a80;background:#e1e7f0;box-shadow:2px 2px 0 rgba(51,65,54,.30);border-radius:11px;padding:11px 14px;font:700 12.5px system-ui,sans-serif;color:#2b4159;cursor:pointer">Your agent acted</button>
+  </div>
+  <div style="position:relative;height:96px;border:1.5px solid rgba(51,65,54,.55);border-radius:12px;background:#e9e5da;box-shadow:2px 2px 0 rgba(51,65,54,.30);overflow:hidden;margin-bottom:13px">
+    <div style="position:absolute;left:16px;top:22px;display:flex;align-items:center;gap:6px">
+      <i style="width:14px;height:14px;border-radius:50%;background:#2c6b52;border:2px solid #fffdf7;flex:none"></i>
+      <span style="background:#fffdf7;border:1.5px solid rgba(51,65,54,.55);border-radius:8px;padding:1px 7px;font:700 10.5px/1.5 system-ui,sans-serif;color:#334136;white-space:nowrap">works</span>
+    </div>
+    <div style="position:absolute;left:150px;top:20px;display:flex;align-items:center;gap:6px">
+      <i style="width:16px;height:16px;border-radius:50%;background:#fffdf7;border:3px solid #3d5a80;flex:none;box-shadow:0 0 0 3px rgba(61,90,128,.2)"></i>
+      <span style="background:#3d5a80;border-radius:8px;padding:1px 7px;font:700 10.5px/1.5 system-ui,sans-serif;color:#fdf8ee;white-space:nowrap">Sarah proposed</span>
+    </div>
+    <div style="position:absolute;left:16px;top:58px;width:16px;height:16px;border-radius:50%;background:#fffdf7;border:2.5px solid #a8501f"></div>
+    <div style="position:absolute;left:44px;top:60px;font:600 10.5px/1.5 system-ui,sans-serif;color:#8a3f12">unverified</div>
+    <div style="position:absolute;left:150px;top:58px;width:14px;height:14px;border-radius:50%;background:#7d6396;border:2px solid #fffdf7"></div>
+    <div style="position:absolute;left:176px;top:60px;font:600 10.5px/1.5 system-ui,sans-serif;color:#5f4a73">private</div>
+  </div>
+  <div style="display:flex;gap:5px">
+    <span style="flex:1;height:26px;border-radius:6px;background:#2c6b52"></span>
+    <span style="flex:1;height:26px;border-radius:6px;background:#3d5a80"></span>
+    <span style="flex:1;height:26px;border-radius:6px;background:#a8501f"></span>
+    <span style="flex:1;height:26px;border-radius:6px;background:#7d6396"></span>
+    <span style="flex:1;height:26px;border-radius:6px;background:#334136"></span>
+  </div>
+</div>
+</div>
+
+</div>
+<p style="margin:24px 0 0;font:400 12.5px/1.6 system-ui,sans-serif;color:rgba(0,0,0,.66);max-width:880px;text-wrap:pretty">Woad carries cream text at ≥4.5:1 and stays distinguishable from the eligibility trio at 14px pin size. It is folded into every frame in this file and frozen as <code style="font:500 11px 'IBM Plex Mono',monospace">--spoke-act</code>.</p>
+</section>
+
+<!-- ═══════════════════ TURN 8 ═══════════════════ -->
+<section id="t8" style="padding:40px 44px 40px;border-bottom:1px solid rgba(0,0,0,.09)">
+<div style="display:flex;align-items:baseline;gap:10px;margin:0 0 6px">
+<a href="#t8" style="font:600 10px 'IBM Plex Mono',monospace;padding:3px 7px;background:#1a1a1a;color:#fff;border-radius:4px;text-decoration:none">8</a>
+<span style="font:600 13px/1.2 system-ui,sans-serif">The missing pieces, before the system freezes</span>
+</div>
+<p style="margin:0 0 24px;font:400 12.5px/1.65 system-ui,sans-serif;color:rgba(0,0,0,.66);max-width:880px;text-wrap:pretty">Everything a spec would otherwise have to invent: place details, the <code style="font:500 11.5px 'IBM Plex Mono',monospace">{ }</code> drawer, the desktop and ChatGPT compositions, all three consent card variants, the transient states, and the other side of <a href="#7b" style="font:600 11px 'IBM Plex Mono',monospace;text-decoration:none">7b</a>'s ask. <a href="#8f" style="font:600 11px 'IBM Plex Mono',monospace;text-decoration:none">8f</a> is the brand question side by side — green vs keeping <code style="font:500 11.5px 'IBM Plex Mono',monospace">--spoke-act</code> as its own colour. B is the decision: <code style="font:500 11.5px 'IBM Plex Mono',monospace">--spoke-act</code> is woad <code style="font:500 11.5px 'IBM Plex Mono',monospace">#3d5a80</code>.</p>
+
+<div style="display:flex;flex-wrap:nowrap;gap:26px;align-items:flex-start;width:max-content">
+
+<!-- 8a PLACE DETAILS -->
+<div id="8a" style="flex:none;display:flex;flex-direction:column;gap:9px;scroll-margin-top:16px">
+<div style="display:flex;align-items:baseline;gap:8px;font:400 11px/1.45 system-ui,sans-serif;color:rgba(0,0,0,.66);width:390px">
+<a href="#8a" style="font:600 10.5px 'IBM Plex Mono',monospace;padding:3px 7px;background:rgba(0,0,0,.08);color:#1a1a1a;border-radius:5px;text-decoration:none">8a</a>
+<span><strong style="color:#23252d">Place details.</strong> Two sections, both generated from data: what the room asked (with provenance) and what else is known. No domain-specific rows anywhere.</span>
+</div>
+<div style="width:390px;height:844px;background:#fdf8ee;border:1px solid rgba(0,0,0,.1);border-radius:34px;overflow:hidden;position:relative;box-shadow:0 4px 18px rgba(0,0,0,.1);display:flex;flex-direction:column">
+  <div style="height:52px;display:flex;align-items:flex-end;justify-content:space-between;padding:0 22px 5px;font:600 12.5px system-ui,sans-serif;color:#334136;flex:none"><span>9:38</span><span style="letter-spacing:2px">▮▮▮</span></div>
+  <div style="display:flex;align-items:center;gap:10px;padding:2px 14px 10px;flex:none">
+    <button style="border:none;background:none;color:#334136;font:700 12.5px system-ui,sans-serif;cursor:pointer;padding:0">Back</button>
+    <span style="flex:1;font:700 13px 'Bricolage Grotesque',system-ui,sans-serif;color:#334136;text-align:center">Weinbergspark</span>
+    <span style="font:700 10.5px system-ui,sans-serif;color:#1e5540;background:#dfeee6;border:1.5px solid #2c6b52;border-radius:999px;padding:3px 9px">works for all 3</span>
+  </div>
+  <div style="flex:1;min-height:0;overflow-y:auto">
+    <div style="height:150px;background:repeating-linear-gradient(135deg,#e9e5da,#e9e5da 9px,#ddd7c7 9px,#ddd7c7 18px);display:flex;align-items:center;justify-content:center;border-top:1px solid rgba(51,65,54,.55);border-bottom:1px solid rgba(51,65,54,.55)">
+      <span style="font:600 10.5px 'IBM Plex Mono',monospace;color:#575647;background:#fffdf7;border:1.5px solid rgba(51,65,54,.4);border-radius:7px;padding:4px 10px">place photo</span>
+    </div>
+    <div style="padding:15px 16px 0">
+      <div style="font:800 20px/1.2 'Bricolage Grotesque',system-ui,sans-serif;letter-spacing:-.02em;color:#334136">Weinbergspark</div>
+      <div style="font:500 12px/1.45 system-ui,sans-serif;color:#575647;margin-top:3px">park · 6 min from the meeting point · open all hours</div>
+      <div style="display:flex;align-items:center;gap:9px;margin:13px 0 0;padding:9px 11px;background:#dfeee6;border:1.5px solid #2c6b52;border-radius:11px">
+        <span style="width:9px;height:9px;border-radius:50%;background:#2c6b52;flex:none"></span>
+        <span style="font:600 12.5px/1.45 system-ui,sans-serif;color:#1e5540;text-wrap:pretty">Clears every need the room has stated</span>
+      </div>
+    </div>
+    <div style="padding:17px 16px 0">
+      <div style="font:800 11px/1.3 'Bricolage Grotesque',system-ui,sans-serif;letter-spacing:.06em;text-transform:uppercase;color:#575647;margin-bottom:8px">Against what the room asked</div>
+      <div style="border-top:1.5px solid rgba(51,65,54,.35)">
+        <div style="display:flex;gap:9px;padding:9px 0;border-bottom:1px solid rgba(51,65,54,.16);align-items:baseline"><span style="color:#1e5540;font:700 12px system-ui,sans-serif;flex:none;width:13px">✓</span><span style="flex:1;font:500 12.5px/1.45 system-ui,sans-serif;color:#334136">Off-leash area, fenced on three sides</span><span style="font:500 10px/1.5 system-ui,sans-serif;color:#575647;flex:none">OSM, Jun 2026</span></div>
+        <div style="display:flex;gap:9px;padding:9px 0;border-bottom:1px solid rgba(51,65,54,.16);align-items:baseline"><span style="color:#1e5540;font:700 12px system-ui,sans-serif;flex:none;width:13px">✓</span><span style="flex:1;font:500 12.5px/1.45 system-ui,sans-serif;color:#334136">Step-free from Veteranenstraße gate</span><span style="font:500 10px/1.5 system-ui,sans-serif;color:#575647;flex:none">OSM, Jun 2026</span></div>
+        <div style="display:flex;gap:9px;padding:9px 0;border-bottom:1px solid rgba(51,65,54,.16);align-items:baseline"><span style="color:#5f4a73;font:700 12px system-ui,sans-serif;flex:none;width:13px">●</span><span style="flex:1;font:500 12.5px/1.45 system-ui,sans-serif;color:#5f4a73;font-style:italic">Passes the one private condition</span><span style="font:500 10px/1.5 system-ui,sans-serif;color:#5f4a73;flex:none">checked, not shown</span></div>
+        <div style="display:flex;gap:9px;padding:9px 0;align-items:baseline"><span style="color:#a15421;font:700 12px system-ui,sans-serif;flex:none;width:13px">?</span><span style="flex:1;font:500 12.5px/1.45 system-ui,sans-serif;color:#575647">Drinking fountain — nobody could confirm</span><span style="font:500 10px/1.5 system-ui,sans-serif;color:#575647;flex:none">unknown</span></div>
+      </div>
+    </div>
+    <div style="padding:17px 16px 0">
+      <div style="font:800 11px/1.3 'Bricolage Grotesque',system-ui,sans-serif;letter-spacing:.06em;text-transform:uppercase;color:#575647;margin-bottom:8px">Also known about it</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">
+        <span style="font:600 11.5px/1.5 system-ui,sans-serif;background:#fffdf7;border:1.5px solid rgba(51,65,54,.35);color:#334136;border-radius:7px;padding:3px 9px">benches</span>
+        <span style="font:600 11.5px/1.5 system-ui,sans-serif;background:#fffdf7;border:1.5px solid rgba(51,65,54,.35);color:#334136;border-radius:7px;padding:3px 9px">shaded slope</span>
+        <span style="font:600 11.5px/1.5 system-ui,sans-serif;background:#fffdf7;border:1.5px solid rgba(51,65,54,.35);color:#334136;border-radius:7px;padding:3px 9px">café at the gate</span>
+        <span style="font:600 11.5px/1.5 system-ui,sans-serif;background:#fffdf7;border:1.5px solid rgba(51,65,54,.35);color:#334136;border-radius:7px;padding:3px 9px">busy at weekends</span>
+      </div>
+      <div style="font:500 11px/1.5 system-ui,sans-serif;color:#575647;margin-top:9px">From OpenStreetMap and the district's park listing, checked this morning. <a href="#8a" style="color:#1e5540">Every source</a></div>
+    </div>
+    <div style="padding:17px 16px 22px">
+      <div style="font:800 11px/1.3 'Bricolage Grotesque',system-ui,sans-serif;letter-spacing:.06em;text-transform:uppercase;color:#575647;margin-bottom:8px">Where everyone stands</div>
+      <div style="display:flex;align-items:center;gap:9px;padding:6px 0"><span style="width:20px;height:20px;border-radius:6px;background:#2c6b52;color:#fffdf7;font:700 9px system-ui,sans-serif;display:flex;align-items:center;justify-content:center;flex:none">SA</span><span style="font:500 12.5px system-ui,sans-serif;color:#334136;flex:1">Sarah put it forward</span></div>
+      <div style="display:flex;align-items:center;gap:9px;padding:6px 0"><span style="width:20px;height:20px;border-radius:6px;background:#7d6396;color:#fffdf7;font:700 9px system-ui,sans-serif;display:flex;align-items:center;justify-content:center;flex:none">JO</span><span style="font:500 12.5px system-ui,sans-serif;color:#334136;flex:1">Joe's agent accepted for him</span><span style="color:#1e5540;font:700 12px system-ui,sans-serif">✓</span></div>
+      <div style="display:flex;align-items:center;gap:9px;padding:6px 0"><span style="width:20px;height:20px;border-radius:6px;background:#e7e2d4;color:#575647;font:700 9px system-ui,sans-serif;display:flex;align-items:center;justify-content:center;flex:none">AL</span><span style="font:500 12.5px system-ui,sans-serif;color:#575647;flex:1">You haven't said</span></div>
+    </div>
+  </div>
+  <div style="flex:none;padding:12px 16px 22px;border-top:1.5px solid rgba(51,65,54,.35);background:#fffdf7;display:flex;gap:8px">
+    <button style="flex:1;border:1.5px solid #2c6b52;background:#2c6b52;box-shadow:2px 3px 0 rgba(51,65,54,.30);border-radius:13px;padding:14px;font:800 14px 'Bricolage Grotesque',system-ui,sans-serif;color:#fffdf7;cursor:pointer">Works for me</button>
+    <button style="flex:none;border:1.5px solid rgba(51,65,54,.55);background:#fffdf7;box-shadow:2px 3px 0 rgba(51,65,54,.30);border-radius:13px;padding:14px 16px;font:700 13px system-ui,sans-serif;color:#334136;cursor:pointer">Not for me…</button>
+  </div>
+</div>
+</div>
+
+<!-- 8b DRAWER -->
+<div id="8b" style="flex:none;display:flex;flex-direction:column;gap:9px;scroll-margin-top:16px">
+<div style="display:flex;align-items:baseline;gap:8px;font:400 11px/1.45 system-ui,sans-serif;color:rgba(0,0,0,.66);width:390px">
+<a href="#8b" style="font:600 10.5px 'IBM Plex Mono',monospace;padding:3px 7px;background:rgba(0,0,0,.08);color:#1a1a1a;border-radius:5px;text-decoration:none">8b</a>
+<span><strong style="color:#23252d">The <code style="font:500 11px 'IBM Plex Mono',monospace">{ }</code> drawer.</strong> Everything the old page kept in the footer, now one slide-over: wire, tools, session. Deliberately styled as a tool, not a feature.</span>
+</div>
+<div style="width:390px;height:844px;background:#fdf8ee;border:1px solid rgba(0,0,0,.1);border-radius:34px;overflow:hidden;position:relative;box-shadow:0 4px 18px rgba(0,0,0,.1)">
+  <div style="height:52px;display:flex;align-items:flex-end;justify-content:space-between;padding:0 22px 5px;font:600 12.5px system-ui,sans-serif;color:#334136"><span>9:38</span><span style="letter-spacing:2px">▮▮▮</span></div>
+  <div style="position:relative;height:180px;background:#e9e5da;border-top:1px solid rgba(51,65,54,.55);border-bottom:1px solid rgba(51,65,54,.55)">
+    <div id="rd-map-8b" style="position:absolute;inset:0"></div>
+    <div style="position:absolute;inset:0;background:#2c6b52;mix-blend-mode:color;opacity:.18;pointer-events:none"></div>
+    <div style="position:absolute;inset:0;background:rgba(51,65,54,.42)"></div>
+  </div>
+  <div style="position:absolute;left:0;right:0;top:232px;bottom:0;background:#242b25;display:flex;flex-direction:column;box-shadow:0 -14px 40px rgba(0,0,0,.35)">
+    <div style="padding:13px 16px 10px;flex:none">
+      <div style="display:flex;align-items:center;gap:9px">
+        <span style="font:700 12px 'IBM Plex Mono',monospace;color:#e7ece6;white-space:nowrap">{ } under the hood</span>
+        <button style="margin-left:auto;border:none;background:none;color:#a7b3a9;font:700 12px system-ui,sans-serif;cursor:pointer;white-space:nowrap">Close</button>
+      </div>
+      <span style="display:inline-block;margin-top:7px;font:600 9.5px system-ui,sans-serif;color:#8fd6b4;background:rgba(143,214,180,.14);border-radius:5px;padding:2px 7px;white-space:nowrap">nothing here is needed to use the app</span>
+    </div>
+    <div style="display:flex;gap:3px;padding:0 12px;flex:none">
+      <button style="border:none;background:rgba(255,255,255,.11);color:#e7ece6;border-radius:8px 8px 0 0;padding:8px 12px;font:700 11.5px system-ui,sans-serif;cursor:pointer">Wire</button>
+      <button style="border:none;background:none;color:#a7b3a9;border-radius:8px 8px 0 0;padding:8px 12px;font:700 11.5px system-ui,sans-serif;cursor:pointer">Tools</button>
+      <button style="border:none;background:none;color:#a7b3a9;border-radius:8px 8px 0 0;padding:8px 12px;font:700 11.5px system-ui,sans-serif;cursor:pointer">Session</button>
+    </div>
+    <div style="flex:1;min-height:0;overflow-y:auto;margin:0 12px 12px;padding:11px 12px;background:rgba(255,255,255,.06);border-radius:0 10px 10px 10px">
+      <p style="margin:0 0 11px;font:500 11.5px/1.55 system-ui,sans-serif;color:#b9c4ba;text-wrap:pretty">Everything this page put on the wire, verbatim. Private needs are redacted before they leave your session — read it yourself.</p>
+      <div style="font:400 10.5px/1.8 'IBM Plex Mono',monospace;color:#d6ded7;white-space:pre-wrap;word-break:break-word"><span style="color:#a4b0a6">→ 09:31:04</span> <span style="color:#8fd6b4">SubmitRequirement</span> <span style="color:#a4b0a6">rev 46</span>
+  visibility: <span style="color:#c9b3e0">"application-private"</span>
+  payload:    <span style="color:#a4b0a6">withheld — never sent</span>
+<span style="color:#a4b0a6">← 09:31:04</span> ok · rev <span style="color:#8fd6b4">47</span> · <span style="color:#a4b0a6">"one condition recorded"</span>
+
+<span style="color:#a4b0a6">→ 09:31:05</span> <span style="color:#8fd6b4">evaluate_candidates</span>
+  <span style="color:#a4b0a6">6 ids, eligibility only</span>
+<span style="color:#a4b0a6">← 09:31:05</span> 2 pass · 2 unknown · 2 out
+
+<span style="color:#a4b0a6">⇢ 09:31:19</span> <span style="color:#e0b483">peer event</span> rev <span style="color:#8fd6b4">48</span>
+  <span style="color:#c9b3e0">"a participant asked to widen the area"</span>
+  <span style="color:#a4b0a6">owner and reason not in this payload</span></div>
+      <div style="margin-top:13px;padding-top:11px;border-top:1px solid rgba(255,255,255,.12);display:flex;flex-wrap:wrap;gap:6px 14px;font:500 10px/1.7 'IBM Plex Mono',monospace;color:#a4b0a6">
+        <span>room <span style="color:#d6ded7">room_demo</span></span><span>you <span style="color:#d6ded7">p_org</span></span><span>rev <span style="color:#d6ded7">48</span></span><span>build <span style="color:#d6ded7">dev-8f21c</span></span><span>contract <span style="color:#d6ded7">v3</span></span><span>negotiation/v1</span><span>spatial-destination/v1</span><span>ws <span style="color:#8fd6b4">open</span></span><span>15 tools registered</span>
+      </div>
+      <div style="margin-top:12px;display:flex;gap:7px;flex-wrap:wrap">
+        <button style="border:1.5px solid rgba(255,255,255,.22);background:none;color:#e7ece6;border-radius:9px;padding:8px 12px;font:700 11.5px system-ui,sans-serif;cursor:pointer">Copy the log</button>
+        <button style="border:1.5px solid rgba(255,255,255,.22);background:none;color:#e7ece6;border-radius:9px;padding:8px 12px;font:700 11.5px system-ui,sans-serif;cursor:pointer">Put a command on the wire</button>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- 8c DESKTOP / CHATGPT -->
+<div id="8c" style="flex:none;display:flex;flex-direction:column;gap:9px;scroll-margin-top:16px">
+<div style="display:flex;align-items:baseline;gap:8px;font:400 11px/1.45 system-ui,sans-serif;color:rgba(0,0,0,.66);width:1300px">
+<a href="#8c" style="font:600 10.5px 'IBM Plex Mono',monospace;padding:3px 7px;background:rgba(0,0,0,.08);color:#1a1a1a;border-radius:5px;text-decoration:none">8c</a>
+<span><strong style="color:#23252d">Desktop, chat beside it.</strong> The brief moves to a left rail, details push from the right, and the map keeps the middle. Every agent turn names the change it made and links the pin.</span>
+</div>
+<div style="width:1300px;height:830px;background:#fdf8ee;border:1px solid rgba(0,0,0,.1);border-radius:12px;overflow:hidden;box-shadow:0 4px 18px rgba(0,0,0,.1);display:flex">
+  <div style="flex:none;width:392px;background:#fffdf7;border-right:1.5px solid rgba(51,65,54,.35);display:flex;flex-direction:column">
+    <div style="flex:none;padding:12px 16px;border-bottom:1px solid rgba(51,65,54,.16);font:700 12px system-ui,sans-serif;color:#575647;display:flex;align-items:center;gap:8px">
+      <span style="width:8px;height:8px;border-radius:50%;background:#2c6b52"></span>Your assistant · connected to this page
+    </div>
+    <div style="flex:1;min-height:0;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:14px">
+      <div style="align-self:flex-end;max-width:82%;background:#f1ede0;border:1.5px solid rgba(51,65,54,.28);border-radius:14px 14px 4px 14px;padding:9px 13px;font:500 13px/1.5 system-ui,sans-serif;color:#334136;text-wrap:pretty">Somewhere the dogs can run off-leash on Sunday morning, and Sarah can't do steps.</div>
+      <div style="max-width:92%;font:500 13px/1.62 system-ui,sans-serif;color:#334136;text-wrap:pretty">Added two needs: <b style="font-weight:700">dogs off-leash</b> and <b style="font-weight:700">step-free the whole way</b>. That takes it from 34 green spaces to 12.</div>
+      <div style="max-width:92%;border:1.5px solid rgba(51,65,54,.35);border-radius:12px;overflow:hidden;box-shadow:2px 2px 0 rgba(51,65,54,.20)">
+        <div style="display:flex;align-items:center;gap:9px;padding:9px 12px;border-bottom:1px solid rgba(51,65,54,.16);background:#f6f8f4">
+          <span style="font:800 12.5px 'Bricolage Grotesque',system-ui,sans-serif;color:#1e5540">34 → 12</span>
+          <span style="font:500 12px system-ui,sans-serif;color:#575647">still work</span>
+        </div>
+        <div style="padding:9px 12px;display:flex;flex-direction:column;gap:6px;background:#fffdf7">
+          <a href="#8c" style="font:600 12.5px/1.5 system-ui,sans-serif;text-decoration:none;display:flex;gap:8px;align-items:center;color:#1e5540"><i style="width:9px;height:9px;border-radius:50%;background:#2c6b52;flex:none"></i>Weinbergspark</a>
+          <a href="#8c" style="font:600 12.5px/1.5 system-ui,sans-serif;text-decoration:none;display:flex;gap:8px;align-items:center;color:#1e5540"><i style="width:9px;height:9px;border-radius:50%;background:#2c6b52;flex:none"></i>Park am Nordbahnhof</a>
+          <span style="font:500 11.5px/1.5 system-ui,sans-serif;color:#575647">and 10 more</span>
+        </div>
+      </div>
+      <div style="align-self:flex-end;max-width:82%;background:#f1ede0;border:1.5px solid rgba(51,65,54,.28);border-radius:14px 14px 4px 14px;padding:9px 13px;font:500 13px/1.5 system-ui,sans-serif;color:#334136">I can't be more than 20 minutes away — don't tell the others why.</div>
+      <div style="max-width:92%;font:500 13px/1.62 system-ui,sans-serif;color:#334136;text-wrap:pretty">Kept between us. The room only learns that <i>one condition about distance exists</i> — not what it is or whose. It rules out 4 of the 12.</div>
+      <div style="max-width:96%;border:1.5px solid #3d5a80;background:#e1e7f0;border-radius:12px;padding:12px 13px;box-shadow:2px 2px 0 rgba(61,90,128,.35)">
+        <div style="font:800 11.5px/1.3 'Bricolage Grotesque',system-ui,sans-serif;text-transform:uppercase;letter-spacing:.04em;color:#2b4159;margin-bottom:6px">Needs your yes on the page</div>
+        <p style="margin:0 0 10px;font:500 12.5px/1.5 system-ui,sans-serif;color:#334136;text-wrap:pretty">Alex asked to widen the area from 900 m to 1.4 km. That brings back 5 places, two of which clear everything. You delegated up to 1 km, so this one is yours to confirm.</p>
+        <div style="display:flex;gap:7px;flex-wrap:wrap">
+          <button style="border:1.5px solid #3d5a80;background:#3d5a80;box-shadow:2px 2px 0 rgba(61,90,128,.35);border-radius:10px;padding:9px 13px;font:700 12.5px system-ui,sans-serif;color:#fffdf7;cursor:pointer">Confirm on the map</button>
+          <button style="border:1.5px solid rgba(51,65,54,.55);background:#fffdf7;box-shadow:2px 2px 0 rgba(51,65,54,.30);border-radius:10px;padding:9px 13px;font:700 12.5px system-ui,sans-serif;color:#334136;cursor:pointer">Not this time</button>
+        </div>
+      </div>
+    </div>
+    <div style="flex:none;padding:12px 16px 16px;border-top:1px solid rgba(51,65,54,.16);display:flex;gap:8px;align-items:center">
+      <input type="text" placeholder="Message" style="flex:1;min-width:0;font:500 13px system-ui,sans-serif;border:1.5px solid rgba(51,65,54,.4);border-radius:999px;padding:11px 15px;background:#fffdf7;color:#334136;min-height:44px">
+      <button style="flex:none;height:44px;padding:0 15px;border-radius:999px;border:1.5px solid #2c6b52;background:#2c6b52;color:#fffdf7;font:700 12.5px system-ui,sans-serif;cursor:pointer">Send</button>
+    </div>
+  </div>
+
+  <div style="flex:1;min-width:0;display:flex;flex-direction:column">
+    <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:#fffdf7;border-bottom:1.5px solid rgba(51,65,54,.35);flex:none">
+      <div style="flex:1;min-width:0">
+        <div style="font:700 15px/1.2 'Bricolage Grotesque',system-ui,sans-serif;letter-spacing:-.02em;color:#334136">Dogs off the leash</div>
+        <div style="font:500 11.5px/1.35 system-ui,sans-serif;color:#575647">Sunday 10:00 · Berlin Mitte · <span style="color:#1e5540;font-weight:700">8 still work</span></div>
+      </div>
+      <div style="display:flex;flex:none">
+        <span style="width:26px;height:26px;border-radius:9px;background:#2c6b52;color:#fffdf7;font:700 10px system-ui,sans-serif;display:flex;align-items:center;justify-content:center;border:2px solid #fffdf7;transform:rotate(-4deg)">AL</span>
+        <span style="width:26px;height:26px;border-radius:9px;background:#a8501f;color:#fffdf7;font:700 10px system-ui,sans-serif;display:flex;align-items:center;justify-content:center;border:2px solid #fffdf7;margin-left:-6px;transform:rotate(3deg)">SA</span>
+        <span style="width:26px;height:26px;border-radius:9px;background:#7d6396;color:#fffdf7;font:700 10px system-ui,sans-serif;display:flex;align-items:center;justify-content:center;border:2px solid #fffdf7;margin-left:-6px;transform:rotate(-2deg)">JO</span>
+      </div>
+      <button style="flex:none;width:22px;height:22px;border-radius:6px;border:none;background:none;color:#63624f;font:600 9px/1 'IBM Plex Mono',monospace;cursor:pointer">{ }</button>
+    </div>
+    <div style="flex:1;min-height:0;display:flex">
+      <div style="flex:none;width:296px;background:#fffdf7;border-right:1.5px solid rgba(51,65,54,.35);display:flex;flex-direction:column">
+        <div style="flex:none;padding:13px 14px 10px">
+          <div style="display:flex;align-items:flex-end;gap:8px">
+            <span style="font:800 34px/.86 'Bricolage Grotesque',system-ui,sans-serif;letter-spacing:-.04em;color:#1e5540">8</span>
+            <span style="font:600 12.5px/1.3 system-ui,sans-serif;color:#334136;padding-bottom:3px">still work<br><span style="color:#575647;font-weight:500">of 34 · 3 unsure</span></span>
+          </div>
+        </div>
+        <div style="flex:1;min-height:0;overflow-y:auto;padding:0 14px">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+            <span style="font:800 11.5px/1.3 'Bricolage Grotesque',system-ui,sans-serif;text-transform:uppercase;letter-spacing:.03em;color:#334136">What matters</span>
+            <span style="font:700 10px system-ui,sans-serif;background:#dfeee6;color:#1e5540;border-radius:999px;padding:1px 7px">5</span>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:7px">
+            <div style="border:1.5px solid rgba(51,65,54,.55);border-radius:12px;background:#fffdf7;box-shadow:2px 2px 0 rgba(51,65,54,.30);padding:8px 10px;display:flex;align-items:center;gap:9px"><span style="width:34px;height:20px;border-radius:11px;background:#2c6b52;flex:none;position:relative"><i style="position:absolute;top:2.5px;right:2.5px;width:15px;height:15px;border-radius:50%;background:#fffdf7"></i></span><span style="flex:1;font:600 12.5px/1.35 system-ui,sans-serif;color:#334136">Dogs off-leash</span><span style="font:700 10.5px 'IBM Plex Mono',monospace;color:#575647">−19</span></div>
+            <div style="border:1.5px solid rgba(51,65,54,.55);border-radius:12px;background:#fffdf7;box-shadow:2px 2px 0 #a8501f;padding:8px 10px;display:flex;align-items:center;gap:9px"><span style="width:34px;height:20px;border-radius:11px;background:#2c6b52;flex:none;position:relative"><i style="position:absolute;top:2.5px;right:2.5px;width:15px;height:15px;border-radius:50%;background:#fffdf7"></i></span><span style="flex:1;font:600 12.5px/1.35 system-ui,sans-serif;color:#334136">Step-free paths</span><span style="font:700 10.5px 'IBM Plex Mono',monospace;color:#1e5540">−3</span></div>
+            <div style="border:1.5px solid rgba(51,65,54,.55);border-radius:12px;background:#fffdf7;box-shadow:2px 2px 0 rgba(51,65,54,.30);padding:8px 10px;display:flex;align-items:center;gap:9px"><span style="width:34px;height:20px;border-radius:11px;background:#a8501f;flex:none;position:relative"><i style="position:absolute;top:2.5px;right:2.5px;width:15px;height:15px;border-radius:50%;background:#fffdf7"></i></span><span style="flex:1;font:600 12.5px/1.35 system-ui,sans-serif;color:#334136">Water on site</span><span style="font:700 10px system-ui,sans-serif;background:#f9e6d9;color:#8a3f12;border-radius:6px;padding:1px 6px">3 ?</span></div>
+            <div style="border:1.5px solid rgba(51,65,54,.55);border-radius:12px;background:#f6f2f9;box-shadow:2px 2px 0 rgba(125,99,150,.30);padding:8px 10px;display:flex;align-items:center;gap:9px"><span style="width:34px;height:20px;border-radius:11px;background:#7d6396;flex:none;position:relative"><i style="position:absolute;top:2.5px;right:2.5px;width:15px;height:15px;border-radius:50%;background:#fffdf7"></i></span><span style="flex:1;font:600 12.5px/1.35 system-ui,sans-serif;color:#5f4a73">A private distance limit</span><span style="font:700 10px system-ui,sans-serif;color:#5f4a73">yours</span></div>
+          </div>
+          <div style="font:700 11px/1.3 system-ui,sans-serif;color:#575647;margin:14px 0 8px">Also worth asking for</div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px;padding-bottom:14px">
+            <button style="border:1.5px solid rgba(51,65,54,.55);border-radius:999px;background:#fffdf7;box-shadow:2px 2px 0 rgba(51,65,54,.30);padding:5px 12px;font:700 11.5px system-ui,sans-serif;color:#334136;cursor:pointer;display:flex;gap:6px;align-items:center">fenced in <span style="font:700 10px 'IBM Plex Mono',monospace;color:#575647">6</span></button>
+            <button style="border:1.5px solid rgba(51,65,54,.55);border-radius:999px;background:#fffdf7;box-shadow:2px 2px 0 rgba(51,65,54,.30);padding:5px 12px;font:700 11.5px system-ui,sans-serif;color:#334136;cursor:pointer;display:flex;gap:6px;align-items:center">shade <span style="font:700 10px 'IBM Plex Mono',monospace;color:#575647">9</span></button>
+          </div>
+        </div>
+        <div style="flex:none;padding:12px 14px;border-top:1px solid rgba(51,65,54,.16);display:flex;align-items:stretch;border-radius:0">
+          <div style="display:flex;align-items:stretch;border:1.5px solid #2c6b52;border-radius:12px;background:#fffdf7;box-shadow:2px 2px 0 rgba(51,65,54,.30);overflow:hidden;width:100%">
+            <span style="display:flex;align-items:center;padding:0 7px 0 8px;flex:none"><button style="display:flex;align-items:center;gap:5px;background:#dfeee6;border:1.5px solid #2c6b52;border-radius:7px;padding:4px 7px;font:700 10px system-ui,sans-serif;color:#1e5540;white-space:nowrap;cursor:pointer">Shared<span style="width:0;height:0;border-left:3.5px solid transparent;border-right:3.5px solid transparent;border-top:4.5px solid #1e5540;display:block"></span></button></span>
+            <input type="text" placeholder="Say what matters" style="flex:1;min-width:0;border:none;background:none;font:600 12.5px system-ui,sans-serif;padding:13px 0;color:#334136;min-height:44px">
+            <button style="flex:none;border:none;border-left:1.5px solid #2c6b52;background:#2c6b52;color:#fffdf7;font:700 12px system-ui,sans-serif;padding:0 13px;cursor:pointer">Add</button>
+          </div>
+        </div>
+      </div>
+      <div style="flex:1;min-width:0;position:relative;background:#e9e5da">
+        <div id="rd-map-8c" style="position:absolute;inset:0"></div>
+        <div style="position:absolute;inset:0;background:#2c6b52;mix-blend-mode:color;opacity:.18;pointer-events:none"></div>
+        <svg style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none" aria-hidden="true">
+          <defs><mask id="rd-scope-8c"><rect width="100%" height="100%" fill="#fff"></rect><circle cx="50%" cy="50%" r="212" fill="#000"></circle></mask></defs>
+          <rect width="100%" height="100%" fill="#334136" opacity="0.08" mask="url(#rd-scope-8c)"></rect>
+          <circle cx="50%" cy="50%" r="212" fill="none" stroke="#334136" stroke-width="1.5" stroke-opacity=".4" stroke-dasharray="6 7"></circle>
+        </svg>
+        <div style="position:absolute;left:50%;top:50%;transform:translate(-186px,-108px);width:8px;height:8px;border-radius:50%;background:#a8a291;opacity:.6"></div>
+        <div style="position:absolute;left:50%;top:50%;transform:translate(64px,-172px);width:8px;height:8px;border-radius:50%;background:#a8a291;opacity:.6"></div>
+        <div style="position:absolute;left:50%;top:50%;transform:translate(150px,124px);width:8px;height:8px;border-radius:50%;background:#a8a291;opacity:.6"></div>
+        <div style="position:absolute;left:50%;top:50%;transform:translate(-122px,144px);width:8px;height:8px;border-radius:50%;background:#a8a291;opacity:.6"></div>
+        <div style="position:absolute;left:50%;top:50%;transform:translate(-42px,-52px);width:16px;height:16px;border-radius:50%;border:2.5px solid #a8501f;background:#fffdf7"></div>
+        <div style="position:absolute;left:50%;top:50%;transform:translate(122px,20px) rotate(2deg);background:#fffdf7;border:1.5px solid rgba(51,65,54,.55);border-radius:11px;padding:5px 9px 5px 7px;box-shadow:2px 2px 0 rgba(51,65,54,.30);display:flex;align-items:center;gap:7px">
+          <i style="width:11px;height:11px;border-radius:50%;background:#2c6b52;border:1.5px solid rgba(51,65,54,.55);flex:none"></i>
+          <span style="font:700 11.5px/1.3 'Bricolage Grotesque',system-ui,sans-serif;white-space:nowrap;color:#334136">Monbijoupark</span>
+        </div>
+        <div style="position:absolute;left:50%;top:50%;transform:translate(-230px,44px) rotate(-3deg);background:#fffdf7;border:1.5px solid rgba(51,65,54,.55);border-radius:11px;padding:5px 9px 5px 7px;box-shadow:2px 2px 0 rgba(51,65,54,.30);display:flex;align-items:center;gap:7px">
+          <i style="width:11px;height:11px;border-radius:50%;background:#2c6b52;border:1.5px solid rgba(51,65,54,.55);flex:none"></i>
+          <span style="font:700 11.5px/1.3 'Bricolage Grotesque',system-ui,sans-serif;white-space:nowrap;color:#334136">Weinbergspark</span>
+        </div>
+        <div style="position:absolute;left:50%;top:50%;transform:translate(-40px,-140px);z-index:4">
+          <div style="background:#2c6b52;border:1.5px solid #2c6b52;border-radius:12px;padding:7px 11px 7px 8px;box-shadow:3px 4px 0 rgba(51,65,54,.30);display:flex;align-items:center;gap:8px;transform:rotate(-2deg)">
+            <i style="width:12px;height:12px;border-radius:50%;background:#fffdf7;flex:none"></i>
+            <span style="font:800 12.5px/1.25 'Bricolage Grotesque',system-ui,sans-serif;white-space:nowrap;color:#fffdf7">Park am Nordbahnhof</span>
+          </div>
+        </div>
+        <div style="position:absolute;left:50%;top:50%;transform:translate(58px,86px);display:flex;align-items:flex-start">
+          <svg width="15" height="19" viewBox="0 0 14 18" style="display:block"><path d="M1 1 L1 15 L5 11 L8 17 L11 15.5 L8 10 L13 9 Z" fill="#a8501f" stroke="#fffdf7" stroke-width="1.6"></path></svg>
+          <span style="background:#a8501f;color:#fffdf7;border-radius:0 7px 7px 7px;padding:1px 7px;font:700 10px/1.5 system-ui,sans-serif;margin-top:10px">Sarah</span>
+        </div>
+      </div>
+      <div style="flex:none;width:340px;background:#fffdf7;border-left:1.5px solid rgba(51,65,54,.35);display:flex;flex-direction:column;overflow-y:auto">
+        <div style="padding:14px 16px 0">
+          <div style="display:flex;align-items:flex-start;gap:8px">
+            <div style="flex:1">
+              <div style="font:800 17px/1.24 'Bricolage Grotesque',system-ui,sans-serif;letter-spacing:-.02em;color:#334136">Park am Nordbahnhof</div>
+              <div style="font:500 11.5px/1.4 system-ui,sans-serif;color:#575647;margin-top:2px">park · 12 min · open all hours</div>
+            </div>
+            <button style="flex:none;border:none;background:none;color:#575647;font:700 11.5px system-ui,sans-serif;cursor:pointer">Close</button>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;margin:11px 0 0;padding:9px 11px;background:#dfeee6;border:1.5px solid #2c6b52;border-radius:11px">
+            <span style="width:9px;height:9px;border-radius:50%;background:#2c6b52;flex:none"></span>
+            <span style="font:600 12.5px/1.45 system-ui,sans-serif;color:#1e5540">Clears everything the room asked for</span>
+          </div>
+        </div>
+        <div style="padding:16px 16px 0">
+          <div style="font:800 11px/1.3 'Bricolage Grotesque',system-ui,sans-serif;letter-spacing:.06em;text-transform:uppercase;color:#575647;margin-bottom:8px">Against what the room asked</div>
+          <div style="border-top:1.5px solid rgba(51,65,54,.35)">
+            <div style="display:flex;gap:9px;padding:8px 0;border-bottom:1px solid rgba(51,65,54,.16);align-items:baseline"><span style="color:#1e5540;font:700 12px system-ui,sans-serif;width:13px;flex:none">✓</span><span style="flex:1;font:500 12.5px/1.45 system-ui,sans-serif;color:#334136">Off-leash meadow</span><span style="font:500 10px system-ui,sans-serif;color:#575647;flex:none">OSM</span></div>
+            <div style="display:flex;gap:9px;padding:8px 0;border-bottom:1px solid rgba(51,65,54,.16);align-items:baseline"><span style="color:#1e5540;font:700 12px system-ui,sans-serif;width:13px;flex:none">✓</span><span style="flex:1;font:500 12.5px/1.45 system-ui,sans-serif;color:#334136">Step-free throughout</span><span style="font:500 10px system-ui,sans-serif;color:#575647;flex:none">OSM</span></div>
+            <div style="display:flex;gap:9px;padding:8px 0;border-bottom:1px solid rgba(51,65,54,.16);align-items:baseline"><span style="color:#5f4a73;font:700 12px system-ui,sans-serif;width:13px;flex:none">●</span><span style="flex:1;font:500 12.5px/1.45 system-ui,sans-serif;color:#5f4a73;font-style:italic">Inside your distance limit</span><span style="font:500 10px system-ui,sans-serif;color:#5f4a73;flex:none">private</span></div>
+            <div style="display:flex;gap:9px;padding:8px 0;align-items:baseline"><span style="color:#a15421;font:700 12px system-ui,sans-serif;width:13px;flex:none">?</span><span style="flex:1;font:500 12.5px/1.45 system-ui,sans-serif;color:#575647">Water — unconfirmed</span><span style="font:500 10px system-ui,sans-serif;color:#575647;flex:none">unknown</span></div>
+          </div>
+        </div>
+        <div style="padding:16px 16px 0">
+          <div style="font:800 11px/1.3 'Bricolage Grotesque',system-ui,sans-serif;letter-spacing:.06em;text-transform:uppercase;color:#575647;margin-bottom:8px">Also known about it</div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px">
+            <span style="font:600 11.5px/1.5 system-ui,sans-serif;background:#fffdf7;border:1.5px solid rgba(51,65,54,.35);color:#334136;border-radius:7px;padding:3px 9px">fenced</span>
+            <span style="font:600 11.5px/1.5 system-ui,sans-serif;background:#fffdf7;border:1.5px solid rgba(51,65,54,.35);color:#334136;border-radius:7px;padding:3px 9px">shade</span>
+            <span style="font:600 11.5px/1.5 system-ui,sans-serif;background:#fffdf7;border:1.5px solid rgba(51,65,54,.35);color:#334136;border-radius:7px;padding:3px 9px">wide paths</span>
+          </div>
+        </div>
+        <div style="margin-top:auto;padding:14px 16px;border-top:1px solid rgba(51,65,54,.16);display:flex;gap:8px;background:#faf7ee">
+          <button style="flex:1;border:1.5px solid #2c6b52;background:#2c6b52;box-shadow:2px 3px 0 rgba(51,65,54,.30);border-radius:12px;padding:12px;font:800 13px 'Bricolage Grotesque',system-ui,sans-serif;color:#fffdf7;cursor:pointer">Put it forward</button>
+          <button style="flex:none;border:1.5px solid rgba(51,65,54,.55);background:#fffdf7;box-shadow:2px 3px 0 rgba(51,65,54,.30);border-radius:12px;padding:12px 14px;font:700 12.5px system-ui,sans-serif;color:#334136;cursor:pointer">Not for me…</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- 8d CONSENT VARIANTS + TRANSIENTS -->
+<div id="8d" style="flex:none;display:flex;flex-direction:column;gap:9px;scroll-margin-top:16px">
+<div style="display:flex;align-items:baseline;gap:8px;font:400 11px/1.45 system-ui,sans-serif;color:rgba(0,0,0,.66);width:390px">
+<a href="#8d" style="font:600 10.5px 'IBM Plex Mono',monospace;padding:3px 7px;background:rgba(0,0,0,.08);color:#1a1a1a;border-radius:5px;text-decoration:none">8d</a>
+<span><strong style="color:#23252d">Consent variants + transients.</strong> The three protocol-distinct consent cards, then the states the spec would otherwise omit.</span>
+</div>
+<div style="width:390px;background:#fdf8ee;border:1px solid rgba(0,0,0,.1);border-radius:16px;padding:16px;box-shadow:0 4px 18px rgba(0,0,0,.1);display:flex;flex-direction:column;gap:14px">
+  <div style="font:800 11px/1.3 'Bricolage Grotesque',system-ui,sans-serif;letter-spacing:.06em;text-transform:uppercase;color:#575647">1 · within what you delegated · agent acted</div>
+  <div style="border:1.5px solid #3d5a80;border-radius:13px;background:#e1e7f0;box-shadow:2px 2px 0 rgba(61,90,128,.35);padding:11px 12px">
+    <div style="display:flex;align-items:center;gap:7px;margin-bottom:5px"><span style="font:700 9.5px system-ui,sans-serif;background:#7d6396;color:#fffdf7;border-radius:5px;padding:2px 6px">only you see this</span></div>
+    <div style="font:700 12.5px/1.4 system-ui,sans-serif;color:#334136;margin-bottom:3px">Widen the area from 900 m to 1.1 km?</div>
+    <div style="font:500 11.5px/1.45 system-ui,sans-serif;color:#5f4a73;margin-bottom:10px">Brings back 3 places. You delegated up to 1.2 km, so accepting applies it straight away.</div>
+    <div style="display:flex;gap:7px"><button style="border:1.5px solid #3d5a80;background:#3d5a80;box-shadow:2px 2px 0 rgba(61,90,128,.35);border-radius:10px;padding:9px 13px;font:700 12.5px system-ui,sans-serif;color:#fffdf7;cursor:pointer">Accept</button><button style="border:1.5px solid rgba(51,65,54,.55);background:#fffdf7;box-shadow:2px 2px 0 rgba(51,65,54,.30);border-radius:10px;padding:9px 13px;font:700 12.5px system-ui,sans-serif;color:#334136;cursor:pointer">Decline</button></div>
+  </div>
+
+  <div style="font:800 11px/1.3 'Bricolage Grotesque',system-ui,sans-serif;letter-spacing:.06em;text-transform:uppercase;color:#575647">2 · beyond it — staged, needs the page</div>
+  <div style="border:1.5px solid #3d5a80;border-radius:13px;background:#e1e7f0;box-shadow:2px 2px 0 rgba(61,90,128,.35);padding:11px 12px">
+    <div style="font:700 12.5px/1.4 system-ui,sans-serif;color:#334136;margin-bottom:3px">Confirm here to apply it</div>
+    <div style="font:500 11.5px/1.45 system-ui,sans-serif;color:#575647;margin-bottom:10px">Widen from 900 m to 1.4 km — beyond the 1.2 km you delegated. Your agent staged it; only this gesture applies it.</div>
+    <div style="display:flex;gap:7px"><button style="border:1.5px solid #3d5a80;background:#3d5a80;box-shadow:2px 2px 0 rgba(61,90,128,.35);border-radius:10px;padding:9px 13px;font:700 12.5px system-ui,sans-serif;color:#fffdf7;cursor:pointer">Confirm</button><button style="border:1.5px solid rgba(51,65,54,.55);background:#fffdf7;box-shadow:2px 2px 0 rgba(51,65,54,.30);border-radius:10px;padding:9px 13px;font:700 12.5px system-ui,sans-serif;color:#334136;cursor:pointer">Cancel the grant</button></div>
+  </div>
+
+  <div style="font:800 11px/1.3 'Bricolage Grotesque',system-ui,sans-serif;letter-spacing:.06em;text-transform:uppercase;color:#575647">3 · agent-only screening</div>
+  <div style="border:1.5px solid rgba(51,65,54,.55);border-radius:13px;background:#fffdf7;box-shadow:2px 2px 0 rgba(61,90,128,.32);padding:11px 12px">
+    <div style="display:flex;align-items:center;gap:7px;margin-bottom:5px"><span style="font:700 9.5px system-ui,sans-serif;background:#5f4a73;color:#fffdf7;border-radius:5px;padding:2px 6px">agent only</span><span style="font:700 9.5px system-ui,sans-serif;background:#e1e7f0;color:#2b4159;border-radius:5px;padding:2px 6px">acting now</span></div>
+    <div style="font:700 12.5px/1.4 system-ui,sans-serif;color:#334136;margin-bottom:3px">Your agent has 6 places to screen</div>
+    <div style="font:500 11.5px/1.45 system-ui,sans-serif;color:#575647;margin-bottom:10px">Against the condition it holds for you. Nothing about it reaches the room, or us.</div>
+    <button style="border:1.5px solid rgba(51,65,54,.55);background:#fffdf7;box-shadow:2px 2px 0 rgba(51,65,54,.30);border-radius:10px;padding:9px 13px;font:700 12.5px system-ui,sans-serif;color:#334136;cursor:pointer">Ask it to check now</button>
+  </div>
+
+  <div style="height:1px;background:rgba(51,65,54,.2)"></div>
+  <div style="font:800 11px/1.3 'Bricolage Grotesque',system-ui,sans-serif;letter-spacing:.06em;text-transform:uppercase;color:#575647">Transients</div>
+  <div style="display:flex;flex-direction:column;gap:9px">
+    <div style="background:#242b25;color:#fffdf7;border-radius:11px;padding:10px 13px;display:flex;align-items:center;gap:10px;box-shadow:0 4px 14px rgba(0,0,0,.25)">
+      <span style="font:600 12.5px/1.4 system-ui,sans-serif;flex:1">Added. 12 places still work.</span>
+    </div>
+    <div style="background:#8a2f1c;color:#fffdf7;border-radius:11px;padding:10px 13px;display:flex;align-items:center;gap:10px;box-shadow:0 4px 14px rgba(0,0,0,.25)">
+      <span style="font:600 12.5px/1.4 system-ui,sans-serif;flex:1">Couldn't save that — the room moved on. Retrying.</span>
+      <button style="border:none;background:none;color:#fffdf7;font:700 12px system-ui,sans-serif;cursor:pointer">Dismiss</button>
+    </div>
+    <div style="background:#f9e6d9;border:1.5px solid #a8501f;border-radius:11px;padding:10px 13px;font:600 12px/1.45 system-ui,sans-serif;color:#8a3f12">The app updated while you were here. <button style="border:none;background:none;color:#8a3f12;font:700 12px system-ui,sans-serif;text-decoration:underline;cursor:pointer;padding:0">Reload to catch up</button></div>
+    <div style="border:1.5px solid rgba(51,65,54,.35);border-radius:11px;padding:14px 13px;background:#fffdf7;display:flex;align-items:center;gap:10px">
+      <span style="width:14px;height:14px;border-radius:50%;border:2.5px solid #dfeee6;border-top-color:#2c6b52;flex:none"></span>
+      <span style="font:600 12px/1.45 system-ui,sans-serif;color:#575647">Finding green spaces near Mitte…</span>
+    </div>
+    <div style="border:1.5px dashed rgba(51,65,54,.4);border-radius:11px;padding:14px 13px;background:#fffdf7">
+      <div style="font:700 12.5px/1.4 system-ui,sans-serif;color:#334136;margin-bottom:3px">The map didn't load</div>
+      <div style="font:500 11.5px/1.45 system-ui,sans-serif;color:#575647;margin-bottom:10px">Your needs and everyone's answers are safe — only the tiles are missing.</div>
+      <button style="border:1.5px solid rgba(51,65,54,.55);background:#fffdf7;box-shadow:2px 2px 0 rgba(51,65,54,.30);border-radius:10px;padding:9px 13px;font:700 12.5px system-ui,sans-serif;color:#334136;cursor:pointer">Try again</button>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- 8e SARAH'S SIDE -->
+<div id="8e" style="flex:none;display:flex;flex-direction:column;gap:9px;scroll-margin-top:16px">
+<div style="display:flex;align-items:baseline;gap:8px;font:400 11px/1.45 system-ui,sans-serif;color:rgba(0,0,0,.66);width:390px">
+<a href="#8e" style="font:600 10.5px 'IBM Plex Mono',monospace;padding:3px 7px;background:rgba(0,0,0,.08);color:#1a1a1a;border-radius:5px;text-decoration:none">8e</a>
+<span><strong style="color:#23252d">Sarah's side of <a href="#7b" style="font:600 11px 'IBM Plex Mono',monospace;text-decoration:none">7b</a>.</strong> She sees which of her conditions is being asked about — the others never learn it exists by name.</span>
+</div>
+<div style="width:390px;height:844px;background:#fdf8ee;border:1px solid rgba(0,0,0,.1);border-radius:34px;overflow:hidden;position:relative;box-shadow:0 4px 18px rgba(0,0,0,.1)">
+  <div style="height:52px;display:flex;align-items:flex-end;justify-content:space-between;padding:0 22px 5px;font:600 12.5px system-ui,sans-serif;color:#334136"><span>9:32</span><span style="letter-spacing:2px">▮▮▮</span></div>
+  <div style="padding:2px 16px 10px;display:flex;align-items:center;gap:10px">
+    <div style="flex:1;min-width:0">
+      <div style="font:700 15px/1.15 'Bricolage Grotesque',system-ui,sans-serif;letter-spacing:-.02em;color:#334136;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Dogs off the leash</div>
+      <div style="font:500 11px/1.35 system-ui,sans-serif;color:#575647">you're Sarah · one thing needs you</div>
+    </div>
+    <div style="display:flex;flex:none">
+      <span style="width:26px;height:26px;border-radius:9px;background:#2c6b52;color:#fffdf7;font:700 10px system-ui,sans-serif;display:flex;align-items:center;justify-content:center;border:2px solid #fdf8ee;transform:rotate(-4deg)">AL</span>
+      <span style="width:26px;height:26px;border-radius:9px;background:#a8501f;color:#fffdf7;font:700 10px system-ui,sans-serif;display:flex;align-items:center;justify-content:center;border:2px solid #fdf8ee;margin-left:-6px;transform:rotate(3deg)">SA</span>
+      <span style="width:26px;height:26px;border-radius:9px;background:#7d6396;color:#fffdf7;font:700 10px system-ui,sans-serif;display:flex;align-items:center;justify-content:center;border:2px solid #fdf8ee;margin-left:-6px;transform:rotate(-2deg)">JO</span>
+    </div>
+    <button style="flex:none;width:22px;height:22px;border-radius:6px;border:none;background:none;color:#63624f;font:600 9px/1 'IBM Plex Mono',monospace;cursor:pointer">{ }</button>
+  </div>
+  <div style="position:relative;height:214px;background:#e9e5da;border-top:1px solid rgba(51,65,54,.55);border-bottom:1px solid rgba(51,65,54,.55)">
+    <div id="rd-map-8e" style="position:absolute;inset:0"></div>
+    <div style="position:absolute;inset:0;background:#2c6b52;mix-blend-mode:color;opacity:.18;pointer-events:none"></div>
+    <svg style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none" aria-hidden="true">
+      <circle cx="50%" cy="48%" r="112" fill="none" stroke="#334136" stroke-width="1.5" stroke-opacity=".4" stroke-dasharray="6 7"></circle>
+      <circle cx="50%" cy="48%" r="152" fill="none" stroke="#7d6396" stroke-width="1.5" stroke-opacity=".6" stroke-dasharray="4 6"></circle>
+    </svg>
+    <div style="position:absolute;left:50%;top:48%;transform:translate(-104px,-46px);width:8px;height:8px;border-radius:50%;background:#a8a291;opacity:.6"></div>
+    <div style="position:absolute;left:50%;top:48%;transform:translate(92px,54px);width:8px;height:8px;border-radius:50%;background:#a8a291;opacity:.6"></div>
+    <div style="position:absolute;left:50%;top:48%;transform:translate(-38px,70px);width:8px;height:8px;border-radius:50%;background:#a8a291;opacity:.6"></div>
+    <div style="position:absolute;left:50%;top:48%;transform:translate(-124px,26px) rotate(-3deg);background:#fffdf7;border:1.5px dashed #7d6396;border-radius:11px;padding:5px 9px 5px 7px;box-shadow:2px 2px 0 rgba(125,99,150,.25);display:flex;align-items:center;gap:7px;animation:ring-breathe 2600ms ease-in-out infinite">
+      <i style="width:11px;height:11px;border-radius:50%;background:#fffdf7;border:2px dashed #7d6396;flex:none"></i>
+      <span style="font:700 11.5px/1.3 'Bricolage Grotesque',system-ui,sans-serif;white-space:nowrap;color:#5f4a73">Humboldthain</span>
+      <span style="font:600 9.5px system-ui,sans-serif;background:#ece5f2;color:#5f4a73;border-radius:5px;padding:1px 5px">28 min</span>
+    </div>
+    <div style="position:absolute;left:14px;top:14px;background:#fffdf7;border:1.5px solid #7d6396;border-radius:12px;box-shadow:2px 3px 0 rgba(125,99,150,.30);padding:6px 11px;transform:rotate(-2deg)">
+      <div style="font:800 11.5px/1.3 'Bricolage Grotesque',system-ui,sans-serif;color:#5f4a73">your limit: 20 min</div>
+      <div style="font:600 10px/1.3 'IBM Plex Mono',monospace;color:#575647">dashed ring = the ask</div>
+    </div>
+  </div>
+  <div style="padding:14px 16px 0;height:370px;overflow-y:auto">
+    <div style="border:1.5px solid #7d6396;border-radius:13px;background:#f6f2f9;box-shadow:2px 2px 0 rgba(125,99,150,.30);padding:12px 13px;margin-bottom:14px">
+      <div style="display:flex;align-items:center;gap:7px;margin-bottom:6px"><span style="font:700 9.5px system-ui,sans-serif;background:#7d6396;color:#fffdf7;border-radius:5px;padding:2px 6px">only you see this</span></div>
+      <div style="font:700 13px/1.4 system-ui,sans-serif;color:#334136;margin-bottom:4px">Could you travel up to 28 minutes?</div>
+      <div style="font:500 12px/1.5 system-ui,sans-serif;color:#5f4a73;margin-bottom:5px">Your limit of 20 minutes is the only thing ruling out the last two parks. Stretching it to 28 makes both work.</div>
+      <div style="font:500 11.5px/1.5 system-ui,sans-serif;color:#575647;margin-bottom:11px">The others were told a condition exists and how many places it costs — not that it's yours, and not what it is.</div>
+      <div style="display:flex;gap:7px;flex-wrap:wrap">
+        <button style="border:1.5px solid #7d6396;background:#7d6396;box-shadow:2px 2px 0 rgba(125,99,150,.30);border-radius:10px;padding:10px 13px;font:700 12.5px system-ui,sans-serif;color:#fffdf7;cursor:pointer">Yes, up to 28</button>
+        <button style="border:1.5px solid rgba(51,65,54,.55);background:#fffdf7;box-shadow:2px 2px 0 rgba(51,65,54,.30);border-radius:10px;padding:10px 13px;font:700 12.5px system-ui,sans-serif;color:#334136;cursor:pointer">Keep 20</button>
+        <button style="border:none;background:none;color:#5f4a73;font:700 12px system-ui,sans-serif;cursor:pointer;text-decoration:underline">Offer 24 instead</button>
+      </div>
+    </div>
+    <div style="font:800 12px/1.3 'Bricolage Grotesque',system-ui,sans-serif;text-transform:uppercase;letter-spacing:.03em;color:#334136;margin-bottom:9px">What matters</div>
+    <div style="display:flex;flex-direction:column;gap:7px">
+      <div style="border:1.5px solid #7d6396;border-radius:13px;background:#f6f2f9;box-shadow:2px 2px 0 rgba(125,99,150,.30);padding:8px 10px;display:flex;align-items:center;gap:9px"><span style="width:36px;height:21px;border-radius:11px;background:#7d6396;flex:none;position:relative"><i style="position:absolute;top:2.5px;right:2.5px;width:16px;height:16px;border-radius:50%;background:#fffdf7"></i></span><span style="flex:1;font:600 13px/1.35 system-ui,sans-serif;color:#5f4a73">No more than 20 min away</span><span style="font:700 10px system-ui,sans-serif;background:#7d6396;color:#fffdf7;border-radius:6px;padding:1px 6px">private</span></div>
+      <div style="border:1.5px solid rgba(51,65,54,.55);border-radius:13px;background:#fffdf7;box-shadow:2px 2px 0 rgba(51,65,54,.30);padding:8px 10px;display:flex;align-items:center;gap:9px"><span style="width:36px;height:21px;border-radius:11px;background:#2c6b52;flex:none;position:relative"><i style="position:absolute;top:2.5px;right:2.5px;width:16px;height:16px;border-radius:50%;background:#fffdf7"></i></span><span style="flex:1;font:600 13px/1.35 system-ui,sans-serif;color:#334136">Step-free the whole way</span><span style="font:700 11px 'IBM Plex Mono',monospace;color:#1e5540">−3</span></div>
+      <div style="border:1.5px solid rgba(51,65,54,.55);border-radius:13px;background:#fffdf7;box-shadow:2px 2px 0 rgba(51,65,54,.30);padding:8px 10px;display:flex;align-items:center;gap:9px"><span style="width:36px;height:21px;border-radius:11px;background:#2c6b52;flex:none;position:relative"><i style="position:absolute;top:2.5px;right:2.5px;width:16px;height:16px;border-radius:50%;background:#fffdf7"></i></span><span style="flex:1;font:600 13px/1.35 system-ui,sans-serif;color:#334136">Dogs off-leash · <span style="color:#575647;font-weight:500">Alex</span></span><span style="font:700 11px 'IBM Plex Mono',monospace;color:#575647">−19</span></div>
+    </div>
+  </div>
+  <div style="position:absolute;left:16px;right:16px;bottom:20px;display:flex;align-items:stretch;border:1.5px solid rgba(51,65,54,.55);border-radius:13px;background:#fffdf7;box-shadow:2px 3px 0 rgba(51,65,54,.30);overflow:hidden">
+    <span style="display:flex;align-items:center;padding:0 9px 0 10px;flex:none"><button style="display:flex;align-items:center;gap:5px;background:#ece5f2;border:1.5px solid #7d6396;border-radius:7px;padding:4px 8px;font:700 10.5px system-ui,sans-serif;color:#5f4a73;white-space:nowrap;cursor:pointer">Private<span style="width:0;height:0;border-left:3.5px solid transparent;border-right:3.5px solid transparent;border-top:4.5px solid #5f4a73;display:block"></span></button></span>
+    <input type="text" placeholder="…or say it yourself" style="flex:1;min-width:0;border:none;background:none;font:600 13px system-ui,sans-serif;padding:14px 0;color:#334136;min-height:44px">
+    <button style="flex:none;border:none;border-left:1.5px solid #2c6b52;background:#2c6b52;color:#fffdf7;font:700 12.5px system-ui,sans-serif;padding:0 15px;cursor:pointer">Add</button>
+  </div>
+</div>
+</div>
+
+<!-- 8g BRAND A/B -->
+<div id="8f" style="flex:none;display:flex;flex-direction:column;gap:9px;scroll-margin-top:16px">
+<div style="display:flex;align-items:baseline;gap:8px;font:400 11px/1.45 system-ui,sans-serif;color:rgba(0,0,0,.66);width:390px">
+<a href="#8f" style="font:600 10.5px 'IBM Plex Mono',monospace;padding:3px 7px;background:rgba(0,0,0,.08);color:#1a1a1a;border-radius:5px;text-decoration:none">8f</a>
+<span><strong style="color:#23252d">The brand question.</strong> Top: green owns everything. Bottom: green means “works”, woad stays <code style="font:500 11px 'IBM Plex Mono',monospace">--spoke-act</code> — proposals and agent actions (who moved, never who may see).</span>
+</div>
+<div style="width:390px;display:flex;flex-direction:column;gap:16px">
+  <div style="background:#fdf8ee;border:1px solid rgba(0,0,0,.1);border-radius:16px;padding:14px;box-shadow:0 4px 18px rgba(0,0,0,.1)">
+    <div style="font:800 10.5px/1.3 'Bricolage Grotesque',system-ui,sans-serif;letter-spacing:.06em;text-transform:uppercase;color:#575647;margin-bottom:10px">A · green replaces the action accent</div>
+    <div style="border:1.5px solid #2c6b52;border-radius:14px;background:#2c6b52;box-shadow:2px 3px 0 rgba(51,65,54,.30);padding:11px 13px;color:#fffdf7;margin-bottom:9px">
+      <div style="display:flex;align-items:flex-end;gap:8px"><span style="font:800 30px/.85 'Bricolage Grotesque',system-ui,sans-serif;letter-spacing:-.04em">8</span><span style="font:700 12px/1.25 system-ui,sans-serif;padding-bottom:2px">still work<br><span style="font-weight:500">of 34</span></span></div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:7px">
+      <div style="border:1.5px solid rgba(51,65,54,.55);border-radius:12px;background:#fffdf7;box-shadow:2px 2px 0 rgba(51,65,54,.30);padding:8px 10px;display:flex;align-items:center;gap:9px"><span style="width:34px;height:20px;border-radius:11px;background:#2c6b52;flex:none;position:relative"><i style="position:absolute;top:2.5px;right:2.5px;width:15px;height:15px;border-radius:50%;background:#fffdf7"></i></span><span style="flex:1;font:600 12.5px system-ui,sans-serif;color:#334136">Dogs off-leash</span><span style="font:700 10.5px 'IBM Plex Mono',monospace;color:#575647">−19</span></div>
+      <div style="display:flex;gap:7px"><button style="border:1.5px solid #2c6b52;background:#2c6b52;box-shadow:2px 2px 0 rgba(51,65,54,.30);border-radius:10px;padding:9px 13px;font:700 12.5px system-ui,sans-serif;color:#fffdf7;cursor:pointer">Put it forward</button><button style="border:1.5px solid #2c6b52;background:#dfeee6;box-shadow:2px 2px 0 rgba(51,65,54,.30);border-radius:10px;padding:9px 13px;font:700 12.5px system-ui,sans-serif;color:#1e5540;cursor:pointer">Your agent acted</button></div>
+    </div>
+    <div style="font:500 11px/1.5 system-ui,sans-serif;color:#575647;margin-top:9px">One accent. Calmer, but “works”, “act” and “who we are” all look the same.</div>
+  </div>
+  <div style="background:#fdf8ee;border:1px solid rgba(0,0,0,.1);border-radius:16px;padding:14px;box-shadow:0 4px 18px rgba(0,0,0,.1)">
+    <div style="font:800 10.5px/1.3 'Bricolage Grotesque',system-ui,sans-serif;letter-spacing:.06em;text-transform:uppercase;color:#575647;margin-bottom:10px">B · woad kept for action &amp; agent</div>
+    <div style="border:1.5px solid #2c6b52;border-radius:14px;background:#2c6b52;box-shadow:2px 3px 0 rgba(51,65,54,.30);padding:11px 13px;color:#fffdf7;margin-bottom:9px">
+      <div style="display:flex;align-items:flex-end;gap:8px"><span style="font:800 30px/.85 'Bricolage Grotesque',system-ui,sans-serif;letter-spacing:-.04em">8</span><span style="font:700 12px/1.25 system-ui,sans-serif;padding-bottom:2px">still work<br><span style="font-weight:500">of 34</span></span></div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:7px">
+      <div style="border:1.5px solid rgba(51,65,54,.55);border-radius:12px;background:#fffdf7;box-shadow:2px 2px 0 rgba(51,65,54,.30);padding:8px 10px;display:flex;align-items:center;gap:9px"><span style="width:34px;height:20px;border-radius:11px;background:#2c6b52;flex:none;position:relative"><i style="position:absolute;top:2.5px;right:2.5px;width:15px;height:15px;border-radius:50%;background:#fffdf7"></i></span><span style="flex:1;font:600 12.5px system-ui,sans-serif;color:#334136">Dogs off-leash</span><span style="font:700 10.5px 'IBM Plex Mono',monospace;color:#575647">−19</span></div>
+      <div style="display:flex;gap:7px"><button style="border:1.5px solid #3d5a80;background:#3d5a80;box-shadow:2px 2px 0 rgba(51,65,54,.30);border-radius:10px;padding:9px 13px;font:700 12.5px system-ui,sans-serif;color:#fffdf7;cursor:pointer">Put it forward</button><button style="border:1.5px solid #3d5a80;background:#e1e7f0;box-shadow:2px 2px 0 rgba(51,65,54,.30);border-radius:10px;padding:9px 13px;font:700 12.5px system-ui,sans-serif;color:#2b4159;cursor:pointer">Your agent acted</button></div>
+    </div>
+    <div style="font:500 11px/1.5 system-ui,sans-serif;color:#575647;margin-top:9px">Green = eligibility, woad = someone acting. Busier, but the map's colour never means two things.</div>
+  </div>
+</div>
+</div>
+
+</div>
+<p style="margin:24px 0 0;font:400 12.5px/1.6 system-ui,sans-serif;color:rgba(0,0,0,.66);max-width:880px;text-wrap:pretty"><strong style="color:#23252d">Option B in <a href="#8f" style="font:600 11px 'IBM Plex Mono',monospace;text-decoration:none">8f</a> is the decision.</strong> Green means “works”; <code style="font:500 11.5px 'IBM Plex Mono',monospace">--spoke-act</code> stays a colour of its own, now woad. The handoff derived from it lives in <code style="font:500 11.5px 'IBM Plex Mono',monospace">handoff/</code>: <code style="font:500 11.5px 'IBM Plex Mono',monospace">tokens.css</code>, <code style="font:500 11.5px 'IBM Plex Mono',monospace">SPOKES-UI.md</code>, <code style="font:500 11.5px 'IBM Plex Mono',monospace">COPY.md</code>, <code style="font:500 11.5px 'IBM Plex Mono',monospace">FACETS.md</code> and <code style="font:500 11.5px 'IBM Plex Mono',monospace">CLAUDE.md</code>.</p>
+</section>
+
+<!-- ═══════════════════ TURN 7 ═══════════════════ -->
+<section id="t7" style="padding:40px 44px 40px;border-bottom:1px solid rgba(0,0,0,.09)">
+<div style="display:flex;align-items:baseline;gap:10px;margin:0 0 6px">
+<a href="#t7" style="font:600 10px 'IBM Plex Mono',monospace;padding:3px 7px;background:#1a1a1a;color:#fff;border-radius:4px;text-decoration:none">7</a>
+<span style="font:600 13px/1.2 system-ui,sans-serif">The rest of the flow in the locked <a href="#4a" style="font:600 11px 'IBM Plex Mono',monospace;text-decoration:none">4a</a> language</span>
+</div>
+<p style="margin:0 0 24px;font:400 12.5px/1.65 system-ui,sans-serif;color:rgba(0,0,0,.58);max-width:880px;text-wrap:pretty">Same frame, same tokens, same bar as <a href="#4a" style="font:600 11px 'IBM Plex Mono',monospace;text-decoration:none">4a</a> — only the middle changes. One scenario read end to end: an empty room, the moment nothing fits, the agreement, and what someone joining two hours late sees. The map furniture never changes meaning: solid green works, hollow terracotta unverified, small grey ruled out, dashed green-grey is “would come back”, and woad <code style="font:500 11px 'IBM Plex Mono',monospace">#3d5a80</code> marks someone acting — a proposal on the table, an agent that moved — while violet stays strictly about who may see.</p>
+
+<div style="display:flex;flex-wrap:nowrap;gap:26px;align-items:flex-start;width:max-content">
+
+<!-- 7a EMPTY ROOM -->
+<div id="7a" style="flex:none;display:flex;flex-direction:column;gap:9px;scroll-margin-top:16px">
+<div style="display:flex;align-items:baseline;gap:8px;font:400 11px/1.45 system-ui,sans-serif;color:rgba(0,0,0,.55);width:390px">
+<a href="#7a" style="font:600 10.5px 'IBM Plex Mono',monospace;padding:3px 7px;background:rgba(0,0,0,.08);color:#1a1a1a;border-radius:5px;text-decoration:none">7a</a>
+<span><strong style="color:#23252d">Nobody has said anything.</strong> Nothing dimmed, because nothing is ruled out. The chips carry the whole burden of teaching what a need can be.</span>
+</div>
+<div style="width:390px;height:844px;background:#fdf8ee;border:1px solid rgba(0,0,0,.1);border-radius:34px;overflow:hidden;position:relative;box-shadow:0 4px 18px rgba(0,0,0,.1)">
+  <div style="height:52px;display:flex;align-items:flex-end;justify-content:space-between;padding:0 22px 5px;font:600 12.5px system-ui,sans-serif;color:#334136"><span>9:02</span><span style="letter-spacing:2px">▮▮▮</span></div>
+  <div style="padding:2px 16px 10px;display:flex;align-items:center;gap:10px">
+    <div style="flex:1;min-width:0">
+      <div style="font:700 15px/1.15 'Bricolage Grotesque',system-ui,sans-serif;letter-spacing:-.02em;color:#334136;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Dogs off the leash</div>
+      <div style="font:500 11px/1.35 system-ui,sans-serif;color:#5b6158">Sunday 10:00 · you're first here</div>
+    </div>
+    <div style="display:flex;flex:none">
+      <span style="width:26px;height:26px;border-radius:9px;background:#2c6b52;color:#fffdf7;font:700 10px system-ui,sans-serif;display:flex;align-items:center;justify-content:center;border:2px solid #fdf8ee;transform:rotate(-4deg)">AL</span>
+      <span style="width:26px;height:26px;border-radius:9px;background:#e7e2d4;color:#575647;font:700 10px system-ui,sans-serif;display:flex;align-items:center;justify-content:center;border:2px solid #fdf8ee;margin-left:-6px;transform:rotate(3deg)">SA</span>
+      <span style="width:26px;height:26px;border-radius:9px;background:#e7e2d4;color:#575647;font:700 10px system-ui,sans-serif;display:flex;align-items:center;justify-content:center;border:2px solid #fdf8ee;margin-left:-6px;transform:rotate(-2deg)">JO</span>
+    </div>
+    <button style="flex:none;width:22px;height:22px;border-radius:6px;border:none;background:none;color:#63624f;font:600 9px/1 'IBM Plex Mono',monospace;cursor:pointer">{ }</button>
+  </div>
+  <div style="position:relative;height:340px;background:#e9e5da;border-top:1px solid rgba(51,65,54,.55);border-bottom:1px solid rgba(51,65,54,.55)">
+    <div id="rd-map-7a" style="position:absolute;inset:0"></div>
+    <div style="position:absolute;inset:0;background:#2c6b52;mix-blend-mode:color;opacity:.18;pointer-events:none"></div>
+    <svg style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none" aria-hidden="true"><circle cx="50%" cy="46%" r="150" fill="none" stroke="#334136" stroke-width="1.5" stroke-opacity=".34" stroke-dasharray="6 7"></circle></svg>
+    <div style="position:absolute;left:50%;top:46%;transform:translate(-136px,-70px);width:15px;height:15px;border-radius:50%;background:#2c6b52;border:2.5px solid #fffdf7"></div>
+    <div style="position:absolute;left:50%;top:46%;transform:translate(112px,92px);width:15px;height:15px;border-radius:50%;background:#2c6b52;border:2.5px solid #fffdf7"></div>
+    <div style="position:absolute;left:50%;top:46%;transform:translate(-52px,116px);width:15px;height:15px;border-radius:50%;background:#2c6b52;border:2.5px solid #fffdf7"></div>
+    <div style="position:absolute;left:50%;top:46%;transform:translate(142px,-96px);width:15px;height:15px;border-radius:50%;background:#2c6b52;border:2.5px solid #fffdf7"></div>
+    <div style="position:absolute;left:50%;top:46%;transform:translate(-124px,64px);width:15px;height:15px;border-radius:50%;background:#2c6b52;border:2.5px solid #fffdf7"></div>
+    <div style="position:absolute;left:50%;top:46%;transform:translate(-16px,-30px);width:15px;height:15px;border-radius:50%;background:#2c6b52;border:2.5px solid #fffdf7"></div>
+    <div style="position:absolute;left:50%;top:46%;transform:translate(64px,-6px);width:15px;height:15px;border-radius:50%;background:#2c6b52;border:2.5px solid #fffdf7"></div>
+    <div style="position:absolute;left:50%;top:46%;transform:translate(-90px,-8px);width:15px;height:15px;border-radius:50%;background:#2c6b52;border:2.5px solid #fffdf7"></div>
+    <div style="position:absolute;left:14px;top:14px;background:#fffdf7;border:1.5px solid rgba(51,65,54,.55);border-radius:14px;box-shadow:2px 3px 0 rgba(51,65,54,.30);padding:8px 13px;transform:rotate(-2deg)">
+      <div style="display:flex;align-items:flex-end;gap:7px">
+        <span style="font:800 30px/.85 'Bricolage Grotesque',system-ui,sans-serif;letter-spacing:-.04em;color:#334136">14</span>
+        <span style="font:700 11px/1.25 system-ui,sans-serif;padding-bottom:2px;color:#334136">green<br>spaces</span>
+      </div>
+      <div style="font:600 10px/1.3 'IBM Plex Mono',monospace;color:#5b6158;margin-top:4px">nothing ruled out yet</div>
+    </div>
+  </div>
+  <div style="padding:16px 16px 0;height:244px;overflow-y:auto">
+    <div style="font:800 12px/1.3 'Bricolage Grotesque',system-ui,sans-serif;text-transform:uppercase;letter-spacing:.03em;color:#334136;margin-bottom:9px">What matters</div>
+    <p style="margin:0 0 14px;font:500 13px/1.6 system-ui,sans-serif;color:#5b6158;text-wrap:pretty">Nothing yet. Say anything that would rule a place in or out — a condition, a time, how far you can get — and choose who gets to see it.</p>
+    <div style="border:1.5px dashed rgba(51,65,54,.4);border-radius:13px;padding:11px 12px;background:#fffdf7">
+      <div style="font:700 12.5px/1.4 system-ui,sans-serif;color:#334136;margin-bottom:3px">Sarah and Joe haven't arrived</div>
+      <div style="font:500 11.5px/1.45 system-ui,sans-serif;color:#5b6158;margin-bottom:9px">They'll see the map exactly as it stands when they open the link.</div>
+      <button style="border:1.5px solid #2c6b52;background:#dfeee6;box-shadow:2px 2px 0 rgba(51,65,54,.30);border-radius:10px;padding:8px 13px;font:700 12px system-ui,sans-serif;color:#1e5540;cursor:pointer">Send the link</button>
+    </div>
+  </div>
+  <div style="position:absolute;left:16px;right:16px;bottom:20px;display:flex;flex-direction:column;gap:10px">
+    <div style="font:700 11px/1.3 system-ui,sans-serif;letter-spacing:.02em;color:#5b6158;padding:0 2px">Also worth asking for</div>
+    <div style="display:flex;flex-wrap:wrap;gap:6px">
+      <button style="border:1.5px solid rgba(51,65,54,.55);border-radius:999px;background:#fffdf7;box-shadow:2px 2px 0 rgba(51,65,54,.30);padding:5px 12px;font:700 11.5px system-ui,sans-serif;color:#334136;cursor:pointer;display:flex;gap:6px;align-items:center">off-leash <span style="font:700 10px 'IBM Plex Mono',monospace;color:#5b6158">9</span></button>
+      <button style="border:1.5px solid rgba(51,65,54,.55);border-radius:999px;background:#fffdf7;box-shadow:2px 2px 0 rgba(51,65,54,.30);padding:5px 12px;font:700 11.5px system-ui,sans-serif;color:#334136;cursor:pointer;display:flex;gap:6px;align-items:center">step-free <span style="font:700 10px 'IBM Plex Mono',monospace;color:#5b6158">11</span></button>
+      <button style="border:1.5px solid rgba(51,65,54,.55);border-radius:999px;background:#fffdf7;box-shadow:2px 2px 0 rgba(51,65,54,.30);padding:5px 12px;font:700 11.5px system-ui,sans-serif;color:#334136;cursor:pointer;display:flex;gap:6px;align-items:center">water <span style="font:700 10px 'IBM Plex Mono',monospace;color:#5b6158">7</span></button>
+    </div>
+    <div style="display:flex;align-items:stretch;border:1.5px solid #2c6b52;border-radius:13px;background:#fffdf7;box-shadow:2px 3px 0 rgba(51,65,54,.30);overflow:hidden">
+      <span style="display:flex;align-items:center;padding:0 9px 0 10px;flex:none">
+        <button style="display:flex;align-items:center;gap:5px;background:#dfeee6;border:1.5px solid #2c6b52;border-radius:7px;padding:4px 8px;font:700 10.5px system-ui,sans-serif;color:#1e5540;white-space:nowrap;cursor:pointer">Shared<span style="width:0;height:0;border-left:3.5px solid transparent;border-right:3.5px solid transparent;border-top:4.5px solid #1e5540;display:block"></span></button>
+      </span>
+      <input type="text" placeholder="…or say it yourself" style="flex:1;min-width:0;border:none;background:none;font:600 13px system-ui,sans-serif;padding:14px 0;color:#334136;min-height:44px">
+      <button style="flex:none;border:none;border-left:1.5px solid #2c6b52;background:#2c6b52;color:#fffdf7;font:700 12.5px system-ui,sans-serif;padding:0 15px;cursor:pointer">Add</button>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- 7b IMPASSE -->
+<div id="7b" style="flex:none;display:flex;flex-direction:column;gap:9px;scroll-margin-top:16px">
+<div style="display:flex;align-items:baseline;gap:8px;font:400 11px/1.45 system-ui,sans-serif;color:rgba(0,0,0,.55);width:390px">
+<a href="#7b" style="font:600 10.5px 'IBM Plex Mono',monospace;padding:3px 7px;background:rgba(0,0,0,.08);color:#1a1a1a;border-radius:5px;text-decoration:none">7b</a>
+<span><strong style="color:#23252d">Nothing fits.</strong> The count block turns terracotta and the ways out arrive as cards at the top of the brief — each quantified, each asked of exactly one person.</span>
+</div>
+<div style="width:390px;height:844px;background:#fdf8ee;border:1px solid rgba(0,0,0,.1);border-radius:34px;overflow:hidden;position:relative;box-shadow:0 4px 18px rgba(0,0,0,.1)">
+  <div style="height:52px;display:flex;align-items:flex-end;justify-content:space-between;padding:0 22px 5px;font:600 12.5px system-ui,sans-serif;color:#334136"><span>9:31</span><span style="letter-spacing:2px">▮▮▮</span></div>
+  <div style="padding:2px 16px 10px;display:flex;align-items:center;gap:10px">
+    <div style="flex:1;min-width:0">
+      <div style="font:700 15px/1.15 'Bricolage Grotesque',system-ui,sans-serif;letter-spacing:-.02em;color:#334136;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Dogs off the leash</div>
+      <div style="font:500 11px/1.35 system-ui,sans-serif;color:#a15421">nothing works for all three</div>
+    </div>
+    <div style="display:flex;flex:none">
+      <span style="width:26px;height:26px;border-radius:9px;background:#2c6b52;color:#fffdf7;font:700 10px system-ui,sans-serif;display:flex;align-items:center;justify-content:center;border:2px solid #fdf8ee;transform:rotate(-4deg)">AL</span>
+      <span style="width:26px;height:26px;border-radius:9px;background:#b05f2c;color:#fffdf7;font:700 10px system-ui,sans-serif;display:flex;align-items:center;justify-content:center;border:2px solid #fdf8ee;margin-left:-6px;transform:rotate(3deg)">SA</span>
+      <span style="width:26px;height:26px;border-radius:9px;background:#7d6396;color:#fffdf7;font:700 10px system-ui,sans-serif;display:flex;align-items:center;justify-content:center;border:2px solid #fdf8ee;margin-left:-6px;transform:rotate(-2deg)">JO</span>
+    </div>
+    <button style="flex:none;width:22px;height:22px;border-radius:6px;border:none;background:none;color:#63624f;font:600 9px/1 'IBM Plex Mono',monospace;cursor:pointer">{ }</button>
+  </div>
+  <div style="position:relative;height:340px;background:#e9e5da;border-top:1px solid rgba(51,65,54,.55);border-bottom:1px solid rgba(51,65,54,.55)">
+    <div id="rd-map-7b" style="position:absolute;inset:0"></div>
+    <div style="position:absolute;inset:0;background:#2c6b52;mix-blend-mode:color;opacity:.18;pointer-events:none"></div>
+    <svg style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none" aria-hidden="true">
+      <defs><mask id="rd-scope-7b"><rect width="100%" height="100%" fill="#fff"></rect><circle cx="50%" cy="46%" r="150" fill="#000"></circle></mask></defs>
+      <rect width="100%" height="100%" fill="#334136" opacity="0.08" mask="url(#rd-scope-7b)"></rect>
+      <circle cx="50%" cy="46%" r="150" fill="none" stroke="#334136" stroke-width="1.5" stroke-opacity=".4" stroke-dasharray="6 7"></circle>
+      <circle cx="50%" cy="46%" r="186" fill="none" stroke="#334136" stroke-width="1" stroke-opacity=".18" stroke-dasharray="4 8"></circle>
+    </svg>
+    <div style="position:absolute;left:50%;top:46%;transform:translate(-136px,-70px);width:8px;height:8px;border-radius:50%;background:#a8a291;opacity:.6"></div>
+    <div style="position:absolute;left:50%;top:46%;transform:translate(112px,92px);width:8px;height:8px;border-radius:50%;background:#a8a291;opacity:.6"></div>
+    <div style="position:absolute;left:50%;top:46%;transform:translate(-52px,116px);width:8px;height:8px;border-radius:50%;background:#a8a291;opacity:.6"></div>
+    <div style="position:absolute;left:50%;top:46%;transform:translate(142px,-96px);width:8px;height:8px;border-radius:50%;background:#a8a291;opacity:.6"></div>
+    <div style="position:absolute;left:50%;top:46%;transform:translate(-124px,64px);width:8px;height:8px;border-radius:50%;background:#a8a291;opacity:.6"></div>
+    <div style="position:absolute;left:50%;top:46%;transform:translate(-16px,-30px);width:8px;height:8px;border-radius:50%;background:#a8a291;opacity:.6"></div>
+    <div style="position:absolute;left:50%;top:46%;transform:translate(64px,-6px);width:8px;height:8px;border-radius:50%;background:#a8a291;opacity:.6"></div>
+    <div style="position:absolute;left:50%;top:46%;transform:translate(-146px,-24px) rotate(-3deg);background:#fffdf7;border:1.5px dashed #2c6b52;border-radius:11px;padding:5px 9px 5px 7px;box-shadow:2px 2px 0 rgba(51,65,54,.20);display:flex;align-items:center;gap:7px;animation:ring-breathe 2600ms ease-in-out infinite">
+      <i style="width:11px;height:11px;border-radius:50%;background:#fffdf7;border:2px dashed #2c6b52;flex:none"></i>
+      <span style="font:700 11.5px/1.3 'Bricolage Grotesque',system-ui,sans-serif;white-space:nowrap;color:#1e5540">Humboldthain</span>
+      <span style="font:600 9.5px system-ui,sans-serif;background:#dfeee6;color:#1e5540;border-radius:5px;padding:1px 5px">+1</span>
+    </div>
+    <div style="position:absolute;left:50%;top:46%;transform:translate(20px,54px) rotate(2deg);background:#fffdf7;border:1.5px dashed #2c6b52;border-radius:11px;padding:5px 9px 5px 7px;box-shadow:2px 2px 0 rgba(51,65,54,.20);display:flex;align-items:center;gap:7px;animation:ring-breathe 2600ms ease-in-out infinite 800ms">
+      <i style="width:11px;height:11px;border-radius:50%;background:#fffdf7;border:2px dashed #2c6b52;flex:none"></i>
+      <span style="font:700 11.5px/1.3 'Bricolage Grotesque',system-ui,sans-serif;white-space:nowrap;color:#1e5540">Invalidenpark</span>
+      <span style="font:600 9.5px system-ui,sans-serif;background:#dfeee6;color:#1e5540;border-radius:5px;padding:1px 5px">+1</span>
+    </div>
+    <div style="position:absolute;left:14px;top:14px;background:#a8501f;border:1.5px solid #a8501f;border-radius:14px;box-shadow:2px 3px 0 rgba(51,65,54,.30);padding:8px 13px;color:#fffdf7;transform:rotate(-2deg)">
+      <div style="display:flex;align-items:flex-end;gap:7px">
+        <span style="font:800 30px/.85 'Bricolage Grotesque',system-ui,sans-serif;letter-spacing:-.04em">0</span>
+        <span style="font:700 11px/1.25 system-ui,sans-serif;padding-bottom:2px">still<br>work</span>
+      </div>
+      <div style="font:600 10px/1.3 'IBM Plex Mono',monospace;margin-top:4px">of 34 · two needs collide</div>
+    </div>
+  </div>
+  <div style="padding:13px 16px 0;height:244px;overflow-y:auto">
+    <div style="font:800 12px/1.3 'Bricolage Grotesque',system-ui,sans-serif;text-transform:uppercase;letter-spacing:.03em;color:#a15421;margin-bottom:9px">Two ways out</div>
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <div style="border:1.5px solid #2c6b52;border-radius:13px;background:#f2f8f4;box-shadow:2px 2px 0 rgba(51,65,54,.30);padding:10px 12px">
+        <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:3px">
+          <span style="flex:1;font:700 12.5px/1.4 system-ui,sans-serif;color:#334136;text-wrap:pretty">Let “water for the dogs” be nice-to-have</span>
+          <span style="font:700 12px 'IBM Plex Mono',monospace;color:#1e5540;white-space:nowrap">+2</span>
+        </div>
+        <div style="font:500 11.5px/1.45 system-ui,sans-serif;color:#5b6158;margin-bottom:9px">Yours. Both parks that come back have a fountain 4 min away.</div>
+        <div style="display:flex;gap:7px">
+          <button style="border:1.5px solid #2c6b52;background:#2c6b52;box-shadow:2px 2px 0 rgba(51,65,54,.30);border-radius:10px;padding:7px 12px;font:700 12px system-ui,sans-serif;color:#fffdf7;cursor:pointer">Make it optional</button>
+          <button style="border:1.5px solid rgba(51,65,54,.55);background:#fffdf7;box-shadow:2px 2px 0 rgba(51,65,54,.30);border-radius:10px;padding:7px 12px;font:700 12px system-ui,sans-serif;color:#334136;cursor:pointer">Keep it</button>
+        </div>
+      </div>
+      <div style="border:1.5px solid #7d6396;border-radius:13px;background:#f6f2f9;box-shadow:2px 2px 0 rgba(125,99,150,.35);padding:10px 12px">
+        <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:3px">
+          <span style="flex:1;font:700 12.5px/1.4 system-ui,sans-serif;color:#334136;text-wrap:pretty">Ask Sarah to stretch how far she'll travel</span>
+          <span style="font:700 12px 'IBM Plex Mono',monospace;color:#1e5540;white-space:nowrap">+1</span>
+        </div>
+        <div style="font:500 11.5px/1.45 system-ui,sans-serif;color:#5f4a73;margin-bottom:9px">She alone sees which of her conditions this is.</div>
+        <div style="display:flex;gap:7px">
+          <button style="border:1.5px solid #7d6396;background:#7d6396;box-shadow:2px 2px 0 rgba(125,99,150,.35);border-radius:10px;padding:7px 12px;font:700 12px system-ui,sans-serif;color:#fffdf7;cursor:pointer">Ask Sarah</button>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;padding:2px 2px">
+        <span style="font:500 11.5px/1.45 system-ui,sans-serif;color:#5b6158;flex:1">Your assistant suggested the first one, inside what you delegated.</span>
+        <button style="border:none;background:none;color:#1e5540;font:700 11.5px system-ui,sans-serif;cursor:pointer;text-decoration:underline">Why?</button>
+      </div>
+    </div>
+  </div>
+  <div style="position:absolute;left:16px;right:16px;bottom:20px;display:flex;flex-direction:column;gap:10px">
+    <div style="font:700 11px/1.3 system-ui,sans-serif;letter-spacing:.02em;color:#5b6158;padding:0 2px">Also worth asking for</div>
+    <div style="display:flex;flex-wrap:wrap;gap:6px">
+      <button style="border:1.5px solid rgba(51,65,54,.55);border-radius:999px;background:#fffdf7;box-shadow:2px 2px 0 rgba(51,65,54,.30);padding:5px 12px;font:700 11.5px system-ui,sans-serif;color:#334136;cursor:pointer;display:flex;gap:6px;align-items:center">fenced in <span style="font:700 10px 'IBM Plex Mono',monospace;color:#5b6158">6</span></button>
+      <button style="border:1.5px solid rgba(51,65,54,.55);border-radius:999px;background:#fffdf7;box-shadow:2px 2px 0 rgba(51,65,54,.30);padding:5px 12px;font:700 11.5px system-ui,sans-serif;color:#334136;cursor:pointer;display:flex;gap:6px;align-items:center">shade <span style="font:700 10px 'IBM Plex Mono',monospace;color:#5b6158">9</span></button>
+    </div>
+    <div style="display:flex;align-items:stretch;border:1.5px solid rgba(51,65,54,.55);border-radius:13px;background:#fffdf7;box-shadow:2px 3px 0 rgba(51,65,54,.30);overflow:hidden">
+      <span style="display:flex;align-items:center;padding:0 9px 0 10px;flex:none">
+        <button style="display:flex;align-items:center;gap:5px;background:#dfeee6;border:1.5px solid #2c6b52;border-radius:7px;padding:4px 8px;font:700 10.5px system-ui,sans-serif;color:#1e5540;white-space:nowrap;cursor:pointer">Shared<span style="width:0;height:0;border-left:3.5px solid transparent;border-right:3.5px solid transparent;border-top:4.5px solid #1e5540;display:block"></span></button>
+      </span>
+      <input type="text" placeholder="…or say it yourself" style="flex:1;min-width:0;border:none;background:none;font:600 13px system-ui,sans-serif;padding:14px 0;color:#334136;min-height:44px">
+      <button style="flex:none;border:none;border-left:1.5px solid #2c6b52;background:#2c6b52;color:#fffdf7;font:700 12.5px system-ui,sans-serif;padding:0 15px;cursor:pointer">Add</button>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- 7c AGREED -->
+<div id="7c" style="flex:none;display:flex;flex-direction:column;gap:9px;scroll-margin-top:16px">
+<div style="display:flex;align-items:baseline;gap:8px;font:400 11px/1.45 system-ui,sans-serif;color:rgba(0,0,0,.55);width:390px">
+<a href="#7c" style="font:600 10.5px 'IBM Plex Mono',monospace;padding:3px 7px;background:rgba(0,0,0,.08);color:#1a1a1a;border-radius:5px;text-decoration:none">7c</a>
+<span><strong style="color:#23252d">Agreed.</strong> The composer is replaced by arrival — the room stops being a negotiation and becomes a meeting point. The brief becomes the short record of how it got here.</span>
+</div>
+<div style="width:390px;height:844px;background:#fdf8ee;border:1px solid rgba(0,0,0,.1);border-radius:34px;overflow:hidden;position:relative;box-shadow:0 4px 18px rgba(0,0,0,.1)">
+  <div style="height:52px;display:flex;align-items:flex-end;justify-content:space-between;padding:0 22px 5px;font:600 12.5px system-ui,sans-serif;color:#334136"><span>9:44</span><span style="letter-spacing:2px">▮▮▮</span></div>
+  <div style="padding:2px 16px 10px;display:flex;align-items:center;gap:10px">
+    <div style="flex:1;min-width:0">
+      <div style="font:700 15px/1.15 'Bricolage Grotesque',system-ui,sans-serif;letter-spacing:-.02em;color:#334136;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Park am Nordbahnhof</div>
+      <div style="font:500 11px/1.35 system-ui,sans-serif;color:#1e5540">agreed by all three · 10:00</div>
+    </div>
+    <div style="display:flex;flex:none">
+      <span style="width:26px;height:26px;border-radius:9px;background:#2c6b52;color:#fffdf7;font:700 10px system-ui,sans-serif;display:flex;align-items:center;justify-content:center;border:2px solid #fdf8ee;transform:rotate(-4deg)">AL</span>
+      <span style="width:26px;height:26px;border-radius:9px;background:#2c6b52;color:#fffdf7;font:700 10px system-ui,sans-serif;display:flex;align-items:center;justify-content:center;border:2px solid #fdf8ee;margin-left:-6px;transform:rotate(3deg)">SA</span>
+      <span style="width:26px;height:26px;border-radius:9px;background:#2c6b52;color:#fffdf7;font:700 10px system-ui,sans-serif;display:flex;align-items:center;justify-content:center;border:2px solid #fdf8ee;margin-left:-6px;transform:rotate(-2deg)">JO</span>
+    </div>
+    <button style="flex:none;width:22px;height:22px;border-radius:6px;border:none;background:none;color:#63624f;font:600 9px/1 'IBM Plex Mono',monospace;cursor:pointer">{ }</button>
+  </div>
+  <div style="position:relative;height:340px;background:#e9e5da;border-top:1px solid rgba(51,65,54,.55);border-bottom:1px solid rgba(51,65,54,.55)">
+    <div id="rd-map-7c" style="position:absolute;inset:0"></div>
+    <div style="position:absolute;inset:0;background:#2c6b52;mix-blend-mode:color;opacity:.18;pointer-events:none"></div>
+    <svg style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none" aria-hidden="true">
+      <path d="M78 268 C126 232, 150 190, 206 176 S288 158, 322 118" fill="none" stroke="#2c6b52" stroke-width="4" stroke-linecap="round"></path>
+      <path d="M78 268 C126 232, 150 190, 206 176 S288 158, 322 118" fill="none" stroke="#fffdf7" stroke-width="1.2" stroke-dasharray="2 7" stroke-linecap="round"></path>
+    </svg>
+    <div style="position:absolute;left:78px;top:268px;transform:translate(-50%,-50%);display:flex;align-items:center;gap:6px">
+      <i style="width:13px;height:13px;border-radius:50%;background:#fffdf7;border:3px solid #334136;flex:none"></i>
+      <span style="background:#fffdf7;border:1.5px solid rgba(51,65,54,.55);border-radius:8px;padding:1px 7px;font:700 10px/1.5 system-ui,sans-serif;color:#334136;white-space:nowrap;box-shadow:2px 2px 0 rgba(51,65,54,.20)">meet at the S-Bahn</span>
+    </div>
+    <div style="position:absolute;left:322px;top:118px;transform:translate(-50%,-50%);z-index:4">
+      <div style="background:#2c6b52;border:1.5px solid #2c6b52;border-radius:12px;padding:7px 11px 7px 8px;box-shadow:3px 4px 0 rgba(51,65,54,.30);display:flex;align-items:center;gap:8px;transform:rotate(-2deg)">
+        <i style="width:12px;height:12px;border-radius:50%;background:#fffdf7;flex:none"></i>
+        <span style="font:800 12.5px/1.25 'Bricolage Grotesque',system-ui,sans-serif;white-space:nowrap;color:#fffdf7">Nordbahnhof</span>
+      </div>
+    </div>
+    <div style="position:absolute;left:186px;top:64px;width:8px;height:8px;border-radius:50%;background:#a8a291;opacity:.6"></div>
+    <div style="position:absolute;left:266px;top:238px;width:8px;height:8px;border-radius:50%;background:#a8a291;opacity:.6"></div>
+    <div style="position:absolute;left:118px;top:132px;width:8px;height:8px;border-radius:50%;background:#a8a291;opacity:.6"></div>
+    <div style="position:absolute;left:14px;top:14px;background:#fffdf7;border:1.5px solid #2c6b52;border-radius:14px;box-shadow:2px 3px 0 rgba(51,65,54,.30);padding:7px 12px;transform:rotate(-2deg)">
+      <div style="font:800 12.5px/1.3 'Bricolage Grotesque',system-ui,sans-serif;color:#1e5540">Settled</div>
+      <div style="font:600 10px/1.3 'IBM Plex Mono',monospace;color:#5b6158">18 min from you</div>
+    </div>
+  </div>
+  <div style="padding:13px 16px 0;height:244px;overflow-y:auto">
+    <div style="font:800 12px/1.3 'Bricolage Grotesque',system-ui,sans-serif;text-transform:uppercase;letter-spacing:.03em;color:#334136;margin-bottom:10px">How it got here</div>
+    <div style="border-top:1.5px solid rgba(51,65,54,.35)">
+      <div style="display:flex;gap:10px;padding:8px 0;border-bottom:1px solid rgba(51,65,54,.16);align-items:baseline">
+        <span style="font:600 10px/1.7 'IBM Plex Mono',monospace;color:#575647;flex:none;width:18px">01</span>
+        <span style="flex:1;font:500 12.5px/1.5 system-ui,sans-serif;color:#334136">Dogs off the leash · <span style="color:#5b6158">yours</span></span>
+        <span style="font:700 11px 'IBM Plex Mono',monospace;color:#1e5540;flex:none">34→15</span>
+      </div>
+      <div style="display:flex;gap:10px;padding:8px 0;border-bottom:1px solid rgba(51,65,54,.16);align-items:baseline">
+        <span style="font:600 10px/1.7 'IBM Plex Mono',monospace;color:#575647;flex:none;width:18px">02</span>
+        <span style="flex:1;font:500 12.5px/1.5 system-ui,sans-serif;color:#334136">Step-free the whole way · <span style="color:#5b6158">Sarah</span></span>
+        <span style="font:700 11px 'IBM Plex Mono',monospace;color:#1e5540;flex:none">15→12</span>
+      </div>
+      <div style="display:flex;gap:10px;padding:8px 0;border-bottom:1px solid rgba(51,65,54,.16);align-items:baseline">
+        <span style="font:600 10px/1.7 'IBM Plex Mono',monospace;color:#575647;flex:none;width:18px">03</span>
+        <span style="flex:1;font:500 12.5px/1.5 system-ui,sans-serif;color:#5f4a73;font-style:italic">A private condition ruled two out</span>
+        <span style="font:700 11px 'IBM Plex Mono',monospace;color:#7d6396;flex:none">12→6</span>
+      </div>
+      <div style="display:flex;gap:10px;padding:8px 0;border-bottom:1px solid rgba(51,65,54,.16);align-items:baseline">
+        <span style="font:600 10px/1.7 'IBM Plex Mono',monospace;color:#2b4159;flex:none;width:18px">04</span>
+        <span style="flex:1;font:500 12.5px/1.5 system-ui,sans-serif;color:#334136">Joe's agent accepted for him</span>
+        <span style="font:700 11px 'IBM Plex Mono',monospace;color:#2b4159;flex:none">3/3</span>
+      </div>
+      <div style="display:flex;gap:10px;padding:8px 0;align-items:baseline">
+        <span style="font:600 10px/1.7 'IBM Plex Mono',monospace;color:#1e5540;flex:none;width:18px">05</span>
+        <span style="flex:1;font:700 12.5px/1.5 system-ui,sans-serif;color:#334136">You committed it, 4 min ago</span>
+      </div>
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:12px">
+      <span style="font:600 11px/1.5 system-ui,sans-serif;background:#dfeee6;color:#1e5540;border-radius:6px;padding:2px 8px">off-leash zone</span>
+      <span style="font:600 11px/1.5 system-ui,sans-serif;background:#dfeee6;color:#1e5540;border-radius:6px;padding:2px 8px">step-free paths</span>
+      <span style="font:600 11px/1.5 system-ui,sans-serif;background:#fffdf7;border:1px solid rgba(51,65,54,.35);color:#5b6158;border-radius:6px;padding:2px 8px">fountain 4 min away</span>
+    </div>
+  </div>
+  <div style="position:absolute;left:16px;right:16px;bottom:20px;display:flex;flex-direction:column;gap:9px">
+    <div style="display:flex;align-items:center;gap:9px">
+      <div style="flex:1;min-width:0">
+        <div style="font:700 12.5px/1.35 system-ui,sans-serif;color:#334136">Leave by 9:42 to arrive together</div>
+        <div style="font:500 11px/1.4 system-ui,sans-serif;color:#5b6158">S-Bahn, then a 6 min walk</div>
+      </div>
+      <div style="display:inline-flex;border:1.5px solid rgba(51,65,54,.55);border-radius:11px;overflow:hidden;box-shadow:2px 2px 0 rgba(51,65,54,.30);flex:none">
+        <button style="border:none;background:#334136;color:#fffdf7;font:700 11.5px system-ui,sans-serif;padding:9px 11px;cursor:pointer">Transit</button>
+        <button style="border:none;border-left:1.5px solid rgba(51,65,54,.55);background:#fffdf7;color:#334136;font:700 11.5px system-ui,sans-serif;padding:9px 11px;cursor:pointer">Walk</button>
+      </div>
+    </div>
+    <button style="width:100%;border:1.5px solid #2c6b52;background:#2c6b52;box-shadow:2px 3px 0 rgba(51,65,54,.30);border-radius:13px;padding:14px;font:800 14px 'Bricolage Grotesque',system-ui,sans-serif;color:#fffdf7;cursor:pointer">Take me there</button>
+  </div>
+</div>
+</div>
+
+<!-- 7d LATE JOINER -->
+<div id="7d" style="flex:none;display:flex;flex-direction:column;gap:9px;scroll-margin-top:16px">
+<div style="display:flex;align-items:baseline;gap:8px;font:400 11px/1.45 system-ui,sans-serif;color:rgba(0,0,0,.55);width:390px">
+<a href="#7d" style="font:600 10.5px 'IBM Plex Mono',monospace;padding:3px 7px;background:rgba(0,0,0,.08);color:#1a1a1a;border-radius:5px;text-decoration:none">7d</a>
+<span><strong style="color:#23252d">Joining late.</strong> Not a feed to scroll — a digest of what changed and the one thing that now needs him, with peers' private moves stated as effects, never contents.</span>
+</div>
+<div style="width:390px;height:844px;background:#fdf8ee;border:1px solid rgba(0,0,0,.1);border-radius:34px;overflow:hidden;position:relative;box-shadow:0 4px 18px rgba(0,0,0,.1)">
+  <div style="height:52px;display:flex;align-items:flex-end;justify-content:space-between;padding:0 22px 5px;font:600 12.5px system-ui,sans-serif;color:#334136"><span>11:07</span><span style="letter-spacing:2px">▮▮▮</span></div>
+  <div style="padding:2px 16px 10px;display:flex;align-items:center;gap:10px">
+    <div style="flex:1;min-width:0">
+      <div style="font:700 15px/1.15 'Bricolage Grotesque',system-ui,sans-serif;letter-spacing:-.02em;color:#334136;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Dogs off the leash</div>
+      <div style="font:500 11px/1.35 system-ui,sans-serif;color:#5b6158">you were away 2 hours</div>
+    </div>
+    <div style="display:flex;flex:none">
+      <span style="width:26px;height:26px;border-radius:9px;background:#2c6b52;color:#fffdf7;font:700 10px system-ui,sans-serif;display:flex;align-items:center;justify-content:center;border:2px solid #fdf8ee;transform:rotate(-4deg)">AL</span>
+      <span style="width:26px;height:26px;border-radius:9px;background:#b05f2c;color:#fffdf7;font:700 10px system-ui,sans-serif;display:flex;align-items:center;justify-content:center;border:2px solid #fdf8ee;margin-left:-6px;transform:rotate(3deg)">SA</span>
+      <span style="width:26px;height:26px;border-radius:9px;background:#7d6396;color:#fffdf7;font:700 10px system-ui,sans-serif;display:flex;align-items:center;justify-content:center;border:2px solid #fdf8ee;margin-left:-6px;transform:rotate(-2deg)">JO</span>
+    </div>
+    <button style="flex:none;width:22px;height:22px;border-radius:6px;border:none;background:none;color:#63624f;font:600 9px/1 'IBM Plex Mono',monospace;cursor:pointer">{ }</button>
+  </div>
+  <div style="position:relative;height:246px;background:#e9e5da;border-top:1px solid rgba(51,65,54,.55);border-bottom:1px solid rgba(51,65,54,.55)">
+    <div id="rd-map-7d" style="position:absolute;inset:0"></div>
+    <div style="position:absolute;inset:0;background:#2c6b52;mix-blend-mode:color;opacity:.18;pointer-events:none"></div>
+    <svg style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none" aria-hidden="true">
+      <defs><mask id="rd-scope-7d"><rect width="100%" height="100%" fill="#fff"></rect><circle cx="50%" cy="48%" r="128" fill="#000"></circle></mask></defs>
+      <rect width="100%" height="100%" fill="#334136" opacity="0.08" mask="url(#rd-scope-7d)"></rect>
+      <circle cx="50%" cy="48%" r="128" fill="none" stroke="#334136" stroke-width="1.5" stroke-opacity=".4" stroke-dasharray="6 7"></circle>
+    </svg>
+    <div style="position:absolute;left:50%;top:48%;transform:translate(-118px,-52px);width:8px;height:8px;border-radius:50%;background:#a8a291;opacity:.6"></div>
+    <div style="position:absolute;left:50%;top:48%;transform:translate(96px,64px);width:8px;height:8px;border-radius:50%;background:#a8a291;opacity:.6"></div>
+    <div style="position:absolute;left:50%;top:48%;transform:translate(-44px,84px);width:8px;height:8px;border-radius:50%;background:#a8a291;opacity:.6"></div>
+    <div style="position:absolute;left:50%;top:48%;transform:translate(124px,-70px);width:8px;height:8px;border-radius:50%;background:#a8a291;opacity:.6"></div>
+    <div style="position:absolute;left:50%;top:48%;transform:translate(-128px,-4px) rotate(-3deg);background:#fffdf7;border:1.5px solid rgba(51,65,54,.55);border-radius:11px;padding:5px 9px 5px 7px;box-shadow:2px 2px 0 rgba(51,65,54,.30);display:flex;align-items:center;gap:7px">
+      <i style="width:11px;height:11px;border-radius:50%;background:#2c6b52;border:1.5px solid rgba(51,65,54,.55);flex:none"></i>
+      <span style="font:700 11.5px/1.3 'Bricolage Grotesque',system-ui,sans-serif;white-space:nowrap;color:#334136">Weinbergspark</span>
+    </div>
+    <div style="position:absolute;left:50%;top:48%;transform:translate(-30px,30px);z-index:4">
+      <div style="background:#3d5a80;border:1.5px solid #3d5a80;border-radius:12px;padding:6px 10px 6px 8px;box-shadow:3px 4px 0 rgba(61,90,128,.35);display:flex;align-items:center;gap:7px;animation:sticker-pop 3200ms ease-in-out infinite">
+        <i style="width:11px;height:11px;border-radius:50%;background:#fffdf7;flex:none"></i>
+        <span style="font:800 12px/1.25 'Bricolage Grotesque',system-ui,sans-serif;white-space:nowrap;color:#fffdf7">Nordbahnhof · proposed</span>
+      </div>
+    </div>
+    <div style="position:absolute;left:14px;top:14px;background:#fffdf7;border:1.5px solid rgba(51,65,54,.55);border-radius:14px;box-shadow:2px 3px 0 rgba(51,65,54,.30);padding:7px 12px;transform:rotate(-2deg)">
+      <div style="display:flex;align-items:flex-end;gap:6px">
+        <span style="font:800 24px/.9 'Bricolage Grotesque',system-ui,sans-serif;color:#334136">2</span>
+        <span style="font:700 10.5px/1.2 system-ui,sans-serif;padding-bottom:2px;color:#334136">still<br>work</span>
+      </div>
+    </div>
+  </div>
+  <div style="padding:13px 16px 0;height:338px;overflow-y:auto">
+    <div style="border:1.5px solid #3d5a80;border-radius:13px;background:#e1e7f0;box-shadow:2px 2px 0 rgba(61,90,128,.35);padding:11px 12px;margin-bottom:12px">
+      <div style="font:800 11.5px/1.3 'Bricolage Grotesque',system-ui,sans-serif;text-transform:uppercase;letter-spacing:.04em;color:#2b4159;margin-bottom:6px">Needs you</div>
+      <div style="font:700 13px/1.45 system-ui,sans-serif;color:#334136;margin-bottom:2px">Nordbahnhof is on the table</div>
+      <div style="font:500 11.5px/1.45 system-ui,sans-serif;color:#5b6158;margin-bottom:10px">Alex proposed it, Sarah is in. It clears everything you asked for.</div>
+      <div style="display:flex;gap:7px;flex-wrap:wrap">
+        <button style="border:1.5px solid #2c6b52;background:#2c6b52;box-shadow:2px 2px 0 rgba(51,65,54,.30);border-radius:10px;padding:9px 13px;font:700 12.5px system-ui,sans-serif;color:#fffdf7;cursor:pointer">Works for me</button>
+        <button style="border:1.5px solid rgba(51,65,54,.55);background:#fffdf7;box-shadow:2px 2px 0 rgba(51,65,54,.30);border-radius:10px;padding:9px 13px;font:700 12.5px system-ui,sans-serif;color:#334136;cursor:pointer">Look at it</button>
+      </div>
+    </div>
+    <div style="font:800 12px/1.3 'Bricolage Grotesque',system-ui,sans-serif;text-transform:uppercase;letter-spacing:.03em;color:#334136;margin-bottom:9px">While you were away</div>
+    <div style="border-top:1.5px solid rgba(51,65,54,.35)">
+      <div style="display:flex;gap:10px;padding:8px 0;border-bottom:1px solid rgba(51,65,54,.16);align-items:baseline">
+        <span style="width:18px;height:18px;border-radius:6px;background:#b05f2c;color:#fffdf7;font:700 8.5px system-ui,sans-serif;display:flex;align-items:center;justify-content:center;flex:none">SA</span>
+        <span style="flex:1;font:500 12.5px/1.5 system-ui,sans-serif;color:#334136">added <b style="font-weight:700">step-free the whole way</b></span>
+        <span style="font:700 11px 'IBM Plex Mono',monospace;color:#5b6158;flex:none">−3</span>
+      </div>
+      <div style="display:flex;gap:10px;padding:8px 0;border-bottom:1px solid rgba(51,65,54,.16);align-items:baseline">
+        <span style="width:18px;height:18px;border-radius:6px;background:#ece5f2;color:#5f4a73;font:700 9px system-ui,sans-serif;display:flex;align-items:center;justify-content:center;flex:none">?</span>
+        <span style="flex:1;font:500 12.5px/1.5 system-ui,sans-serif;color:#5f4a73;font-style:italic">someone added a private condition</span>
+        <span style="font:700 11px 'IBM Plex Mono',monospace;color:#7d6396;flex:none">−4</span>
+      </div>
+      <div style="display:flex;gap:10px;padding:8px 0;border-bottom:1px solid rgba(51,65,54,.16);align-items:baseline">
+        <span style="width:18px;height:18px;border-radius:6px;background:#2c6b52;color:#fffdf7;font:700 8.5px system-ui,sans-serif;display:flex;align-items:center;justify-content:center;flex:none">AL</span>
+        <span style="flex:1;font:500 12.5px/1.5 system-ui,sans-serif;color:#334136">widened the area to 900 m, with consent</span>
+        <span style="font:700 11px 'IBM Plex Mono',monospace;color:#1e5540;flex:none">+5</span>
+      </div>
+      <div style="display:flex;gap:10px;padding:8px 0;align-items:baseline">
+        <span style="width:18px;height:18px;border-radius:6px;background:#7d6396;color:#fffdf7;font:700 8.5px system-ui,sans-serif;display:flex;align-items:center;justify-content:center;flex:none">JO</span>
+        <span style="flex:1;font:500 12.5px/1.5 system-ui,sans-serif;color:#5b6158">your agent screened 6 places for you</span>
+        <span style="font:600 10px/1.5 system-ui,sans-serif;color:#2b4159;flex:none">agent</span>
+      </div>
+    </div>
+    <div style="margin-top:12px;font:500 11.5px/1.5 system-ui,sans-serif;color:#5b6158">Your own two needs are unchanged and still hold.</div>
+  </div>
+  <div style="position:absolute;left:16px;right:16px;bottom:20px;display:flex;align-items:stretch;border:1.5px solid rgba(51,65,54,.55);border-radius:13px;background:#fffdf7;box-shadow:2px 3px 0 rgba(51,65,54,.30);overflow:hidden">
+    <span style="display:flex;align-items:center;padding:0 9px 0 10px;flex:none">
+      <button style="display:flex;align-items:center;gap:5px;background:#dfeee6;border:1.5px solid #2c6b52;border-radius:7px;padding:4px 8px;font:700 10.5px system-ui,sans-serif;color:#1e5540;white-space:nowrap;cursor:pointer">Shared<span style="width:0;height:0;border-left:3.5px solid transparent;border-right:3.5px solid transparent;border-top:4.5px solid #1e5540;display:block"></span></button>
+    </span>
+    <input type="text" placeholder="…or say it yourself" style="flex:1;min-width:0;border:none;background:none;font:600 13px system-ui,sans-serif;padding:14px 0;color:#334136;min-height:44px">
+    <button style="flex:none;border:none;border-left:1.5px solid #2c6b52;background:#2c6b52;color:#fffdf7;font:700 12.5px system-ui,sans-serif;padding:0 15px;cursor:pointer">Add</button>
+  </div>
+</div>
+</div>
+
+</div>
+<p style="margin:24px 0 0;font:400 12.5px/1.6 system-ui,sans-serif;color:rgba(0,0,0,.66);max-width:880px;text-wrap:pretty">These four states plus <a href="#4a" style="font:600 11px 'IBM Plex Mono',monospace;text-decoration:none">4a</a> cover the whole arc: empty room, narrowing, impasse, agreement, late arrival. Not yet drawn, and worth asking about before building: Sarah's side of the <a href="#7b" style="font:600 11px 'IBM Plex Mono',monospace;text-decoration:none">7b</a> consent ask, and the settle animation itself.</p>
+</section>
+
+<!-- ═══════════════════ TURN 4 ═══════════════════ -->
+<section id="t4" style="padding:40px 44px 40px;border-bottom:1px solid rgba(0,0,0,.09)">
+<div style="display:flex;align-items:baseline;gap:10px;margin:0 0 6px">
+<a href="#t4" style="font:600 10px 'IBM Plex Mono',monospace;padding:3px 7px;background:#1a1a1a;color:#fff;border-radius:4px;text-decoration:none">4</a>
+<span style="font:600 13px/1.2 system-ui,sans-serif">The locked frame — layout, line weight and palette</span>
+</div>
+<p style="margin:0 0 24px;font:400 12.5px/1.65 system-ui,sans-serif;color:rgba(0,0,0,.58);max-width:880px;text-wrap:pretty">Layout is locked: header flows straight out of the status bar, the map runs edge to edge between two rules, only the brief scrolls. Three things define the line weight: outlines dropped from 2–2.5px near-black to <strong style="color:#23252d">1.5px of a tinted dark at 45–55% opacity</strong>, so the frame still reads as drawn but stops fencing every element; hard offset shadows became <strong style="color:#23252d">2px translucent ink</strong> instead of solid black; and the ruled-out dots lost their outlines entirely, since they carry no information worth a border. The drawn quality is intact — chunky radii, tilted stickers, heavy Bricolage display weights — it is the contrast that eased. Only the <em>semantic</em> borders (the active step-free row, the unverified row, the private row) stay full-strength in their own colour, so the outline now means something instead of being everywhere.</p>
+<p style="margin:-14px 0 24px;font:400 12.5px/1.65 system-ui,sans-serif;color:rgba(0,0,0,.58);max-width:880px;text-wrap:pretty"><strong style="color:#23252d">The composer is the locked one.</strong> “Also worth asking for” chips above the bar, and privacy chosen inline in the field before you speak rather than after. It is pinned rather than in flow, so it costs the map nothing: status bar 52, header 44, map 340, brief 244, composer 110 — the brief is the only part that scrolls.</p>
+
+<div style="display:flex;flex-wrap:nowrap;gap:26px;align-items:flex-start;width:max-content">
+
+<!-- 4a Fern &amp; clay -->
+<div id="4a" style="flex:none;display:flex;flex-direction:column;gap:9px;scroll-margin-top:16px">
+<div style="display:flex;align-items:baseline;gap:8px;font:400 11px/1.45 system-ui,sans-serif;color:rgba(0,0,0,.55);width:390px">
+<a href="#4a" style="font:600 10.5px 'IBM Plex Mono',monospace;padding:3px 7px;background:#2c6b52;color:#fffdf7;border-radius:5px;text-decoration:none">4a</a>
+<span><strong style="color:#23252d">Fern &amp; clay — the locked frame.</strong> Ink line at 1.5px green-grey, translucent offset shadows, ruled-out dots unbordered. Only the semantic borders stay full-strength, so an outline means something.</span>
+</div>
+<div style="width:390px;height:844px;background:#fdf8ee;border:1px solid rgba(0,0,0,.1);border-radius:34px;overflow:hidden;position:relative;box-shadow:0 4px 18px rgba(0,0,0,.1)">
+  <div style="height:52px;display:flex;align-items:flex-end;justify-content:space-between;padding:0 22px 5px;font:600 12.5px system-ui,sans-serif;color:#334136"><span>9:24</span><span style="letter-spacing:2px">▮▮▮</span></div>
+
+  <div style="padding:2px 16px 10px;display:flex;align-items:center;gap:10px">
+    <div style="flex:1;min-width:0">
+      <div style="font:700 15px/1.15 'Bricolage Grotesque',system-ui,sans-serif;letter-spacing:-.02em;color:#334136;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Dogs off the leash</div>
+      <div style="font:600 11px/1.35 system-ui,sans-serif;color:#5b6158">Sunday 10:00 · Mitte</div>
+    </div>
+    <div style="display:flex;flex:none">
+      <span style="width:26px;height:26px;border-radius:9px;background:#2c6b52;color:#fffdf7;font:700 10px system-ui,sans-serif;display:flex;align-items:center;justify-content:center;border:2px solid #fdf8ee;transform:rotate(-4deg)">AL</span>
+      <span style="width:26px;height:26px;border-radius:9px;background:#b05f2c;color:#fffdf7;font:700 10px system-ui,sans-serif;display:flex;align-items:center;justify-content:center;border:2px solid #fdf8ee;margin-left:-6px;transform:rotate(3deg)">SA</span>
+      <span style="width:26px;height:26px;border-radius:9px;background:#7d6396;color:#fffdf7;font:700 10px system-ui,sans-serif;display:flex;align-items:center;justify-content:center;border:2px solid #fdf8ee;margin-left:-6px;transform:rotate(-2deg)">JO</span>
+    </div>
+    <button style="flex:none;width:22px;height:22px;border-radius:6px;border:none;background:none;color:#63624f;font:600 9px/1 'IBM Plex Mono',monospace;white-space:nowrap;cursor:pointer">{ }</button>
+  </div>
+
+  <div style="position:relative;height:340px;background:#e9e5da;border-top:1px solid rgba(51,65,54,.55);border-bottom:1px solid rgba(51,65,54,.55)">
+    <div id="rd-map-4a" style="position:absolute;inset:0"></div>
+    <div style="position:absolute;inset:0;background:#2c6b52;mix-blend-mode:color;opacity:.18;pointer-events:none"></div>
+    <svg style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none" aria-hidden="true">
+      <defs><mask id="rd-scope-4a"><rect width="100%" height="100%" fill="#fff"></rect><circle cx="50%" cy="46%" r="150" fill="#000"></circle></mask></defs>
+      <rect width="100%" height="100%" fill="#334136" opacity="0.08" mask="url(#rd-scope-4a)"></rect>
+      <circle cx="50%" cy="46%" r="150" fill="none" stroke="#334136" stroke-width="1.5" stroke-opacity=".4" stroke-dasharray="6 7"></circle>
+    </svg>
+    <div style="position:absolute;left:50%;top:46%;transform:translate(-136px,-70px);width:8px;height:8px;border-radius:50%;background:#a8a291;opacity:.6"></div>
+    <div style="position:absolute;left:50%;top:46%;transform:translate(112px,92px);width:8px;height:8px;border-radius:50%;background:#a8a291;opacity:.6"></div>
+    <div style="position:absolute;left:50%;top:46%;transform:translate(-52px,116px);width:8px;height:8px;border-radius:50%;background:#a8a291;opacity:.6"></div>
+    <div style="position:absolute;left:50%;top:46%;transform:translate(142px,-96px);width:8px;height:8px;border-radius:50%;background:#a8a291;opacity:.6"></div>
+    <div style="position:absolute;left:50%;top:46%;transform:translate(-124px,64px);width:8px;height:8px;border-radius:50%;background:#a8a291;opacity:.6"></div>
+
+    <div style="position:absolute;left:50%;top:46%;transform:translate(-146px,-24px) rotate(-3deg);background:#fffdf7;border:1.5px solid rgba(51,65,54,.55);border-radius:11px;padding:5px 9px 5px 7px;box-shadow:2px 2px 0 rgba(51,65,54,.30);display:flex;align-items:center;gap:7px">
+      <i style="width:11px;height:11px;border-radius:50%;background:#2c6b52;border:1.5px solid rgba(51,65,54,.55);flex:none"></i>
+      <span style="font:700 11.5px/1.3 'Bricolage Grotesque',system-ui,sans-serif;white-space:nowrap;color:#334136">Weinbergspark</span>
+      <span style="font:600 9.5px system-ui,sans-serif;background:#dfeee6;color:#1e5540;border-radius:5px;padding:1px 5px">6 min</span>
+    </div>
+    <div style="position:absolute;left:50%;top:46%;transform:translate(6px,-96px) rotate(2deg);background:#fffdf7;border:1.5px solid rgba(51,65,54,.55);border-radius:11px;padding:5px 9px 5px 7px;box-shadow:2px 2px 0 rgba(51,65,54,.30);display:flex;align-items:center;gap:7px">
+      <i style="width:11px;height:11px;border-radius:50%;background:#2c6b52;border:1.5px solid rgba(51,65,54,.55);flex:none"></i>
+      <span style="font:700 11.5px/1.3 'Bricolage Grotesque',system-ui,sans-serif;white-space:nowrap;color:#334136">Monbijoupark</span>
+      <span style="font:600 9.5px system-ui,sans-serif;background:#dfeee6;color:#1e5540;border-radius:5px;padding:1px 5px">9 min</span>
+    </div>
+    <div style="position:absolute;left:50%;top:46%;transform:translate(-58px,26px);z-index:4">
+    <div style="background:#2c6b52;border:1.5px solid #2c6b52;border-radius:12px;padding:7px 11px 7px 8px;box-shadow:3px 4px 0 rgba(51,65,54,.30);display:flex;align-items:center;gap:8px;animation:sticker-pop 3200ms ease-in-out infinite">
+      <i style="width:12px;height:12px;border-radius:50%;background:#fffdf7;flex:none"></i>
+      <span style="font:800 12.5px/1.25 'Bricolage Grotesque',system-ui,sans-serif;white-space:nowrap;color:#fffdf7">Park am Nordbahnhof</span>
+    </div>
+    </div>
+    <div style="position:absolute;left:50%;top:46%;transform:translate(30px,80px) rotate(3deg);background:#fffdf7;border:1.5px solid rgba(51,65,54,.55);border-radius:11px;padding:5px 9px 5px 7px;box-shadow:2px 2px 0 rgba(51,65,54,.30);display:flex;align-items:center;gap:7px">
+      <i style="width:11px;height:11px;border-radius:50%;background:#fffdf7;border:2.5px solid #b05f2c;flex:none"></i>
+      <span style="font:700 11.5px/1.3 'Bricolage Grotesque',system-ui,sans-serif;white-space:nowrap;color:#5b6158">Kleiner Tiergarten</span>
+      <span style="font:600 9.5px system-ui,sans-serif;background:#f9e6d9;color:#a15421;border-radius:5px;padding:1px 5px">?</span>
+    </div>
+    <div style="position:absolute;left:50%;top:46%;transform:translate(46px,-24px);display:flex;align-items:flex-start">
+      <svg width="15" height="19" viewBox="0 0 14 18" style="display:block"><path d="M1 1 L1 15 L5 11 L8 17 L11 15.5 L8 10 L13 9 Z" fill="#b05f2c" stroke="#fffdf7" stroke-width="1.6"></path></svg>
+      <span style="background:#b05f2c;color:#fffdf7;border-radius:0 7px 7px 7px;padding:1px 7px;font:700 10px/1.5 system-ui,sans-serif;margin-top:10px">Joe</span>
+    </div>
+
+    <div style="position:absolute;left:14px;top:14px;background:#2c6b52;border-radius:14px;box-shadow:3px 4px 0 rgba(51,65,54,.30);padding:8px 13px;color:#fffdf7;transform:rotate(-2deg)">
+      <div style="display:flex;align-items:flex-end;gap:7px">
+        <span style="font:800 30px/.85 'Bricolage Grotesque',system-ui,sans-serif;letter-spacing:-.04em">6</span>
+        <span style="font:700 11px/1.25 system-ui,sans-serif;padding-bottom:2px">still<br>work</span>
+      </div>
+      <div style="font:600 10px/1.3 'IBM Plex Mono',monospace;opacity:.8;margin-top:4px">of 34 · 3 unsure</div>
+    </div>
+    <div style="position:absolute;left:14px;bottom:12px;z-index:5;background:#334136;color:#fffdf7;border-radius:9px;padding:5px 9px;display:flex;align-items:center;gap:7px;box-shadow:0 2px 8px rgba(0,0,0,.18)">
+      <span style="font:800 13px 'Bricolage Grotesque',system-ui,sans-serif;color:#8fd6b4">+3</span>
+      <span style="font:600 10.5px/1.3 system-ui,sans-serif;opacity:.9">if “step-free” went optional</span>
+    </div>
+  </div>
+
+  <div style="padding:13px 16px 0;height:244px;overflow-y:auto">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:9px">
+      <span style="font:800 12px/1.3 'Bricolage Grotesque',system-ui,sans-serif;text-transform:uppercase;letter-spacing:.03em;color:#334136">What matters</span>
+      <span style="font:700 10px system-ui,sans-serif;background:#dfeee6;color:#1e5540;border-radius:999px;padding:1px 7px">5</span>
+      <span style="margin-left:auto;font:500 10.5px system-ui,sans-serif;color:#5b6158">hold to preview without</span>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:7px">
+      <div style="border:1.5px solid rgba(51,65,54,.55);border-radius:13px;background:#fffdf7;box-shadow:2px 2px 0 rgba(51,65,54,.30);padding:8px 10px;display:flex;align-items:center;gap:9px">
+        <span style="width:36px;height:21px;border-radius:11px;background:#2c6b52;flex:none;position:relative"><i style="position:absolute;top:2.5px;right:2.5px;width:16px;height:16px;border-radius:50%;background:#fffdf7"></i></span>
+        <span style="flex:1;font:600 13px/1.35 system-ui,sans-serif;color:#334136">Dogs can be off-leash</span>
+        <span style="font:700 11px 'IBM Plex Mono',monospace;color:#5b6158">−19</span>
+      </div>
+      <div style="border:1.5px solid #2c6b52;border-radius:13px;background:#fffdf7;box-shadow:2px 2px 0 #2c6b52;padding:8px 10px;display:flex;align-items:center;gap:9px">
+        <span style="width:36px;height:21px;border-radius:11px;background:#2c6b52;flex:none;position:relative"><i style="position:absolute;top:2.5px;right:2.5px;width:16px;height:16px;border-radius:50%;background:#fffdf7"></i></span>
+        <span style="flex:1;font:600 13px/1.35 system-ui,sans-serif;color:#334136">Step-free paths in</span>
+        <span style="font:700 11px 'IBM Plex Mono',monospace;color:#1e5540">−3</span>
+      </div>
+      <div style="border:1.5px solid #b05f2c;border-radius:13px;background:#fffdf7;box-shadow:2px 2px 0 #b05f2c;padding:8px 10px;display:flex;align-items:center;gap:9px">
+        <span style="width:36px;height:21px;border-radius:11px;background:#b05f2c;flex:none;position:relative"><i style="position:absolute;top:2.5px;right:2.5px;width:16px;height:16px;border-radius:50%;background:#fffdf7"></i></span>
+        <span style="flex:1;font:600 13px/1.35 system-ui,sans-serif;color:#334136">Water on site</span>
+        <span style="font:700 10px system-ui,sans-serif;background:#f9e6d9;color:#a15421;border-radius:6px;padding:1px 6px">3 unknown</span>
+      </div>
+      <div style="border:1.5px solid #7d6396;border-radius:13px;background:#ece5f2;box-shadow:2px 2px 0 #7d6396;padding:8px 10px;display:flex;align-items:center;gap:9px">
+        <span style="width:36px;height:21px;border-radius:11px;background:#7d6396;flex:none;position:relative"><i style="position:absolute;top:2.5px;right:2.5px;width:16px;height:16px;border-radius:50%;background:#fffdf7"></i></span>
+        <span style="flex:1;font:600 13px/1.35 system-ui,sans-serif;color:#57436b">Someone can't travel far</span>
+        <span style="font:700 10px system-ui,sans-serif;background:#7d6396;color:#fffdf7;border-radius:6px;padding:1px 6px">private</span>
+      </div>
+      <div style="border:1.5px dashed rgba(51,65,54,.55);border-radius:13px;background:transparent;padding:8px 10px;display:flex;align-items:center;gap:9px">
+        <span style="flex:1;font:600 13px/1.35 system-ui,sans-serif;color:#5b6158">Joe's agent holds one condition back</span>
+        <span style="font:700 10px system-ui,sans-serif;background:#ece5f2;color:#57436b;border-radius:6px;padding:1px 6px">agent only</span>
+      </div>
+    </div>
+  </div>
+
+  <div style="position:absolute;left:16px;right:16px;bottom:20px;display:flex;flex-direction:column;gap:10px">
+    <div style="font:700 11px/1.3 system-ui,sans-serif;letter-spacing:.02em;color:#5b6158;padding:0 2px">Also worth asking for</div>
+    <div style="display:flex;flex-wrap:wrap;gap:6px">
+      <button style="border:1.5px solid rgba(51,65,54,.55);border-radius:999px;background:#fffdf7;box-shadow:2px 2px 0 rgba(51,65,54,.30);padding:5px 12px;font:700 11.5px system-ui,sans-serif;color:#334136;cursor:pointer;display:flex;gap:6px;align-items:center">fenced in <span style="font:700 10px 'IBM Plex Mono',monospace;color:#5b6158">6</span></button>
+      <button style="border:1.5px solid rgba(51,65,54,.55);border-radius:999px;background:#fffdf7;box-shadow:2px 2px 0 rgba(51,65,54,.30);padding:5px 12px;font:700 11.5px system-ui,sans-serif;color:#334136;cursor:pointer;display:flex;gap:6px;align-items:center">shade <span style="font:700 10px 'IBM Plex Mono',monospace;color:#5b6158">9</span></button>
+      <button style="border:1.5px solid rgba(51,65,54,.55);border-radius:999px;background:#fffdf7;box-shadow:2px 2px 0 rgba(51,65,54,.30);padding:5px 12px;font:700 11.5px system-ui,sans-serif;color:#334136;cursor:pointer;display:flex;gap:6px;align-items:center">a café <span style="font:700 10px 'IBM Plex Mono',monospace;color:#5b6158">4</span></button>
+    </div>
+    <div style="display:flex;align-items:stretch;border:1.5px solid rgba(51,65,54,.55);border-radius:13px;background:#fffdf7;box-shadow:2px 3px 0 rgba(51,65,54,.30);overflow:hidden">
+      <span style="display:flex;align-items:center;padding:0 9px 0 10px;flex:none">
+        <button style="display:flex;align-items:center;gap:5px;background:#dfeee6;border:1.5px solid #2c6b52;border-radius:7px;padding:4px 8px;font:700 10.5px system-ui,sans-serif;color:#1e5540;white-space:nowrap;cursor:pointer">
+          Shared<span style="width:0;height:0;border-left:3.5px solid transparent;border-right:3.5px solid transparent;border-top:4.5px solid #1e5540;display:block"></span>
+        </button>
+      </span>
+      <input type="text" placeholder="…or say it yourself" style="flex:1;min-width:0;border:none;background:none;font:600 13px system-ui,sans-serif;padding:14px 0;color:#334136;min-height:44px">
+      <button style="flex:none;border:none;border-left:1.5px solid #2c6b52;background:#2c6b52;color:#fffdf7;font:700 12.5px system-ui,sans-serif;padding:0 15px;cursor:pointer">Add</button>
+    </div>
+  </div>
+</div>
+</div>
+
+</div>
+<p style="margin:24px 0 0;font:400 12.5px/1.6 system-ui,sans-serif;color:rgba(0,0,0,.66);max-width:880px;text-wrap:pretty">This frame is the reference for line weight, shadow, radii and spacing. Values are frozen in <code style="font:500 11px 'IBM Plex Mono',monospace">handoff/tokens.css</code>; anything not derivable from it is a missing decision, not an invitation to improvise.</p>
+</section>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  componentDidMount() { this.boot(0); }
+  boot(tries) {
+    if (!window.maplibregl) {
+      if (tries < 60) setTimeout(() => this.boot(tries + 1), 150);
+      return;
+    }
+    const light = "https://tiles.openfreemap.org/styles/positron";
+    const dark = "https://tiles.openfreemap.org/styles/fiord";
+    const specs = [
+      ["rd-map-4a", light, 14.2, [13.4025, 52.5255]],
+      ["rd-map-8b", light, 14.2, [13.4025, 52.5255]],
+      ["rd-map-8c", light, 13.9, [13.4025, 52.5265]],
+      ["rd-map-8e", light, 14.0, [13.3985, 52.5295]],
+      ["rd-map-7a", light, 14.2, [13.4025, 52.5255]],
+      ["rd-map-7b", light, 14.1, [13.4025, 52.5255]],
+      ["rd-map-7c", light, 14.2, [13.3915, 52.5305]],
+      ["rd-map-7d", light, 14.3, [13.4025, 52.5265]],
+    ];
+    // A browser caps live WebGL contexts (commonly 8-16); this document holds
+    // 30+ map slots, so building them all at once means most never finish
+    // loading. Build only what is on screen, keep at most MAX alive, and drop
+    // the least-recently-seen when a new one is needed.
+    const MAX = 6;
+    this._live = this._live || [];
+    const live = this._live;
+    const build = (id, style, zoom, center, tries) => {
+      const el = document.getElementById(id);
+      if (!el || el.dataset.ready) return;
+      // Never construct against a zero box — MapLibre would fall back to its
+      // hardcoded 400x300 and the authored pins would stop matching the map.
+      // The observer fires once, often before layout settles, so retry rather
+      // than bail: bailing silently is what left every map unbuilt.
+      if (!el.clientWidth || !el.clientHeight) {
+        if ((tries || 0) < 60) {
+          requestAnimationFrame(() => build(id, style, zoom, center, (tries || 0) + 1));
+        }
+        return;
+      }
+      el.dataset.ready = "1";
+      while (live.length >= MAX) {
+        const old = live.shift();
+        try { old.map.remove(); } catch (e) {}
+        if (old.el.__ro) { old.el.__ro.disconnect(); delete old.el.__ro; }
+        delete old.el.dataset.ready;
+        old.el.style.background = "";
+      }
+      try {
+        const m = new window.maplibregl.Map({
+          container: el, style, center, zoom,
+          interactive: false,
+          // The style carries its own OpenFreeMap/OpenMapTiles/OSM credit;
+          // customAttribution APPENDS rather than replaces, which printed it
+          // twice and forced the control to wrap onto two lines.
+          attributionControl: { compact: true },
+        });
+        // The container often measures 0 at construction time (long document,
+        // fonts still settling), so MapLibre falls back to its 400x300 default
+        // and the pins stop matching the geography. Resize on load and on any
+        // later layout change.
+        m.on("load", () => m.resize());
+        requestAnimationFrame(() => m.resize());
+        if (window.ResizeObserver) {
+          // Retained on the element: a local const would be collectable and
+          // its first callback is not guaranteed to run.
+          el.__ro = new ResizeObserver(() => m.resize());
+          el.__ro.observe(el);
+        }
+        m.on("error", (e) => {
+          // Never silent: a failed style load leaves a blank attribution box,
+          // which would quietly break the always-visible attribution promise.
+          console.warn("basemap " + id + ":", e && e.error ? e.error.message : e);
+          el.style.background = "#e9e5da";
+        });
+        live.push({ el, map: m });
+      } catch (e) { /* offline tiles — the painted ground stands in */ }
+    };
+
+    // IntersectionObserver is useless here: the host wraps the document in an
+    // overflow:hidden pan/zoom container, so intersection against the viewport
+    // root computes empty and the callback never fires. Rect-based visibility
+    // is what actually matches what the user sees.
+    const visible = (el) => {
+      const r = el.getBoundingClientRect();
+      const m = 300;
+      return r.bottom > -m && r.top < window.innerHeight + m &&
+             r.right > -m && r.left < window.innerWidth + m;
+    };
+    const sweep = () => {
+      for (const [id, style, zoom, center] of specs) {
+        const el = document.getElementById(id);
+        if (!el || el.dataset.ready) continue;
+        if (visible(el)) build(id, style, zoom, center, 0);
+      }
+    };
+    sweep();
+    this._sweep = sweep;
+    window.addEventListener("scroll", sweep, { passive: true, capture: true });
+    window.addEventListener("resize", sweep, { passive: true });
+    this._timer = setInterval(sweep, 500);
+  }
+  componentWillUnmount() {
+    if (this._sweep) {
+      window.removeEventListener("scroll", this._sweep, { capture: true });
+      window.removeEventListener("resize", this._sweep);
+    }
+    if (this._timer) clearInterval(this._timer);
+    (this._live || []).forEach((o) => { try { o.map.remove(); } catch (e) {} });
+  }
+}
+</script>
+</body>
+</html>

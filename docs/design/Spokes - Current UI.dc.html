@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics><meta name="design_doc_mode" content="canvas">
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<style>
+body{margin:0;background:#e9e7e1;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:#23252d}
+*{box-sizing:border-box}
+@keyframes proposal-pulse{0%,100%{box-shadow:0 0 0 0 rgba(71,53,216,.35)}50%{box-shadow:0 0 0 7px rgba(71,53,216,0)}}
+a{color:#372ab3}a:hover{color:#4735d8}
+.maplibregl-ctrl-attrib{font-size:10px}
+</style></helmet>
+
+<section style="padding:40px 44px 34px;border-bottom:1px solid rgba(0,0,0,.08)">
+<div style="display:flex;align-items:baseline;gap:10px;margin:0 0 6px">
+<span style="font:600 10px ui-monospace,Menlo,monospace;padding:3px 7px;background:#1a1a1a;color:#fff;border-radius:4px">RECREATION</span>
+<span style="font:600 13px/1.2 system-ui,sans-serif">Spokes today — apps/web as it stands on <code style="font:500 12px ui-monospace,Menlo,monospace">main</code></span>
+</div>
+<p style="margin:0 0 24px;font:400 12.5px/1.6 system-ui,sans-serif;color:rgba(0,0,0,.55);max-width:760px;text-wrap:pretty">Built from <code style="font:500 12px ui-monospace,Menlo,monospace">App.tsx</code>, <code style="font:500 12px ui-monospace,Menlo,monospace">MapView.tsx</code>, <code style="font:500 12px ui-monospace,Menlo,monospace">CandidateSheet.tsx</code>, <code style="font:500 12px ui-monospace,Menlo,monospace">RequirementsPanel.tsx</code>, <code style="font:500 12px ui-monospace,Menlo,monospace">DecisionsPanel.tsx</code>, <code style="font:500 12px ui-monospace,Menlo,monospace">ArrivalBanner.tsx</code> and <code style="font:500 12px ui-monospace,Menlo,monospace">styles.css</code>. Same tokens, same spacing, same copy — this is the baseline the redesign argues against, not a proposal.</p>
+
+<div style="display:flex;flex-wrap:wrap;gap:34px;align-items:flex-start">
+
+<!-- ============ desktop ≥980px composition ============ -->
+<div style="display:flex;flex-direction:column;gap:9px">
+<div style="display:flex;align-items:baseline;gap:8px;font:400 11px/1.3 system-ui,sans-serif;color:rgba(0,0,0,.55)"><span style="font:600 10.5px ui-monospace,Menlo,monospace;padding:3px 7px;background:rgba(0,0,0,.08);border-radius:5px;color:#1a1a1a">A</span>Desktop ≥980px — side-by-side, 400px panel · Needs tab, candidate sheet open</div>
+<div style="width:1180px;height:760px;background:#f4f3ee;border:1px solid rgba(0,0,0,.1);border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,.06);overflow:hidden;display:flex;flex-direction:column;font-size:15px;line-height:1.5">
+
+  <!-- header -->
+  <header style="display:flex;align-items:center;gap:12px;row-gap:4px;padding:9px 14px;background:#fff;border-bottom:1px solid #e4e2d9;flex-wrap:wrap;flex:none">
+    <span style="display:flex;align-items:center;gap:8px;font-weight:700;font-size:20px;letter-spacing:-.02em;color:#23252d">
+      <svg width="26" height="26" viewBox="0 0 22 22" aria-hidden="true" style="display:block">
+        <g stroke="#4735d8" stroke-width="1.8" stroke-linecap="round">
+          <line x1="11" y1="11" x2="11" y2="2.4"></line><line x1="11" y1="11" x2="18.4" y2="6.7"></line><line x1="11" y1="11" x2="18.4" y2="15.3"></line><line x1="11" y1="11" x2="11" y2="19.6"></line><line x1="11" y1="11" x2="3.6" y2="15.3"></line><line x1="11" y1="11" x2="3.6" y2="6.7"></line>
+        </g>
+        <circle cx="11" cy="11" r="3.4" fill="#4735d8"></circle><circle cx="11" cy="2.4" r="1.6" fill="#0e7a63"></circle><circle cx="18.4" cy="6.7" r="1.6" fill="#b26205"></circle><circle cx="18.4" cy="15.3" r="1.6" fill="#7c3aed"></circle><circle cx="11" cy="19.6" r="1.6" fill="#c22f3d"></circle><circle cx="3.6" cy="15.3" r="1.6" fill="#b8860b"></circle><circle cx="3.6" cy="6.7" r="1.6" fill="#23252d"></circle>
+      </svg>Spokes</span>
+    <span style="color:#5c5f6b;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0">food · Berlin Mitte</span>
+    <span style="display:inline-flex;align-items:center;gap:5px;border-radius:999px;padding:2px 10px;font-size:12px;font-weight:600;border:1px solid transparent;white-space:nowrap;background:#edebfc;color:#372ab3">Gathering needs</span>
+    <span style="display:inline-flex;align-items:center;gap:5px;border-radius:999px;padding:2px 10px;font-size:12px;font-weight:600;border:1px solid transparent;white-space:nowrap;background:#e0f2ec;color:#0e7a63">21 of 31 eligible</span>
+    <div style="margin-left:auto;display:flex;align-items:center;gap:8px">
+      <span><span style="font-weight:600;font-size:13px">Alex</span> <span style="color:#6f7380;font-size:12px">organizer</span></span>
+      <button style="border:1px solid #cfccc0;background:#fff;color:#5c5f6b;border-radius:999px;padding:4px 12px;font-size:12px;font-weight:600;cursor:pointer" style-hover="border-color:#4735d8;color:#372ab3">I'm done adding</button>
+    </div>
+  </header>
+
+  <main style="flex:1 0 auto;min-height:0;display:flex;flex-direction:row">
+    <!-- map column -->
+    <section style="position:relative;display:flex;flex-direction:column;flex:1 1 auto;min-width:0">
+      <div style="position:relative;flex:1;min-height:0;background:#e8ece9">
+        <div id="rec-map-a" style="position:absolute;inset:0"></div>
+
+        <!-- scope ring + dim (SVG overlay mirroring the maplibre layers) -->
+        <svg style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none" aria-hidden="true">
+          <defs><mask id="rec-scope-a"><rect width="100%" height="100%" fill="#fff"></rect><circle cx="50%" cy="50%" r="278" fill="#000"></circle></mask></defs>
+          <rect width="100%" height="100%" fill="#23252d" opacity="0.14" mask="url(#rec-scope-a)"></rect>
+          <circle cx="50%" cy="50%" r="278" fill="none" stroke="#4735d8" stroke-width="2" stroke-opacity="0.55" stroke-dasharray="3 3"></circle>
+        </svg>
+
+        <!-- pins: 22px eligibility dots, DOM markers -->
+        <div style="position:absolute;left:50%;top:50%;transform:translate(-232px,-158px);width:22px;height:22px;border-radius:50%;border:2px solid #fff;background:#0e7a63;box-shadow:0 1px 3px rgba(35,37,45,.4);cursor:pointer"></div>
+        <div style="position:absolute;left:50%;top:50%;transform:translate(-96px,-214px);width:22px;height:22px;border-radius:50%;border:2px solid #fff;background:#0e7a63;box-shadow:0 1px 3px rgba(35,37,45,.4);cursor:pointer"></div>
+        <div style="position:absolute;left:50%;top:50%;transform:translate(74px,-186px);width:22px;height:22px;border-radius:50%;border:2px solid #fff;background:#0e7a63;box-shadow:0 1px 3px rgba(35,37,45,.4);cursor:pointer"></div>
+        <div style="position:absolute;left:50%;top:50%;transform:translate(186px,-96px);width:22px;height:22px;border-radius:50%;border:2px solid #fff;background:#b26205;box-shadow:0 1px 3px rgba(35,37,45,.4);cursor:pointer"></div>
+        <div style="position:absolute;left:50%;top:50%;transform:translate(-186px,-40px);width:22px;height:22px;border-radius:50%;border:2px solid #fff;background:#0e7a63;box-shadow:0 1px 3px rgba(35,37,45,.4);cursor:pointer"></div>
+        <div style="position:absolute;left:50%;top:50%;transform:translate(-40px,24px);width:22px;height:22px;border-radius:50%;border:2px solid #fff;background:#b26205;box-shadow:0 1px 3px rgba(35,37,45,.4);cursor:pointer"></div>
+        <div style="position:absolute;left:50%;top:50%;transform:translate(140px,64px);width:22px;height:22px;border-radius:50%;border:2px solid #fff;background:#0e7a63;box-shadow:0 1px 3px rgba(35,37,45,.4);cursor:pointer"></div>
+        <div style="position:absolute;left:50%;top:50%;transform:translate(-268px,80px);width:14px;height:14px;border-radius:50%;border:2px solid #fff;background:#a3a5a0;opacity:.65;box-shadow:0 1px 3px rgba(35,37,45,.4);cursor:pointer"></div>
+        <div style="position:absolute;left:50%;top:50%;transform:translate(-120px,132px);width:14px;height:14px;border-radius:50%;border:2px solid #fff;background:#a3a5a0;opacity:.65;box-shadow:0 1px 3px rgba(35,37,45,.4);cursor:pointer"></div>
+        <div style="position:absolute;left:50%;top:50%;transform:translate(46px,148px);width:14px;height:14px;border-radius:50%;border:2px solid #fff;background:#a3a5a0;opacity:.65;box-shadow:0 1px 3px rgba(35,37,45,.4);cursor:pointer"></div>
+        <div style="position:absolute;left:50%;top:50%;transform:translate(238px,176px);width:14px;height:14px;border-radius:50%;border:2px solid #fff;background:#a3a5a0;opacity:.65;box-shadow:0 1px 3px rgba(35,37,45,.4);cursor:pointer"></div>
+        <div style="position:absolute;left:50%;top:50%;transform:translate(-330px,-64px);width:14px;height:14px;border-radius:50%;border:2px solid #fff;background:#a3a5a0;opacity:.65;box-shadow:0 1px 3px rgba(35,37,45,.4);cursor:pointer"></div>
+
+        <!-- proposed pin: outer indigo ring, pulsing, scaled 1.15 -->
+        <div style="position:absolute;left:50%;top:50%;transform:translate(20px,-100px) scale(1.15);z-index:3">
+          <div style="position:relative;width:22px;height:22px;border-radius:50%;border:2px solid #fff;background:#0e7a63;box-shadow:0 1px 3px rgba(35,37,45,.4);cursor:pointer">
+            <span style="position:absolute;inset:-6px;border-radius:50%;border:2.5px solid #4735d8;animation:proposal-pulse 2200ms ease-in-out infinite"></span>
+          </div>
+        </div>
+        <!-- vetoed pin: desaturated, dashed red ring, ✕ badge -->
+        <div style="position:absolute;left:50%;top:50%;transform:translate(-150px,-118px);z-index:3">
+          <div style="position:relative;width:22px;height:22px;border-radius:50%;border:2px solid #fff;background:#0e7a63;filter:saturate(.35);box-shadow:0 1px 3px rgba(35,37,45,.4);cursor:pointer">
+            <span style="position:absolute;inset:-6px;border-radius:50%;border:2.5px dashed #c22f3d"></span>
+            <span style="position:absolute;top:-9px;right:-9px;width:15px;height:15px;border-radius:50%;background:#c22f3d;color:#fff;font-size:10px;font-weight:700;line-height:15px;text-align:center;box-shadow:0 1px 2px rgba(35,37,45,.4);z-index:1">✕</span>
+          </div>
+        </div>
+        <!-- selected pin: indigo halo, scale 1.3 -->
+        <div style="position:absolute;left:50%;top:50%;transform:translate(-16px,-8px) scale(1.3);z-index:4;width:22px;height:22px;border-radius:50%;border:2px solid #fff;background:#0e7a63;box-shadow:0 0 0 5px rgba(71,53,216,.25),0 1px 3px rgba(35,37,45,.4);cursor:pointer"></div>
+
+        <!-- legend pill -->
+        <div style="position:absolute;left:8px;bottom:8px;z-index:4;display:flex;align-items:center;flex-wrap:wrap;gap:4px 10px;background:rgba(255,255,255,.88);border:1px solid #e4e2d9;border-radius:999px;padding:3px 12px;font-size:11.5px;font-weight:600;color:#5c5f6b;box-shadow:0 1px 2px rgba(35,37,45,.06),0 4px 14px rgba(35,37,45,.08);pointer-events:none;font-variant-numeric:tabular-nums">
+          <span style="display:inline-flex;align-items:center;gap:5px;white-space:nowrap"><i style="width:9px;height:9px;border-radius:50%;display:inline-block;background:#0e7a63"></i> 21 eligible</span>
+          <span style="display:inline-flex;align-items:center;gap:5px;white-space:nowrap"><i style="width:9px;height:9px;border-radius:50%;display:inline-block;background:#b26205"></i> 3 checking</span>
+          <span style="display:inline-flex;align-items:center;gap:5px;white-space:nowrap"><i style="width:7px;height:7px;border-radius:50%;display:inline-block;background:#a3a5a0;opacity:.8"></i> 7 out</span>
+          <span style="display:inline-flex;align-items:center;gap:5px;white-space:nowrap"><i style="width:7px;height:7px;border-radius:50%;display:inline-block;border:2px solid #4735d8"></i> proposed</span>
+          <span style="display:inline-flex;align-items:center;gap:5px;white-space:nowrap"><i style="width:7px;height:7px;border-radius:50%;display:inline-block;border:2px dashed #c22f3d"></i> vetoed</span>
+        </div>
+        <div style="position:absolute;right:4px;bottom:20px;font-size:10px;color:#6f7380;background:rgba(255,255,255,.75);padding:0 5px;border-radius:4px;pointer-events:none">Routing © OSRM/FOSSGIS</div>
+
+        <!-- candidate sheet -->
+        <div style="position:absolute;left:10px;right:10px;bottom:12px;max-width:440px;margin:0 auto;background:#fff;border-radius:10px;border:1px solid #e4e2d9;box-shadow:0 2px 4px rgba(35,37,45,.08),0 10px 28px rgba(35,37,45,.14);padding:12px 14px;z-index:5">
+          <div style="display:flex;align-items:baseline;gap:8px">
+            <span style="font-weight:700;font-size:16px;letter-spacing:-.01em">The Barn</span>
+            <span style="color:#5c5f6b;font-size:12.5px">cafe · €€ · 6 min walk</span>
+            <button style="margin-left:auto;border:none;background:none;color:#6f7380;font-size:18px;cursor:pointer;padding:0 2px;line-height:1">×</button>
+          </div>
+          <p style="font-size:13px;color:#0e7a63;margin:5px 0 8px">Meets every confirmed need.</p>
+          <div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:10px">
+            <span style="font-size:11.5px;border-radius:6px;padding:2px 7px;border:1px solid transparent;background:#e0f2ec;color:#0e7a63">✓ vegetarian</span>
+            <span style="font-size:11.5px;border-radius:6px;padding:2px 7px;border:1px solid transparent;background:#e0f2ec;color:#0e7a63">✓ lactose-free</span>
+            <span style="font-size:11.5px;border-radius:6px;padding:2px 7px;border:1px solid #e4e2d9;color:#5c5f6b;background:#f4f3ee">? wheelchair</span>
+            <span style="font-size:11.5px;border-radius:6px;padding:2px 7px;border:1px solid transparent;background:#fbe9eb;color:#c22f3d">✗ outdoor seating</span>
+          </div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px">
+            <button style="border-radius:8px;border:1px solid #4735d8;background:#4735d8;color:#fff;padding:5px 12px;font-size:13px;font-weight:600;cursor:pointer" style-hover="background:#372ab3;border-color:#372ab3">Propose this</button>
+            <button style="border-radius:8px;border:1px solid #cfccc0;background:#fff;color:#23252d;padding:5px 12px;font-size:13px;font-weight:600;cursor:pointer" style-hover="border-color:#4735d8;color:#372ab3">Details</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- panel region -->
+    <section style="flex:0 0 400px;min-height:0;display:flex;flex-direction:column;background:#fff;border-left:1px solid #e4e2d9">
+      <div style="display:flex;border-bottom:1px solid #e4e2d9;padding:0 6px;gap:2px;flex:none">
+        <button style="border:none;background:none;padding:9px 12px 7px;font-size:13.5px;font-weight:600;color:#372ab3;cursor:pointer;border-bottom:2px solid #4735d8;display:flex;align-items:center;gap:6px">Needs</button>
+        <button style="border:none;background:none;padding:9px 12px 7px;font-size:13.5px;font-weight:600;color:#5c5f6b;cursor:pointer;border-bottom:2px solid transparent;display:flex;align-items:center;gap:6px" style-hover="color:#23252d">Activity</button>
+        <button style="border:none;background:none;padding:9px 12px 7px;font-size:13.5px;font-weight:600;color:#5c5f6b;cursor:pointer;border-bottom:2px solid transparent;display:flex;align-items:center;gap:6px" style-hover="color:#23252d">Decisions<span style="background:#c22f3d;color:#fff;font-size:10.5px;border-radius:999px;min-width:17px;height:17px;display:inline-flex;align-items:center;justify-content:center;padding:0 4px">2</span></button>
+      </div>
+      <div style="flex:1;min-height:0;overflow-y:auto;padding:12px 14px 20px">
+        <ul style="display:flex;flex-direction:column;gap:7px;margin:0 0 14px;padding:0;list-style:none">
+          <li style="border:1px solid #e4e2d9;border-radius:10px;padding:7px 10px;display:flex;align-items:center;gap:8px;font-size:13.5px;background:#fff"><span style="flex:1;min-width:0">You require vegetarian options</span><span style="font-size:11px;font-weight:600;border-radius:5px;padding:1px 6px;white-space:nowrap;background:#e0f2ec;color:#0e7a63">shared</span><span style="font-size:11px;font-weight:600;border-radius:5px;padding:1px 6px;white-space:nowrap;background:#f4f3ee;color:#5c5f6b;border:1px solid #e4e2d9">hard</span><button style="border-radius:8px;border:1px solid #cfccc0;background:#fff;color:#23252d;padding:1px 8px;font-size:12px;font-weight:600;cursor:pointer" style-hover="border-color:#4735d8;color:#372ab3">Withdraw</button></li>
+          <li style="border:1px solid #e4e2d9;border-radius:10px;padding:7px 10px;display:flex;align-items:center;gap:8px;font-size:13.5px;background:#fff"><span style="flex:1;min-width:0">Sarah requires lactose-free options</span><span style="font-size:11px;font-weight:600;border-radius:5px;padding:1px 6px;white-space:nowrap;background:#e0f2ec;color:#0e7a63">shared</span><span style="font-size:11px;font-weight:600;border-radius:5px;padding:1px 6px;white-space:nowrap;background:#f4f3ee;color:#5c5f6b;border:1px solid #e4e2d9">hard</span></li>
+          <li style="border:1px solid #e4e2d9;border-radius:10px;padding:7px 10px;display:flex;align-items:center;gap:8px;font-size:13.5px;background:#fff"><span style="flex:1;min-width:0;font-style:italic;color:#7c3aed">A participant added a private budget need</span><span style="font-size:11px;font-weight:600;border-radius:5px;padding:1px 6px;white-space:nowrap;background:#f2ecfd;color:#7c3aed">private</span><span style="font-size:11px;font-weight:600;border-radius:5px;padding:1px 6px;white-space:nowrap;background:#f4f3ee;color:#5c5f6b;border:1px solid #e4e2d9">hard</span></li>
+          <li style="border:1px solid #e4e2d9;border-radius:10px;padding:7px 10px;display:flex;align-items:center;gap:8px;font-size:13.5px;background:#fff"><span style="flex:1;min-width:0;font-style:italic;color:#7c3aed">Joe's agent holds a constraint it will not disclose</span><span style="font-size:11px;font-weight:600;border-radius:5px;padding:1px 6px;white-space:nowrap;background:#7c3aed;color:#fff">agent-only</span><span style="font-size:11px;font-weight:600;border-radius:5px;padding:1px 6px;white-space:nowrap;background:#f4f3ee;color:#5c5f6b;border:1px solid #e4e2d9">hard</span></li>
+        </ul>
+        <div style="border:1px solid #e4e2d9;border-radius:10px;padding:12px;background:#f4f3ee;display:flex;flex-direction:column;gap:9px">
+          <h3 style="margin:0;font-size:13.5px">Add a need</h3>
+          <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">
+            <select style="font:inherit;font-size:13px;border:1px solid #cfccc0;border-radius:7px;padding:4px 8px;background:#fff;color:#23252d;max-width:100%"><option>Vegetarian options</option><option>Lactose-free options</option><option>Wheelchair accessible</option><option>Outdoor seating</option><option>Dog-friendly</option><option>Budget per person (€)</option><option>Avoid a cuisine</option><option>Max walk (minutes)</option></select>
+          </div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">
+            <label style="font-size:12.5px;color:#5c5f6b;font-weight:600">Who sees it?</label>
+            <div style="display:inline-flex;border:1px solid #cfccc0;border-radius:8px;overflow:hidden">
+              <button style="border:none;background:#4735d8;padding:4px 10px;font-size:12.5px;font-weight:600;color:#fff;cursor:pointer">Shared</button>
+              <button style="border:none;background:#fff;padding:4px 10px;font-size:12.5px;font-weight:600;color:#5c5f6b;cursor:pointer;border-left:1px solid #e4e2d9">Private</button>
+              <button style="border:none;background:#fff;padding:4px 10px;font-size:12.5px;font-weight:600;color:#5c5f6b;cursor:pointer;border-left:1px solid #e4e2d9">Agent-only</button>
+            </div>
+          </div>
+          <div style="font-size:12px;color:#6f7380">Everyone in the room sees this need and that it is yours.</div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">
+            <label style="font-size:12.5px;color:#5c5f6b;font-weight:600">How firm?</label>
+            <div style="display:inline-flex;border:1px solid #cfccc0;border-radius:8px;overflow:hidden">
+              <button style="border:none;background:#4735d8;padding:4px 10px;font-size:12.5px;font-weight:600;color:#fff;cursor:pointer">Must have</button>
+              <button style="border:none;background:#fff;padding:4px 10px;font-size:12.5px;font-weight:600;color:#5c5f6b;cursor:pointer;border-left:1px solid #e4e2d9">Nice to have</button>
+            </div>
+            <button style="border-radius:8px;border:1px solid #4735d8;background:#4735d8;color:#fff;padding:5px 12px;font-size:13px;font-weight:600;cursor:pointer" style-hover="background:#372ab3;border-color:#372ab3">Add need</button>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- wire view, collapsed -->
+  <details style="border-top:1px solid #e4e2d9;padding:6px 14px 14px;background:#f4f3ee;font-size:12.5px;color:#5c5f6b;flex:none">
+    <summary style="cursor:pointer;color:#5c5f6b;font-size:12px;font-weight:600;padding:4px 0">Wire view — what actually crossed the network</summary>
+    <p style="margin:6px 0;font-size:12px;color:#5c5f6b">Every request this page made, verbatim. Private needs are redacted server-side before anything leaves your session — check for yourself.</p>
+    <div>participant <code>p_org</code> · room <code>room_demo</code> · revision <strong>47</strong> · build <code>dev-8f21c</code> · contract v3 · <code>negotiation/v1 spatial-destination/v1</code></div>
+  </details>
+</div>
+</div>
+
+<!-- ============ 620px demo window ============ -->
+<div style="display:flex;flex-direction:column;gap:9px">
+<div style="display:flex;align-items:baseline;gap:8px;font:400 11px/1.3 system-ui,sans-serif;color:rgba(0,0,0,.55)"><span style="font:600 10.5px ui-monospace,Menlo,monospace;padding:3px 7px;background:rgba(0,0,0,.08);border-radius:5px;color:#1a1a1a">B</span>620px demo window — stacked, map 52vh · impasse + Decisions</div>
+<div style="width:620px;height:760px;background:#f4f3ee;border:1px solid rgba(0,0,0,.1);border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,.06);overflow:hidden;display:flex;flex-direction:column;font-size:15px;line-height:1.5">
+  <header style="display:flex;align-items:center;gap:12px;row-gap:4px;padding:9px 14px;background:#fff;border-bottom:1px solid #e4e2d9;flex-wrap:wrap;flex:none">
+    <span style="display:flex;align-items:center;gap:8px;font-weight:700;font-size:20px;letter-spacing:-.02em">
+      <svg width="26" height="26" viewBox="0 0 22 22" aria-hidden="true" style="display:block">
+        <g stroke="#4735d8" stroke-width="1.8" stroke-linecap="round"><line x1="11" y1="11" x2="11" y2="2.4"></line><line x1="11" y1="11" x2="18.4" y2="6.7"></line><line x1="11" y1="11" x2="18.4" y2="15.3"></line><line x1="11" y1="11" x2="11" y2="19.6"></line><line x1="11" y1="11" x2="3.6" y2="15.3"></line><line x1="11" y1="11" x2="3.6" y2="6.7"></line></g>
+        <circle cx="11" cy="11" r="3.4" fill="#4735d8"></circle><circle cx="11" cy="2.4" r="1.6" fill="#0e7a63"></circle><circle cx="18.4" cy="6.7" r="1.6" fill="#b26205"></circle><circle cx="18.4" cy="15.3" r="1.6" fill="#7c3aed"></circle><circle cx="11" cy="19.6" r="1.6" fill="#c22f3d"></circle><circle cx="3.6" cy="15.3" r="1.6" fill="#b8860b"></circle><circle cx="3.6" cy="6.7" r="1.6" fill="#23252d"></circle>
+      </svg>Spokes</span>
+    <span style="color:#5c5f6b;font-size:13px">food · Berlin Mitte</span>
+    <span style="display:inline-flex;align-items:center;border-radius:999px;padding:2px 10px;font-size:12px;font-weight:600;background:#edebfc;color:#372ab3;white-space:nowrap">Deliberating</span>
+    <span style="display:inline-flex;align-items:center;border-radius:999px;padding:2px 10px;font-size:12px;font-weight:600;background:#fbe9eb;color:#c22f3d;white-space:nowrap">impasse</span>
+    <div style="margin-left:auto;display:flex;align-items:center;gap:8px">
+      <span><span style="font-weight:600;font-size:13px">Sarah</span> <span style="color:#6f7380;font-size:12px">member</span></span>
+      <button style="border:1px solid #0e7a63;background:#0e7a63;color:#fff;border-radius:999px;padding:4px 12px;font-size:12px;font-weight:600;cursor:pointer">✓ Ready</button>
+    </div>
+  </header>
+  <main style="flex:1 0 auto;min-height:0;display:flex;flex-direction:column">
+    <section style="position:relative;display:flex;flex-direction:column;flex:none">
+      <div style="position:relative;height:340px;background:#e8ece9">
+        <div id="rec-map-b" style="position:absolute;inset:0"></div>
+        <svg style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none" aria-hidden="true">
+          <defs><mask id="rec-scope-b"><rect width="100%" height="100%" fill="#fff"></rect><circle cx="50%" cy="50%" r="150" fill="#000"></circle></mask></defs>
+          <rect width="100%" height="100%" fill="#23252d" opacity="0.14" mask="url(#rec-scope-b)"></rect>
+          <circle cx="50%" cy="50%" r="150" fill="none" stroke="#4735d8" stroke-width="2" stroke-opacity="0.55" stroke-dasharray="3 3"></circle>
+        </svg>
+        <div style="position:absolute;left:50%;top:50%;transform:translate(-104px,-72px);width:22px;height:22px;border-radius:50%;border:2px solid #fff;background:#b26205;box-shadow:0 1px 3px rgba(35,37,45,.4)"></div>
+        <div style="position:absolute;left:50%;top:50%;transform:translate(38px,-96px);width:22px;height:22px;border-radius:50%;border:2px solid #fff;background:#b26205;box-shadow:0 1px 3px rgba(35,37,45,.4)"></div>
+        <div style="position:absolute;left:50%;top:50%;transform:translate(96px,10px);width:14px;height:14px;border-radius:50%;border:2px solid #fff;background:#a3a5a0;opacity:.65;box-shadow:0 1px 3px rgba(35,37,45,.4)"></div>
+        <div style="position:absolute;left:50%;top:50%;transform:translate(-60px,44px);width:14px;height:14px;border-radius:50%;border:2px solid #fff;background:#a3a5a0;opacity:.65;box-shadow:0 1px 3px rgba(35,37,45,.4)"></div>
+        <div style="position:absolute;left:50%;top:50%;transform:translate(-160px,26px);width:14px;height:14px;border-radius:50%;border:2px solid #fff;background:#a3a5a0;opacity:.65;box-shadow:0 1px 3px rgba(35,37,45,.4)"></div>
+        <div style="position:absolute;left:50%;top:50%;transform:translate(14px,90px);width:14px;height:14px;border-radius:50%;border:2px solid #fff;background:#a3a5a0;opacity:.65;box-shadow:0 1px 3px rgba(35,37,45,.4)"></div>
+        <div style="position:absolute;left:50%;top:50%;transform:translate(170px,-40px);width:14px;height:14px;border-radius:50%;border:2px solid #fff;background:#a3a5a0;opacity:.65;box-shadow:0 1px 3px rgba(35,37,45,.4)"></div>
+        <div style="position:absolute;left:8px;bottom:8px;z-index:4;display:flex;align-items:center;flex-wrap:wrap;gap:4px 10px;background:rgba(255,255,255,.88);border:1px solid #e4e2d9;border-radius:999px;padding:3px 12px;font-size:11.5px;font-weight:600;color:#5c5f6b;box-shadow:0 1px 2px rgba(35,37,45,.06),0 4px 14px rgba(35,37,45,.08);pointer-events:none;font-variant-numeric:tabular-nums">
+          <span style="display:inline-flex;align-items:center;gap:5px"><i style="width:9px;height:9px;border-radius:50%;display:inline-block;background:#0e7a63"></i> 0 eligible</span>
+          <span style="display:inline-flex;align-items:center;gap:5px"><i style="width:9px;height:9px;border-radius:50%;display:inline-block;background:#b26205"></i> 2 checking</span>
+          <span style="display:inline-flex;align-items:center;gap:5px"><i style="width:7px;height:7px;border-radius:50%;display:inline-block;background:#a3a5a0;opacity:.8"></i> 29 out</span>
+        </div>
+        <div style="position:absolute;right:4px;bottom:20px;font-size:10px;color:#6f7380;background:rgba(255,255,255,.75);padding:0 5px;border-radius:4px">Routing © OSRM/FOSSGIS</div>
+      </div>
+    </section>
+    <section style="flex:1;min-height:0;display:flex;flex-direction:column;background:#fff;border-top:1px solid #e4e2d9">
+      <div style="background:#fbeedb;border-top:1px solid #eed9b8;border-bottom:1px solid #eed9b8;color:#8a4d05;padding:8px 14px;font-size:13.5px;display:flex;gap:8px;align-items:center"><span><strong>Impasse.</strong> No option satisfies every confirmed need. The council is privately checking possible adjustments.</span></div>
+      <div style="display:flex;border-bottom:1px solid #e4e2d9;padding:0 6px;gap:2px">
+        <button style="border:none;background:none;padding:9px 12px 7px;font-size:13.5px;font-weight:600;color:#5c5f6b;cursor:pointer;border-bottom:2px solid transparent">Needs</button>
+        <button style="border:none;background:none;padding:9px 12px 7px;font-size:13.5px;font-weight:600;color:#5c5f6b;cursor:pointer;border-bottom:2px solid transparent">Activity</button>
+        <button style="border:none;background:none;padding:9px 12px 7px;font-size:13.5px;font-weight:600;color:#372ab3;cursor:pointer;border-bottom:2px solid #4735d8;display:flex;align-items:center;gap:6px">Decisions<span style="background:#c22f3d;color:#fff;font-size:10.5px;border-radius:999px;min-width:17px;height:17px;display:inline-flex;align-items:center;justify-content:center;padding:0 4px">2</span></button>
+      </div>
+      <div style="flex:1;min-height:0;overflow-y:auto;padding:12px 14px 20px">
+        <div style="border:1px solid #e2d5fb;border-radius:10px;padding:11px 13px;margin-bottom:10px;background:#f2ecfd;box-shadow:0 1px 2px rgba(35,37,45,.06),0 4px 14px rgba(35,37,45,.08)">
+          <h4 style="margin:0 0 4px;font-size:13.5px;display:flex;gap:6px;align-items:center">Private request <span style="font-size:11px;font-weight:600;border-radius:5px;padding:1px 6px;background:#f2ecfd;color:#7c3aed">only you see this</span></h4>
+          <p style="margin:0 0 9px;font-size:13px;color:#5c5f6b">Raise the budget from €15 to €19 per person? Adds ~4 candidates.</p>
+          <div style="display:flex;gap:7px;flex-wrap:wrap">
+            <button style="border-radius:8px;border:1px solid #4735d8;background:#4735d8;color:#fff;padding:5px 12px;font-size:13px;font-weight:600;cursor:pointer">Accept…</button>
+            <button style="border-radius:8px;border:1px solid #cfccc0;background:#fff;color:#23252d;padding:5px 12px;font-size:13px;font-weight:600;cursor:pointer">Decline</button>
+          </div>
+        </div>
+        <div style="border:1px solid #cdc6f5;border-radius:10px;padding:11px 13px;margin-bottom:10px;background:#edebfc;box-shadow:0 1px 2px rgba(35,37,45,.06),0 4px 14px rgba(35,37,45,.08)">
+          <h4 style="margin:0 0 4px;font-size:13.5px">Confirm on this page</h4>
+          <p style="margin:0 0 9px;font-size:13px;color:#5c5f6b">Widen the search area from 600 m to 900 m? Adds ~11 candidates. You granted this beyond what you delegated — it applies once you confirm here.</p>
+          <div style="display:flex;gap:7px;flex-wrap:wrap">
+            <button style="border-radius:8px;border:1px solid #4735d8;background:#4735d8;color:#fff;padding:5px 12px;font-size:13px;font-weight:600;cursor:pointer">Confirm</button>
+            <button style="border-radius:8px;border:1px solid #cfccc0;background:#fff;color:#23252d;padding:5px 12px;font-size:13px;font-weight:600;cursor:pointer">Cancel the grant</button>
+          </div>
+        </div>
+        <div style="border:1px solid #e4e2d9;border-radius:10px;padding:11px 13px;margin-bottom:10px;background:#fff;box-shadow:0 1px 2px rgba(35,37,45,.06),0 4px 14px rgba(35,37,45,.08)">
+          <h4 style="margin:0 0 4px;font-size:13.5px;display:flex;gap:6px;align-items:center">Agent screening <span style="font-size:11px;font-weight:600;border-radius:5px;padding:1px 6px;background:#7c3aed;color:#fff">agent-only</span></h4>
+          <p style="margin:0 0 0;font-size:13px;color:#5c5f6b">Your agent has 6 candidates to screen against your private need. Ask your ChatGPT to evaluate them.</p>
+        </div>
+      </div>
+    </section>
+  </main>
+  <details style="border-top:1px solid #e4e2d9;padding:6px 14px 14px;background:#f4f3ee;font-size:12.5px;color:#5c5f6b;flex:none">
+    <summary style="cursor:pointer;color:#5c5f6b;font-size:12px;font-weight:600;padding:4px 0">Wire view — what actually crossed the network</summary>
+  </details>
+</div>
+</div>
+
+</div>
+</section>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  componentDidMount() { this.boot(0); }
+  boot(tries) {
+    if (!window.maplibregl) {
+      if (tries < 40) setTimeout(() => this.boot(tries + 1), 150);
+      return;
+    }
+    const mk = (id, zoom) => {
+      const el = document.getElementById(id);
+      if (!el || el.dataset.ready) return;
+      el.dataset.ready = "1";
+      const map = new window.maplibregl.Map({
+        container: el,
+        style: "https://tiles.openfreemap.org/styles/liberty",
+        center: [13.4025, 52.5219],
+        zoom: zoom,
+        interactive: false,
+        attributionControl: { compact: true },
+      });
+      map.on("error", () => {});
+    };
+    mk("rec-map-a", 14.6);
+    mk("rec-map-b", 14.9);
+  }
+}
+</script>
+</body>
+</html>
