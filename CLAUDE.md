@@ -1,139 +1,157 @@
-<!-- rtk-instructions v2 -->
-# RTK (Rust Token Killer) - Token-Optimized Commands
+# webmcp-hackathon — Spokes
 
-## Golden Rule
+Monorepo: `apps/web` (React + Vite client), `apps/server` (decision engine,
+WebSocket + MCP), `packages/contracts` (shared types + venue data),
+`packages/protocols`. `make update` takes a checkout from `git pull` to a
+running demo stack; `docs/` carries the product, architecture and demo docs.
 
-**Always prefix commands with `rtk`**. If RTK has a dedicated filter, it uses it. If not, it passes through unchanged. This means RTK is always safe to use.
+# Spokes UI invariants
 
-**Important**: Even in command chains with `&&`, use `rtk`:
-```bash
-# ❌ Wrong
-git add . && git commit -m "msg" && git push
+Rules for working on `apps/web`. These are not style preferences; each one
+exists because breaking it destroys something the design is *for*. When a
+change would violate one, stop and ask rather than working around it.
 
-# ✅ Correct
-rtk git add . && rtk git commit -m "msg" && rtk git push
-```
+Companion docs: `apps/web/src/tokens.css` (frozen palette),
+`apps/web/SPOKES-UI.md` (component specs), `apps/web/COPY.md` (wording),
+`apps/server/FACETS.md` (the data contract). Mockups and import record:
+`docs/design/`.
 
-## RTK Commands by Workflow
+---
 
-### Build & Compile (80-90% savings)
-```bash
-rtk cargo build         # Cargo build output
-rtk cargo check         # Cargo check output
-rtk cargo clippy        # Clippy warnings grouped by file (80%)
-rtk tsc                 # TypeScript errors grouped by file/code (83%)
-rtk lint                # ESLint/Biome violations grouped (84%)
-rtk prettier --check    # Files needing format only (70%)
-rtk next build          # Next.js build with route metrics (87%)
-```
+## 1. The app is domain-agnostic. Forever.
 
-### Test (60-99% savings)
-```bash
-rtk cargo test          # Cargo test failures only (90%)
-rtk go test             # Go test failures only (90%)
-rtk jest                # Jest failures only (99.5%)
-rtk vitest              # Vitest failures only (99.5%)
-rtk playwright test     # Playwright failures only (94%)
-rtk pytest              # Python test failures only (90%)
-rtk rake test           # Ruby test failures only (90%)
-rtk rspec               # RSpec test failures only (60%)
-rtk test <cmd>          # Generic test wrapper - failures only
-```
+Spokes helps a group converge on **a place**, whatever kind. A dog-friendly
+park, a museum with a given exhibition, a cinema screening in a given
+language, a coworking space with a quiet room, a restaurant.
 
-### Git (59-80% savings)
-```bash
-rtk git status          # Compact status
-rtk git log             # Compact log (works with all git flags)
-rtk git diff            # Compact diff (80%)
-rtk git show            # Compact show (80%)
-rtk git add             # Ultra-compact confirmations (59%)
-rtk git commit          # Ultra-compact confirmations (59%)
-rtk git push            # Ultra-compact confirmations
-rtk git pull            # Ultra-compact confirmations
-rtk git branch          # Compact branch list
-rtk git fetch           # Compact fetch
-rtk git stash           # Compact stash
-rtk git worktree        # Compact worktree
-```
+- **Never** hardcode a domain filter, chip, icon, category or heading.
+- **Never** branch on domain in the client. No `if (type === 'restaurant')`.
+- Every control comes from server data — see `FACETS.md`.
+- The details panel renders whatever attribute groups the server sends, in
+  server order. One layout for all domains.
 
-Note: Git passthrough works for ALL subcommands, even those not explicitly listed.
+If you find yourself writing a domain word into chrome, that's the bug.
 
-### GitHub (26-87% savings)
-```bash
-rtk gh pr view <num>    # Compact PR view (87%)
-rtk gh pr checks        # Compact PR checks (79%)
-rtk gh run list         # Compact workflow runs (82%)
-rtk gh issue list       # Compact issue list (80%)
-rtk gh api              # Compact API responses (26%)
-```
+## 2. Four colours, four meanings, no overlap
 
-### JavaScript/TypeScript Tooling (70-90% savings)
-```bash
-rtk pnpm list           # Compact dependency tree (70%)
-rtk pnpm outdated       # Compact outdated packages (80%)
-rtk pnpm install        # Compact install output (90%)
-rtk npm run <script>    # Compact npm script output
-rtk npx <cmd>           # Compact npx command output
-rtk prisma              # Prisma without ASCII art (88%)
-rtk uv run <cmd>        # Compact uv project command output
-```
+| Token | Means |
+|---|---|
+| `--spoke-works` | satisfies every active need (and the user's own commit) |
+| `--spoke-unsure` | data missing or unverified — **not** a failure |
+| `--spoke-scope` | who may see: private, agent-only |
+| `--spoke-act` | someone moved: proposal, agent action, staged consent |
 
-### Files & Search (60-75% savings)
-```bash
-rtk ls <path>           # Tree format, compact (65%)
-rtk read <file>         # Code reading with filtering (60%)
-rtk grep <pattern>      # Search grouped by file (75%). Format flags (-c, -l, -L, -o, -Z) run raw.
-rtk find <pattern>      # Find grouped by directory (70%)
-```
+Never borrow one for emphasis. If two meanings genuinely coincide, show both
+marks. `--spoke-act` is about **authorship**, never about visibility — do not
+use it for identity or avatars.
 
-### Analysis & Debug (70-90% savings)
-```bash
-rtk err <cmd>           # Filter errors only from any command
-rtk log <file>          # Deduplicated logs with counts
-rtk json <file>         # JSON structure without values
-rtk deps                # Dependency overview
-rtk env                 # Environment variables compact
-rtk summary <cmd>       # Smart summary of command output
-rtk diff                # Ultra-compact diffs
-```
+## 3. No raw hex, ever
 
-### Infrastructure (85% savings)
-```bash
-rtk docker ps           # Compact container list
-rtk docker images       # Compact image list
-rtk docker logs <c>     # Deduplicated logs
-rtk kubectl get         # Compact resource list
-rtk kubectl logs        # Deduplicated pod logs
-```
+Every colour, radius, shadow and font size comes from `tokens.css`. If the
+value you need isn't there, the design is missing a decision — ask.
 
-### Network (65-70% savings)
-```bash
-rtk curl <url>          # Compact HTTP responses (70%)
-rtk wget <url>          # Compact download output (65%)
-```
+New tints must be contrast-checked against their **composited** background
+(these surfaces stack translucent layers; naive checks give false results).
 
-### Meta Commands
-```bash
-rtk gain                # View token savings statistics
-rtk gain --history      # View command history with savings
-rtk discover            # Analyze Claude Code sessions for missed RTK usage
-rtk proxy <cmd>         # Run command without filtering (for debugging)
-rtk init                # Add RTK instructions to CLAUDE.md
-rtk init --global       # Add RTK to ~/.claude/CLAUDE.md
-```
+## 4. Unverified is a state you draw
 
-## Token Savings Overview
+Missing data is not absence and not failure. It renders: hollow pin, `?`
+badge, "3 unknown", `--spoke-unsure`. Never silently exclude a place for
+lacking a value, and never show unknown as a red/negative state.
 
-| Category | Commands | Typical Savings |
-|----------|----------|-----------------|
-| Tests | vitest, playwright, cargo test | 90-99% |
-| Build | next, tsc, lint, prettier | 70-87% |
-| Git | status, log, diff, add, commit | 59-80% |
-| GitHub | gh pr, gh run, gh issue | 26-87% |
-| Package Managers | pnpm, npm, npx | 70-90% |
-| Files | ls, read, grep, find | 60-75% |
-| Infrastructure | docker, kubectl | 85% |
-| Network | curl, wget | 65-70% |
+## 5. Privacy: effects are public, contents are not
 
-Overall average: **60-90% token reduction** on common development operations.
-<!-- /rtk-instructions -->
+A private need's **effect** on the count is always visible. Its **content**
+never leaves its owner's client.
+
+- ✅ "A private condition ruled two out"
+- ❌ naming the condition, its value, or the places it removed
+- ❌ hiding that anything happened
+
+Peers receive `privateEffects` (coarse), owners receive the full need. Don't
+route a private predicate through shared state "just for rendering".
+
+## 6. Nothing protocol-shaped in the main UI
+
+Tool names, JSON, MCP vocabulary, version strings, connection internals,
+timing, raw payloads — all of it lives behind the `{ }` drawer and nowhere
+else. The drawer is deliberately small and unstyled-looking. If a wire
+concept surfaces in the main UI, it's a bug.
+
+## 7. Press-and-hold is the core gesture
+
+Holding a brief row previews the candidate set **without** that need, live on
+the map, and restores on release. Don't replace it with a modal, a checkbox
+list, or a separate "what-if" mode. It needs a keyboard equivalent and an
+`aria-live` count announcement.
+
+## 8. The map never re-centres itself
+
+When the set changes, places settle in place — leavers fade to `--spoke-out`,
+returners grow from their dot. Never re-fit bounds, never re-centre, never
+re-layout as a result of a filter change. The user's spatial memory is the
+product.
+
+Exception: an explicit user action (search, "show me", opening a place).
+
+## 9. Two animations only
+
+`spoke-pop` (selected sticker idle) and the 420ms settle. Everything else is
+instant. Respect `prefers-reduced-motion` — the tokens zero both.
+
+**Trap:** position on an outer wrapper, animate on an inner element. A CSS
+`animation` that sets `transform` overwrites a positioning `translate` and the
+element jumps to its anchor.
+
+## 10. Counts are absolute, deltas are signed
+
+"6 still work / of 34 · 3 unsure". Never percentages. Deltas as `−19`, `+3`,
+`34→15`. Phrase an offer as a consequence — "+3 if 'step-free' went optional" —
+not an instruction.
+
+## 11. Layout invariants
+
+- Header flows straight out of the status bar. No containing card.
+- Map is edge-to-edge, bounded by 1.5px rules, never a rounded card.
+- Only the brief scrolls; header, map and composer are fixed.
+- Delta chip bottom-**left** (bottom-right is map attribution), `z-index: 5`.
+- Attribution stays 7px and must never grow.
+- No nav bar, tab bar, or hamburger. The room is the whole app.
+
+## 12. Copy
+
+Follow `COPY.md`. Highlights: "places" not domain nouns; "need" not
+"filter"/"preference"; "rules out" not "filters"; sentence case; no emoji in
+chrome; no exclamation marks; second person for the user's things, third for
+others, never first.
+
+## 13. Accessibility floor
+
+- Tap targets ≥44px, extended with padding beyond the drawn box where the
+  visual element is smaller. **Don't** grow the visual element to reach 44px.
+- Body text ≥4.5:1 composited.
+- Colour is never the only signal — works/unsure/out also differ in fill,
+  border style and size. The map must survive greyscale.
+- `button { white-space: nowrap }` is global; short glyph labels like `{ }`
+  must never wrap.
+
+---
+
+## Working notes
+
+- Design source of truth: `docs/design/Spokes - Mapview Redesign.dc.html`
+  (133 KB, imports whole). Frames: `4a` (locked layout), `7a`–`7d` (flow), `8a`–`8f` (details,
+  drawer, desktop, consent, brand), `9b` (accent decision).
+- Font: Bricolage Grotesque, self-hosted (`apps/web/public/fonts/README.md`). Display
+  family for anything that names or counts; system sans for anything that
+  explains; mono for numerals-in-context and the drawer.
+- When the design and this file disagree, this file wins — then fix the design
+  or tell the designer.
+- **Not yet applied.** `apps/web/src/tokens.css` is imported by nothing;
+  `src/styles.css` still carries the old `:root` and the old palette described
+  in `apps/web/DESIGN.md`. Until the redesign lands, `DESIGN.md` describes what
+  ships and this section describes where it is going.
+- **Legacy `--spoke` token.** `src/styles.css` still defines `--spoke #4735d8`
+  and the app uses it. It is superseded by `--spoke-act`; delete it when the
+  redesign lands, and do not alias it — the old name covered both action and
+  identity, and splitting those is the point.
