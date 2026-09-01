@@ -45,6 +45,21 @@ export function MapView({ context, selectedId, focusNonce, committedId, onSelect
   const { scope, candidates, proposals } = context;
   const center = scope.area.center;
 
+  /* The page's second authored motion moment (with the scope-ring tween):
+     when the room commits, spokes converge on the gold star — once. A page
+     that loads into an already-committed room does not celebrate again. */
+  const prevCommitted = useRef<string | null>(committedId);
+  const [burstId, setBurstId] = useState<string | null>(null);
+  useEffect(() => {
+    if (committedId && prevCommitted.current !== committedId) {
+      setBurstId(committedId);
+      const t = setTimeout(() => setBurstId(null), 1300);
+      prevCommitted.current = committedId;
+      return () => clearTimeout(t);
+    }
+    prevCommitted.current = committedId;
+  }, [committedId]);
+
   /* The widen-the-area beat: animate the ring radius with an ease-out tween
      instead of snapping, so consent visibly grows the shared search space. */
   const [drawnRadius, setDrawnRadius] = useState(scope.area.radiusM);
@@ -173,6 +188,7 @@ export function MapView({ context, selectedId, focusNonce, committedId, onSelect
                   className="pin-star"
                   data-testid={`pin-${c.candidateId}`}
                   data-committed="true"
+                  data-burst={burstId === c.candidateId || undefined}
                   role="button"
                   aria-label={`${c.name} — agreed destination`}
                   onClick={(e) => {
@@ -181,6 +197,13 @@ export function MapView({ context, selectedId, focusNonce, committedId, onSelect
                   }}
                 >
                   ★
+                  {burstId === c.candidateId && (
+                    <span className="commit-burst" aria-hidden="true">
+                      {Array.from({ length: 6 }, (_, i) => (
+                        <i key={i} style={{ transform: `rotate(${i * 60}deg)` }} />
+                      ))}
+                    </span>
+                  )}
                 </div>
               ) : (
                 <div

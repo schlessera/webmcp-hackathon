@@ -242,10 +242,10 @@ export function App() {
     registerCommandRunner(run);
   }, [run]);
 
-  // Toast auto-dismiss.
+  // Toast auto-dismiss: successes clear themselves; errors stay until read.
   useEffect(() => {
-    if (!lastResult) return;
-    const t = setTimeout(() => setLastResult(null), 8000);
+    if (!lastResult || lastResult.kind === "error") return;
+    const t = setTimeout(() => setLastResult(null), 4000);
     return () => clearTimeout(t);
   }, [lastResult]);
 
@@ -470,6 +470,15 @@ export function App() {
       {lastResult && (
         <div className="toast" data-kind={lastResult.kind} role="status" data-testid="last-result">
           {lastResult.text}
+          {lastResult.kind === "error" && (
+            <button
+              className="toast-dismiss"
+              aria-label="Dismiss"
+              onClick={() => setLastResult(null)}
+            >
+              ×
+            </button>
+          )}
         </div>
       )}
 
@@ -482,7 +491,11 @@ export function App() {
           new URLSearchParams(window.location.search).has("shim") || undefined
         }
       >
-        <summary>Session details &amp; diagnostics</summary>
+        <summary>Wire view — what actually crossed the network</summary>
+        <p className="wire-intro">
+          Every request this page made, verbatim. Private needs are redacted
+          server-side before anything leaves your session — check for yourself.
+        </p>
         <div>
           participant <code data-testid="participant-id">{id.participantId}</code> · room{" "}
           <code data-testid="room-id">{id.roomId}</code> · revision{" "}
@@ -493,6 +506,7 @@ export function App() {
             negotiation/{PROTOCOL_VERSIONS.negotiation} {PROTOCOL_VERSIONS.domain}
           </code>
         </div>
+        <p className="wire-intro">Put a command on the wire yourself:</p>
         <div className="actions">
           <button
             className="btn"

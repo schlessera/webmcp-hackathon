@@ -207,6 +207,48 @@ button { font: inherit; }
   color: var(--gold);
   text-shadow: 0 1px 2px rgba(35, 37, 45, 0.45), 0 0 3px #fff;
   cursor: pointer;
+  position: relative;
+}
+.pin-star[data-burst] { animation: star-land 900ms cubic-bezier(0.16, 1, 0.3, 1); }
+@keyframes star-land {
+  0% { transform: scale(0.4); }
+  55% { transform: scale(1.35); }
+  100% { transform: scale(1); }
+}
+/* Six spokes converging on the star — the wordmark motif, once, on commit. */
+.commit-burst {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.commit-burst i {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 2.5px;
+  height: 44px;
+  margin: -22px 0 0 -1.25px;
+  transform-origin: center;
+}
+.commit-burst i::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 14px;
+  border-radius: 2px;
+  background: var(--gold);
+  animation: spoke-converge 900ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+@keyframes spoke-converge {
+  0% { transform: translateY(-26px); opacity: 0; }
+  25% { opacity: 0.9; }
+  100% { transform: translateY(12px) scaleY(0.25); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pin-star[data-burst] { animation: none; }
+  .commit-burst { display: none; }
 }
 
 /* Legend pill, bottom-left, clear of the attribution controls on the right. */
@@ -557,10 +599,12 @@ select:focus, input:focus, .btn:focus-visible, .tab:focus-visible {
 
 /* ---------- misc ---------- */
 
+/* Top-center, under the header — never over the legend, attribution, or
+   wire view at the page bottom. */
 .toast {
   position: fixed;
   left: 50%;
-  bottom: 14px;
+  top: 56px;
   transform: translateX(-50%);
   background: var(--ink);
   color: #fff;
@@ -570,9 +614,26 @@ select:focus, input:focus, .btn:focus-visible, .tab:focus-visible {
   box-shadow: var(--shadow-lift);
   z-index: 20;
   max-width: min(92vw, 480px);
-  animation: sheet-in 200ms ease-out;
+  animation: toast-in 200ms ease-out;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+@keyframes toast-in {
+  from { opacity: 0; transform: translate(-50%, -8px); }
 }
 .toast[data-kind="error"] { background: var(--danger); }
+.toast-dismiss {
+  border: none;
+  background: none;
+  color: #fff;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 2px;
+  opacity: 0.85;
+}
+.toast-dismiss:hover { opacity: 1; }
 
 .stale-banner {
   background: var(--uncertain-tint);
@@ -589,6 +650,8 @@ select:focus, input:focus, .btn:focus-visible, .tab:focus-visible {
   text-decoration: underline;
 }
 
+/* Wire view: the "show the wire" trust feature — deliberately part of the
+   product, not scaffolding. Collapsed by default; test lanes open it. */
 .dev-tools {
   border-top: 1px solid var(--line);
   padding: 6px 14px 14px;
@@ -596,7 +659,15 @@ select:focus, input:focus, .btn:focus-visible, .tab:focus-visible {
   font-size: 12.5px;
   color: var(--ink-soft);
 }
-.dev-tools summary { cursor: pointer; color: var(--ink-faint); font-size: 12px; padding: 4px 0; }
+.dev-tools summary {
+  cursor: pointer;
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 0;
+}
+.dev-tools summary:hover { color: var(--spoke-deep); }
+.wire-intro { margin: 6px 0; font-size: 12px; color: var(--ink-soft); }
 .dev-tools .actions { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
 .dev-tools pre {
   font-size: 11px;
