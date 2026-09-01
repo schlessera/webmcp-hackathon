@@ -52,6 +52,7 @@ make doctor        # verify Docker, ports, configuration
 make dev           # app + db + migrations with compose watch (HMR)
 make demo          # idempotently seed; prints three participant URLs
 make demo-reset    # reset ONLY the demo room, then reseed
+make update        # after git pull: rebuild all images, migrate, restart, reseed
 make test          # lanes 1-3 (needs `docker compose up -d db` + migrations)
 make test-native   # lane 4 (needs real Chrome >= 149 + ORIGIN_TRIAL_TOKEN)
 make demo-public   # fixed HTTPS tunnel (needs TUNNEL_TOKEN)

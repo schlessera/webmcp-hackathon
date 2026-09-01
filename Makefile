@@ -2,7 +2,7 @@
 SHELL := /bin/bash
 COMPOSE := docker compose
 
-.PHONY: doctor dev demo demo-reset demo-public test test-native logs stop
+.PHONY: doctor dev demo demo-reset demo-public update test test-native logs stop
 
 doctor: ## verify Docker, ports, configuration, browser image
 	@command -v docker >/dev/null || { echo "FAIL: docker missing"; exit 1; }
@@ -18,14 +18,24 @@ dev: ## start app/db/migrations with compose watch (HMR + auto-restart)
 
 demo: ## start everything, idempotently seed, print the three participant URLs
 	$(COMPOSE) up --build --detach --wait app
+	$(COMPOSE) --profile seed build seed-demo
 	$(COMPOSE) run --rm seed-demo
 	@echo "Sarah and Joe URLs open in isolated Chromium contexts via:"
 	@echo "  pnpm exec node scripts/open-participants.mjs   (or open manually)"
 
 demo-reset: ## reset ONLY the named demo room, then reseed (destructive, scoped)
 	$(COMPOSE) up --detach --wait app
+	$(COMPOSE) --profile seed build seed-demo
 	$(COMPOSE) run --rm seed-demo node apps/server/src/seed.ts --reset
 	$(COMPOSE) run --rm seed-demo
+
+update: ## after git pull: rebuild EVERY image (incl. profile-hidden seed), migrate, restart, reseed
+	$(COMPOSE) build
+	$(COMPOSE) --profile seed build seed-demo
+	$(COMPOSE) run --rm migrate
+	$(COMPOSE) up --detach --wait app
+	$(COMPOSE) run --rm seed-demo
+	@echo "Done. Hard-reload open browser tabs (Ctrl+Shift+R) to drop the cached bundle."
 
 demo-public: ## enable the fixed HTTPS tunnel (requires TUNNEL_TOKEN + non-default DEMO_SECRET_KEY)
 	@test -n "$$TUNNEL_TOKEN" || { echo "FAIL: TUNNEL_TOKEN not set"; exit 1; }

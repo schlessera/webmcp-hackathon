@@ -112,13 +112,12 @@ all-accept-organizer-commit. See `[[product-slice-decisions]]` memory.
 ## How to resume
 
 - **Run the demo**: `make demo` (docker; needs `sudo -n` on this machine), then
-  `node scripts/open-participants.mjs`. The demo stack runs on 4173. **After
-  pulling new code, rebuild the images** — and note `seed-demo` hides in compose
-  profile `seed`, so plain `docker compose build` skips it:
-  `sudo -n docker compose build && sudo -n docker compose --profile seed build
-  seed-demo`, then `up -d app` (+ `run --rm migrate` if migrations changed).
-  A stale seed image wipes the room scope ("Loading the shared map…" = scope
-  NULL → run the fresh seed with `--reset`).
+  `node scripts/open-participants.mjs`. The demo stack runs on 4173.
+- **After pulling new code**: `git pull && sudo -n make update` — rebuilds every
+  image (including the profile-hidden `seed-demo`), migrates, restarts, reseeds.
+  Then hard-reload open tabs. (`git pull` stays outside make so sudo never runs
+  git as root.) If the map is stuck on "Loading the shared map…", the room was
+  seeded by a stale image and lost its scope: `make demo-reset`.
 - **Record the demo**: `node scripts/record-demo.mjs` (own server + throwaway
   room; three videos + beats.log).
 - **Tests**: `pnpm test:unit`; `pnpm test:api` and `pnpm test:e2e` need the db
