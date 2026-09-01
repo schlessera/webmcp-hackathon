@@ -1,6 +1,12 @@
 # Project status — Spokes (handoff)
 
-Last updated: 2026-09-01. This is the single source of truth for a new session
+Last updated: 2026-09-01 (evening — the mapview redesign has since LANDED:
+tokens, fonts, the FACETS.md server contract and the rebuilt client are on
+main; the "visual identity overhaul" wave below is done, the e2e specs are
+stale pending rewrite. Read `docs/REDESIGN-HANDOFF.md` first for the current
+state, locked decisions and remaining gaps.)
+
+This is the single source of truth for a new session
 picking up the work. Read this, then `docs/DEMO-RUNBOOK.md` and
 `docs/KNOWN-LIMITATIONS.md`.
 

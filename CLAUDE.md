@@ -147,11 +147,8 @@ others, never first.
   explains; mono for numerals-in-context and the drawer.
 - When the design and this file disagree, this file wins — then fix the design
   or tell the designer.
-- **Not yet applied.** `apps/web/src/tokens.css` is imported by nothing;
-  `src/styles.css` still carries the old `:root` and the old palette described
-  in `apps/web/DESIGN.md`. Until the redesign lands, `DESIGN.md` describes what
-  ships and this section describes where it is going.
-- **Legacy `--spoke` token.** `src/styles.css` still defines `--spoke #4735d8`
-  and the app uses it. It is superseded by `--spoke-act`; delete it when the
-  redesign lands, and do not alias it — the old name covered both action and
-  identity, and splitting those is the point.
+- **Applied 2026-09-01.** `styles.css` is built on `tokens.css`; the old
+  `:root` palette and the legacy `--spoke` token are gone (not aliased). The
+  only colour literals outside `tokens.css` are the documented GL-paint pairs
+  in `src/map-theme.ts` and the favicon data URI. Remaining gaps and the
+  session record: `docs/REDESIGN-HANDOFF.md`.
