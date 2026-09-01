@@ -1,3 +1,4 @@
+import { spatial } from "../spatial-store.ts";
 import type {
   CommandEnvelope,
   OutstandingAdjustment,
@@ -49,8 +50,23 @@ export function DecisionsPanel({
   const resolve = (requestId: string, decision: "grant" | "deny") =>
     run("ResolvePrivateRequest", { requestId, decision });
 
-  const confirmStaged = (requestId: string) =>
-    run("ConfirmPrivateRequest", { requestId });
+  // The two applying commands carry the single-use nonce the server pushed to
+  // this page's realtime channel when the stage happened — the page gesture is
+  // the only place it exists (INTERACTION-AND-BINDING.md §5.4).
+  const confirmStaged = async (requestId: string) =>
+    run("ConfirmPrivateRequest", {
+      requestId,
+      confirmationNonce: await spatial.takeConfirmation(
+        "private_request",
+        requestId,
+      ),
+    });
+
+  const commitAgreement = async (proposalId: string) =>
+    run("CommitAgreement", {
+      proposalId,
+      confirmationNonce: await spatial.takeConfirmation("agreement", proposalId),
+    });
 
   const adjustments = outstanding.filter(
     (i): i is OutstandingAdjustment => i.type === "adjustment_request",
@@ -214,7 +230,7 @@ export function DecisionsPanel({
                 <button
                   className="btn btn-gold"
                   data-testid={`commit-${p.proposalId}`}
-                  onClick={() => void run("CommitAgreement", { proposalId: p.proposalId })}
+                  onClick={() => void commitAgreement(p.proposalId)}
                 >
                   Commit destination
                 </button>

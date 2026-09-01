@@ -165,6 +165,14 @@ export function App() {
           // coalesces bursts into one fetch.
           void spatial.refetch();
         },
+        onConfirmation(grant) {
+          spatial.putConfirmation(
+            grant.kind,
+            grant.subjectId,
+            grant.nonce,
+            grant.expiresInMs,
+          );
+        },
         onStaleBundle() {
           setStaleBanner(true);
         },
@@ -331,7 +339,7 @@ export function App() {
         </div>
       </header>
 
-      {context?.phase === "arrival" && committedId && (
+      {(context?.phase === "agreed" || context?.phase === "arrival") && committedId && (
         <ArrivalBanner
           destinationName={candidateName(committedId)}
           arrival={context.arrival}
@@ -411,6 +419,7 @@ export function App() {
               <RequirementsPanel
                 requirements={requirements}
                 ownDisplayName={id.displayName}
+                phase={context?.phase ?? "gathering"}
                 run={run}
               />
             </div>

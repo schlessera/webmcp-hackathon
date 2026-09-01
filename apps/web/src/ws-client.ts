@@ -14,6 +14,13 @@ export interface RealtimeCallbacks {
     participantId: string;
   }): void;
   onEvents(revision: number, events: ProjectedEvent[]): void;
+  /** The realtime channel is the ONLY route a confirmation nonce takes. */
+  onConfirmation(grant: {
+    kind: "agreement" | "private_request";
+    subjectId: string;
+    nonce: string;
+    expiresInMs: number;
+  }): void;
   onStaleBundle(): void;
 }
 
@@ -100,6 +107,9 @@ export function connectRealtime(
         }
       } else if (message.type === "event") {
         callbacks.onEvents(message.revision, message.events);
+      } else if (message.type === "confirmation") {
+        // Never logged: the nonce is a credential for one page gesture.
+        callbacks.onConfirmation(message);
       } else if (message.type === "error") {
         diagnostics.log(`ws error: ${message.code}`);
       }

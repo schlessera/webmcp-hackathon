@@ -96,7 +96,9 @@ const MUTATION_COMMANDS: Record<string, string> = {
   plan_arrival: "PlanArrival",
   // Deliberately absent: ConfirmPrivateRequest and CommitAgreement are
   // page-confirmation commands with no tool route — the human confirms in
-  // the UI, not the agent.
+  // the UI, not the agent. Both also require a confirmation nonce the server
+  // sends only over this page's realtime channel, so a route added here by
+  // mistake still could not commit (INTERACTION-AND-BINDING.md §5.4).
 };
 
 const trimWhy = (why: string) => (why.length > 64 ? `${why.slice(0, 61)}…` : why);

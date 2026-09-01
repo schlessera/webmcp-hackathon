@@ -33,10 +33,17 @@ const CUISINES = ["italian", "asian", "german", "burger", "indian", "mexican"];
 interface Props {
   requirements: KnownRequirement[];
   ownDisplayName: string;
+  /** Requirements are only editable while the room is still deciding. */
+  phase: string;
   run(type: string, input: Record<string, unknown>): Promise<CommandEnvelope>;
 }
 
-export function RequirementsPanel({ requirements, ownDisplayName, run }: Props) {
+export function RequirementsPanel({
+  requirements,
+  ownDisplayName,
+  phase,
+  run,
+}: Props) {
   const [need, setNeed] = useState<(typeof NEED_KINDS)[number]["id"]>("vegetarian-options");
   const [visibility, setVisibility] = useState("shared");
   const [hardness, setHardness] = useState<"hard" | "soft">("hard");
@@ -81,6 +88,9 @@ export function RequirementsPanel({ requirements, ownDisplayName, run }: Props) 
 
   const mine = (r: KnownRequirement) =>
     r.text.startsWith("You ") || r.text.includes(ownDisplayName);
+  // Past deliberation the server refuses requirement edits (phase gating,
+  // NEGOTIATION-PROTOCOL.md §7.1); don't offer a control that cannot work.
+  const editable = phase === "gathering" || phase === "deliberation";
 
   return (
     <div>
@@ -112,6 +122,7 @@ export function RequirementsPanel({ requirements, ownDisplayName, run }: Props) 
               {r.withdrawn ? (
                 <span className="badge badge-soft">withdrawn</span>
               ) : (
+                editable &&
                 r.requirementId &&
                 mine(r) && (
                   <button
@@ -135,90 +146,96 @@ export function RequirementsPanel({ requirements, ownDisplayName, run }: Props) 
         </p>
       )}
 
-      <div className="req-form" data-testid="req-form">
-        <h3>Add a need</h3>
-        <div className="form-row">
-          <select
-            aria-label="Need"
-            data-testid="need-select"
-            value={need}
-            onChange={(e) => setNeed(e.target.value as typeof need)}
-          >
-            {NEED_KINDS.map((k) => (
-              <option key={k.id} value={k.id}>
-                {k.label}
-              </option>
-            ))}
-          </select>
-          {need === "budget" && (
-            <input
-              type="number"
-              aria-label="Euro per person"
-              min={5}
-              max={100}
-              value={amount}
-              data-testid="budget-input"
-              onChange={(e) => setAmount(Number(e.target.value))}
-              style={{ width: 70 }}
-            />
-          )}
-          {need === "exclude-cuisine" && (
+      {!editable ? (
+        <p className="empty-note" data-testid="req-form-closed">
+          The destination is settled — needs are closed for this room.
+        </p>
+      ) : (
+        <div className="req-form" data-testid="req-form">
+          <h3>Add a need</h3>
+          <div className="form-row">
             <select
-              aria-label="Cuisine to avoid"
-              data-testid="cuisine-select"
-              value={cuisine}
-              onChange={(e) => setCuisine(e.target.value)}
+              aria-label="Need"
+              data-testid="need-select"
+              value={need}
+              onChange={(e) => setNeed(e.target.value as typeof need)}
             >
-              {CUISINES.map((c) => (
-                <option key={c} value={c}>
-                  {c}
+              {NEED_KINDS.map((k) => (
+                <option key={k.id} value={k.id}>
+                  {k.label}
                 </option>
               ))}
             </select>
-          )}
-          {need === "max-walk" && (
-            <input
-              type="number"
-              aria-label="Max walk minutes"
-              min={5}
-              max={60}
-              value={walkMax}
-              onChange={(e) => setWalkMax(Number(e.target.value))}
-              style={{ width: 70 }}
-            />
-          )}
-        </div>
-        <div className="form-row">
-          <label>Who sees it?</label>
-          <div className="seg" role="group" aria-label="Visibility">
-            {(["shared", "application-private", "agent-private"] as const).map((v) => (
-              <button
-                key={v}
-                aria-pressed={visibility === v}
-                data-testid={`visibility-${v}`}
-                onClick={() => setVisibility(v)}
+            {need === "budget" && (
+              <input
+                type="number"
+                aria-label="Euro per person"
+                min={5}
+                max={100}
+                value={amount}
+                data-testid="budget-input"
+                onChange={(e) => setAmount(Number(e.target.value))}
+                style={{ width: 70 }}
+              />
+            )}
+            {need === "exclude-cuisine" && (
+              <select
+                aria-label="Cuisine to avoid"
+                data-testid="cuisine-select"
+                value={cuisine}
+                onChange={(e) => setCuisine(e.target.value)}
               >
-                {v === "shared" ? "Shared" : v === "application-private" ? "Private" : "Agent-only"}
+                {CUISINES.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+            )}
+            {need === "max-walk" && (
+              <input
+                type="number"
+                aria-label="Max walk minutes"
+                min={5}
+                max={60}
+                value={walkMax}
+                onChange={(e) => setWalkMax(Number(e.target.value))}
+                style={{ width: 70 }}
+              />
+            )}
+          </div>
+          <div className="form-row">
+            <label>Who sees it?</label>
+            <div className="seg" role="group" aria-label="Visibility">
+              {(["shared", "application-private", "agent-private"] as const).map((v) => (
+                <button
+                  key={v}
+                  aria-pressed={visibility === v}
+                  data-testid={`visibility-${v}`}
+                  onClick={() => setVisibility(v)}
+                >
+                  {v === "shared" ? "Shared" : v === "application-private" ? "Private" : "Agent-only"}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="visibility-note">{VISIBILITY_NOTES[visibility]}</div>
+          <div className="form-row">
+            <label>How firm?</label>
+            <div className="seg" role="group" aria-label="Hardness">
+              <button aria-pressed={hardness === "hard"} onClick={() => setHardness("hard")}>
+                Must have
               </button>
-            ))}
-          </div>
-        </div>
-        <div className="visibility-note">{VISIBILITY_NOTES[visibility]}</div>
-        <div className="form-row">
-          <label>How firm?</label>
-          <div className="seg" role="group" aria-label="Hardness">
-            <button aria-pressed={hardness === "hard"} onClick={() => setHardness("hard")}>
-              Must have
-            </button>
-            <button aria-pressed={hardness === "soft"} onClick={() => setHardness("soft")}>
-              Nice to have
+              <button aria-pressed={hardness === "soft"} onClick={() => setHardness("soft")}>
+                Nice to have
+              </button>
+            </div>
+            <button className="btn btn-primary" data-testid="add-need" onClick={submit}>
+              Add need
             </button>
           </div>
-          <button className="btn btn-primary" data-testid="add-need" onClick={submit}>
-            Add need
-          </button>
         </div>
-      </div>
+      )}
     </div>
   );
 }

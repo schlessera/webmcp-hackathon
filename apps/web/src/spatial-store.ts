@@ -30,6 +30,16 @@ export interface SpatialState {
 
 type Listener = () => void;
 
+export type ConfirmationKind = "agreement" | "private_request";
+
+interface HeldConfirmation {
+  nonce: string;
+  expiresAt: number;
+}
+
+/** How long a confirm/commit gesture waits for its nonce to land on the socket. */
+const CONFIRMATION_WAIT_MS = 3000;
+
 class SpatialStore {
   state: SpatialState = {
     context: null,
@@ -40,6 +50,8 @@ class SpatialStore {
   private listeners = new Set<Listener>();
   private inflight: Promise<SpatialContext | null> | null = null;
   private queued = false;
+  private confirmations = new Map<string, HeldConfirmation>();
+  private confirmationWaiters = new Map<string, Array<() => void>>();
 
   subscribe(listener: Listener): () => void {
     this.listeners.add(listener);
@@ -58,6 +70,66 @@ class SpatialStore {
   }
   setOutstanding(outstanding: OutstandingItem[] | undefined): void {
     if (outstanding) this.update({ outstanding });
+  }
+
+  /**
+   * Confirmation nonces (INTERACTION-AND-BINDING.md §5.4). They arrive only on
+   * the realtime channel and never enter React state or diagnostics — the page
+   * holds each one just long enough for the gesture it authorizes.
+   */
+  putConfirmation(
+    kind: ConfirmationKind,
+    subjectId: string,
+    nonce: string,
+    expiresInMs: number,
+  ): void {
+    const key = `${kind}:${subjectId}`;
+    this.confirmations.set(key, { nonce, expiresAt: Date.now() + expiresInMs });
+    const waiting = this.confirmationWaiters.get(key);
+    if (waiting) {
+      this.confirmationWaiters.delete(key);
+      for (const resolve of waiting) resolve();
+    }
+  }
+
+  /**
+   * The nonce for one staged subject, single-use here as it is on the server.
+   * Briefly waits when it has not landed yet: the gesture becomes available
+   * the moment the command result lands, which can just beat the socket frame.
+   * Resolves to "" on timeout so the server answers with the honest
+   * consent_required rather than the page inventing an error.
+   */
+  async takeConfirmation(
+    kind: ConfirmationKind,
+    subjectId: string,
+    waitMs = CONFIRMATION_WAIT_MS,
+  ): Promise<string> {
+    const key = `${kind}:${subjectId}`;
+    const take = () => {
+      const held = this.confirmations.get(key);
+      if (!held) return "";
+      this.confirmations.delete(key);
+      return held.expiresAt > Date.now() ? held.nonce : "";
+    };
+    const held = take();
+    if (held) return held;
+    await new Promise<void>((resolve) => {
+      const waiters = this.confirmationWaiters.get(key) ?? [];
+      const timer = setTimeout(() => {
+        this.confirmationWaiters.set(
+          key,
+          (this.confirmationWaiters.get(key) ?? []).filter((w) => w !== onArrival),
+        );
+        resolve();
+      }, waitMs);
+      const onArrival = () => {
+        clearTimeout(timer);
+        resolve();
+      };
+      waiters.push(onArrival);
+      this.confirmationWaiters.set(key, waiters);
+    });
+    return take();
   }
 
   /** Coalesced refetch; resolves with the freshest context it observed. */
