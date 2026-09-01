@@ -508,12 +508,6 @@ select:focus, input:focus, .btn:focus-visible, .tab:focus-visible {
   padding: 4px 2px;
   border-bottom: 1px dotted var(--line);
 }
-.feed-rev {
-  font-size: 11px;
-  color: var(--ink-faint);
-  font-variant-numeric: tabular-nums;
-  min-width: 30px;
-}
 .feed-item[data-level="existence"] .feed-text,
 .feed-item[data-level="aggregate"] .feed-text {
   font-style: italic;

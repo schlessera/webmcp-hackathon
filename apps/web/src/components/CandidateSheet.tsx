@@ -35,6 +35,30 @@ const STATUS_GLYPH: Record<string, string> = {
   unknown: "?",
 };
 
+const STATUS_WORD: Record<string, string> = {
+  verified_true: "✓ verified",
+  verified_false: "✗ ruled out",
+  unverified: "? unverified",
+  unknown: "? unknown",
+};
+
+/** Evidence provenance in the reader's language; the raw ids stay appended —
+ * this block is the evidence view, so the wire truth remains inspectable. */
+function sourceLabel(source: string): string {
+  if (source.startsWith("osm:")) return "OpenStreetMap";
+  if (source.startsWith("curated:")) return "demo overlay (fictional)";
+  return source;
+}
+function confidenceWord(c: number): string {
+  return c >= 0.8 ? "high" : c >= 0.6 ? "medium" : "low";
+}
+function monthOf(observedAt: string): string {
+  const d = new Date(observedAt);
+  return Number.isNaN(d.getTime())
+    ? observedAt.slice(0, 10)
+    : d.toLocaleDateString("en-GB", { month: "short", year: "numeric" });
+}
+
 interface Props {
   candidate: CandidateSummary;
   proposal: ProposalView | undefined;
@@ -88,15 +112,18 @@ export function CandidateSheet({ candidate, proposal, phase, onClose, run }: Pro
       <div className="sheet-head">
         <span className="sheet-title" data-testid="sheet-name">{candidate.name}</span>
         <span className="sheet-meta">
-          {candidate.category} · {"€".repeat(candidate.priceLevel ?? 0) || "€?"} ·{" "}
+          {candidate.category} ·{" "}
+          {candidate.priceLevel ? "€".repeat(candidate.priceLevel) : "price unknown"} ·{" "}
           {candidate.walkMin} min walk
         </span>
         <button className="sheet-close" onClick={onClose} aria-label="Close">×</button>
       </div>
-      <p className="sheet-why" data-eligibility={candidate.eligibility} data-testid="sheet-why">
-        {candidate.why ??
-          (candidate.eligibility === "eligible" ? "Meets every confirmed need." : "")}
-      </p>
+      {(candidate.why ?? (candidate.eligibility === "eligible" ? "Meets every confirmed need." : "")) !== "" && (
+        <p className="sheet-why" data-eligibility={candidate.eligibility} data-testid="sheet-why">
+          {candidate.why ??
+            (candidate.eligibility === "eligible" ? "Meets every confirmed need." : "")}
+        </p>
+      )}
       {attributes.length > 0 && (
         <div className="attr-chips">
           {attributes.map((a) => (
@@ -168,10 +195,12 @@ export function CandidateSheet({ candidate, proposal, phase, onClose, run }: Pro
         <div className="veto-menu" data-testid="dossier-details">
           {dossier.attributes.map((a) => (
             <div key={a.key} style={{ fontSize: 12, color: "var(--ink-soft)" }}>
-              <strong>{a.key}</strong>
-              {a.value !== undefined ? ` = ${String(a.value)}` : ""} — {a.status}{" "}
+              <strong>{ATTRIBUTE_LABELS[a.key] ?? a.key.replace(/-/g, " ")}</strong>
+              {a.value !== undefined ? ` = ${String(a.value)}` : ""} —{" "}
+              {STATUS_WORD[a.status] ?? a.status} · {sourceLabel(a.source)},{" "}
+              {monthOf(a.observedAt)} · {confidenceWord(a.confidence)} confidence{" "}
               <span style={{ color: "var(--ink-faint)" }}>
-                ({a.source}, {a.observedAt.slice(0, 10)}, conf {a.confidence})
+                ({a.key} · {a.source})
               </span>
             </div>
           ))}

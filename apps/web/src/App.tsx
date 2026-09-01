@@ -41,6 +41,16 @@ function mergeFeed(incoming: FeedLine[], prev: FeedLine[]): FeedLine[] {
     .slice(0, 40);
 }
 
+/** Human phase labels — the wire enum stays in the chip's title and wire view. */
+const PHASE_LABELS: Record<string, string> = {
+  setup: "Setting up",
+  gathering: "Gathering needs",
+  deliberation: "Deliberating",
+  agreed: "Agreed",
+  arrival: "On our way",
+  closed: "Closed",
+};
+
 const FEASIBILITY_CHIP: Record<string, { className: string; label: (e: number, t: number) => string }> = {
   feasible: { className: "chip-feasible", label: (e, t) => `${e} of ${t} eligible` },
   fragile: { className: "chip-fragile", label: (e, t) => `only ${e} of ${t} left` },
@@ -303,8 +313,8 @@ export function App() {
           </span>
         )}
         {context && (
-          <span className="chip chip-phase" data-testid="phase-chip">
-            {context.phase}
+          <span className="chip chip-phase" data-testid="phase-chip" title={context.phase}>
+            {PHASE_LABELS[context.phase] ?? context.phase}
           </span>
         )}
         {context && feasibility && (
@@ -431,7 +441,6 @@ export function App() {
                     key={`${line.revision}-${line.type}`}
                     data-level={line.level}
                   >
-                    <span className="feed-rev">#{line.revision}</span>
                     <span className="feed-text">{line.text}</span>
                   </li>
                 ))}

@@ -68,7 +68,7 @@ export function ArrivalBanner({ destinationName, arrival, run }: Props) {
             Navigate ↗
           </a>
           <span className="arrival-alt">
-            or <a href={links.links.geo}>geo:</a> ·{" "}
+            or open in your <a href={links.links.geo}>map app</a> ·{" "}
             <a href={links.links.appleMaps} target="_blank" rel="noopener noreferrer">
               Apple Maps
             </a>
