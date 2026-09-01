@@ -1,6 +1,24 @@
-# WebMCP Hackathon — Automated Three-User Demo Environment
+# Spokes
 
-Implementation of [docs/VALIDATION-SPIKE-1-AUTOMATED-DEMO.md](docs/VALIDATION-SPIKE-1-AUTOMATED-DEMO.md):
+A shared map where a small group and their personal AI agents privately
+negotiate a meeting venue — state requirements (shared / application-private /
+agent-private), see live eligibility, resolve impasses with quantified
+counterfactuals under in-page consent, reach an organizer-committed agreement,
+and hand off to navigation. Built on **WebMCP**: 15 tools on
+`document.modelContext` expose two custom protocols (`negotiation/v1` +
+`spatial-destination/v1`), so a personal agent acts in the same live session the
+human sees, one command model for clicks and tool calls alike.
+
+**Status: pre-submission.** The vertical slice is built and passes 77 automated
+tests (unit + three-user API + three-browser e2e); two adversarial reviews ran
+with the critical findings fixed. Not yet done: live eyes-on verification, the
+WebMCP-in-ChatGPT gate for the new tools, UX polish. Read
+[docs/PROJECT-STATUS.md](docs/PROJECT-STATUS.md) first, then
+[docs/DEMO-RUNBOOK.md](docs/DEMO-RUNBOOK.md).
+
+Product concept and protocol design live in [docs/](docs/) and
+[docs/protocols/](docs/protocols/). The original transport core came from
+[docs/VALIDATION-SPIKE-1-AUTOMATED-DEMO.md](docs/VALIDATION-SPIKE-1-AUTOMATED-DEMO.md):
 one shared deployment, one authoritative room, three tab-scoped participant
 sessions (ChatGPT organizer + two Chromium participants).
 
@@ -8,16 +26,24 @@ sessions (ChatGPT organizer + two Chromium participants).
 
 ```
 packages/contracts   single protocol-schema source (TypeBox): tools, commands,
-                     envelopes, errors, realtime messages, manifest + hash
-apps/server          Fastify: UI serving, API, WebSocket, command bus,
-                     event log with revisions, per-participant projections
-apps/web             React/Vite: invite exchange, sessionStorage identity,
-                     WebMCP registration at page load, diagnostics panel
-tests/unit           lane 1 — schemas, budgets, contract hash, error model
-tests/api            lane 2 — three-user API + privacy-at-the-wire tests
-tests/e2e            lane 3 — three-context Playwright trajectory
+                     envelopes, errors, realtime messages, manifest + hash;
+                     data/ — Berlin Mitte venue dataset (OSM/ODbL) + attribution
+apps/server          Fastify: UI serving, API, WebSocket, command bus, event log
+                     with revisions, per-participant projections, council
+                     (eligibility + impasse counterfactuals), spatial read routes
+apps/web             React/Vite: MapLibre map UI (pins, requirement/decisions
+                     panels, arrival), invite exchange, sessionStorage identity,
+                     15 WebMCP tools registered at page load, diagnostics panel
+scripts              one-time OSM extract + curation; open-participants launcher
+tests/unit           lane 1 — schemas, budgets, contract hash, eligibility,
+                     projection redaction
+tests/api            lane 2 — three-user API + privacy-at-the-wire + impasse flow
+tests/e2e            lane 3 — three-context Playwright trajectory + product UI
                      lane 4 — native WebMCP in real Chrome 149+ (origin trial)
 ```
+
+Deploy: [docs/DEPLOY-COOLIFY.md](docs/DEPLOY-COOLIFY.md)
+(`compose.coolify.yaml`). Handoff/status: [docs/PROJECT-STATUS.md](docs/PROJECT-STATUS.md).
 
 ## Quick start
 
@@ -40,13 +66,23 @@ DATABASE_URL=postgres://webmcp:webmcp@127.0.0.1:5432/webmcp \
   node apps/server/src/server.ts
 ```
 
-## The one registered tool (Gate 1)
+## WebMCP tools (15)
 
-`sync_session` — registered through `document.modelContext.registerTool()` at
-page load from the top-level document (imperative only; no iframes, no
-declarative forms). Before the invite-token exchange finishes it returns a
-structured `not_authenticated` result. First call (no `sinceRevision`) returns
-the capability manifest; later calls return delta + brief + outstanding.
+All registered through `document.modelContext.registerTool()` at page load from
+the top-level document (imperative only; no iframes, no declarative forms;
+static surface — no phase-gated registration). 8 negotiation + 7 spatial:
+`sync_session`, `submit_requirement`, `withdraw_requirement`,
+`evaluate_candidates`, `respond_to_proposal`, `resolve_private_request`,
+`set_ready_state`, `confirm_agreement`; `get_spatial_context`,
+`inspect_candidates`, `set_search_scope`, `propose_destination`,
+`focus_destination` (page-local), `plan_arrival`, `prepare_navigation`. Two
+applying commands (`ConfirmPrivateRequest`, `CommitAgreement`) are UI-only —
+in the schema registry but bound to no tool, so an agent can stage but only a
+human commits on the page. `sync_session`'s first call (no `sinceRevision`)
+returns the capability manifest that teaches both protocols; later calls return
+delta + brief + outstanding. Before the invite-token exchange finishes, tools
+return a structured `not_authenticated` result. Binding details:
+[docs/protocols/INTERACTION-AND-BINDING.md](docs/protocols/INTERACTION-AND-BINDING.md).
 
 ## Version concepts (Gate 2/5)
 

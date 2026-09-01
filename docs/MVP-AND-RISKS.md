@@ -160,19 +160,37 @@ the envelope, revision, projection, and consent primitives proven by the demo.
 
 ## Immediate validation spikes
 
-1. Verify WebMCP tool discovery and first-connection instructions in ChatGPT's
-   current built-in browser.
-2. Verify a tool callback can read current WebSocket-backed page state and
+Status as of 2026-09-01 (see `PROJECT-STATUS.md`). DONE = verified;
+IMPLEMENTED = built + covered by automated tests but not yet human/ChatGPT
+signed-off; OPEN = not started.
+
+1. [DONE] Verify WebMCP tool discovery and first-connection instructions in
+   ChatGPT's current built-in browser. (Spike-1 Gate 0/1, real ChatGPT,
+   2026-08-31 — `sync_session` only; the 14 new slice tools are IMPLEMENTED but
+   NOT yet ChatGPT-verified.)
+2. [DONE] Verify a tool callback can read current WebSocket-backed page state and
    return a revision delta after inactivity.
-3. Implement a minimal revisioned event log and optimistic concurrency check.
-4. Prove three separate guest identities receive different server projections.
-5. Verify private fields never appear in another participant's network payload.
-6. Validate one direct map action and one WebMCP action through the same command.
-7. Build one deterministic infeasible constraint set and calculate a grounded
-   scope-expansion counterfactual.
-8. Verify one-click navigation handoff from the accepted destination.
-9. Confirm the selected data and map providers permit the intended usage.
-10. Rehearse the complete three-window narrative within the video limit.
+3. [DONE] Implement a minimal revisioned event log and optimistic concurrency
+   check.
+4. [DONE] Prove three separate guest identities receive different server
+   projections.
+5. [DONE] Verify private fields never appear in another participant's network
+   payload. (Asserted at the wire in lanes 2–3; hardened after the adversarial
+   audit closed two derived-fact leaks.)
+6. [IMPLEMENTED] Validate one direct map action and one WebMCP action through the
+   same command. (One command bus for gestures + tools; e2e covers it. Not yet
+   demonstrated in real ChatGPT.)
+7. [IMPLEMENTED] Build one deterministic infeasible constraint set and calculate
+   a grounded scope-expansion counterfactual. (Berlin demo set → impasse →
+   800→1200 m widening; `tests/api/impasse.test.ts`.)
+8. [IMPLEMENTED] Verify one-click navigation handoff from the accepted
+   destination. (`prepare_navigation` → geo/Google/Apple links; e2e checks the
+   href. Not yet clicked through on a real device.)
+9. [DONE] Confirm the selected data and map providers permit the intended usage.
+   (Research pass: OpenFreeMap keyless + commercial OK, OSM/ODbL, FOSSGIS OSRM,
+   Google Maps URLs — all ToS-cleared and cited; `docs/DEPLOY-COOLIFY.md` +
+   `ATTRIBUTION.md`.)
+10. [OPEN] Rehearse the complete three-window narrative within the video limit.
 
 ## Open implementation decisions
 
