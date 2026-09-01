@@ -313,3 +313,207 @@ describe("free-text needs", () => {
     expect(body.matching).toBe(0);
   });
 });
+
+describe("the council reasons over the same snapshot as the classifier", () => {
+  it("projects a gain the main classifier actually realizes after a walk-time need", async () => {
+    // Regression: impasseBracket used to load raw candidate rows, so its
+    // counterfactuals ran against the seeded walk_min while eligibility ran
+    // against the distance from the current scope centre. The offer and the
+    // outcome disagreed. Here the seeded value is a flat 5 for every place and
+    // the real walking times span 2-15 minutes, so any divergence shows up in
+    // the projected gain.
+    const fresh = await createTestRoom(server.baseUrl, { berlin: true });
+    try {
+      let rev = 0;
+      const walk = await apiPost<Envelope>(server.baseUrl, "/api/commands", fresh.tokens.org, {
+        type: "SubmitRequirement",
+        input: {
+          baseRevision: rev,
+          visibility: "shared",
+          hardness: "hard",
+          delegation: { mode: "approval_required" },
+          payload: { kind: "scope", dimension: "walk_min", max: 14 },
+        },
+      });
+      expect(walk.body.ok).toBe(true);
+      rev = walk.body.revision!;
+
+      const lactose = await apiPost<Envelope>(server.baseUrl, "/api/commands", fresh.tokens.org, {
+        type: "SubmitRequirement",
+        input: {
+          baseRevision: rev,
+          visibility: "shared",
+          hardness: "hard",
+          delegation: { mode: "approval_required" },
+          payload: { kind: "attribute", key: "lactose-free-options", expect: "verified_true" },
+        },
+      });
+      expect(lactose.body.ok).toBe(true);
+      rev = lactose.body.revision!;
+
+      const outstanding = await apiPost<{
+        ok: boolean;
+        outstanding: Array<{
+          type: string;
+          requestId?: string;
+          change?: { to?: number };
+          projectedGain?: { newCandidates: number };
+        }>;
+      }>(server.baseUrl, "/api/sync", fresh.tokens.org, {});
+      const offer = outstanding.body.outstanding.find((o) => o.type === "adjustment_request")!;
+      expect(offer).toBeDefined();
+      const widened = offer.change!.to!;
+      expect(widened).toBe(1200);
+
+      const applied = await apiPost<Envelope>(server.baseUrl, "/api/commands", fresh.tokens.org, {
+        type: "SetSearchScope",
+        input: {
+          baseRevision: rev,
+          area: {
+            kind: "circle",
+            center: { lat: 52.5219, lng: 13.3899 },
+            radiusM: widened,
+          },
+        },
+      });
+      expect(applied.body.ok).toBe(true);
+
+      const after = await context(fresh.tokens.org);
+      // The number the council offered is the number the room gets. Against
+      // the stale walk_min this was 4 offered, 3 realized.
+      expect(after.body.matching).toBe(offer.projectedGain!.newCandidates);
+      expect(after.body.matching).toBe(3);
+    } finally {
+      await fresh.cleanup();
+    }
+  });
+});
+
+describe("setting a need aside retires the council's offers about it", () => {
+  it("expires an open relaxation, and refuses a late grant against a set-aside need", async () => {
+    const fresh = await createTestRoom(server.baseUrl, { berlin: true });
+    try {
+      let rev = 0;
+      const budgetId = `req_budget_${fresh.roomId.replace("room_test_", "")}`;
+      // €5 clears no price band at all, so the room is infeasible on Sarah's
+      // need alone and the council offers her the next band up.
+      const budget = await apiPost<Envelope>(server.baseUrl, "/api/commands", fresh.tokens.sarah, {
+        type: "SubmitRequirement",
+        input: {
+          baseRevision: rev,
+          requirementId: budgetId,
+          visibility: "shared",
+          hardness: "hard",
+          delegation: { mode: "negotiable", bound: { dimension: "per_person_eur", max: 20 } },
+          payload: { kind: "budget", perPersonMax: { amount: 5, currency: "EUR" } },
+        },
+      });
+      expect(budget.body.ok).toBe(true);
+      rev = budget.body.revision!;
+
+      const offered = await apiPost<{
+        ok: boolean;
+        outstanding: Array<{ type: string; requestId?: string; kind?: string }>;
+      }>(server.baseUrl, "/api/sync", fresh.tokens.sarah, {});
+      const offer = offered.body.outstanding.find((o) => o.kind === "requirement_relaxation")!;
+      expect(offer).toBeDefined();
+
+      // A second need keeps the room at zero, so setting the budget aside does
+      // NOT resolve the impasse — the offer would otherwise survive.
+      const lactose = await apiPost<Envelope>(server.baseUrl, "/api/commands", fresh.tokens.org, {
+        type: "SubmitRequirement",
+        input: {
+          baseRevision: rev,
+          visibility: "shared",
+          hardness: "hard",
+          delegation: { mode: "approval_required" },
+          payload: { kind: "attribute", key: "lactose-free-options", expect: "verified_true" },
+        },
+      });
+      expect(lactose.body.ok).toBe(true);
+      rev = lactose.body.revision!;
+
+      const setAside = await apiPost<Envelope>(server.baseUrl, "/api/commands", fresh.tokens.sarah, {
+        type: "SetRequirementActive",
+        input: { baseRevision: rev, requirementId: budgetId, active: false },
+      });
+      expect(setAside.body.ok).toBe(true);
+      rev = setAside.body.revision!;
+
+      const stillZero = await context(fresh.tokens.org);
+      expect(stillZero.body.matching).toBe(0); // the impasse stands
+
+      const afterToggle = await apiPost<{
+        ok: boolean;
+        outstanding: Array<{ type: string; kind?: string }>;
+      }>(server.baseUrl, "/api/sync", fresh.tokens.sarah, {});
+      expect(
+        afterToggle.body.outstanding.filter((o) => o.kind === "requirement_relaxation"),
+      ).toHaveLength(0);
+      const status = await fresh.pool.query(
+        "SELECT status FROM adjustments WHERE id = $1",
+        [offer.requestId],
+      );
+      expect(status.rows[0].status).toBe("expired");
+
+      // Defence in depth: an offer written between the toggle and the grant
+      // must not mutate a need that is out of force.
+      await fresh.pool.query(
+        "UPDATE adjustments SET status = 'proposed' WHERE id = $1",
+        [offer.requestId],
+      );
+      const late = await apiPost<Envelope>(server.baseUrl, "/api/commands", fresh.tokens.sarah, {
+        type: "ResolvePrivateRequest",
+        input: { baseRevision: rev, requestId: offer.requestId, decision: "grant" },
+      });
+      expect(late.body.ok).toBe(false);
+      expect(late.body.error!.code).toBe("not_found");
+
+      const after = await fresh.pool.query(
+        "SELECT payload, active FROM requirements WHERE id = $1",
+        [budgetId],
+      );
+      expect(after.rows[0].payload.perPersonMax.amount).toBe(5); // untouched
+      expect(after.rows[0].active).toBe(false);
+    } finally {
+      await fresh.cleanup();
+    }
+  });
+});
+
+describe("a place with no price on record", () => {
+  it("is uncertain under a budget need and counted as unknown in the price facet", async () => {
+    const fresh = await createTestRoom(server.baseUrl, { berlin: true });
+    try {
+      const noPrice = `place_nullprice_${fresh.roomId.replace("room_test_", "")}`;
+      await fresh.pool.query(
+        `INSERT INTO candidates (id, room_id, name, category, price_level, walk_min, location, attributes, hours)
+         VALUES ($1, $2, 'Unpriced', 'cafe', NULL, 5, '{"lat":52.5219,"lng":13.3899}', '[]'::jsonb, '[]'::jsonb)`,
+        [noPrice, fresh.roomId],
+      );
+
+      const budget = await apiPost<Envelope>(server.baseUrl, "/api/commands", fresh.tokens.org, {
+        type: "SubmitRequirement",
+        input: {
+          baseRevision: 0,
+          visibility: "shared",
+          hardness: "hard",
+          delegation: { mode: "approval_required" },
+          payload: { kind: "budget", perPersonMax: { amount: 15, currency: "EUR" } },
+        },
+      });
+      expect(budget.body.ok).toBe(true);
+
+      const { body } = await context(fresh.tokens.org);
+      const row = body.candidates.find((c) => c.candidateId === noPrice)!;
+      // Unknown is not a failure and not a pass: it is uncertain, and the
+      // price rides on the wire as null rather than an invented band.
+      expect(row.priceLevel).toBeNull();
+      expect(row.eligibility).toBe("uncertain");
+      expect(body.facets.find((f) => f.key === "price-level")!.counts.unknown)
+        .toBeGreaterThanOrEqual(1);
+    } finally {
+      await fresh.cleanup();
+    }
+  });
+});

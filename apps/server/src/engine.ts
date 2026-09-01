@@ -540,6 +540,19 @@ async function setRequirementActive(
     cmd.requirementId,
     cmd.active,
   ]);
+  if (!cmd.active) {
+    // A council offer to relax this need is an offer about a need that is now
+    // out of force. Expire it the same way recovery from an impasse does, so
+    // it leaves the owner's outstanding list instead of sitting there able to
+    // mutate a set-aside requirement on a later grant.
+    await client.query(
+      `UPDATE adjustments SET status = 'expired'
+        WHERE room_id = $1 AND kind = 'requirement_relaxation'
+          AND target->>'requirementId' = $2
+          AND status IN ('proposed', 'staged_grant')`,
+      [actor.roomId, cmd.requirementId],
+    );
+  }
   return {
     events: [
       {
@@ -1078,15 +1091,20 @@ async function applyAdjustment(
     const requirementId = adj.target.requirementId!;
     const req = (
       await client.query(
-        "SELECT owner_id, payload, visibility FROM requirements WHERE id = $1 AND room_id = $2 AND NOT withdrawn",
+        "SELECT owner_id, payload, visibility, active FROM requirements WHERE id = $1 AND room_id = $2 AND NOT withdrawn",
         [requirementId, actor.roomId],
       )
     ).rows[0];
-    if (!req) {
+    // Withdrawn or set aside: either way the need is no longer in force, so
+    // the grant must not mutate it. Defence in depth behind the toggle's own
+    // expiry, for an offer written between the toggle and the grant. The
+    // failure rolls the whole command back — including the status write above
+    // — which is why the adjustment is retired at toggle time, not here.
+    if (!req || req.active === false) {
       return errorOutcome(
         "not_found",
-        "The target requirement no longer exists.",
-        "Call sync_session; the impasse may already be resolved.",
+        "The target requirement is no longer in force.",
+        "Call sync_session; the need was withdrawn or set aside.",
       );
     }
     if (adj.change.dimension === "per_person_eur") {

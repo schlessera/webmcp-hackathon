@@ -3,6 +3,7 @@ import { PRICE_LEVEL_EUR } from "@webmcp-hackathon/contracts";
 import {
   classifyAll,
   feasibilityOf,
+  loadEligibilityInputs,
   type CandidateEligibility,
   type CandidateRow,
   type RequirementRow,
@@ -254,23 +255,17 @@ export async function impasseBracket(
     ];
   }
 
-  const [candidates, requirements, verdicts, scopeRow] = await Promise.all([
-    client.query("SELECT * FROM candidates WHERE room_id = $1 ORDER BY id", [roomId]),
-    client.query(
-      "SELECT * FROM requirements WHERE room_id = $1 AND NOT withdrawn",
-      [roomId],
-    ),
-    client.query("SELECT * FROM verdicts WHERE room_id = $1", [roomId]),
-    client.query("SELECT scope FROM rooms WHERE id = $1", [roomId]),
-  ]);
-  const candidateRows = candidates.rows as CandidateRow[];
+  // The SAME snapshot the main classifier reads, walking times included: a
+  // council that reasons over the seeded walk_min while eligibility reasons
+  // over the distance from the current scope centre would propose adjustments
+  // whose projected gain the classifier never realizes.
+  const inputs = await loadEligibilityInputs(client, roomId);
+  const candidateRows = inputs.candidates;
   // Needs their owner has set aside are not in force: the council reasons
   // about, and offers to relax, only what is actually classifying candidates.
-  const requirementRows = (requirements.rows as RequirementRow[]).filter(
-    (r) => r.active !== false,
-  );
-  const verdictRows = verdicts.rows as VerdictRow[];
-  const scope = (scopeRow.rows[0]?.scope as ScopeState) ?? null;
+  const requirementRows = inputs.requirements.filter((r) => r.active !== false);
+  const verdictRows = inputs.verdicts;
+  const scope = inputs.scope;
 
   // No candidates at all, or nothing hard requested yet: an empty room is not
   // an impasse. Screening in flight defers detection to the verdicts.

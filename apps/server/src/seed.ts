@@ -163,7 +163,9 @@ await withTransaction(async (client) => {
       `INSERT INTO candidates (id, room_id, name, category, price_level, walk_min, location, attributes, hours)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) ON CONFLICT (id) DO NOTHING`,
       [
-        v.candidateId, ROOM_ID, v.name, v.category, v.priceLevel ?? 2, walkMin,
+        // null stays null: an unknown price is uncertain under a budget need,
+        // never a silently invented band (migration 006).
+        v.candidateId, ROOM_ID, v.name, v.category, v.priceLevel, walkMin,
         JSON.stringify(v.location), JSON.stringify(v.attributes),
         JSON.stringify(v.hours ?? []),
       ],

@@ -153,7 +153,7 @@ export async function createTestRoom(
         `INSERT INTO candidates (id, room_id, name, category, price_level, walk_min, location, attributes, hours)
          VALUES ($1, $2, $3, $4, $5, 5, $6, $7, $8)`,
         [
-          `${v.candidateId}_${suffix}`, roomId, v.name, v.category, v.priceLevel ?? 2,
+          `${v.candidateId}_${suffix}`, roomId, v.name, v.category, v.priceLevel,
           JSON.stringify(v.location), JSON.stringify(v.attributes),
           JSON.stringify(v.hours ?? []),
         ],
