@@ -383,6 +383,33 @@ may still be inspected and requirements edited while adjustments are pending.
 All phases accept `sync_session`; commands not applicable to the current phase
 return `phase_unavailable` with the current phase and what *is* available.
 
+**v1 narrowing (as implemented, `apps/server/src/phase.ts`).** The diagram
+leaves two transitions unlabelled and treats `impasse` ambiguously; the
+implementation reads them as follows.
+
+- `impasse` is not a phase. It is `rooms.impasse_active`, exactly as the
+  paragraph above describes it. Reaching an impasse is instead one of the two
+  triggers into `deliberation`: a room that has hit a conflict has stopped
+  gathering and started resolving.
+- `gathering → deliberation` on the **first `proposal_created`** or the
+  **first `impasse_detected`**, whichever comes first.
+- `deliberation → agreed` on `agreement_committed`.
+- `agreed → arrival` on the **first `arrival_plan_updated`**. The two are kept
+  distinct rather than collapsed: `agreed` means the destination is settled,
+  `arrival` means people are working out how they get there. `plan_arrival` is
+  therefore legal in both.
+- `setup` and `closed` are defined but unreachable in v1: rooms are seeded
+  with their participants already joined, and no command closes a session.
+
+Gating is a table, not a per-handler check. Requirements, stances, scope,
+proposals, consent, and agreement are legal in `gathering` and `deliberation`
+only (staging and committing narrow further to `deliberation`, the phase a
+proposal creates); `plan_arrival` is legal in `agreed` and `arrival`;
+`set_ready_state` is legal wherever the room is live, because readiness is a
+participant's own status rather than a negotiation move. Everything else
+returns `phase_unavailable` naming the phase and listing what the phase
+accepts.
+
 ### 7.2 Feasibility classification (continuous)
 
 After every relevant change the council recomputes:

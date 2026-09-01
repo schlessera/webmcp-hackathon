@@ -277,21 +277,37 @@ Beyond the per-protocol invariants:
    `untrustedContentHint`, with length caps (`note` ≤200 chars). Feed
    projections are server-composed template strings, not raw user text, where
    redaction applies.
-4. **Consequential actions have no agent tool route**: committing agreement
-   and applying an over-bound grant are two-step — the negotiation tool
-   (`confirm_agreement`, `resolve_private_request`) only *stages*, and the
-   applying command (`CommitAgreement`, `ConfirmPrivateRequest`) is registered
-   in `COMMAND_SCHEMAS` but bound to no WebMCP tool, so a personal agent — the
+4. **Consequential actions have no agent tool route, and carry a confirmation
+   nonce**: committing agreement and applying an over-bound grant are
+   two-step — the negotiation tool (`confirm_agreement`,
+   `resolve_private_request`) only *stages*, and the applying command
+   (`CommitAgreement`, `ConfirmPrivateRequest`) is registered in
+   `COMMAND_SCHEMAS` but bound to no WebMCP tool, so a personal agent — the
    threat model that matters here, a prompt-injected model acting through the
    tool surface — cannot reach it; only an in-page UI gesture dispatches it.
-   This is a binding-layer control, not a server-side one: the applying
-   commands are still ordinary `/api/commands` types, so a participant using
-   their own bearer token directly (outside the agent surface) can call them
-   without a page gesture. Closing that gap fully would require a short-lived
-   confirmation nonce minted by the UI; it is a documented v1 limitation
-   (POC), acceptable because the un-gated caller can only act as themselves,
-   within their own room, on their own decisions. ChatGPT additionally runs
-   its own per-invocation safety review; ours does not rely on it.
+
+   That binding-layer control is backed by a server-side one. Staging mints a
+   **confirmation nonce**: 24 random bytes, 120-second TTL, single-use, bound
+   to room + participant + subject kind + subject ID. It is delivered *only*
+   as a `confirmation` frame on that participant's realtime channel — never in
+   the command result, so it never reaches the agent surface — and the
+   applying command must carry it back or the server answers
+   `consent_required`. A dropped socket loses the only copy, so the channel
+   re-issues nonces for anything still staged on `welcome`. Nonces live in the
+   server process, never on disk.
+
+   **What this does and does not buy.** It closes the blind replay: a caller
+   holding a participant's bearer token can no longer POST `CommitAgreement`
+   from a script without ever touching the page. It is not proof that a human
+   made a page gesture. The realtime channel authenticates with the same
+   bearer token, so the same token holder can open a socket, be re-issued a
+   nonce, and apply — they just have to speak the page's protocol and be
+   connected inside the window. The honest claim is narrow: the applying
+   commands are bound to a live page session, to one subject, and to a
+   120-second single-use window. The residual case remains a participant
+   acting as themselves, in their own room, on their own decisions. ChatGPT
+   additionally runs its own per-invocation safety review; ours does not rely
+   on it.
 5. **Least exposure**: no `exposedTo` in v1 (no cross-origin consumers); the
    `tools` permissions policy stays default (`'self'`).
 6. **Privacy testable at the wire**: the projection test suite asserts

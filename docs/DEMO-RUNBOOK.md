@@ -32,8 +32,8 @@ the older planning docs: recovery widens to **1200 m**, not 1400 m).
 | 8 | Sarah | Click the Chén Ché pin → **Veto…** → reason "Visited too recently" | Stance recorded; proposal marked vetoed everywhere; **2** candidates remain |
 | 9 | Organizer's ChatGPT | Agent's next tool call catches up (`sync_required` → delta shows the veto) — narrate this beat: the agent reasons over the delta and proposes **The Barn** (`place_24`) instead | New proposal ring |
 | 10 | Sarah + Joe | Pin card → **Works for me**; both toggle **I'm done adding** | Stance counts update on the proposal card |
-| 11 | Alex | Ready toggle; Decisions → **Stage agreement** (or ask ChatGPT — the tool stages only) → in-page **Commit** card → commit | Phase flips to **arrival**; committed pin turns gold |
-| 12 | All three | Arrival banner: pick mode (walk/bike/car), optional pickup note; press **Navigate** | Google Maps directions open with The Barn as destination |
+| 11 | Alex | Ready toggle; Decisions → **Stage agreement** (or ask ChatGPT — the tool stages only) → in-page **Commit** card → commit | Phase flips to **agreed**; committed pin turns gold |
+| 12 | All three | Arrival banner: pick mode (walk/bike/car), optional pickup note; press **Navigate** | Phase moves to **arrival** on the first plan; Google Maps directions open with The Barn as destination |
 
 ## Talking points while beats run
 
@@ -47,7 +47,10 @@ the older planning docs: recovery widens to **1200 m**, not 1400 m).
   revision delta on its next tool call, and stale mutations are rejected with
   `sync_required` instead of acting on old state.
 - Beat 11: `confirm_agreement` (tool) stages; committing is a human, in-page
-  act. A high rank is never agreement.
+  act. A high rank is never agreement. Staging sends the page a single-use
+  confirmation code over its live channel that the commit must carry back —
+  the code never appears in any tool result, so the agent cannot commit even
+  by calling the raw command.
 - Throughout: map gestures and agent tools dispatch the identical commands —
   one command model, two entry surfaces.
 

@@ -9,18 +9,24 @@ bounded, honest threat model. We list them rather than hide them.
 
 ## Deferred, with rationale
 
-- **No short-lived confirmation nonce on the applying commands.** Committing an
-  agreement and applying an over-bound grant are two-step: the WebMCP tool only
-  *stages*, and the applying command has no tool route, so a personal agent
-  (the prompt-injection threat model) cannot reach it. A participant using their
-  own bearer token directly, outside the agent surface, still can — they can act
-  only as themselves, in their own room, on their own decisions. A UI-minted
-  nonce would close this; see INTERACTION-AND-BINDING §5.4.
-- **Partial phase machine.** Only `gathering` and `arrival` are enforced; the
-  `deliberation`/`agreed`/`closed` states from the negotiation protocol §7.1 are
-  not distinct, and most commands are accepted regardless of phase (the
-  committed-destination and stage/commit paths ARE now guarded). Full
-  per-command phase gating is future work.
+- **The confirmation nonce binds to a page session, not to a human gesture.**
+  Committing an agreement and applying an over-bound grant are two-step: the
+  WebMCP tool only *stages*, the applying command has no tool route, and (since
+  this change) staging mints a 120-second single-use nonce delivered only on
+  the participant's realtime channel, which the applying command must carry
+  back. That closes the blind replay — a script holding a bearer token can no
+  longer POST `CommitAgreement` without ever touching the page. It is not proof
+  a human clicked: the realtime channel authenticates with the same bearer
+  token, so the same token holder can open a socket, be re-issued a nonce, and
+  apply. The residual case is a participant acting as themselves, in their own
+  room, on their own decisions. See INTERACTION-AND-BINDING §5.4.
+- **Phase machine narrows two ambiguous §7.1 transitions.** All six states
+  (`setup`, `gathering`, `deliberation`, `agreed`, `arrival`, `closed`) exist
+  with a per-command gating table; `impasse` is a flag on deliberation, as the
+  spec describes it. `setup` and `closed` are unreachable in v1 — rooms are
+  seeded with participants already joined, and no command closes a session. The
+  reading of the two unlabelled transitions is recorded in
+  NEGOTIATION-PROTOCOL §7.1.
 - **Organizer scope changes apply without consent routing.** The organizer's
   `SetSearchScope` applies in one step; the spatial protocol's invariant 7
   (route through consent when another participant's bounded-negotiable

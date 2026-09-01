@@ -44,10 +44,13 @@ real Berlin dataset.
    (spike 9) is researched and cleared (see below).
 4. **UX polish.** The `impeccable` skill ran only an in-thread pass, not its
    full design review. The map UI hasn't had a real critique.
-5. **Deferred review findings** are documented in `docs/KNOWN-LIMITATIONS.md`,
-   not fixed (partial phase machine, organizer scope-change consent routing,
-   the raw-HTTP bypass of the in-page-confirm claim, mapRevision, token expiry,
-   participant lifecycle). Decide per item whether to fix or accept.
+5. **Deferred review findings** are documented in `docs/KNOWN-LIMITATIONS.md`.
+   Two are now fixed: the raw-HTTP bypass of the in-page-confirm claim (a
+   realtime-only confirmation nonce on `CommitAgreement` /
+   `ConfirmPrivateRequest`) and the partial phase machine (all six §7.1 states
+   with a per-command gating table). Still open and to decide per item:
+   organizer scope-change consent routing, mapRevision, token expiry,
+   participant lifecycle.
 
 We are **far from submission-ready** — do not treat the drafted `LICENSE` /
 `docs/SUBMISSION.md` as a decision to submit; they are prep, written ahead.
