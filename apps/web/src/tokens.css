@@ -1,0 +1,170 @@
+:root {
+  /* ─────────────────────────────────────────────────────────────
+     SPOKES — frozen design tokens
+     Derived from mockup 4a (locked) + turns 7–9.
+     Replaces the previous :root block in apps/web/src/styles.css.
+
+     RULE: never write a raw hex in a component. If you need a
+     colour that isn't here, the design is missing a decision —
+     ask, don't invent. See CLAUDE.md.
+     ───────────────────────────────────────────────────────────── */
+
+  /* ── Ground & ink ─────────────────────────────────────────── */
+  --spoke-ground:        #fdf8ee;  /* app background, warm cream */
+  --spoke-surface:       #fffdf7;  /* cards, rows, composer      */
+  --spoke-surface-sunk:  #e9e5da;  /* map plate, wells           */
+  --spoke-ink:           #334136;  /* primary text               */
+  --spoke-ink-soft:      #5b6158;  /* secondary text — AA on ground */
+  --spoke-ink-faint:     #575647;  /* labels, captions           */
+  --spoke-ink-ghost:     #8f8975;  /* row indices, disabled      */
+
+  /* Line & shadow. The whole design rests on these two: a light
+     tinted rule and a hard offset shadow. Never use a blur > 0
+     for structure; blur is reserved for the phone frame itself. */
+  --spoke-line:          rgba(51, 65, 54, .55);
+  --spoke-line-quiet:    rgba(51, 65, 54, .35);
+  --spoke-line-ghost:    rgba(51, 65, 54, .16);
+  --spoke-shadow:        rgba(51, 65, 54, .30);
+  --spoke-shadow-drop:   2px 2px 0 var(--spoke-shadow);
+  --spoke-shadow-lift:   2px 3px 0 var(--spoke-shadow);
+  --spoke-shadow-pop:    3px 4px 0 var(--spoke-shadow);
+
+  /* ── Semantic colour ──────────────────────────────────────────
+     Four meanings. Each owns exactly one. A component may not
+     borrow another's colour for emphasis — that is the single
+     most damaging drift in this UI.
+
+       works   — this place satisfies every active need
+       unsure  — data missing or unverified; NOT a failure
+       scope   — who may see (private / agent-only)
+       act     — someone moved (proposal, agent action)
+
+     Ruled-out places get no colour at all: --spoke-out.
+     ─────────────────────────────────────────────────────────── */
+
+  /* works — eligibility, and the user's own commit action */
+  --spoke-works:         #2c6b52;
+  --spoke-works-tint:    #dfeee6;
+  --spoke-works-text:    #1e5540;  /* on tint or ground */
+  --spoke-works-pop:     #8fd6b4;  /* on dark ink only  */
+
+  /* unsure — unverified, unknown, missing data */
+  --spoke-unsure:        #b05f2c;
+  --spoke-unsure-tint:   #f7e3d6;
+  --spoke-unsure-text:   #8a3f12;
+
+  /* scope — private, agent-only. Visibility, never action. */
+  --spoke-scope:         #7d6396;
+  --spoke-scope-tint:    #ece5f2;
+  --spoke-scope-text:    #57436b;
+
+  /* act — proposals, agent actions, staged consent.
+     Formerly indigo; replaced with woad (mockup 9b) so it sits
+     in the same desaturated family as the rest.
+     MIGRATION: this supersedes the repo's legacy `--spoke` brand
+     token. Delete `--spoke`; do not alias it. The old name meant
+     "brand accent" and was used for both action and identity —
+     the split is the point. */
+  --spoke-act:           #3d5a80;
+  --spoke-act-tint:      #e1e7f0;
+  --spoke-act-text:      #2b4159;
+
+  /* out — ruled out. Deliberately colourless and small. */
+  --spoke-out:           #a8a291;
+  --spoke-out-opacity:   .6;
+
+  /* Per-person identity. Assign round-robin by join order; these
+     are NOT semantic and must not be read as works/unsure/scope. */
+  --spoke-person-1:      #2c6b52;
+  --spoke-person-2:      #b05f2c;
+  --spoke-person-3:      #7d6396;
+  --spoke-person-4:      #3d5a80;
+  --spoke-person-5:      #6f5710;
+  --spoke-person-idle:   #e7e2d4;  /* invited, not yet arrived */
+  --spoke-person-idle-text: #575647;
+
+  /* ── Type ─────────────────────────────────────────────────────
+     Two families. Bricolage for anything that names or counts;
+     system sans for anything that explains. Mono only for
+     numerals-in-context and the { } drawer.
+     ─────────────────────────────────────────────────────────── */
+  --spoke-font-display: 'Bricolage Grotesque', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --spoke-font-text:    system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --spoke-font-mono:    'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --spoke-size-count:   30px;   /* the big number in the count block */
+  --spoke-size-title:   15px;   /* room title                        */
+  --spoke-size-place:   12.5px; /* sticker / place name              */
+  --spoke-size-body:    13px;   /* brief rows, composer input        */
+  --spoke-size-detail:  11.5px; /* card explanations                 */
+  --spoke-size-meta:    11px;   /* subtitles, chip labels            */
+  --spoke-size-micro:   10px;   /* row indices, badge numerals       */
+
+  --spoke-weight-display: 800;
+  --spoke-weight-strong:  700;
+  --spoke-weight-body:    600;  /* body text runs semibold here */
+  --spoke-weight-quiet:   500;
+
+  /* ── Geometry ─────────────────────────────────────────────── */
+  --spoke-radius-sticker: 12px;
+  --spoke-radius-card:    13px;
+  --spoke-radius-block:   14px;
+  --spoke-radius-chip:    999px;
+  --spoke-radius-badge:   6px;
+  --spoke-radius-avatar:  9px;   /* squircle, not a circle */
+  --spoke-radius-frame:   34px;  /* phone shell */
+
+  --spoke-border:       1.5px;   /* every structural line */
+  --spoke-gap-row:      7px;     /* between brief rows    */
+  --spoke-gap-group:    9px;
+  --spoke-pad-screen:   16px;
+  --spoke-pad-card:     10px 12px;
+
+  /* Tap targets may exceed the visual box — extend with padding
+     or ::before, never by growing the drawn element. */
+  --spoke-tap-min:      44px;
+
+  /* ── Motion ───────────────────────────────────────────────────
+     Two gestures only. Everything else is instant.
+     ─────────────────────────────────────────────────────────── */
+  --spoke-ease:         cubic-bezier(.22, .61, .36, 1);
+  --spoke-dur-settle:   420ms;   /* a place enters or leaves the set */
+  --spoke-dur-pop:      3200ms;  /* selected sticker idle loop       */
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root { --spoke-dur-settle: 0ms; --spoke-dur-pop: 0ms; }
+}
+
+/* ── Keyframes ───────────────────────────────────────────────── */
+
+/* Selected place. Scale only — never animate `transform` wholesale
+   on a positioned element; compose position on a parent wrapper.
+   (This bit us in the mockups: an animated transform silently
+   overwrote the positioning translate.) */
+@keyframes spoke-pop {
+  0%, 100% { transform: scale(1); }
+  50%      { transform: scale(1.035); }
+}
+
+/* "Would come back if you relaxed X" — dashed, breathing. */
+@keyframes spoke-breathe {
+  0%, 100% { opacity: .72; }
+  50%      { opacity: 1; }
+}
+
+/* ── Base ────────────────────────────────────────────────────── */
+body {
+  margin: 0;
+  background: var(--spoke-ground);
+  color: var(--spoke-ink);
+  font-family: var(--spoke-font-text);
+  font-size: var(--spoke-size-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+a       { color: var(--spoke-act-text); }
+a:hover { color: var(--spoke-works); }
+
+/* "{ }" and other short glyph labels must never wrap. */
+button { white-space: nowrap; font-family: inherit; }
