@@ -136,8 +136,8 @@ TypeScript monorepo (pnpm). Fastify + Postgres event log with per-participant
 projections and a WebSocket realtime channel; React + Vite front end with
 MapLibre GL and keyless OpenFreeMap vector tiles; TypeBox single-source
 contracts with a hashed contract-manifest gate. Place data is a one-time
-OpenStreetMap extract of Berlin Mitte (ODbL). 150 automated tests across unit,
-three-user API and three-browser Playwright lanes (72 unit, 72 API, 6 Playwright
+OpenStreetMap extract of Berlin Mitte (ODbL). 152 automated tests across unit,
+three-user API and three-browser Playwright lanes (72 unit, 73 API, 7 Playwright
 tests that drive the redesigned client in isolated browser contexts).
 
 ## Try it

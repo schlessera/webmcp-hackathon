@@ -1,10 +1,11 @@
 # Project status — Spokes (handoff)
 
-Last updated: 2026-09-01 (evening — the mapview redesign has since LANDED:
-tokens, fonts, the FACETS.md server contract and the rebuilt client are on
-main; the "visual identity overhaul" wave below is done, the e2e specs are
-stale pending rewrite. Read `docs/REDESIGN-HANDOFF.md` first for the current
-state, locked decisions and remaining gaps.)
+Last updated: 2026-09-02 (the mapview redesign has LANDED and its open menu
+is closed: tokens, fonts, the FACETS.md server contract, the rebuilt client,
+presence on the wire, the rewritten e2e lane (7 passing), the re-walked demo
+runbook and recording script are on main. Read `docs/REDESIGN-HANDOFF.md`
+first for the current state, locked decisions D1–D6 and the remaining gaps;
+the counts and wave descriptions below it predate the redesign.)
 
 This is the single source of truth for a new session
 picking up the work. Read this, then `docs/DEMO-RUNBOOK.md` and
