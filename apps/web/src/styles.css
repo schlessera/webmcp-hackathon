@@ -78,17 +78,13 @@ button { font: inherit; }
   display: flex;
   flex-direction: column;
 }
-/* Side-by-side only when genuinely wide; the three-window demo (~600px each)
-   uses the stacked composition as the primary layout. */
-@media (min-width: 980px) {
-  .app-main { flex-direction: row; }
-  .map-region { flex: 1; height: auto !important; }
-  .panel-region {
-    width: 400px;
-    border-left: 1px solid var(--line);
-    border-top: none !important;
-  }
+.map-column {
+  position: relative;
+  display: flex;
+  flex-direction: column;
 }
+/* The desktop side-by-side media block lives at the END of this sheet: it
+   must out-cascade the base .panel-region/.map-region rules declared below. */
 
 /* ---------- header ---------- */
 
@@ -587,4 +583,19 @@ select:focus, input:focus, .btn:focus-visible, .tab:focus-visible {
   justify-content: center;
   gap: 12px;
   color: var(--ink-soft);
+}
+
+/* ---------- desktop (side-by-side) ----------
+   Kept last so it out-cascades the stacked-layout base rules above.
+   Side-by-side only when genuinely wide; the three-window demo (~600px each)
+   uses the stacked composition as the primary layout. */
+@media (min-width: 980px) {
+  .app-main { flex-direction: row; }
+  .map-column { flex: 1 1 auto; min-width: 0; }
+  .map-region { flex: 1; height: auto; min-height: 0; }
+  .panel-region {
+    flex: 0 0 400px;
+    border-left: 1px solid var(--line);
+    border-top: none;
+  }
 }

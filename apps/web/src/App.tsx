@@ -348,7 +348,7 @@ export function App() {
       )}
 
       <main className="app-main">
-        <section style={{ position: "relative", display: "flex", flexDirection: "column" }}>
+        <section className="map-column">
           {context ? (
             <MapView
               context={context}
