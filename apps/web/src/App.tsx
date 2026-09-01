@@ -274,6 +274,9 @@ export function App() {
         setRevision(lastSeenRevision.current);
         setErrorLine(null);
         spatial.setOutstanding(result.outstanding);
+        // The first move of their own is the moment someone is back: the
+        // digest has done its job and the header stops saying "away".
+        setAway(null);
         void spatial.refetch();
       } else if (!result.ok) {
         // Only failures are surfaced. A success is visible in the map and the
