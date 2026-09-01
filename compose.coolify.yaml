@@ -1,0 +1,90 @@
+# Coolify deployment compose — separate from compose.yaml (local dev) so the
+# dev watch/ports config stays untouched. Point a Coolify "Docker Compose"
+# resource at this file. See docs/DEPLOY-COOLIFY.md.
+#
+# Differences from compose.yaml: no 127.0.0.1 host-port bindings (Coolify's
+# reverse proxy routes to the app container over the internal network), a
+# production NODE_ENV so the server serves the pre-built web bundle instead of
+# Vite middleware, an idempotent one-shot seed on every deploy, and no
+# cloudflared/e2e services.
+services:
+  db:
+    image: postgres:17.6-alpine
+    environment:
+      POSTGRES_USER: webmcp
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-webmcp}
+      POSTGRES_DB: webmcp
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U webmcp -d webmcp"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+  migrate:
+    build:
+      context: .
+      args:
+        BUILD_ID: ${SOURCE_COMMIT:-coolify}
+    command: ["node", "apps/server/src/migrate.ts"]
+    environment:
+      DATABASE_URL: postgres://webmcp:${POSTGRES_PASSWORD:-webmcp}@db:5432/webmcp
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  # Idempotent: rooms upsert, legacy candidates are replaced, invite secrets are
+  # HMAC-derived from DEMO_SECRET_KEY (stable across redeploys). Runs on each
+  # deploy to top up room_demo without wiping a live session's widened scope.
+  seed:
+    build:
+      context: .
+      args:
+        BUILD_ID: ${SOURCE_COMMIT:-coolify}
+    command: ["node", "apps/server/src/seed.ts"]
+    environment:
+      DATABASE_URL: postgres://webmcp:${POSTGRES_PASSWORD:-webmcp}@db:5432/webmcp
+      DEMO_SECRET_KEY: ${DEMO_SECRET_KEY:?set a non-default DEMO_SECRET_KEY in Coolify}
+      APP_URL: ${APP_URL:-https://example.coolify.app}
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: "no"
+
+  app:
+    build:
+      context: .
+      args:
+        BUILD_ID: ${SOURCE_COMMIT:-coolify}
+    command: ["node", "apps/server/src/server.ts"]
+    # Coolify assigns a domain to this port; set it on the app service in the UI
+    # (or via SERVICE_FQDN_APP). No host binding — the proxy reaches app:4173.
+    expose:
+      - "4173"
+    environment:
+      DATABASE_URL: postgres://webmcp:${POSTGRES_PASSWORD:-webmcp}@db:5432/webmcp
+      NODE_ENV: production
+      PORT: "4173"
+      BUILD_ID: ${SOURCE_COMMIT:-coolify}
+      DEMO_SECRET_KEY: ${DEMO_SECRET_KEY:?set a non-default DEMO_SECRET_KEY in Coolify}
+      ORIGIN_TRIAL_TOKEN: ${ORIGIN_TRIAL_TOKEN:-}
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:4173/api/meta || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      seed:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+volumes:
+  dbdata:
