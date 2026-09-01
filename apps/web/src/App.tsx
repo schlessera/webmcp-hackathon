@@ -442,6 +442,9 @@ export function App() {
                     data-level={line.level}
                   >
                     <span className="feed-text">{line.text}</span>
+                    {(line.level === "existence" || line.level === "aggregate") && (
+                      <span className="sr-only">(private — details withheld)</span>
+                    )}
                   </li>
                 ))}
               </ul>

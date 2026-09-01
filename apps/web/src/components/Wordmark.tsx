@@ -2,7 +2,7 @@
 export function Wordmark() {
   return (
     <span className="wordmark" data-testid="wordmark">
-      <svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true">
+      <svg width="26" height="26" viewBox="0 0 22 22" aria-hidden="true">
         <g stroke="#4735d8" strokeWidth="1.8" strokeLinecap="round">
           <line x1="11" y1="11" x2="11" y2="2.4" />
           <line x1="11" y1="11" x2="18.4" y2="6.7" />

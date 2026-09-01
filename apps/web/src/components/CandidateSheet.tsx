@@ -73,6 +73,15 @@ export function CandidateSheet({ candidate, proposal, phase, onClose, run }: Pro
   const [dossier, setDossier] = useState<CandidateDossier | null>(null);
   const [showDetails, setShowDetails] = useState(false);
 
+  // Esc is the sheet's emergency exit, matching the × button.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
   useEffect(() => {
     setVetoOpen(false);
     setShowDetails(false);

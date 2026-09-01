@@ -22,13 +22,28 @@ geometry, never only as text. Excluded options dim but never disappear.
 
 - Pins: 22px color-filled dots, white ring; excluded 14px at 65% opacity;
   proposal = outer indigo ring (dashed red when vetoed); committed = gold ★;
-  selection = indigo halo. Pins are DOM markers — legible without WebGL.
+  selection = indigo halo. Pins are DOM markers — legible without WebGL —
+  and keyboard-reachable (tabIndex, Enter/Space).
+- Legend: a live pill bottom-left on the map (`.map-legend`) teaching the
+  color language with real counts (`21 eligible · 3 checking · 7 out`);
+  proposed/agreed rows exist only while such a pin does. Pointer-inert,
+  never covers attribution.
 - Scope ring: dashed indigo circle, 5% fill; radius changes tween ~700ms
-  ease-out (the widen-the-area demo beat). This is the page's one authored
-  motion moment, plus `sheet-in` entrances; no scattered hover effects.
+  ease-out (the widen-the-area demo beat). The page's TWO authored motion
+  moments are this tween and the commit celebration (six gold spokes — the
+  wordmark motif — converge on the star once, on commit only, disabled
+  under prefers-reduced-motion), plus `sheet-in`/`toast-in` entrances; no
+  scattered hover effects.
+- Wire view (`.dev-tools`): the collapsed bottom `<details>` is a designed
+  trust feature, not scaffolding — "what actually crossed the network",
+  with monospace reserved for actual wire data.
 - Chips (phase/feasibility), badges (shared / private / agent-only / hard /
   soft), segmented controls (`.seg`), buttons `.btn` with `-primary`,
-  `-accept`, `-danger`, `-gold` variants.
+  `-accept`, `-danger`, `-gold` variants. Phase chips carry human labels
+  ("Gathering needs", "Deliberating", "Agreed", "On our way"); wire enums
+  live in the title attribute and the wire view.
+- Toasts: top-center under the header; success auto-dismisses at 4s,
+  errors stay until dismissed.
 - Decision cards: neutral (stances), violet tint (private requests), indigo
   tint (in-page confirmations), never thick colored side borders.
 - Layout: stacked header → map (52vh) → tabbed panel; the three-window demo at

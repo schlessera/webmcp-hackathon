@@ -53,7 +53,7 @@ export function ArrivalBanner({ destinationName, arrival, run }: Props) {
         value={pickupNote}
         onChange={(e) => setPickupNote(e.target.value)}
         onBlur={() => pickupNote !== (arrival?.pickupNote ?? "") && setMode(mode)}
-        style={{ width: 170 }}
+        style={{ flex: "1 1 140px", minWidth: 120, maxWidth: 240 }}
       />
       {links && (
         <>

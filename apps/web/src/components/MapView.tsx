@@ -190,10 +190,17 @@ export function MapView({ context, selectedId, focusNonce, committedId, onSelect
                   data-committed="true"
                   data-burst={burstId === c.candidateId || undefined}
                   role="button"
+                  tabIndex={0}
                   aria-label={`${c.name} — agreed destination`}
                   onClick={(e) => {
                     e.stopPropagation();
                     onSelect(c.candidateId);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      onSelect(c.candidateId);
+                    }
                   }}
                 >
                   ★
@@ -214,11 +221,18 @@ export function MapView({ context, selectedId, focusNonce, committedId, onSelect
                   data-vetoed={proposal === "vetoed" || undefined}
                   data-selected={c.candidateId === selectedId || undefined}
                   role="button"
+                  tabIndex={0}
                   aria-label={`${c.name} (${c.eligibility})`}
                   title={c.name}
                   onClick={(e) => {
                     e.stopPropagation();
                     onSelect(c.candidateId);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      onSelect(c.candidateId);
+                    }
                   }}
                 />
               )}
