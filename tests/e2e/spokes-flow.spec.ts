@@ -166,14 +166,17 @@ test("demo trajectory through the product UI", async () => {
   await submitText(pages.org, "€10");
   await expect(ownNeed(pages.org, "budget €10")).toBeVisible();
 
-  // Unknown evidence remains drawn as pending, while the room-level impasse
-  // produces quantified ways out and a private organizer adjustment.
+  // The council declares the impasse, so the count block says so too — and
+  // the unknowns stay counted in its subline rather than being folded into
+  // the failure (CLAUDE.md §4). Ways out are quantified; the organizer gets a
+  // private adjustment.
   await expect(pages.joe.getByTestId("ways-out")).toBeVisible({ timeout: 15_000 });
   for (const key of ["org", "sarah", "joe"] as const) {
     await expect(pages[key].getByTestId("count-block")).toHaveAttribute(
       "data-state",
-      "pending",
+      "impasse",
     );
+    await expect(pages[key].getByTestId("count-block")).toContainText(/\d+ unsure/);
   }
   await expect(pages.org.getByTestId("private-effect")).toBeVisible();
   await expect(pages.sarah.getByTestId("private-effect")).toBeVisible();
