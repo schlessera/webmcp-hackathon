@@ -86,6 +86,13 @@ We are **far from submission-ready** — do not treat the drafted `LICENSE` /
 - **Venue dataset**: `packages/contracts/data/berlin-mitte-venues.json` (31 OSM
   venues + curated demo overlay), built by `scripts/extract-venues.mjs` +
   `scripts/curate-venues.mjs`; ODbL in `packages/contracts/data/ATTRIBUTION.md`.
+- **Venue data research** (2026-09-01): `docs/DATA-QUALITY.md` — measured OSM
+  attribute coverage for Berlin vs five San Francisco centres, why no public
+  OSM API is safe in the request path, commercial pricing, and the three ways
+  data quality limits the demo.
+- **Next wave plan**: `docs/PLAN-LIVE-DATA-AND-ONBOARDING.md` — two areas, live
+  self-hosted venue data, organizer onboarding with join link/QR, and agent
+  attestation tools. Proposed, not started; one open decision recorded there.
 - **Docs**: `DEMO-RUNBOOK.md`, `KNOWN-LIMITATIONS.md`, `DEPLOY-COOLIFY.md`,
   `SUBMISSION.md`; protocol specs in `docs/protocols/` (normative — impl matches;
   §5.4 was narrowed to match reality).
