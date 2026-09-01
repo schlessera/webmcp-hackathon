@@ -20,7 +20,7 @@ let room: TestRoom;
 interface Roster {
   ok: boolean;
   revision?: number;
-  lastSyncedRevision?: number;
+  lastSyncedRevision?: number | null;
   participants?: Array<{ participantId: string; arrived: boolean; present: boolean }>;
 }
 
@@ -53,7 +53,7 @@ const waitFor = async (check: () => Promise<boolean>, ms = 4000) => {
 describe("arrival", () => {
   it("the first sync is the arrival; the others have not arrived yet", async () => {
     const { body } = await sync(room.tokens.org);
-    expect(body.lastSyncedRevision).toBe(0);
+    expect(body.lastSyncedRevision).toBeNull();
     expect(person(body, room.participantIds.org).arrived).toBe(true);
     expect(person(body, room.participantIds.sarah).arrived).toBe(false);
     expect(person(body, room.participantIds.joe).arrived).toBe(false);
@@ -75,8 +75,10 @@ describe("arrival", () => {
 describe("lastSyncedRevision", () => {
   it("reports the revision the previous sync had seen, before this one stamps it", async () => {
     const first = await sync(room.tokens.joe);
-    expect(first.body.lastSyncedRevision).toBe(0);
+    expect(first.body.lastSyncedRevision).toBeNull();
     const seen = first.body.revision!;
+    // Having seen the empty room is a fact, not an absence.
+    expect((await sync(room.tokens.joe)).body.lastSyncedRevision).toBe(seen);
 
     const moved = await apiPost<{ ok: boolean; revision: number }>(
       server.baseUrl, "/api/commands", room.tokens.org,
@@ -90,6 +92,27 @@ describe("lastSyncedRevision", () => {
     expect(second.body.revision).toBe(moved.body.revision);
     const third = await sync(room.tokens.joe);
     expect(third.body.lastSyncedRevision).toBe(moved.body.revision);
+  });
+});
+
+describe("lastSyncedRevision across a fresh invite exchange", () => {
+  it("a new tab (new token) still learns what this person had seen", async () => {
+    const seen = (await sync(room.tokens.sarah)).body.revision!;
+    const moved = await apiPost<{ ok: boolean; revision: number }>(
+      server.baseUrl, "/api/commands", room.tokens.org,
+      { type: "SetReadyState", input: { baseRevision: seen, state: "contributing" } },
+    );
+    expect(moved.body.ok).toBe(true);
+
+    const exchange = await fetch(`${server.baseUrl}/api/session/exchange`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ inviteSecret: room.inviteSecrets.sarah }),
+    });
+    const fresh = (await exchange.json()) as { participantToken: string };
+    const view = await sync(fresh.participantToken);
+    expect(view.body.lastSyncedRevision).toBe(seen);
+    expect(view.body.revision).toBe(moved.body.revision);
   });
 });
 

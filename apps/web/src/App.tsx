@@ -66,6 +66,23 @@ const NEED_EVENTS = new Set([
 
 const lastSeenKey = (roomId: string) => `spokes:lastSeen:${roomId}`;
 
+/** Events after which this participant's outstanding list may have changed. */
+const OUTSTANDING_EVENTS = new Set([
+  "adjustment_proposed",
+  "adjustment_resolved",
+  "evaluation_requested",
+  "impasse_detected",
+  "impasse_resolved",
+  "proposal_created",
+  "proposal_withdrawn",
+  "stance_submitted",
+  "agreement_staged",
+  "agreement_stage_aborted",
+  "agreement_committed",
+  "requirement_toggled",
+  "requirement_withdrawn",
+]);
+
 function readLastSeen(roomId: string): number {
   try {
     return Number(sessionStorage.getItem(lastSeenKey(roomId)) ?? 0) || 0;
@@ -124,14 +141,16 @@ export function App() {
       // seen (any tab, any surface); the FIRST contact of this page load is
       // the one that still reports it, since every sync stamps it afresh.
       let serverSeen: number | null = null;
+      let probed = false;
       if (established.token) {
+        probed = true;
         const probe = (await syncSession()) as {
           ok: boolean;
           error?: { code: string };
-          lastSyncedRevision?: number;
+          lastSyncedRevision?: number | null;
         };
         if (cancelled) return;
-        if (probe.ok) serverSeen = probe.lastSyncedRevision ?? 0;
+        if (probe.ok) serverSeen = probe.lastSyncedRevision ?? null;
         if (
           !probe.ok &&
           probe.error?.code === "not_authenticated" &&
@@ -192,17 +211,20 @@ export function App() {
         revision?: number;
         delta?: { events: ProjectedEvent[] };
         outstanding?: OutstandingItem[];
-        lastSyncedRevision?: number;
+        lastSyncedRevision?: number | null;
       };
       if (cancelled) return;
       if (first.ok && first.revision !== undefined) {
         if (first.delta) setFeed((prev) => mergeFeed(first.delta!.events, prev));
         spatial.setOutstanding(first.outstanding);
-        const previouslySeen = Math.max(
-          tabSeen,
-          serverSeen ?? first.lastSyncedRevision ?? 0,
-        );
-        if (previouslySeen > 0 && first.revision > previouslySeen) {
+        // Only the first server contact of this load still reports the
+        // previous value; the probe, when it ran, was that contact.
+        const remembered =
+          serverSeen !== null || probed ? serverSeen : (first.lastSyncedRevision ?? null);
+        // Seen revision 0 (an empty room) is a real floor; never-seen is not.
+        const wasHere = tabSeen > 0 || remembered !== null;
+        const previouslySeen = Math.max(tabSeen, remembered ?? 0);
+        if (wasHere && first.revision > previouslySeen) {
           setAway({ since: previouslySeen, until: first.revision });
         }
         advanceTo(first.revision);
@@ -224,6 +246,9 @@ export function App() {
           // Any commit can change eligibility/proposals/scope — the store
           // coalesces bursts into one fetch.
           void spatial.refetch();
+          // What is pending for THIS person only travels on sync; a peer's
+          // or the council's move can put a card on this page.
+          if (events.some((e) => OUTSTANDING_EVENTS.has(e.type))) void catchUp();
         },
         onConfirmation(grant) {
           spatial.putConfirmation(
@@ -475,8 +500,13 @@ export function App() {
                 events={awayEvents}
                 privateEffects={context?.privateEffects ?? []}
                 participants={participants}
+                meId={id.participantId}
               />
             )}
+
+            {/* Once settled the record leads (mockup 7c); the needs it was
+                built from follow. */}
+            {settled && <History events={feed} meId={id.participantId} />}
 
             <NeedsSection
               needs={activeNeeds}
@@ -491,8 +521,6 @@ export function App() {
               onHoldStart={(n) => spatial.startPreview(n.id)}
               onHoldEnd={() => spatial.endPreview()}
             />
-
-            {settled && <History events={feed} />}
 
             <ReadyToggle run={run} />
           </div>

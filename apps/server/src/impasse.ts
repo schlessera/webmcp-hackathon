@@ -324,6 +324,25 @@ export async function impasseBracket(
   const newDrafts = drafts.filter(
     (d) => !suppressed.has(keyOf(d.kind, d.requiresConsentOf, d.target, d.change)),
   );
+  // Supersession: a draft's projected gain is only true for the requirement
+  // set it was computed against. An open (not yet staged) adjustment the
+  // fresh pass no longer produces is stale — its "+4" would now apply to a
+  // different room — so it expires rather than staying actionable beside the
+  // replacement. Staged grants are mid-consent and are left alone.
+  const freshKeys = new Set(
+    drafts.map((d) => keyOf(d.kind, d.requiresConsentOf, d.target, d.change)),
+  );
+  const stale = existingRows.filter(
+    (r) =>
+      r.status === "proposed" &&
+      !freshKeys.has(keyOf(r.kind, r.requires_consent_of, r.target, r.change)),
+  );
+  if (stale.length > 0) {
+    await client.query(
+      "UPDATE adjustments SET status = 'expired' WHERE id = ANY($1)",
+      [stale.map((r) => r.id)],
+    );
+  }
 
   const events: ImpasseEvent[] = [];
   if (!room.impasse_active) {

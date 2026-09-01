@@ -60,10 +60,12 @@ export async function syncSession(
     arrived: p.id === actor.id || p.arrived_at !== null,
     present: present.has(p.id as string),
   }));
-  // Read BEFORE this sync stamps it: it is what the caller had seen.
-  const lastSyncedRevision = Number(
-    participantRows.find((p) => p.id === actor.id)?.last_synced_revision ?? 0,
-  );
+  // Read BEFORE this sync stamps it: it is what the caller had seen. A
+  // never-arrived participant has no such revision — 0 would mean "saw the
+  // empty room", which is a different fact.
+  const self = participantRows.find((p) => p.id === actor.id);
+  const lastSyncedRevision =
+    self && self.arrived_at !== null ? Number(self.last_synced_revision) : null;
   const feasibility = feasibilityOf(eligibilityRows);
   const outstanding = await outstandingFor(client, actor.roomId, actor.id);
 

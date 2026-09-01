@@ -123,8 +123,10 @@ export interface SyncSessionResult {
   /** Everyone in the room — the header's presence row. */
   participants: ParticipantSummary[];
   /** The revision this participant's previous sync (any surface, any tab)
-   * had seen — 0 for a first arrival. What "while you were away" spans. */
-  lastSyncedRevision: number;
+   * had seen; null when this is their first arrival. Revision 0 is a real
+   * value — an empty room they opened and left. What "while you were away"
+   * spans. */
+  lastSyncedRevision: number | null;
 }
 
 export type SyncSessionResponse = SyncSessionResult | FailureEnvelope;

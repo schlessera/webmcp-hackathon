@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { spatial } from "../spatial-store.ts";
 import type {
   CommandEnvelope,
@@ -107,6 +108,20 @@ export function ConsentCards({
   const deliberating =
     context.phase === "gathering" || context.phase === "deliberation";
 
+  // A card that asks for a decision must not appear above an already-scrolled
+  // brief where nobody sees it: whenever the set of cards changes, the brief
+  // returns to the top. The identity key ignores re-renders of the same cards.
+  const cardKey = [
+    ...adjustments.map((a) => `${a.requestId}:${a.staged ? "s" : "p"}`),
+    ...stancesNeeded.map((p) => `stance:${p.proposalId}`),
+    ...staged.map((p) => `staged:${p.proposalId}`),
+  ].join("|");
+  const sectionRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (!cardKey) return;
+    sectionRef.current?.closest(".brief")?.scrollTo({ top: 0 });
+  }, [cardKey]);
+
   const nothing =
     adjustments.length === 0 &&
     evaluations.length === 0 &&
@@ -116,7 +131,7 @@ export function ConsentCards({
   if (nothing) return null;
 
   return (
-    <section data-testid="consent">
+    <section data-testid="consent" ref={sectionRef}>
       {adjustments.map((item) =>
         item.staged ? (
           <div className="card" data-tone="act" data-testid="confirm-card" key={item.requestId}>

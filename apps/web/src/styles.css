@@ -674,7 +674,12 @@ body { overflow: hidden; }
   background: transparent;
   cursor: default;
 }
-.need-row[data-inactive="true"] { opacity: 0.62; }
+/* Set aside: quieter, but the text stays above the 4.5:1 floor (§13) —
+   only the decorations fade. Off toggle + aria-pressed carry the state. */
+.need-row[data-inactive="true"] { color: var(--spoke-ink-soft); }
+.need-row[data-inactive="true"] .need-toggle,
+.need-row[data-inactive="true"] .need-delta,
+.need-row[data-inactive="true"] .badge { opacity: 0.62; }
 .need-row[data-previewing="true"] { border-style: dashed; }
 
 .need-toggle {
@@ -1021,7 +1026,17 @@ body { overflow: hidden; }
   padding: 0 2px;
 }
 
-.pill-row { display: flex; flex-wrap: wrap; gap: 6px; }
+/* One line (mockup 4a/7a): the composer keeps its height whatever the
+   server suggests; the rest scrolls sideways under the finger. */
+.pill-row {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.pill-row::-webkit-scrollbar { display: none; }
+.pill-row > * { flex: none; }
 
 .pill {
   display: flex;
@@ -1228,6 +1243,12 @@ body { overflow: hidden; }
   font-weight: var(--spoke-weight-quiet);
   font-size: var(--spoke-size-meta);
   color: var(--spoke-ink-soft);
+}
+/* The text stays 15px tall; the target is extended with padding (§13). */
+.arrival-alt a {
+  display: inline-block;
+  padding: 14px 4px;
+  margin: -14px -4px;
 }
 
 /* ── Place details ─────────────────────────────────────────────────────

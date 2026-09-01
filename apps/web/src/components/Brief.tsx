@@ -336,7 +336,39 @@ export function WaysOut({ needs, participants, meId, onRelax }: WaysOutProps) {
  * its server text speaks in wire vocabulary, which invariant 6 keeps out of
  * the main UI.
  */
-const DIGEST_NOISE = new Set(["candidates_updated", "phase_changed"]);
+const DIGEST_NOISE = new Set([
+  "candidates_updated",
+  "phase_changed",
+  "ready_state_changed",
+  "session_created",
+  "evaluation_requested",
+  "evaluation_recorded",
+]);
+
+/**
+ * The server composes event text in wire vocabulary for agent surfaces; the
+ * room reads a record in its own words (CLAUDE.md §6, §12). Types the room
+ * cares about are rephrased here; everything else keeps the server line.
+ */
+export function recordText(e: ProjectedEvent, meId: string): string {
+  const p = (e.payload ?? {}) as { candidateName?: string };
+  switch (e.type) {
+    case "agreement_committed":
+      return `${e.actorId === meId ? "You" : "The organizer"} settled it${
+        p.candidateName ? `: ${p.candidateName}` : ""
+      }`;
+    case "agreement_staged":
+      return `${e.actorId === meId ? "You" : "The organizer"} staged the agreement${
+        p.candidateName ? ` on ${p.candidateName}` : ""
+      }`;
+    case "impasse_detected":
+      return "Nothing worked for everyone";
+    case "impasse_resolved":
+      return "Something works again";
+    default:
+      return e.text;
+  }
+}
 
 export function meaningfulEvents(events: ProjectedEvent[]): ProjectedEvent[] {
   return events.filter((e) => !DIGEST_NOISE.has(e.type));
@@ -346,9 +378,10 @@ interface DigestProps {
   events: ProjectedEvent[];
   privateEffects: PrivateEffect[];
   participants: ParticipantSummary[];
+  meId: string;
 }
 
-export function Digest({ events, privateEffects, participants }: DigestProps) {
+export function Digest({ events, privateEffects, participants, meId }: DigestProps) {
   const rows = meaningfulEvents(events);
   if (rows.length === 0) return null;
 
@@ -389,7 +422,7 @@ export function Digest({ events, privateEffects, participants }: DigestProps) {
               ) : (
                 <span className="record-spacer" aria-hidden="true" />
               )}
-              <span className="record-text">{e.text}</span>
+              <span className="record-text">{recordText(e, meId)}</span>
             </div>
           );
         })}
@@ -413,7 +446,7 @@ export function Digest({ events, privateEffects, participants }: DigestProps) {
 
 /* ── Agreed: the short record of how it got here ─────────────────────────── */
 
-export function History({ events }: { events: ProjectedEvent[] }) {
+export function History({ events, meId }: { events: ProjectedEvent[]; meId: string }) {
   const ordered = meaningfulEvents(events).reverse();
   if (ordered.length === 0) return null;
   return (
@@ -429,7 +462,7 @@ export function History({ events }: { events: ProjectedEvent[] }) {
             data-private={e.level !== "full" || undefined}
           >
             <span className="record-index">{String(i + 1).padStart(2, "0")}</span>
-            <span className="record-text">{e.text}</span>
+            <span className="record-text">{recordText(e, meId)}</span>
           </div>
         ))}
       </div>

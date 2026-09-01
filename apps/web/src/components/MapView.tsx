@@ -324,14 +324,15 @@ export function MapView({
   const settled = committedId !== null;
   const preNeed = statedNeeds.length === 0 && context.privateEffects.length === 0;
 
-  /* Zero eligible with unknowns outstanding is NOT an impasse (§4): the data
-     is missing, the places have not failed. Only zero-with-nothing-unsure
-     names a collision. */
+  /* Zero eligible with unknowns outstanding is NOT an impasse (§4) unless the
+     council has actually declared one — then the room and the count block
+     must say the same thing, and the unknowns stay counted in the subline. */
+  const declared = context.impasse?.active === true && !preview;
   const countState = settled
     ? "settled"
     : preNeed
       ? "pre"
-      : matching === 0 && unsure === 0
+      : matching === 0 && (unsure === 0 || declared)
         ? "impasse"
         : matching === 0
           ? "pending"
@@ -507,7 +508,7 @@ export function MapView({
             </div>
             <div className="count-sub">
               {countState === "impasse"
-                ? `of ${total} · ${
+                ? `of ${total}${unsure > 0 ? ` · ${unsure} unsure` : ""} · ${
                     collisions >= 2
                       ? `${numberWord(collisions)} needs collide`
                       : "one need rules the rest out"
