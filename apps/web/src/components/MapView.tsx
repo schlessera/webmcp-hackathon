@@ -72,6 +72,10 @@ const NAME_CAP = 14;
    cards laid out first, and the whole point is to decide before drawing. */
 const STICKER_H = 38;
 const STICKER_SLACK = 1;
+/* Half a dot plus a little air: how close a card may come to another dot. */
+const DOT_CLEARANCE = 10;
+/* A tap this close to a dot (in px) belongs to that dot, whatever box is on top. */
+const TAP_REACH = 22;
 
 /** Rough drawn width of a sticker: dot + name at ~6.6px/char + optional chip. */
 function stickerWidth(name: string, hasChip: boolean): number {
@@ -175,6 +179,34 @@ export function MapView({
     });
   }, [focusNonce, selectedId]);
 
+  /* Dense clusters: 44px tap boxes overlap long before dots do, and z-order
+     alone would hand every tap in an overlap to the topmost box. A tap goes
+     to the place whose dot is nearest the finger, so every dot's own pixels
+     reach it (§13) without moving, resizing or clustering anything (§8). */
+  const nearestTo = (clientX: number, clientY: number): string | null => {
+    const map = mapRef.current;
+    if (!map) return null;
+    const rect = map.getContainer().getBoundingClientRect();
+    const x = clientX - rect.left;
+    const y = clientY - rect.top;
+    let best: string | null = null;
+    let bestD = Infinity;
+    for (const c of candidates) {
+      let p: { x: number; y: number };
+      try {
+        p = map.project([c.location.lng, c.location.lat]);
+      } catch {
+        continue;
+      }
+      const d = (p.x - x) ** 2 + (p.y - y) ** 2;
+      if (d < bestD) {
+        bestD = d;
+        best = c.candidateId;
+      }
+    }
+    return bestD <= TAP_REACH * TAP_REACH ? best : null;
+  };
+
   const proposalByCandidate = useMemo(() => {
     const map = new globalThis.Map<string, string>();
     for (const p of proposals) {
@@ -235,15 +267,23 @@ export function MapView({
       return set;
     }
 
+    // Every place's dot, so a card is refused where it would bury a
+    // neighbour's dot — a buried dot is an unreachable place (§13).
+    const dots: Array<{ id: string; x: number; y: number }> = [];
+    for (const c of candidates) {
+      try {
+        const p = map.project([c.location.lng, c.location.lat]);
+        dots.push({ id: c.candidateId, x: p.x, y: p.y });
+      } catch {
+        /* off the projectable world; nothing to protect */
+      }
+    }
     const placed: Array<{ x: number; y: number; w: number }> = [];
     for (const c of ordered) {
       if (set.size >= NAME_CAP) break;
-      let point: { x: number; y: number };
-      try {
-        point = map.project([c.location.lng, c.location.lat]);
-      } catch {
-        continue;
-      }
+      const own = dots.find((d) => d.id === c.candidateId);
+      if (!own) continue;
+      const point = own;
       const w = stickerWidth(c.name, true) * STICKER_SLACK;
       const left = point.x - 13;
       const collides = placed.some(
@@ -253,6 +293,14 @@ export function MapView({
           p.x < left + w,
       );
       if (collides) continue;
+      const buries = dots.some(
+        (d) =>
+          d.id !== c.candidateId &&
+          Math.abs(d.y - point.y) < STICKER_H / 2 + DOT_CLEARANCE &&
+          d.x > left + DOT_CLEARANCE &&
+          d.x < left + w + DOT_CLEARANCE,
+      );
+      if (buries) continue;
       placed.push({ x: left, y: point.y, w });
       set.add(c.candidateId);
     }
@@ -386,7 +434,13 @@ export function MapView({
                 }`}
                 onClick={(e) => {
                   e.stopPropagation();
-                  onSelect(c.candidateId);
+                  // A tap on a drawn name card means that place; anywhere
+                  // else it means the nearest dot, whatever box is on top.
+                  const onCard =
+                    named.has(c.candidateId) &&
+                    state !== "out" &&
+                    (e.target as HTMLElement).closest(".marker-sticker") !== null;
+                  onSelect(onCard ? c.candidateId : nearestTo(e.clientX, e.clientY) ?? c.candidateId);
                 }}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" || e.key === " ") {
