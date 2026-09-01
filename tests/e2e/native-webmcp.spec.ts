@@ -86,7 +86,10 @@ test("native Chrome discovers and executes the real tool registry", async () => 
       "invalid for this origin, or WebMCP not enabled. This lane never uses the shim.",
   ).toBe(true);
 
-  // Registration happened at page load; wait for the diagnostics confirmation.
+  // Registration happened at page load; open the under-the-hood drawer to
+  // read the diagnostics without putting protocol state in the main chrome.
+  await page.getByTestId("open-drawer").click();
+  await expect(page.getByTestId("diagnostics")).toBeVisible();
   await expect(page.getByTestId("diag-registration")).toHaveText("registered");
   await expect(page.getByTestId("participant-id")).toHaveText(
     room.participantIds.org,
@@ -124,7 +127,7 @@ test("native Chrome discovers and executes the real tool registry", async () => 
   expect(parsed.ok).toBe(true);
   expect(parsed.identity.participantId).toBe(room.participantIds.org);
   expect(parsed.manifest.protocols.domain).toBe("spatial-destination/v1");
-  expect(parsed.toolContractVersion).toBe("1");
+  expect(parsed.toolContractVersion).toBe("2");
 
   await context.close();
 });

@@ -49,7 +49,7 @@ async function waitForServer(): Promise<void> {
 test.beforeAll(async () => {
   server = startServer("e2e-build-1");
   await waitForServer();
-  room = await createTestRoom(BASE);
+  room = await createTestRoom(BASE, { berlin: true });
   browser = await chromium.launch();
 });
 
@@ -105,48 +105,106 @@ test("three-user trajectory", async () => {
   expect(identities.size).toBe(3);
   expect(builds.size).toBe(1);
 
+  // Once every page has synced and opened realtime, the arrived roster and
+  // live-presence marks converge for all three viewers.
+  for (const viewer of ["org", "sarah", "joe"] as const) {
+    await expect(pages[viewer].getByTestId("room-subtitle")).toContainText(
+      "three in the room",
+    );
+    await expect(pages[viewer].getByTestId("invite-card")).toHaveCount(0);
+    for (const participant of ["org", "sarah", "joe"] as const) {
+      await expect(
+        pages[viewer].getByTestId(`avatar-${room.participantIds[participant]}`),
+      ).toHaveAttribute("data-present", "true");
+    }
+  }
+
   // 3. Shared action from Sarah (dev quick-action inside the diagnostics
   // panel, which stays open under ?shim=webmcp).
   await pages.sarah.getByTestId("submit-shared").click();
-  await expect(pages.sarah.getByTestId("last-result")).toContainText(
-    "Requirement recorded",
-  );
+  await expect(
+    pages.sarah.locator('[data-testid^="need-"]').filter({ hasText: "vegetarian options" }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await expect(
+    pages.org.locator('[data-testid^="need-"]').filter({ hasText: "vegetarian options" }),
+  ).toBeVisible();
+  await expect(pages.sarah.getByTestId("last-result")).toHaveCount(0);
+
+  // The shared row carries its author in peer briefs.
+  await expect(
+    pages.org.locator('[data-testid^="need-"]').filter({ hasText: "vegetarian options" }),
+  ).toContainText("Sarah");
 
   // 4. Private (application-private) requirement from Joe.
   await pages.joe.getByTestId("submit-private").click();
-  await expect(pages.joe.getByTestId("last-result")).toContainText(
-    "Requirement recorded",
+  const joePrivate = pages.joe
+    .locator('[data-testid^="need-"]')
+    .filter({ hasText: "budget €18" });
+  await expect(joePrivate).toContainText("private");
+  await expect(joePrivate).toHaveAttribute("aria-pressed", "true");
+  await expect(pages.org.getByTestId("private-effect")).toContainText(
+    "A private condition",
   );
+  await expect(pages.sarah.getByTestId("private-effect")).toContainText(
+    "A private condition",
+  );
+  await expect(pages.org.getByTestId("brief")).not.toContainText("budget €18");
+  await expect(pages.sarah.getByTestId("brief")).not.toContainText("budget €18");
+  await expect(pages.joe.getByTestId("last-result")).toHaveCount(0);
 
   // 5. All live revisions converge.
   const target = await pages.joe.getByTestId("revision").innerText();
   for (const key of ["org", "sarah", "joe"] as const) {
     await expect(pages[key].getByTestId("revision")).toHaveText(target);
   }
-  // Feeds observed the events live via WS (feed lives in the Activity tab).
-  await pages.org.getByTestId("tab-activity").click();
-  await expect(pages.org.getByTestId("feed")).toContainText("Sarah");
-  await expect(pages.org.getByTestId("feed")).toContainText(
-    "private need",
-  );
+  // The new brief is the live projection: shared content is named while a
+  // peer's private contribution is represented only by its coarse effect.
+  for (const key of ["org", "sarah"] as const) {
+    await expect(pages[key].getByTestId("brief-needs")).toContainText(
+      "vegetarian options",
+    );
+    await expect(pages[key].getByTestId("private-effect")).toBeVisible();
+  }
 
   // 6. Only Joe's network responses contain the private payload. Every page
   // pulls its own full delta first (peers get the aggregate projection).
+  const syncBodies: Record<"org" | "sarah" | "joe", string> = {} as never;
   for (const key of ["org", "sarah", "joe"] as const) {
-    await pages[key].evaluate(async () => {
+    const response = pages[key].waitForResponse(
+      (candidate) =>
+        candidate.url().endsWith("/api/sync") &&
+        candidate.request().method() === "POST",
+    );
+    const tool = pages[key].evaluate(async () => {
       const shim = (window as never as {
         __webmcpTestShim: { executeTool(name: string, args: string): Promise<unknown> };
       }).__webmcpTestShim;
       await shim.executeTool("sync_session", '{"sinceRevision":0}');
     });
+    const [networkResponse] = await Promise.all([response, tool]);
+    syncBodies[key] = await networkResponse.text();
+    responseBodies[key].push(syncBodies[key]);
   }
-  await new Promise((r) => setTimeout(r, 500)); // drain response bodies
   const marker = "perPersonMax";
-  expect(responseBodies.joe.some((b) => b.includes(marker))).toBe(true);
+  expect(syncBodies.joe).toContain(marker);
   for (const key of ["org", "sarah"] as const) {
-    for (const body of responseBodies[key]) {
-      expect(body, `${key} response leaked private payload`).not.toContain(marker);
-    }
+    expect(syncBodies[key], `${key} response leaked private payload`).not.toContain(marker);
+    const sync = JSON.parse(syncBodies[key]) as {
+      delta?: {
+        events?: Array<{
+          type?: string;
+          level?: string;
+          actorId?: string;
+          payload?: unknown;
+        }>;
+      };
+    };
+    const privateEvent = sync.delta?.events?.find(
+      (event) => event.type === "requirement_submitted" && event.level === "aggregate",
+    );
+    expect(privateEvent, `${key} did not receive Joe's aggregate private event`).toBeDefined();
+    expect(privateEvent?.actorId).toBeUndefined();
+    expect(privateEvent?.payload).toBeUndefined();
   }
 
   // 7. Tool callback through the page's registration layer (test shim) —

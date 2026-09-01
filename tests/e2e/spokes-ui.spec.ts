@@ -1,20 +1,79 @@
-import { test, expect, type Page, type Route } from "@playwright/test";
+import {
+  expect,
+  test,
+  type Page,
+  type Request,
+  type Route,
+} from "@playwright/test";
 import { spawn, type ChildProcess } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-
-/**
- * MOCKED-SERVER UI lane: renders the Spokes product UI against page.route
- * mocks built from the real Berlin Mitte dataset, so the frontend's states
- * (impasse, adjustment consent, staging, arrival) are verifiable without the
- * domain server. This proves UI behavior only — the live three-user flow is
- * covered by three-user.spec.ts against the real server.
- */
+import { fileURLToPath } from "node:url";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const PORT = 5190;
 const BASE = `http://127.0.0.1:${PORT}`;
+
+type Need = {
+  id: string;
+  label: string;
+  ruledOut: number;
+  wouldReturn: number;
+  unknown: number;
+  active: boolean;
+  visibility: "shared" | "application-private";
+  hardness: "hard";
+  ownerId: string;
+};
+
+type Candidate = {
+  candidateId: string;
+  name: string;
+  location: { lat: number; lng: number };
+  category: string;
+  eligibility: "eligible" | "uncertain" | "excluded";
+  why: string;
+  walkMin: number;
+  priceLevel: number | null;
+};
+
+type MockContext = {
+  ok: true;
+  revision: number;
+  phase: string;
+  scope: {
+    scopeId: string;
+    area: { kind: "circle"; center: { lat: number; lng: number }; radiusM: number };
+    transport: string[];
+    category: string;
+  };
+  feasibility: {
+    state: "feasible" | "fragile" | "infeasible" | "uncertain";
+    eligible: number;
+    uncertain: number;
+    excluded: number;
+  };
+  total: number;
+  matching: number;
+  candidates: Candidate[];
+  facets: Array<Record<string, unknown>>;
+  activeNeeds: Need[];
+  privateEffects: Array<{ owner: string; ruledOut: number; topic?: string }>;
+  participants: Array<{
+    participantId: string;
+    displayName: string;
+    role: "organizer" | "member";
+    readyState: "contributing" | "ready";
+    arrived: boolean;
+    present: boolean;
+  }>;
+  proposals: Array<Record<string, unknown>>;
+  agreement?: { proposalId: string; candidateId: string; status: "staged" | "committed"; committedAtRevision?: number };
+  arrival?: { mode?: string };
+  impasse?: { active: true; text: string };
+};
+
+type MockIdentity = typeof identity;
 
 const dataset = JSON.parse(
   readFileSync(
@@ -22,7 +81,10 @@ const dataset = JSON.parse(
     "utf8",
   ),
 ) as {
-  manifest: { demoCenter: { lat: number; lng: number }; demoRadii: { narrow: number; wide: number } };
+  manifest: {
+    demoCenter: { lat: number; lng: number };
+    demoRadii: { narrow: number; wide: number };
+  };
   venues: Array<{
     candidateId: string;
     name: string;
@@ -30,15 +92,33 @@ const dataset = JSON.parse(
     category: string;
     priceLevel: number | null;
     attributes: Array<Record<string, unknown>>;
+    hours?: Array<Record<string, unknown>>;
     mapRevision: number;
   }>;
 };
 
-const ELIGIBLE_WIDE = ["place_24", "place_25", "place_30", "place_31"];
 const center = dataset.manifest.demoCenter;
+const identity = {
+  participantId: "p_org",
+  displayName: "Alex",
+  role: "organizer",
+  roomId: "room_demo",
+};
+const participants = [
+  { participantId: "p_org", displayName: "Alex", role: "organizer" as const, readyState: "contributing" as const, arrived: true, present: true },
+  { participantId: "p_sarah", displayName: "Sarah", role: "member" as const, readyState: "contributing" as const, arrived: true, present: true },
+  { participantId: "p_joe", displayName: "Joe", role: "member" as const, readyState: "contributing" as const, arrived: true, present: true },
+];
+const PRIVATE_EFFECT_RULED_OUT = 2;
+const DEFAULT_ELIGIBLE_IDS = ["place_24", "place_25", "place_30", "place_31"];
+const DEFAULT_UNCERTAIN_IDS = ["place_1", "place_2", "place_3", "place_4"];
+const DOMAIN_WORDS = /restaurant|dinner|food|cuisine|park|museum|cinema/i;
 
-function haversineMeters(a: { lat: number; lng: number }, b: { lat: number; lng: number }) {
-  const rad = (d: number) => (d * Math.PI) / 180;
+function haversineMeters(
+  a: { lat: number; lng: number },
+  b: { lat: number; lng: number },
+) {
+  const rad = (degrees: number) => (degrees * Math.PI) / 180;
   const dLat = rad(b.lat - a.lat);
   const dLng = rad(b.lng - a.lng);
   const h =
@@ -47,104 +127,219 @@ function haversineMeters(a: { lat: number; lng: number }, b: { lat: number; lng:
   return 6371000 * 2 * Math.asin(Math.sqrt(h));
 }
 
-function contextFixture(opts: {
-  revision: number;
-  phase: string;
-  radiusM: number;
+function fixture(options: {
+  revision?: number;
+  phase?: string;
+  radiusM?: number;
+  matching?: number;
+  uncertain?: number;
+  eligibleIds?: string[];
+  uncertainIds?: string[];
+  scopeCenter?: { lat: number; lng: number };
   impasse?: boolean;
-  proposals?: unknown[];
-  agreement?: unknown;
-  arrival?: unknown;
-}) {
-  const candidates = dataset.venues.map((v) => {
-    const inRadius = haversineMeters(center, v.location) <= opts.radiusM;
-    const eligible = inRadius && ELIGIBLE_WIDE.includes(v.candidateId);
+  activeNeeds?: Need[];
+  privateEffects?: MockContext["privateEffects"];
+  proposals?: MockContext["proposals"];
+  agreement?: MockContext["agreement"];
+  arrival?: MockContext["arrival"];
+} = {}): MockContext {
+  const radiusM = options.radiusM ?? 800;
+  const scopeCenter = options.scopeCenter ?? center;
+  const inScope = dataset.venues.filter(
+    (venue) => haversineMeters(scopeCenter, venue.location) <= radiusM,
+  );
+  const inScopeIds = new Set(inScope.map((venue) => venue.candidateId));
+  const eligibleIds = new Set(
+    options.eligibleIds ?? DEFAULT_ELIGIBLE_IDS.slice(0, options.matching ?? 4),
+  );
+  const uncertainIds = new Set(
+    options.uncertainIds ?? DEFAULT_UNCERTAIN_IDS.slice(0, options.uncertain ?? 0),
+  );
+  const candidates: Candidate[] = dataset.venues.map((venue) => {
+    const inside = inScopeIds.has(venue.candidateId);
+    const eligibility: Candidate["eligibility"] =
+      inside && eligibleIds.has(venue.candidateId)
+        ? "eligible"
+        : inside && uncertainIds.has(venue.candidateId)
+          ? "uncertain"
+          : "excluded";
     return {
-      candidateId: v.candidateId,
-      name: v.name,
-      location: v.location,
-      category: v.category,
-      eligibility: eligible ? "eligible" : inRadius ? "excluded" : "excluded",
-      why: eligible ? "meets all shared requirements" : "does not meet a shared requirement",
-      walkMin: Math.round(haversineMeters(center, v.location) / 75),
-      priceLevel: v.priceLevel,
+      candidateId: venue.candidateId,
+      name: venue.name,
+      location: venue.location,
+      category: venue.category,
+      eligibility,
+      why:
+        eligibility === "uncertain"
+          ? "not checked yet"
+          : eligibility === "excluded"
+            ? "does not clear every stated need"
+            : "meets all evaluable requirements",
+      walkMin: Math.max(1, Math.round(haversineMeters(scopeCenter, venue.location) / 75)),
+      priceLevel: venue.priceLevel,
     };
   });
-  const eligibleCount = candidates.filter((c) => c.eligibility === "eligible").length;
+  const matching = candidates.filter((candidate) => candidate.eligibility === "eligible").length;
+  const uncertain = candidates.filter((candidate) => candidate.eligibility === "uncertain").length;
   return {
     ok: true,
-    revision: opts.revision,
-    phase: opts.phase,
+    revision: options.revision ?? 20,
+    phase: options.phase ?? "deliberation",
     scope: {
       scopeId: "scope_1",
-      area: { kind: "circle", center, radiusM: opts.radiusM },
-      transport: ["walk"],
+      area: { kind: "circle", center: scopeCenter, radiusM },
+      transport: ["walk", "bike", "car"],
       category: "food",
     },
     feasibility: {
-      state: eligibleCount >= 3 ? "feasible" : eligibleCount >= 1 ? "fragile" : "infeasible",
-      eligible: eligibleCount,
-      uncertain: 0,
-      excluded: candidates.length - eligibleCount,
+      state: matching > 2 ? "feasible" : matching > 0 ? "fragile" : uncertain > 0 ? "uncertain" : "infeasible",
+      eligible: matching,
+      uncertain,
+      excluded: Math.max(0, inScope.length - matching - uncertain),
     },
+    total: inScope.length,
+    matching,
     candidates,
-    // The facets contract rides with every candidate set; the P1 server sends
-    // it and these fixtures stand in for that response.
-    total: candidates.length,
-    matching: eligibleCount,
-    facets: [],
-    activeNeeds: [],
-    privateEffects: [],
-    participants: [
-      { participantId: "p_org", displayName: "Alex", role: "organizer", readyState: "contributing" },
-      { participantId: "p_sarah", displayName: "Sarah", role: "member", readyState: "contributing" },
-      { participantId: "p_joe", displayName: "Joe", role: "member", readyState: "contributing" },
+    facets: [
+      { key: "outdoor-seating", label: "outdoor seating", type: "boolean", counts: { yes: 17, no: 2, unknown: 2 }, salience: 1 },
+      { key: "vegetarian-options", label: "vegetarian options", type: "boolean", counts: { yes: 15, no: 0, unknown: 6 }, salience: 0.9 },
+      { key: "wheelchair-accessible", label: "step-free access", type: "boolean", counts: { yes: 9, no: 6, unknown: 6 }, salience: 0.8 },
     ],
-    proposals: opts.proposals ?? [],
-    agreement: opts.agreement,
-    arrival: opts.arrival,
-    impasse: opts.impasse ? { active: true } : undefined,
+    activeNeeds: options.activeNeeds ?? [],
+    privateEffects: options.privateEffects ?? [],
+    participants,
+    proposals: options.proposals ?? [],
+    ...(options.agreement ? { agreement: options.agreement } : {}),
+    ...(options.arrival ? { arrival: options.arrival } : {}),
+    ...(options.impasse
+      ? { impasse: { active: true as const, text: "No option currently clears every confirmed requirement." } }
+      : {}),
   };
 }
 
-const identity = {
-  participantId: "p_org",
-  displayName: "Alex",
-  role: "organizer",
-  roomId: "room_demo",
+function applyEligibility(
+  context: MockContext,
+  eligibleIds: string[],
+  uncertainIds: string[],
+) {
+  const eligible = new Set(eligibleIds);
+  const uncertain = new Set(uncertainIds);
+  const { center: scopeCenter, radiusM } = context.scope.area;
+  for (const candidate of context.candidates) {
+    const inside = haversineMeters(scopeCenter, candidate.location) <= radiusM;
+    candidate.eligibility =
+      inside && eligible.has(candidate.candidateId)
+        ? "eligible"
+        : inside && uncertain.has(candidate.candidateId)
+          ? "uncertain"
+          : "excluded";
+    candidate.why =
+      candidate.eligibility === "eligible"
+        ? "meets all evaluable requirements"
+        : candidate.eligibility === "uncertain"
+          ? "not checked yet"
+          : "does not clear every stated need";
+  }
+  const inScope = context.candidates.filter(
+    (candidate) => haversineMeters(scopeCenter, candidate.location) <= radiusM,
+  );
+  context.total = inScope.length;
+  context.matching = inScope.filter((candidate) => candidate.eligibility === "eligible").length;
+  context.feasibility.eligible = context.matching;
+  context.feasibility.uncertain = inScope.filter(
+    (candidate) => candidate.eligibility === "uncertain",
+  ).length;
+  context.feasibility.excluded =
+    context.total - context.feasibility.eligible - context.feasibility.uncertain;
+  context.feasibility.state =
+    context.matching > 2
+      ? "feasible"
+      : context.matching > 0
+        ? "fragile"
+        : context.feasibility.uncertain > 0
+          ? "uncertain"
+          : "infeasible";
+}
+
+type MockState = {
+  context: MockContext;
+  outstanding: Array<Record<string, unknown>>;
+  audit?: string[];
+  identity?: MockIdentity;
+  syncEvents?: Array<Record<string, unknown>>;
+  command?: (request: Record<string, unknown>, state: MockState) => Record<string, unknown>;
 };
 
-async function mockApi(page: Page, state: { context: unknown; outstanding?: unknown[] }) {
-  const json = (route: Route, body: unknown) =>
-    route.fulfill({ contentType: "application/json", body: JSON.stringify(body) });
-  await page.route("**/api/meta", (r) => json(r, { buildId: "mock-build" }));
-  await page.route("**/api/session/exchange", (r) =>
-    json(r, { participantToken: "mock-token", ...identity }),
-  );
-  await page.route("**/api/sync", (r) =>
-    json(r, {
+async function mockApi(page: Page, state: MockState) {
+  const viewerIdentity = state.identity ?? identity;
+  const recordRequest = (request: Request) => {
+    const body = request.postData();
+    if (body) state.audit?.push(body);
+  };
+  const respond = (route: Route, body: unknown) => {
+    state.audit?.push(JSON.stringify(body));
+    return route.fulfill({ contentType: "application/json", body: JSON.stringify(body) });
+  };
+
+  await page.route("**/api/meta", (route) => respond(route, { buildId: "mock-build" }));
+  await page.route("**/api/session/exchange", (route) => {
+    recordRequest(route.request());
+    return respond(route, { participantToken: "mock-token", ...viewerIdentity });
+  });
+  await page.route("**/api/sync", (route) => {
+    recordRequest(route.request());
+    return respond(route, {
       ok: true,
-      revision: (state.context as { revision: number }).revision,
-      phase: (state.context as { phase: string }).phase,
-      identity,
+      revision: state.context.revision,
+      phase: state.context.phase,
+      identity: viewerIdentity,
       brief: "mock",
-      delta: { fromRevision: 0, events: [], truncated: false },
-      outstanding: state.outstanding ?? [],
-    }),
-  );
-  await page.route("**/api/spatial/context", (r) => json(r, state.context));
-  // Shape matches the real InspectCandidatesResult: dossiers ride in
-  // `candidates` (a `dossiers` key here once masked a real client bug).
-  await page.route("**/api/spatial/inspect", (r) => {
-    const ids = (r.request().postDataJSON() as { candidateIds: string[] }).candidateIds;
-    return json(r, {
-      ok: true,
-      revision: 30,
-      candidates: dataset.venues.filter((v) => ids.includes(v.candidateId)),
+      delta: { fromRevision: 0, events: state.syncEvents ?? [], truncated: false },
+      outstanding: state.outstanding,
+      participants: state.context.participants,
+      lastSyncedRevision: state.context.revision,
     });
   });
-  await page.route("**/api/spatial/navigation", (r) =>
-    json(r, {
+  await page.route("**/api/spatial/context", (route) => {
+    recordRequest(route.request());
+    const request = (route.request().postDataJSON() ?? {}) as { excludeRequirementId?: string };
+    const held = state.context.activeNeeds.find((need) => need.id === request.excludeRequirementId);
+    if (!held) return respond(route, state.context);
+    const preview = structuredClone(state.context);
+    preview.matching = state.context.matching + held.wouldReturn;
+    let remaining = held.wouldReturn;
+    for (const candidate of preview.candidates) {
+      const candidateInScope =
+        haversineMeters(center, candidate.location) <= preview.scope.area.radiusM;
+      if (remaining > 0 && candidateInScope && candidate.eligibility !== "eligible") {
+        candidate.eligibility = "eligible";
+        candidate.why = "returns in preview";
+        remaining -= 1;
+      }
+    }
+    applyEligibility(
+      preview,
+      preview.candidates
+        .filter((candidate) => candidate.eligibility === "eligible")
+        .map((candidate) => candidate.candidateId),
+      preview.candidates
+        .filter((candidate) => candidate.eligibility === "uncertain")
+        .map((candidate) => candidate.candidateId),
+    );
+    return respond(route, preview);
+  });
+  await page.route("**/api/spatial/inspect", (route) => {
+    recordRequest(route.request());
+    const ids = (route.request().postDataJSON() as { candidateIds: string[] }).candidateIds;
+    return respond(route, {
+      ok: true,
+      revision: state.context.revision,
+      candidates: dataset.venues.filter((venue) => ids.includes(venue.candidateId)),
+    });
+  });
+  await page.route("**/api/spatial/navigation", (route) => {
+    recordRequest(route.request());
+    return respond(route, {
       ok: true,
       target: { candidateId: "place_24", name: "The Barn" },
       links: {
@@ -152,47 +347,123 @@ async function mockApi(page: Page, state: { context: unknown; outstanding?: unkn
         googleMaps: "https://www.google.com/maps/dir/?api=1&destination=52.52,13.39",
         appleMaps: "https://maps.apple.com/?daddr=52.52,13.39",
       },
-    }),
-  );
-  await page.route("**/api/commands", (r) =>
-    json(r, {
+    });
+  });
+  await page.route("**/api/commands", (route) => {
+    recordRequest(route.request());
+    const request = route.request().postDataJSON() as Record<string, unknown>;
+    const result = state.command?.(request, state) ?? {
       ok: true,
-      revision: (state.context as { revision: number }).revision + 1,
+      revision: ++state.context.revision,
       effect: "Done (mock).",
-      outstanding: state.outstanding ?? [],
-    }),
-  );
+      outstanding: state.outstanding,
+    };
+    return respond(route, result);
+  });
 }
 
-let preview: ChildProcess;
+async function markerTransforms(page: Page, ids: string[]) {
+  return page.evaluate((candidateIds) => {
+    return Object.fromEntries(
+      candidateIds.map((id) => {
+        const pin = document.querySelector(`[data-testid="pin-${id}"]`);
+        const wrapper = pin?.closest(".maplibregl-marker") as HTMLElement | null;
+        return [id, wrapper?.style.transform ?? "missing"];
+      }),
+    );
+  }, ids);
+}
+
+async function stableMarkerTransforms(page: Page, ids: string[]) {
+  let previous = "";
+  let stable = "";
+  await expect.poll(async () => {
+    const current = JSON.stringify(await markerTransforms(page, ids));
+    stable = current;
+    const unchanged = current === previous;
+    previous = current;
+    return unchanged;
+  }).toBe(true);
+  return JSON.parse(stable) as Record<string, string>;
+}
+
+async function closeDrawer(page: Page) {
+  const close = page.getByTestId("close-drawer");
+  await expect(close).toBeVisible();
+  await close.click();
+  await expect(page.getByTestId("diagnostics")).toHaveCount(0);
+}
+
+async function expectDomainNeutralCopy(locator: ReturnType<Page["locator"]>) {
+  await expect(locator.first()).toBeVisible();
+  const copy = (await locator.allTextContents()).join(" ").replace(/\s+/g, " ").trim();
+  expect(copy.length, `domain-neutral copy was unexpectedly short: ${copy}`).toBeGreaterThan(40);
+  expect(copy).not.toMatch(DOMAIN_WORDS);
+}
+
+let previewServer: ChildProcess;
 
 test.beforeAll(async () => {
-  preview = spawn(
+  previewServer = spawn(
     "pnpm",
-    ["--filter", "@webmcp-hackathon/web", "exec", "vite", "preview", "--host", "127.0.0.1", "--port", String(PORT), "--strictPort"],
+    [
+      "--filter",
+      "@webmcp-hackathon/web",
+      "exec",
+      "vite",
+      "preview",
+      "--host",
+      "127.0.0.1",
+      "--port",
+      String(PORT),
+      "--strictPort",
+    ],
     { cwd: repoRoot, stdio: ["ignore", "pipe", "pipe"] },
   );
-  const deadline = Date.now() + 20000;
+  const deadline = Date.now() + 20_000;
   for (;;) {
     try {
       if ((await fetch(BASE)).ok) break;
     } catch {
-      /* retry */
+      // retry
     }
     if (Date.now() > deadline) throw new Error("vite preview did not start");
-    await new Promise((r) => setTimeout(r, 250));
+    await new Promise((resolve) => setTimeout(resolve, 250));
   }
 });
 
-test.afterAll(() => {
-  preview?.kill("SIGTERM");
-});
+test.afterAll(() => previewServer?.kill("SIGTERM"));
+test.use({ viewport: { width: 1180, height: 900 } });
 
-test.use({ viewport: { width: 620, height: 900 } });
-
-test("impasse state: banner, dimmed pins, private adjustment card", async ({ page }) => {
-  await mockApi(page, {
-    context: contextFixture({ revision: 20, phase: "deliberation", radiusM: 800, impasse: true }),
+test("impasse and pending states protect previews, privacy, map stability, and domain-neutral chrome", async ({ browser }) => {
+  const browserContext = await browser.newContext({
+    viewport: { width: 1180, height: 900 },
+    reducedMotion: "reduce",
+  });
+  const page = await browserContext.newPage();
+  const audit: string[] = [];
+  const privateKey = "peer-secret-orchid-key";
+  const privateValue = "peer-secret-orchid-value";
+  const hiddenPrivateNeed = { key: privateKey, expect: privateValue };
+  const previewNeed: Need = {
+    id: "need-budget",
+    label: "budget €15",
+    ruledOut: 8,
+    wouldReturn: 3,
+    unknown: 0,
+    active: true,
+    visibility: "shared",
+    hardness: "hard",
+    ownerId: "p_org",
+  };
+  const state: MockState = {
+    audit,
+    context: fixture({
+      matching: 0,
+      impasse: true,
+      activeNeeds: [previewNeed],
+      privateEffects: [{ owner: "p_joe", ruledOut: PRIVATE_EFFECT_RULED_OUT }],
+    }),
     outstanding: [
       {
         type: "adjustment_request",
@@ -203,80 +474,379 @@ test("impasse state: banner, dimmed pins, private adjustment card", async ({ pag
         withinDelegatedBound: false,
       },
     ],
+    command(request, current) {
+      if (request.type === "SubmitRequirement") {
+        current.context.revision += 1;
+        current.context.activeNeeds.push({
+          id: "mock-submitted",
+          label: "somewhere calm",
+          ruledOut: 0,
+          wouldReturn: 0,
+          unknown: 4,
+          active: true,
+          visibility: "shared",
+          hardness: "hard",
+          ownerId: "p_org",
+        });
+        applyEligibility(current.context, [], DEFAULT_UNCERTAIN_IDS);
+      }
+      if (request.type === "SetRequirementActive") {
+        const input = request.input as {
+          requirementId?: string;
+          active?: boolean;
+        };
+        const need = current.context.activeNeeds.find(
+          (candidate) => candidate.id === input.requirementId,
+        );
+        const nextActive = Boolean(input.active);
+        if (need && need.active !== nextActive) {
+          need.active = nextActive;
+          if (need.id === "mock-submitted" && !nextActive) {
+            applyEligibility(current.context, [], []);
+          }
+        }
+        current.context.revision += 1;
+      }
+      return {
+        ok: true,
+        revision: current.context.revision,
+        effect: "Done (mock).",
+        outstanding: current.outstanding,
+      };
+    },
+  };
+  await mockApi(page, state);
+  await page.goto(`${BASE}/?shim=webmcp#invite=deadbeef`);
+
+  await expect(page.getByTestId("count-block")).toHaveAttribute("data-state", "impasse");
+  await expect(page.getByTestId("ways-out")).toContainText("One way out");
+  await expect(page.locator('[data-testid^="pin-"]')).toHaveCount(31);
+  await expect(page.locator('[data-testid^="pin-"][data-state="out"]')).toHaveCount(31);
+  await expect(page.getByTestId("private-effect")).toContainText("A private condition");
+  await expect(page.getByTestId("private-effect")).toContainText(
+    `−${PRIVATE_EFFECT_RULED_OUT}`,
+  );
+  await expect(page.locator("body")).not.toContainText(privateKey);
+  await expect(page.locator("body")).not.toContainText(privateValue);
+
+  const ownerAudit: string[] = [];
+  const ownerPage = await browserContext.newPage();
+  const ownerNeed: Need = {
+    ...previewNeed,
+    id: "need-owner-private",
+    label: `owner view ${privateKey} ${privateValue}`,
+    visibility: "application-private",
+    ownerId: "p_joe",
+  };
+  await mockApi(ownerPage, {
+    audit: ownerAudit,
+    identity: { ...identity, participantId: "p_joe", displayName: "Joe", role: "member" },
+    context: fixture({
+      matching: 0,
+      activeNeeds: [ownerNeed],
+    }),
+    outstanding: [],
+    syncEvents: [
+      {
+        revision: 20,
+        type: "requirement_submitted",
+        level: "full",
+        actorId: "p_joe",
+        text: `You added a private need: ${privateKey}`,
+        payload: { predicate: hiddenPrivateNeed },
+      },
+    ],
   });
-  await page.goto(`${BASE}/#invite=deadbeef`);
+  await ownerPage.goto(`${BASE}/#invite=cafedeadbeef`);
+  await expect(ownerPage.getByTestId("need-need-owner-private")).toContainText(privateKey);
+  await expect(ownerPage.getByTestId("need-need-owner-private")).toContainText(privateValue);
+  expect(ownerAudit.join("\n")).toContain(privateKey);
+  expect(ownerAudit.join("\n")).toContain(privateValue);
 
-  await expect(page.getByTestId("impasse-banner")).toContainText("Impasse");
-  await expect(page.getByTestId("feasibility-chip")).toHaveText("impasse");
-  await expect(page.getByTestId("map-region")).toHaveAttribute("data-scope-radius", "800");
-  // All 31 pins stay visible; excluded ones are dimmed, not hidden.
-  await expect(page.locator(".pin")).toHaveCount(31);
-  await expect(page.locator('.pin[data-eligibility="excluded"]').first()).toBeVisible();
+  const adjustment = page.getByTestId("adjustment-card");
+  await expect(adjustment).toContainText("Widen the area from 800 m to 1.4 km?");
+  await expect(adjustment).toContainText("only you see this");
 
-  await page.getByTestId("tab-decisions").click();
-  const card = page.getByTestId("adjustment-card");
-  await expect(card).toContainText("Widen the search area from 800 m to 1400 m?");
-  await expect(card).toContainText("only you see this");
-  await page.screenshot({ path: "test-results/spokes-impasse.png", fullPage: true });
+  await expectDomainNeutralCopy(
+    page.locator(".drawer-title, .drawer-section-title, .drawer-head .drawer-chip"),
+  );
+  await closeDrawer(page);
+  await page.getByTestId("composer-scope").click();
+  await expectDomainNeutralCopy(
+    page.locator(
+      ".header-subtitle, .count-label, .section-title, .composer-suggest-label, " +
+        '[role="menuitemradio"], #consent .card-body, [data-testid="adjustment-card"] .card-body',
+    ),
+  );
+  await page.getByTestId("composer-scope").click();
 
-  // Grant → mocked consent_required is not returned here (mock says ok);
-  // the consent_required staging path is covered in the next test via UI.
-  await card.getByTestId("grant-adj_1").click();
-  await expect(page.getByTestId("last-result")).toContainText("Done (mock).");
+  const row = page.getByTestId("need-need-budget");
+  const box = await row.boundingBox();
+  if (!box) throw new Error("need row has no pointer target");
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await expect(page.getByTestId("map-region")).toHaveAttribute("data-preview", "true");
+  await expect(page.getByTestId("count-number")).toHaveText("3");
+  const liveRegion = page.locator("#brief-preview-count");
+  await expect(liveRegion).toHaveAttribute("role", "status");
+  await expect(liveRegion).toHaveAttribute("aria-live", "polite");
+  await expect(liveRegion).toHaveText("3 still work");
+  await expect(page.locator('[data-testid^="pin-"][data-state="return"]')).toHaveCount(3);
+  const reducedMotion = await page.evaluate(() => {
+    const root = getComputedStyle(document.documentElement);
+    const sticker = getComputedStyle(
+      document.querySelector('[data-state="return"] .sticker-box')!,
+    );
+    return {
+      settle: root.getPropertyValue("--spoke-dur-settle").trim(),
+      pop: root.getPropertyValue("--spoke-dur-pop").trim(),
+      breathe: root.getPropertyValue("--spoke-dur-breathe").trim(),
+      animationName: sticker.animationName,
+      animationDuration: sticker.animationDuration,
+    };
+  });
+  expect(reducedMotion).toEqual({
+    settle: "0ms",
+    pop: "0ms",
+    breathe: "0ms",
+    animationName: "spoke-breathe",
+    animationDuration: "0s",
+  });
+  await page.mouse.up();
+  await expect(page.getByTestId("map-region")).not.toHaveAttribute("data-preview", "true");
+  await expect(page.getByTestId("count-number")).toHaveText("0");
+  await expect(page.locator('[data-testid^="pin-"][data-state="return"]')).toHaveCount(0);
+
+  await row.focus();
+  await page.keyboard.down("Space");
+  await expect(page.getByTestId("map-region")).toHaveAttribute("data-preview", "true");
+  await expect(page.getByTestId("count-number")).toHaveText("3");
+  await expect(liveRegion).toHaveText("3 still work");
+  await page.keyboard.up("Space");
+  await expect(page.getByTestId("map-region")).not.toHaveAttribute("data-preview", "true");
+  await expect(page.getByTestId("count-number")).toHaveText("0");
+  await expect(page.locator('[data-testid^="pin-"][data-state="return"]')).toHaveCount(0);
+
+  const markerIds = ["place_1", "place_10", "place_24", "place_31"];
+  const transformsBefore = await markerTransforms(page, markerIds);
+  await page.getByLabel("What matters to you?").fill("somewhere calm");
+  await page.getByLabel("What matters to you?").press("Enter");
+  await expect(page.getByTestId("need-mock-submitted")).toBeVisible();
+  await expect(page.getByTestId("count-block")).toHaveAttribute("data-state", "pending");
+  await expect(page.getByTestId("count-block")).toContainText("· 4 unsure");
+  await expect(page.locator('[data-testid^="pin-"][data-state="unsure"]')).toHaveCount(4);
+  await expect(page.getByTestId("need-mock-submitted")).toHaveAttribute("aria-pressed", "true");
+  expect(await markerTransforms(page, markerIds)).toEqual(transformsBefore);
+  await page.getByTestId("need-mock-submitted").focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("need-mock-submitted")).toHaveAttribute("aria-pressed", "false");
+  await expect(page.locator('[data-testid^="pin-"][data-state="unsure"]')).toHaveCount(0);
+  expect(await markerTransforms(page, markerIds)).toEqual(transformsBefore);
+
+  expect(audit.join("\n")).not.toContain(privateKey);
+  expect(audit.join("\n")).not.toContain(privateValue);
+  await browserContext.close();
 });
 
-test("deliberation at 1400m: eligible pins, proposal rings, sheet actions, veto menu", async ({ page }) => {
-  await mockApi(page, {
-    context: contextFixture({
+test("candidate batches settle in place across requirements and radius changes, while a centre change refits", async ({ page }) => {
+  const localIds = ["place_1", "place_2", "place_3", "place_4"];
+  const trackedIds = ["place_1", "place_10", "place_24", "place_31"];
+  const state: MockState = {
+    context: fixture({ eligibleIds: localIds }),
+    outstanding: [],
+    command(request, current) {
+      const input = request.input as Record<string, unknown>;
+      current.context.revision += 1;
+      if (request.type === "SubmitRequirement") {
+        current.context.activeNeeds.push({
+          id: "batch-need",
+          label: "somewhere calm",
+          ruledOut: 1,
+          wouldReturn: 3,
+          unknown: 2,
+          active: true,
+          visibility: "shared",
+          hardness: "hard",
+          ownerId: "p_org",
+        });
+        applyEligibility(current.context, ["place_1"], ["place_2", "place_3"]);
+      } else if (request.type === "SetRequirementActive") {
+        const need = current.context.activeNeeds.find(
+          (candidate) => candidate.id === input.requirementId,
+        );
+        if (need) need.active = Boolean(input.active);
+        applyEligibility(current.context, localIds, []);
+      } else if (request.type === "SetSearchScope") {
+        const area = input.area as MockContext["scope"]["area"];
+        current.context = fixture({
+          revision: current.context.revision,
+          radiusM: area.radiusM,
+          scopeCenter: area.center,
+          eligibleIds: [...localIds, ...DEFAULT_ELIGIBLE_IDS],
+          activeNeeds: current.context.activeNeeds,
+        });
+      }
+      return {
+        ok: true,
+        revision: current.context.revision,
+        effect: "Done (mock).",
+        outstanding: current.outstanding,
+      };
+    },
+  };
+  await mockApi(page, state);
+  await page.goto(`${BASE}/?shim=webmcp#invite=deadbeef`);
+  await closeDrawer(page);
+
+  await expectDomainNeutralCopy(page.getByTestId("brief-empty"));
+  await expect(page.locator('[data-testid^="pin-"][data-state="works"]')).toHaveCount(4);
+  const initialTransforms = await stableMarkerTransforms(page, trackedIds);
+
+  await page.getByLabel("What matters to you?").fill("somewhere calm");
+  await page.getByLabel("What matters to you?").press("Enter");
+  await expect(page.getByTestId("need-batch-need")).toBeVisible();
+  await expect(page.locator('[data-testid^="pin-"][data-state="works"]')).toHaveCount(1);
+  await expect(page.locator('[data-testid^="pin-"][data-state="unsure"]')).toHaveCount(2);
+  expect(await markerTransforms(page, trackedIds)).toEqual(initialTransforms);
+
+  await page.getByTestId("need-batch-need").focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("need-batch-need")).toHaveAttribute("aria-pressed", "false");
+  await expect(page.locator('[data-testid^="pin-"][data-state="works"]')).toHaveCount(4);
+  await expect(page.locator('[data-testid^="pin-"][data-state="unsure"]')).toHaveCount(0);
+  expect(await markerTransforms(page, trackedIds)).toEqual(initialTransforms);
+
+  const setScope = (area: MockContext["scope"]["area"]) =>
+    page.evaluate(async (nextArea) => {
+      const shim = (window as never as {
+        __webmcpTestShim: { executeTool(name: string, args: string): Promise<unknown> };
+      }).__webmcpTestShim;
+      return shim.executeTool(
+        "set_search_scope",
+        JSON.stringify({ baseRevision: 0, area: nextArea }),
+      );
+    }, area);
+
+  await setScope({ kind: "circle", center, radiusM: 1400 });
+  await expect(page.getByTestId("map-region")).toHaveAttribute("data-scope-radius", "1400");
+  await expect(page.locator('[data-testid^="pin-"][data-state="works"]')).toHaveCount(8);
+  await expect(page.locator('[data-testid^="pin-"][data-state="out"]')).toHaveCount(23);
+  expect(await markerTransforms(page, trackedIds)).toEqual(initialTransforms);
+
+  const shiftedCenter = { lat: center.lat + 0.004, lng: center.lng + 0.004 };
+  await setScope({ kind: "circle", center: shiftedCenter, radiusM: 1400 });
+  await expect
+    .poll(async () => JSON.stringify(await markerTransforms(page, trackedIds)))
+    .not.toBe(JSON.stringify(initialTransforms));
+});
+
+test("deliberation draws unsure and proposed pins and exposes direct stance actions", async ({ page }) => {
+  const state: MockState = {
+    context: fixture({
       revision: 30,
-      phase: "deliberation",
       radiusM: 1400,
+      matching: 4,
+      uncertain: 2,
+      activeNeeds: [
+        {
+          id: "need-step-free",
+          label: "step-free access",
+          ruledOut: 6,
+          wouldReturn: 2,
+          unknown: 2,
+          active: true,
+          visibility: "shared",
+          hardness: "hard",
+          ownerId: "p_sarah",
+        },
+      ],
       proposals: [
         {
           proposalId: "prop_1",
           candidateId: "place_30",
           status: "vetoed",
-          stances: [{ participantId: "p_org", stance: "veto" }, { participantId: "p_sarah", stance: "accept" }, { participantId: "p_joe", stance: "none" }], vetoStands: true,
+          stances: [
+            { participantId: "p_org", stance: "veto" },
+            { participantId: "p_sarah", stance: "accept" },
+            { participantId: "p_joe", stance: "none" },
+          ],
+          vetoStands: true,
+          ownStance: "veto",
         },
         {
           proposalId: "prop_2",
           candidateId: "place_24",
           status: "open",
-          stances: [{ participantId: "p_org", stance: "accept" }, { participantId: "p_sarah", stance: "accept" }, { participantId: "p_joe", stance: "none" }], vetoStands: false,
-          ownStance: undefined,
+          stances: [
+            { participantId: "p_org", stance: "none" },
+            { participantId: "p_sarah", stance: "accept" },
+            { participantId: "p_joe", stance: "none" },
+          ],
+          vetoStands: false,
         },
       ],
     }),
     outstanding: [{ type: "stance_needed", proposalId: "prop_2" }],
-  });
+  };
+  await mockApi(page, state);
   await page.goto(`${BASE}/#invite=deadbeef`);
 
-  await expect(page.getByTestId("feasibility-chip")).toContainText("4 of 31 eligible");
-  await expect(page.locator('.pin[data-eligibility="eligible"]')).toHaveCount(4);
-  await expect(page.locator('.pin[data-proposed="true"]')).toHaveCount(1);
-  await expect(page.locator('.pin[data-vetoed="true"]')).toHaveCount(1);
+  await expect(page.getByTestId("count-block")).toContainText("· 2 unsure");
+  // The fourth matching pin is the active proposal; proposed has higher
+  // visual-state precedence than works.
+  await expect(page.locator('[data-testid^="pin-"][data-state="works"]')).toHaveCount(3);
+  await expect(page.locator('[data-testid^="pin-"][data-state="unsure"]')).toHaveCount(2);
+  await expect(page.getByTestId("pin-place_24")).toHaveAttribute("data-state", "proposed");
+  await expect(page.getByTestId("stance-card")).toContainText("The Barn is on the table");
+  await expect(page.getByTestId("stage-card")).toContainText("Settle on The Barn?");
+  const normalMotion = await page.evaluate(() => {
+    const root = getComputedStyle(document.documentElement);
+    const sticker = getComputedStyle(
+      document.querySelector('[data-state="proposed"] .sticker-box')!,
+    );
+    return {
+      settle: root.getPropertyValue("--spoke-dur-settle").trim(),
+      pop: root.getPropertyValue("--spoke-dur-pop").trim(),
+      breathe: root.getPropertyValue("--spoke-dur-breathe").trim(),
+      animationName: sticker.animationName,
+      animationDuration: sticker.animationDuration,
+    };
+  });
+  for (const duration of [normalMotion.settle, normalMotion.pop, normalMotion.breathe]) {
+    expect(Number.parseFloat(duration)).toBeGreaterThan(0);
+  }
+  expect(normalMotion.animationName).toBe("spoke-pop");
+  expect(Number.parseFloat(normalMotion.animationDuration)).toBeGreaterThan(0);
 
-  // Stance card in Decisions.
-  await page.getByTestId("tab-decisions").click();
-  await expect(page.getByTestId("stance-card")).toContainText("The Barn");
-  // Organizer also sees the staging card for the open proposal.
-  await expect(page.getByTestId("stage-card")).toContainText("Stage the agreement?");
-
-  // Pin → candidate sheet with real dossier attributes and actions.
-  await page.getByTestId("pin-place_24").click();
-  const sheet = page.getByTestId("candidate-sheet");
-  await expect(sheet.getByTestId("sheet-name")).toHaveText("The Barn");
-  await expect(sheet.getByTestId("accept-btn")).toBeVisible();
-  await sheet.getByTestId("veto-btn").click();
-  await expect(sheet.getByTestId("veto-menu")).toContainText("Visited too recently");
-  await sheet.getByTestId("details-btn").click();
-  await expect(sheet.getByTestId("dossier-details")).toContainText("vegetarian-options");
-  await page.screenshot({ path: "test-results/spokes-deliberation.png", fullPage: true });
+  const pin = page.getByTestId("pin-place_24");
+  await pin.click({ force: true, position: { x: 22, y: 22 } });
+  const details = page.getByTestId("place-details");
+  await expect(details).toHaveAttribute("aria-label", "The Barn");
+  await expect(details.getByTestId("verdict")).toHaveAttribute("data-state", "works");
+  await expect(details.getByTestId("verdict")).toContainText("Clears every need the room has stated");
+  await expect(details.locator('.attr-row[data-status="verified_true"]').first()).toBeVisible();
+  await expect(details.getByTestId("accept-btn")).toBeVisible();
+  await expect(details.getByTestId("veto-btn")).toHaveText("Rule it out");
+  await expectDomainNeutralCopy(
+    page.locator(
+      ".details-nav, .group-heading, .details-actions, " +
+        '[data-testid="stance-card"] .card-body, [data-testid="stage-card"] .card-body',
+    ),
+  );
+  const vetoResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/api/commands") &&
+      response.request().method() === "POST" &&
+      response.request().postDataJSON()?.type === "RespondToProposal",
+  );
+  await details.getByTestId("veto-btn").click();
+  await vetoResponse;
+  await expect(page.getByTestId("last-result")).toHaveCount(0);
 });
 
-test("arrival: banner, mode picker, navigation handoff link", async ({ page }) => {
-  await mockApi(page, {
-    context: contextFixture({
+test("arrival appears only for a committed agreement and offers mode and navigation handoff", async ({ page }) => {
+  const state: MockState = {
+    context: fixture({
       revision: 44,
       phase: "arrival",
       radiusM: 1400,
@@ -285,29 +855,94 @@ test("arrival: banner, mode picker, navigation handoff link", async ({ page }) =
           proposalId: "prop_2",
           candidateId: "place_24",
           status: "committed",
-          stances: [{ participantId: "p_org", stance: "accept" }, { participantId: "p_sarah", stance: "accept" }, { participantId: "p_joe", stance: "accept" }], vetoStands: false,
+          stances: participants.map((participant) => ({
+            participantId: participant.participantId,
+            stance: "accept",
+          })),
+          vetoStands: false,
+          ownStance: "accept",
         },
       ],
-      agreement: { proposalId: "prop_2", candidateId: "place_24", committedAtRevision: 43 },
+      agreement: {
+        proposalId: "prop_2",
+        candidateId: "place_24",
+        status: "committed",
+        committedAtRevision: 43,
+      },
       arrival: { mode: "walk" },
     }),
-  });
+    outstanding: [],
+    command(request, current) {
+      current.context.revision += 1;
+      if (request.type === "PlanArrival") {
+        const input = request.input as { mode?: string };
+        current.context.arrival = { mode: input.mode };
+      }
+      return {
+        ok: true,
+        revision: current.context.revision,
+        effect: "Done (mock).",
+        outstanding: current.outstanding,
+      };
+    },
+  };
+  await mockApi(page, state);
   await page.goto(`${BASE}/#invite=deadbeef`);
 
-  const banner = page.getByTestId("arrival-banner");
-  await expect(banner).toContainText("The Barn");
+  await expect(page.getByTestId("room-title")).toHaveText("The Barn");
+  await expect(page.getByTestId("arrival-banner")).toContainText("The Barn");
+  await expect(page.getByTestId("composer")).toHaveCount(0);
+  const modes = page.getByRole("group", { name: "How are you getting there?" });
+  await expect(modes.getByRole("button", { name: "Walk" })).toHaveAttribute("aria-pressed", "true");
+  await modes.getByRole("button", { name: "Bike" }).click();
+  await expect(modes.getByRole("button", { name: "Bike" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
   await expect(page.getByTestId("navigate-link")).toHaveAttribute(
     "href",
     "https://www.google.com/maps/dir/?api=1&destination=52.52,13.39",
   );
-  // Committed destination renders as the gold star.
-  await expect(page.locator('[data-testid="pin-place_24"][data-committed="true"]')).toBeVisible();
-  await page.screenshot({ path: "test-results/spokes-arrival.png", fullPage: true });
+  await expect(page.getByTestId("pin-place_24")).toHaveAttribute("data-state", "selected");
+  await expect(page.getByTestId("count-block")).toHaveAttribute("data-state", "settled");
+  await expectDomainNeutralCopy(
+    page.locator(".arrival-sub, .arrival-go, .arrival-alt, .seg"),
+  );
 });
 
-test("consent staging card appears when a command returns consent_required", async ({ page }) => {
-  await mockApi(page, {
-    context: contextFixture({ revision: 21, phase: "deliberation", radiusM: 800, impasse: true }),
+test("consent grant stages before confirmation and a staged agreement is not settled", async ({ page }) => {
+  const stagedProposal = {
+    proposalId: "prop_2",
+    candidateId: "place_24",
+    status: "staged",
+    stances: participants.map((participant) => ({
+      participantId: participant.participantId,
+      stance: "accept",
+    })),
+    vetoStands: false,
+    ownStance: "accept",
+  };
+  const state: MockState = {
+    context: fixture({
+      revision: 21,
+      matching: 0,
+      impasse: true,
+      proposals: [stagedProposal],
+      agreement: { proposalId: "prop_2", candidateId: "place_24", status: "staged" },
+      activeNeeds: [
+        {
+          id: "need-budget",
+          label: "budget €15",
+          ruledOut: 8,
+          wouldReturn: 3,
+          unknown: 0,
+          active: true,
+          visibility: "shared",
+          hardness: "hard",
+          ownerId: "p_org",
+        },
+      ],
+    }),
     outstanding: [
       {
         type: "adjustment_request",
@@ -318,50 +953,35 @@ test("consent staging card appears when a command returns consent_required", asy
         withinDelegatedBound: false,
       },
     ],
-  });
-  // Override /api/commands to mirror the real server: a grant outside the
-  // delegated bound succeeds but flips the outstanding item to staged:true.
-  await page.route("**/api/commands", (route) => {
-    const body = route.request().postDataJSON() as { type: string };
-    if (body.type === "ResolvePrivateRequest") {
-      return route.fulfill({
-        contentType: "application/json",
-        body: JSON.stringify({
-          ok: true,
-          revision: 22,
-          effect: "Grant staged — confirm on the page.",
-          outstanding: [
-            {
-              type: "adjustment_request",
-              requestId: "adj_2",
-              kind: "scope_change",
-              change: { dimension: "radius_m", from: 800, to: 1400 },
-              projectedGain: { newCandidates: 4 },
-              withinDelegatedBound: false,
-              staged: true,
-            },
-          ],
-        }),
-      });
-    }
-    return route.fulfill({
-      contentType: "application/json",
-      body: JSON.stringify({
+    command(request, current) {
+      current.context.revision += 1;
+      if (request.type === "ResolvePrivateRequest") {
+        current.outstanding = current.outstanding.map((item) => ({ ...item, staged: true }));
+      }
+      return {
         ok: true,
-        revision: 23,
+        revision: current.context.revision,
         effect: "Confirmed (mock).",
-        outstanding: [],
-      }),
-    });
-  });
+        outstanding: current.outstanding,
+      };
+    },
+  };
+  await mockApi(page, state);
   await page.goto(`${BASE}/#invite=deadbeef`);
 
-  await page.getByTestId("tab-decisions").click();
+  await expect(page.getByTestId("commit-card")).toContainText("The Barn is staged");
+  await expect(page.getByTestId("arrival-banner")).toHaveCount(0);
+  await expect(page.getByTestId("composer")).toBeVisible();
+  await expect(page.getByTestId("room-title")).not.toHaveText("The Barn");
+
   await page.getByTestId("grant-adj_2").click();
   const confirm = page.getByTestId("confirm-card");
-  await expect(confirm).toContainText("Confirm on this page");
-  await expect(confirm).toContainText("Widen the search area");
-  await page.screenshot({ path: "test-results/spokes-consent.png", fullPage: true });
-  await confirm.getByTestId("confirm-grant").click();
-  await expect(page.getByTestId("last-result")).toContainText("Confirmed (mock).");
+  await expect(confirm).toContainText("Confirm here to apply it");
+  await expect(confirm).toContainText("Widen the area from 800 m to 1.4 km?");
+  await expect(confirm.getByTestId("confirm-grant")).toBeVisible();
+  await expect(page.getByTestId("map-region")).toHaveAttribute("data-scope-radius", "800");
+  await expectDomainNeutralCopy(
+    page.locator('[data-testid="confirm-card"] .card-kicker, [data-testid="confirm-card"] .card-body'),
+  );
+  await expect(page.getByTestId("last-result")).toHaveCount(0);
 });
