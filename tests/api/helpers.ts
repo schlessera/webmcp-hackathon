@@ -1,3 +1,4 @@
+import { TOOL_CONTRACT_VERSION } from "@webmcp-hackathon/contracts";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
@@ -311,7 +312,7 @@ export async function apiPost<T = Record<string, unknown>>(
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "x-tool-contract-version": "1",
+      "x-tool-contract-version": TOOL_CONTRACT_VERSION,
       ...(token ? { authorization: `Bearer ${token}` } : {}),
     },
     body: JSON.stringify(body),

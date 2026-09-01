@@ -15,7 +15,14 @@ const Ajv = ((AjvModule as never as { default?: unknown }).default ??
   AjvModule) as typeof AjvModule.default;
 const readAjv = new Ajv({ strict: false });
 const validateSyncInput = readAjv.compile(SYNC_SESSION_INPUT);
-const validateContextInput = readAjv.compile(SPATIAL_CONTEXT_INPUT);
+// The route accepts one argument the TOOL surface deliberately does not: the
+// press-and-hold preview is a pointer gesture on this page, not a decision an
+// agent takes, and SPATIAL_CONTEXT_INPUT stays empty so the agent's context
+// call has no knob that changes what it sees.
+const validateContextInput = readAjv.compile({
+  ...(SPATIAL_CONTEXT_INPUT as unknown as Record<string, unknown>),
+  properties: { excludeRequirementId: { type: "string", maxLength: 40 } },
+});
 const validateInspectInput = readAjv.compile(INSPECT_CANDIDATES_INPUT);
 const validateNavigationInput = readAjv.compile(PREPARE_NAVIGATION_INPUT);
 import { config } from "./config.ts";
@@ -149,11 +156,15 @@ app.post("/api/spatial/context", async (req) => {
   const body = (req.body ?? {}) as Record<string, unknown>;
   if (!validateContextInput(body)) {
     return invalidInput(
-      "get_spatial_context takes no arguments.",
+      "get_spatial_context takes no arguments beyond an optional excludeRequirementId.",
       "Call it with an empty object.",
     );
   }
-  const result = await spatialContext(actor);
+  const result = await spatialContext(actor, {
+    ...(typeof body.excludeRequirementId === "string"
+      ? { excludeRequirementId: body.excludeRequirementId }
+      : {}),
+  });
   logRead(req, actor.id, "GetSpatialContext", result.ok);
   return result;
 });

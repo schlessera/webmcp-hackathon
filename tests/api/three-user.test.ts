@@ -21,6 +21,12 @@ interface Envelope {
   error?: { code: string; message: string; recovery: string };
   delta?: { fromRevision: number; events: Array<{ revision: number; type: string; level: string; text: string; payload?: unknown }> };
   identity?: { participantId: string; displayName: string; role: string };
+  participants?: Array<{
+    participantId: string;
+    displayName: string;
+    role: string;
+    readyState: string;
+  }>;
 }
 
 beforeAll(async () => {
@@ -51,6 +57,28 @@ describe("identity", () => {
     expect(results.map((r) => r.body.identity!.role)).toEqual([
       "organizer", "member", "member",
     ]);
+  });
+
+  it("every sync carries the room's roster, organizer first, with no private state", async () => {
+    const { body, raw } = await sync(room.tokens.joe);
+    // Organizer first, then a stable order — the presence row must not
+    // reshuffle itself between reads.
+    expect(body.participants![0].participantId).toBe(room.participantIds.org);
+    expect(body.participants!.map((p) => p.participantId).sort()).toEqual(
+      [room.participantIds.org, room.participantIds.sarah, room.participantIds.joe].sort(),
+    );
+    const again = await sync(room.tokens.sarah);
+    expect(again.body.participants!.map((p) => p.participantId)).toEqual(
+      body.participants!.map((p) => p.participantId),
+    );
+    // Presence and readiness only — the roster is not a place to smuggle
+    // requirements, stances, or tokens.
+    for (const person of body.participants!) {
+      expect(Object.keys(person).sort()).toEqual([
+        "displayName", "participantId", "readyState", "role",
+      ]);
+    }
+    expect(raw).not.toContain("payload");
   });
 
   it("no caller can provide or override an actor ID", async () => {

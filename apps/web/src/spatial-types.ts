@@ -6,23 +6,76 @@
 
 export type Eligibility = "eligible" | "uncertain" | "excluded";
 
+export type Visibility = "shared" | "application-private" | "agent-private";
+
+export interface ParticipantSummary {
+  participantId: string;
+  displayName: string;
+  role: "organizer" | "member";
+  readyState: "contributing" | "ready";
+}
+
 export interface CandidateSummary {
   candidateId: string;
   name: string;
   location: { lat: number; lng: number };
   category: string;
   eligibility: Eligibility;
-  /** Redacted explanation; the server may omit it (e.g. plainly eligible). */
-  why?: string;
+  /** Redacted explanation, composed per viewer. */
+  why: string;
+  /** Minutes on foot from the current scope centre. */
   walkMin: number;
+  /** null when the place has no price band on record. */
   priceLevel: number | null;
+}
+
+/** What is askable about the current results (FACETS.md §1). The client
+ * renders `label` verbatim and branches on `type` — never on domain. */
+export interface FacetValueCount {
+  value: string;
+  label: string;
+  count: number;
+}
+export interface Facet {
+  key: string;
+  label: string;
+  type: "boolean" | "enum" | "numeric" | "temporal" | "text";
+  counts: { yes?: number; no?: number; unknown: number };
+  values?: FacetValueCount[];
+  unit?: string;
+  range?: { min: number; max: number };
+  histogram?: number[];
+  salience?: number;
+}
+
+/** A need the viewer may see, with its counterfactual deltas (FACETS.md §2). */
+export interface ActiveNeed {
+  id: string;
+  label: string;
+  ruledOut: number;
+  wouldReturn: number;
+  unknown: number;
+  active: boolean;
+  visibility: Visibility;
+  hardness: "hard" | "soft";
+  ownerId: string;
+}
+
+/** A peer's private need, reduced to its effect (FACETS.md §4). Never the
+ * predicate, the value, or the places it removed. */
+export interface PrivateEffect {
+  owner: string;
+  ruledOut: number;
+  topic?: string;
 }
 
 export interface ProposalView {
   proposalId: string;
   candidateId: string;
   status: "open" | "withdrawn" | "vetoed" | "staged" | "committed";
-  stanceCounts: { accept: number; other: number };
+  /** One entry per participant. A stance the viewer may not see reads
+   * "none", indistinguishable from silence. */
+  stances: Array<{ participantId: string; stance: "accept" | "veto" | "none" }>;
   vetoStands: boolean;
   ownStance?: string;
 }
@@ -45,11 +98,19 @@ export interface SpatialContext {
     uncertain: number;
     excluded: number;
   };
+  /** In-scope places: the denominator of "N of TOTAL". */
+  total: number;
+  /** In-scope places satisfying every active need. */
+  matching: number;
   candidates: CandidateSummary[];
+  facets: Facet[];
+  activeNeeds: ActiveNeed[];
+  privateEffects: PrivateEffect[];
+  participants: ParticipantSummary[];
   proposals: ProposalView[];
   agreement?: { proposalId?: string; candidateId?: string; committedAtRevision?: number };
   arrival?: { mode?: string; pickupNote?: string };
-  impasse?: { active: boolean };
+  impasse?: { active: true; text: string };
 }
 
 export interface DossierAttribute {

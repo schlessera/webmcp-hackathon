@@ -75,6 +75,14 @@ export interface ParticipantIdentity {
   role: "organizer" | "member";
 }
 
+/** One participant in the room's roster (shared, non-sensitive presence). */
+export interface ParticipantSummary {
+  participantId: string;
+  displayName: string;
+  role: "organizer" | "member";
+  readyState: "contributing" | "ready";
+}
+
 export interface Feasibility {
   state: "feasible" | "fragile" | "infeasible" | "uncertain";
   eligible: number;
@@ -101,6 +109,8 @@ export interface SyncSessionResult {
   brief: string;
   delta?: Delta;
   outstanding: OutstandingItem[];
+  /** Everyone in the room — the header's presence row. */
+  participants: ParticipantSummary[];
 }
 
 export type SyncSessionResponse = SyncSessionResult | FailureEnvelope;
@@ -127,17 +137,28 @@ export interface CandidateSummary {
   eligibility: "eligible" | "uncertain" | "excluded";
   /** Redacted: cites evidence status and shared requirements only. */
   why: string;
+  /** Minutes on foot from the CURRENT scope centre, recomputed per read. */
   walkMin: number;
-  priceLevel: number;
+  /** null when the place has no price band on record — never coerced to 0. */
+  priceLevel: number | null;
+}
+
+/** One participant's PUBLIC stance on a proposal. A stance the viewer may not
+ * see (a peer's private one) reads "none", exactly like no stance at all —
+ * the veto boolean is what carries a private rejection. */
+export interface ProposalStance {
+  participantId: string;
+  stance: "accept" | "veto" | "none";
 }
 
 export interface ProposalView {
   proposalId: string;
   candidateId: string;
   status: "open" | "withdrawn" | "vetoed" | "staged" | "committed";
-  /** Counts over the viewer's own stance plus shared-visible stances only —
-   * raw totals would de-anonymize private stances by subtraction. */
-  stanceCounts: { accept: number; other: number };
+  /** One entry per participant, in roster order. Carries the viewer's own
+   * stance plus shared-visible ones; everything else reads "none", so private
+   * stances stay indistinguishable from silence. */
+  stances: ProposalStance[];
   /** A standing veto blocks agreement; reported as a boolean, never a count. */
   vetoStands: boolean;
   ownStance?: string;
@@ -155,13 +176,87 @@ export interface ArrivalPlanView {
   pickupNote?: string;
 }
 
+/**
+ * What is askable about the current candidate set (FACETS.md §1). Every
+ * control in the UI is generated from these: the client renders `label`
+ * verbatim and branches on `type`, never on domain. There is deliberately no
+ * category or domain field.
+ */
+export interface FacetValueCount {
+  value: string;
+  label: string;
+  count: number;
+}
+export interface Facet {
+  /** Stable, machine-readable, never rendered. Round-trips into a requirement
+   * payload, so it stays inside ATTRIBUTE_VOCABULARY where one applies. */
+  key: string;
+  /** The only string the UI shows. Server-authored, lowercase, domain-natural. */
+  label: string;
+  type: "boolean" | "enum" | "numeric" | "temporal" | "text";
+  /** `unknown` is mandatory: unverified is a state the UI draws. */
+  counts: { yes?: number; no?: number; unknown: number };
+  /** enum only. */
+  values?: FacetValueCount[];
+  /** numeric only. */
+  unit?: string;
+  range?: { min: number; max: number };
+  histogram?: number[];
+  /** Optional 0-1 ordering hint. Absent: the array is already in render order. */
+  salience?: number;
+}
+
+/**
+ * One need the viewer may see (their own, or shared), with the counterfactual
+ * deltas the brief rows and the delta chip need (FACETS.md §2). Peers' private
+ * needs are never here — they surface as PrivateEffect instead.
+ */
+export interface ActiveNeed {
+  id: string;
+  /** Server-composed, viewer-authorized. */
+  label: string;
+  /** How many in-scope places this need ALONE rules out. */
+  ruledOut: number;
+  /** How many come back if it were dropped from the current set. */
+  wouldReturn: number;
+  /** How many this need alone leaves unverified. */
+  unknown: number;
+  /** False when the owner has set it aside; the row stays, greyed. */
+  active: boolean;
+  visibility: Visibility;
+  hardness: "hard" | "soft";
+  ownerId: string;
+}
+
+/**
+ * A peer's private need, reduced to its effect (FACETS.md §4 / invariant 5):
+ * never the predicate, the value, or the places it removed. `topic` is the
+ * owner's opt-in scope hint, omitted when they gave none.
+ */
+export interface PrivateEffect {
+  /** participantId of the owner. */
+  owner: string;
+  ruledOut: number;
+  topic?: string;
+}
+
 export interface SpatialContextResult {
   ok: true;
   revision: number;
   phase: string;
   scope: ScopeView | null;
   feasibility: Feasibility;
+  /** Places inside the current scope — the denominator of "N of TOTAL". The
+   * candidates array carries more: out-of-scope places are returned excluded
+   * so the map can fade them in place rather than re-layout. */
+  total: number;
+  /** Places currently satisfying every active need. */
+  matching: number;
   candidates: CandidateSummary[];
+  facets: Facet[];
+  activeNeeds: ActiveNeed[];
+  privateEffects: PrivateEffect[];
+  participants: ParticipantSummary[];
   proposals: ProposalView[];
   agreement?: AgreementView;
   /** The caller's own plan only — peers' plans are never returned here. */
@@ -174,7 +269,7 @@ export interface CandidateDossier {
   name: string;
   location: LatLng;
   category: string;
-  priceLevel: number;
+  priceLevel: number | null;
   hours: Array<{ day: string; open: string; close: string }>;
   attributes: Array<{
     key: string;

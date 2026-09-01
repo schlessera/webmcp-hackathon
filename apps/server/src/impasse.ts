@@ -264,7 +264,11 @@ export async function impasseBracket(
     client.query("SELECT scope FROM rooms WHERE id = $1", [roomId]),
   ]);
   const candidateRows = candidates.rows as CandidateRow[];
-  const requirementRows = requirements.rows as RequirementRow[];
+  // Needs their owner has set aside are not in force: the council reasons
+  // about, and offers to relax, only what is actually classifying candidates.
+  const requirementRows = (requirements.rows as RequirementRow[]).filter(
+    (r) => r.active !== false,
+  );
   const verdictRows = verdicts.rows as VerdictRow[];
   const scope = (scopeRow.rows[0]?.scope as ScopeState) ?? null;
 

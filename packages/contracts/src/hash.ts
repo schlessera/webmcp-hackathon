@@ -34,7 +34,7 @@ export const RESULT_CONTRACT = {
   failureEnvelope: ["ok", "error.code", "error.message", "error.recovery", "delta"],
   syncSessionResult: [
     "ok", "revision", "buildId", "toolContractVersion", "phase", "identity",
-    "manifest", "feasibility", "brief", "delta", "outstanding",
+    "manifest", "feasibility", "brief", "delta", "outstanding", "participants",
   ],
   delta: ["fromRevision", "events", "truncated", "cursor"],
   projectedEvent: ["revision", "type", "level", "text", "payload"],
@@ -43,14 +43,25 @@ export const RESULT_CONTRACT = {
     "projectedGain", "withinDelegatedBound", "staged",
   ],
   spatialContextResult: [
-    "ok", "revision", "phase", "scope", "feasibility", "candidates",
+    "ok", "revision", "phase", "scope", "feasibility", "total", "matching",
+    "candidates", "facets", "activeNeeds", "privateEffects", "participants",
     "proposals", "agreement", "arrival", "impasse",
   ],
+  facet: [
+    "key", "label", "type", "counts.yes", "counts.no", "counts.unknown",
+    "values", "unit", "range", "histogram", "salience",
+  ],
+  activeNeed: [
+    "id", "label", "ruledOut", "wouldReturn", "unknown", "active",
+    "visibility", "hardness", "ownerId",
+  ],
+  privateEffect: ["owner", "ruledOut", "topic"],
+  participantSummary: ["participantId", "displayName", "role", "readyState"],
   candidateSummary: [
     "candidateId", "name", "location", "category", "eligibility", "why",
     "walkMin", "priceLevel",
   ],
-  proposalView: ["proposalId", "candidateId", "status", "stanceCounts", "vetoStands", "ownStance"],
+  proposalView: ["proposalId", "candidateId", "status", "stances", "vetoStands", "ownStance"],
   inspectCandidatesResult: ["ok", "revision", "candidates"],
   prepareNavigationResult: ["ok", "target", "links.geo", "links.googleMaps", "links.appleMaps"],
   realtime: {

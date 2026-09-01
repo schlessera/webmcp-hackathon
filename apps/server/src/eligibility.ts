@@ -16,6 +16,9 @@ import { PRICE_LEVEL_EUR } from "@webmcp-hackathon/contracts";
  *   to its category;
  * - agent-private declarations consult recorded screening verdicts:
  *   unacceptable -> excluded, missing/needs_info -> uncertain;
+ * - free-text needs are unverifiable by construction: every candidate is
+ *   pending against one, and none is excluded;
+ * - inactive requirements (set aside by their owner) are skipped entirely;
  * - soft requirements never exclude.
  *
  * The core is pure (classifyAll) so the impasse pipeline can re-run it against
@@ -51,10 +54,15 @@ export interface RequirementRow {
     dimension?: string;
     max?: number;
     values?: string[];
+    text?: string;
     perPersonMax?: { amount: number; currency: string };
   } | null;
   withdrawn: boolean;
+  /** Set aside by its owner: kept, shown, but not evaluated. Absent rows
+   * (older callers, unit fixtures) are active. */
+  active?: boolean;
   created_at_revision?: number;
+  scope_hint?: { affects?: string; category?: string } | null;
 }
 export interface VerdictRow {
   owner_id: string;
@@ -71,6 +79,9 @@ export interface ScopeState {
 /** One structured contribution to a candidate's classification. `text` is the
  * description its OWNER may see; shared reasons are safe for everyone. */
 export interface EligibilityReason {
+  /** The requirement this contribution came from; "" for the implicit scope
+   * circle, which nobody stated as a need. */
+  requirementId: string;
   ownerId: string;
   shared: boolean;
   text: string;
@@ -143,10 +154,36 @@ export async function loadScope(
   return (row?.scope as ScopeState) ?? null;
 }
 
-export async function computeEligibility(
+const WALK_SPEED_M_PER_MIN = 4500 / 60;
+
+/** Minutes on foot from the scope centre. Recomputed on every read: the
+ * seeded walk_min is measured from wherever the room started and goes stale
+ * the moment the scope moves. */
+export function walkMinutesFrom(
+  center: { lat: number; lng: number } | undefined,
+  location: { lat: number; lng: number },
+  fallback: number,
+): number {
+  if (!center) return fallback;
+  return Math.max(1, Math.round(haversineMeters(location, center) / WALK_SPEED_M_PER_MIN));
+}
+
+export interface EligibilityInputs {
+  candidates: CandidateRow[];
+  requirements: RequirementRow[];
+  verdicts: VerdictRow[];
+  scope: ScopeState | null;
+}
+
+/**
+ * The four reads classification needs, in one round trip. Split out of
+ * computeEligibility so counterfactual passes (facets, activeNeeds, impasse)
+ * run in memory over one snapshot instead of re-querying per hypothesis.
+ */
+export async function loadEligibilityInputs(
   q: pg.PoolClient | pg.Pool,
   roomId: string,
-): Promise<CandidateEligibility[]> {
+): Promise<EligibilityInputs> {
   const [candidates, requirements, verdicts, scope] = await Promise.all([
     q.query("SELECT * FROM candidates WHERE room_id = $1 ORDER BY id", [roomId]),
     q.query(
@@ -156,12 +193,25 @@ export async function computeEligibility(
     q.query("SELECT * FROM verdicts WHERE room_id = $1", [roomId]),
     loadScope(q, roomId),
   ]);
-  return classifyAll(
-    candidates.rows as CandidateRow[],
-    requirements.rows as RequirementRow[],
-    verdicts.rows as VerdictRow[],
+  const center = scope?.area?.center;
+  return {
+    candidates: (candidates.rows as CandidateRow[]).map((c) => ({
+      ...c,
+      walk_min: walkMinutesFrom(center, c.location, c.walk_min),
+    })),
+    requirements: requirements.rows as RequirementRow[],
+    verdicts: verdicts.rows as VerdictRow[],
     scope,
-  );
+  };
+}
+
+export async function computeEligibility(
+  q: pg.PoolClient | pg.Pool,
+  roomId: string,
+): Promise<CandidateEligibility[]> {
+  const { candidates, requirements, verdicts, scope } =
+    await loadEligibilityInputs(q, roomId);
+  return classifyAll(candidates, requirements, verdicts, scope);
 }
 
 export function classifyAll(
@@ -186,6 +236,7 @@ function classify(
     const distance = haversineMeters(candidate.location, scope.area.center);
     if (distance > scope.area.radiusM) {
       return excluded(candidate, {
+        requirementId: "",
         ownerId: "",
         shared: true,
         text: "outside the current search area",
@@ -194,8 +245,14 @@ function classify(
   }
 
   for (const req of requirements) {
+    // Set aside by its owner: still in the brief, but it classifies nothing.
+    if (req.active === false) continue;
     if (req.hardness !== "hard") continue;
-    const owner = { ownerId: req.owner_id, shared: req.visibility === "shared" };
+    const owner = {
+      requirementId: req.id,
+      ownerId: req.owner_id,
+      shared: req.visibility === "shared",
+    };
 
     if (req.visibility === "agent-private") {
       const verdict = verdicts.find(
@@ -273,6 +330,12 @@ function classify(
             text: "estimated cost above the shared budget",
           });
         }
+        break;
+      }
+      case "text": {
+        // Nothing has been checked against free text, so nothing may pass on
+        // it and nothing may be ruled out by it.
+        pending.push({ ...owner, text: `"${p.text}" unverified` });
         break;
       }
       case "exclusion": {

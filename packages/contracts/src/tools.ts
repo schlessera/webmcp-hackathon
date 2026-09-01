@@ -7,6 +7,7 @@ import {
   ResolvePrivateRequestInput,
   RespondToProposalInput,
   SetReadyStateInput,
+  SetRequirementActiveInput,
   SetSearchScopeInput,
   SubmitRequirementInput,
   WithdrawRequirementInput,
@@ -118,6 +119,15 @@ const negotiationTools: ToolDefinition[] = [
       "Withdraw one of your own requirements by requirementId. Eligibility is " +
       "recomputed immediately.",
     inputSchema: WithdrawRequirementInput,
+    annotations: {},
+  },
+  {
+    name: "set_requirement_active",
+    description:
+      "Set one of your own needs aside, or bring it back, without withdrawing " +
+      "it. An inactive need stops ruling candidates out but keeps its place in " +
+      "the brief, so the group can see what would change. Owner-only.",
+    inputSchema: SetRequirementActiveInput,
     annotations: {},
   },
   {

@@ -41,6 +41,18 @@ export async function syncSession(
   }
 
   const eligibilityRows = await computeEligibility(client, actor.roomId);
+  const participants = (
+    await client.query(
+      `SELECT id, display_name, role, ready_state FROM participants
+        WHERE room_id = $1 ORDER BY role <> 'organizer', id`,
+      [actor.roomId],
+    )
+  ).rows.map((p) => ({
+    participantId: p.id as string,
+    displayName: p.display_name as string,
+    role: p.role as "organizer" | "member",
+    readyState: p.ready_state as "contributing" | "ready",
+  }));
   const feasibility = feasibilityOf(eligibilityRows);
   const outstanding = await outstandingFor(client, actor.roomId, actor.id);
 
@@ -87,6 +99,7 @@ export async function syncSession(
     brief,
     ...(delta ? { delta } : {}),
     outstanding,
+    participants,
   };
   });
 }

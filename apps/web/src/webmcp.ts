@@ -86,6 +86,7 @@ function asToolResult(value: unknown): unknown {
 const MUTATION_COMMANDS: Record<string, string> = {
   submit_requirement: "SubmitRequirement",
   withdraw_requirement: "WithdrawRequirement",
+  set_requirement_active: "SetRequirementActive",
   evaluate_candidates: "EvaluateCandidates",
   respond_to_proposal: "RespondToProposal",
   resolve_private_request: "ResolvePrivateRequest",
@@ -141,7 +142,16 @@ function trimContext(context: SpatialContext) {
     moreCandidates: rest.length
       ? `${rest.length} more not shown (${restEligible} eligible). Use inspect_candidates by ID for detail.`
       : undefined,
-    proposals: context.proposals,
+    // Named stances are a presence affordance for the page; the agent needs
+    // the tally and whether a veto stands, not the roster.
+    proposals: context.proposals.map((p) => ({
+      proposalId: p.proposalId,
+      candidateId: p.candidateId,
+      status: p.status,
+      accepts: p.stances.filter((s) => s.stance === "accept").length,
+      vetoStands: p.vetoStands,
+      ownStance: p.ownStance,
+    })),
     agreement: context.agreement,
     outstanding: spatial.state.outstanding,
   };

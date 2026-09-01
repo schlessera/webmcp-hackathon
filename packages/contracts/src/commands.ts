@@ -68,6 +68,19 @@ export const RequirementPayload = Type.Union([
     },
     { additionalProperties: false },
   ),
+  /**
+   * Free text the app cannot verify against any dossier field. Accepted so a
+   * person can state a need in their own words instead of being pushed into a
+   * vocabulary; it classifies EVERY candidate as uncertain and excludes none,
+   * because nothing about it has been checked (attribute honesty).
+   */
+  Type.Object(
+    {
+      kind: Type.Literal("text"),
+      text: Type.String({ minLength: 1, maxLength: 200 }),
+    },
+    { additionalProperties: false },
+  ),
   Type.Object(
     {
       kind: Type.Literal("exclusion"),
@@ -127,6 +140,20 @@ export const WithdrawRequirementInput = Type.Object(
   {
     baseRevision: Type.Integer({ minimum: 0 }),
     requirementId: Type.String({ maxLength: 40 }),
+  },
+  { additionalProperties: false },
+);
+
+/**
+ * Set one of YOUR OWN needs aside without withdrawing it: an inactive need
+ * stops classifying candidates but keeps its row, its id, and its history.
+ * Owner-only — a shared need is still its author's to silence.
+ */
+export const SetRequirementActiveInput = Type.Object(
+  {
+    baseRevision: Type.Integer({ minimum: 0 }),
+    requirementId: Type.String({ maxLength: 40 }),
+    active: Type.Boolean(),
   },
   { additionalProperties: false },
 );
@@ -294,6 +321,7 @@ export const CommitAgreementInput = Type.Object(
 export const COMMAND_SCHEMAS = {
   SubmitRequirement: SubmitRequirementInput,
   WithdrawRequirement: WithdrawRequirementInput,
+  SetRequirementActive: SetRequirementActiveInput,
   EvaluateCandidates: EvaluateCandidatesInput,
   RespondToProposal: RespondToProposalInput,
   SetReadyState: SetReadyStateInput,

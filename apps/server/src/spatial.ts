@@ -7,11 +7,12 @@ import type {
 import { withTransaction } from "./db.ts";
 import type { Participant } from "./auth.ts";
 import {
-  computeEligibility,
+  classifyAll,
   feasibilityOf,
-  loadScope,
+  loadEligibilityInputs,
   whyFor,
 } from "./eligibility.ts";
+import { computeFacetsBundle } from "./facets.ts";
 import { IMPASSE_TEXT } from "./impasse.ts";
 
 /**
@@ -21,8 +22,18 @@ import { IMPASSE_TEXT } from "./impasse.ts";
  * outside the read window.
  */
 
+export interface SpatialContextOptions {
+  /**
+   * Return the context AS IF this need were inactive — the press-and-hold
+   * preview, computed by the same classifier as the real set so the map can
+   * settle honestly instead of guessing. Own or shared needs only.
+   */
+  excludeRequirementId?: string;
+}
+
 export async function spatialContext(
   actor: Participant,
+  options: SpatialContextOptions = {},
 ): Promise<SpatialContextResponse> {
   return withTransaction(async (client) => {
     const room = (
@@ -33,10 +44,9 @@ export async function spatialContext(
     ).rows[0];
     if (!room) return notFound();
 
-    const [rows, scope, proposals, stances, agreementRow, arrivalRow] =
+    const [inputs, proposals, stances, participantRows, agreementRow, arrivalRow] =
       await Promise.all([
-        computeEligibility(client, actor.roomId),
-        loadScope(client, actor.roomId),
+        loadEligibilityInputs(client, actor.roomId),
         client.query(
           `SELECT id, candidate_id, status FROM proposals
             WHERE room_id = $1 AND status <> 'withdrawn' ORDER BY id`,
@@ -44,6 +54,11 @@ export async function spatialContext(
         ),
         client.query(
           "SELECT proposal_id, participant_id, disposition, visibility FROM stances WHERE room_id = $1",
+          [actor.roomId],
+        ),
+        client.query(
+          `SELECT id, display_name, role, ready_state FROM participants
+            WHERE room_id = $1 ORDER BY role <> 'organizer', id`,
           [actor.roomId],
         ),
         client.query(
@@ -57,6 +72,44 @@ export async function spatialContext(
           [actor.roomId, actor.id],
         ),
       ]);
+
+    // A preview may only suppress a need this viewer can already see. An
+    // unknown id and a peer's private one fail identically: confirming that a
+    // foreign requirement exists is the existence oracle §3 forbids.
+    const excludeId = options.excludeRequirementId;
+    if (excludeId !== undefined) {
+      const target = inputs.requirements.find((r) => r.id === excludeId);
+      if (!target || (target.owner_id !== actor.id && target.visibility !== "shared")) {
+        return {
+          ok: false as const,
+          error: {
+            code: "not_found" as const,
+            message: "Unknown requirementId.",
+            recovery: "Preview only your own needs or the room's shared ones.",
+          },
+        };
+      }
+    }
+    const effective = inputs.requirements.filter((r) => r.id !== excludeId);
+    const rows = classifyAll(
+      inputs.candidates,
+      effective,
+      inputs.verdicts,
+      inputs.scope,
+    );
+    const scope = inputs.scope;
+    const bundle = computeFacetsBundle(inputs, actor.id, excludeId);
+    const participants = (participantRows.rows as Array<{
+      id: string;
+      display_name: string;
+      role: string;
+      ready_state: string;
+    }>).map((p) => ({
+      participantId: p.id,
+      displayName: p.display_name,
+      role: p.role as "organizer" | "member",
+      readyState: p.ready_state as "contributing" | "ready",
+    }));
 
     const stanceRows = stances.rows as Array<{
       proposal_id: string;
@@ -72,15 +125,19 @@ export async function spatialContext(
       const own = stanceRows.find(
         (s) => s.proposal_id === pr.id && s.participant_id === actor.id,
       );
-      // Count only what this viewer can already derive: their own stance plus
-      // shared-visible stances. Raw totals over private stances would let a
-      // small room de-anonymize them by subtraction (audit finding 3). A
-      // standing veto is reported as a boolean, never a count — the proposal
-      // status reveals that much already.
-      const visible = stanceRows.filter(
-        (s) =>
-          s.proposal_id === pr.id &&
-          (s.participant_id === actor.id || s.visibility === "shared"),
+      // Name only what this viewer can already derive: their own stance plus
+      // shared-visible ones. A stance they may not see reads "none", exactly
+      // like silence, so a small room cannot de-anonymize a private stance by
+      // subtraction (audit finding 3). A standing veto stays a boolean, never
+      // attributed — the proposal status reveals that much already.
+      const visibleStances = new Map(
+        stanceRows
+          .filter(
+            (s) =>
+              s.proposal_id === pr.id &&
+              (s.participant_id === actor.id || s.visibility === "shared"),
+          )
+          .map((s) => [s.participant_id, s.disposition]),
       );
       const vetoStands = stanceRows.some(
         (s) => s.proposal_id === pr.id && s.disposition === "reject",
@@ -89,12 +146,18 @@ export async function spatialContext(
         proposalId: pr.id,
         candidateId: pr.candidate_id,
         status: pr.status as "open" | "withdrawn" | "vetoed" | "staged" | "committed",
-        stanceCounts: {
-          accept: visible.filter((s) => s.disposition === "accept").length,
-          other: visible.filter(
-            (s) => s.disposition !== "accept" && s.disposition !== "reject",
-          ).length,
-        },
+        stances: participants.map((person) => {
+          const disposition = visibleStances.get(person.participantId);
+          return {
+            participantId: person.participantId,
+            stance:
+              disposition === "accept"
+                ? ("accept" as const)
+                : disposition === "reject"
+                  ? ("veto" as const)
+                  : ("none" as const),
+          };
+        }),
         vetoStands,
         ...(own ? { ownStance: own.disposition } : {}),
       };
@@ -127,6 +190,12 @@ export async function spatialContext(
       phase: room.phase as string,
       scope,
       feasibility: feasibilityOf(rows),
+      total: bundle.total,
+      matching: bundle.matching,
+      facets: bundle.facets,
+      activeNeeds: bundle.activeNeeds,
+      privateEffects: bundle.privateEffects,
+      participants,
       candidates: rows.map((r) => ({
         candidateId: r.candidateId,
         name: r.name,
@@ -137,7 +206,9 @@ export async function spatialContext(
         // tokens for everyone but their owner.
         why: whyFor(r, actor.id),
         walkMin: r.walkMin,
-        priceLevel: r.priceLevel ?? 0,
+        // null passes through: a phantom 0 would put mass at the bottom of
+        // every price reading.
+        priceLevel: r.priceLevel,
       })),
       proposals: proposalViews,
       ...(agreement ? { agreement } : {}),

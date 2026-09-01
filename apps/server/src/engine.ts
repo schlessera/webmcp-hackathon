@@ -279,6 +279,8 @@ async function dispatch(
       return submitRequirement(client, actor, input as never);
     case "WithdrawRequirement":
       return withdrawRequirement(client, actor, input as never);
+    case "SetRequirementActive":
+      return setRequirementActive(client, actor, input as never);
     case "EvaluateCandidates":
       return evaluateCandidates(client, actor, input as never);
     case "RespondToProposal":
@@ -496,6 +498,65 @@ async function withdrawRequirement(
       },
     ],
     effect: "Requirement withdrawn.",
+  };
+}
+
+/**
+ * Set one of your own needs aside, or bring it back. Reversible by design:
+ * the row, its id and its history survive, so the brief can keep showing it
+ * greyed and say what turning it back on would cost. Owner-only — a shared
+ * need is still its author's to silence.
+ */
+async function setRequirementActive(
+  client: pg.PoolClient,
+  actor: Participant,
+  cmd: { requirementId: string; active: boolean },
+): Promise<HandlerOutcome> {
+  const row = (
+    await client.query(
+      `SELECT owner_id, visibility, active, payload FROM requirements
+        WHERE id = $1 AND room_id = $2 AND NOT withdrawn`,
+      [cmd.requirementId, actor.roomId],
+    )
+  ).rows[0];
+  // Same not_found for unknown and for someone else's — never confirm a
+  // foreign requirement exists (existence oracle). There is no not_owner code
+  // in the error model, and inventing one would be the oracle.
+  if (!row || row.owner_id !== actor.id) {
+    return errorOutcome(
+      "not_found",
+      "Unknown requirementId.",
+      "Call sync_session to refresh IDs; you can only set aside your own needs.",
+    );
+  }
+  if (row.active === cmd.active) {
+    // Idempotent: no write, no event, no revision bump.
+    return {
+      events: [],
+      effect: `Need already ${cmd.active ? "active" : "set aside"}.`,
+    };
+  }
+  await client.query("UPDATE requirements SET active = $2 WHERE id = $1", [
+    cmd.requirementId,
+    cmd.active,
+  ]);
+  return {
+    events: [
+      {
+        type: "requirement_toggled",
+        actorId: actor.id,
+        // Matches the requirement's own visibility, so the projector redacts
+        // a private toggle exactly as it redacts the submission.
+        visibility: row.visibility,
+        payload: {
+          actorName: actor.displayName,
+          requirementId: cmd.requirementId,
+          active: cmd.active,
+          ...(row.payload ? { summary: summarizePayload(row.payload) } : {}),
+        },
+      },
+    ],
+    effect: cmd.active ? "Need reapplied." : "Need set aside.",
   };
 }
 
@@ -1322,6 +1383,8 @@ function summarizePayload(payload: Record<string, unknown>): string {
       const symbol = b.currency === "EUR" ? "€" : `${b.currency} `;
       return `budget ≤ ${symbol}${b.amount} per person`;
     }
+    case "text":
+      return String(payload.text);
     case "exclusion": {
       const values = (payload.values as string[])
         .map((v) => v.charAt(0).toUpperCase() + v.slice(1))

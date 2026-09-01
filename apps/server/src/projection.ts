@@ -66,6 +66,25 @@ export function projectEvent(
       };
     }
 
+    case "requirement_toggled": {
+      const verb = event.payload.active ? "brought back" : "set aside";
+      if (event.visibility === "shared" || isActor) {
+        return full(
+          event,
+          `${isActor ? "You" : actorName} ${verb} a need: ${p.summary ?? ""}`.trim(),
+          isActor || event.visibility === "shared",
+        );
+      }
+      // Peer view of a private toggle: that it happened, nothing more — no
+      // owner, no content, the same floor requirement_submitted holds to.
+      return {
+        revision: event.revision,
+        type: event.type,
+        level: "existence",
+        text: `A private need was ${verb}.`,
+      };
+    }
+
     case "requirement_withdrawn": {
       if (event.visibility === "shared" || isActor) {
         return full(

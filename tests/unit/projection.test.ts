@@ -17,6 +17,7 @@ describe("new event projections", () => {
   it("every emitted domain event type projects for its actor (never dropped)", () => {
     const types = [
       "scope_change_proposed", "scope_change_applied", "proposal_created",
+      "requirement_toggled",
       "impasse_detected", "adjustment_resolved", "requirement_relaxed",
       "impasse_resolved", "agreement_staged", "agreement_stage_aborted",
       "agreement_committed", "proposal_withdrawn", "arrival_plan_updated",
@@ -28,6 +29,34 @@ describe("new event projections", () => {
       );
       expect(projected, `event type ${type} was dropped by the projector`).not.toBeNull();
     }
+  });
+
+  it("a private toggle reaches peers as existence only; a shared one in full", () => {
+    const toggled = (visibility: string) =>
+      ev({
+        type: "requirement_toggled",
+        visibility,
+        payload: {
+          actorName: "Alex",
+          requirementId: "req_1",
+          active: false,
+          summary: "budget ≤ €15 per person",
+        },
+      });
+
+    const shared = projectEvent(toggled("shared"), "p_sarah")!;
+    expect(shared.level).toBe("full");
+    expect(shared.text).toContain("Alex");
+
+    const peer = projectEvent(toggled("application-private"), "p_sarah")!;
+    expect(peer.level).toBe("existence");
+    expect(peer.payload).toBeUndefined();
+    expect(peer.text).not.toContain("Alex");
+    expect(peer.text).not.toContain("15");
+
+    const owner = projectEvent(toggled("application-private"), "p_org")!;
+    expect(owner.level).toBe("full");
+    expect(owner.text).toContain("set aside");
   });
 
   it("adjustment_proposed reaches only its addressee", () => {

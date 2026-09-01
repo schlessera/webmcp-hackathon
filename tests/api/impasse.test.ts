@@ -46,7 +46,7 @@ interface SpatialContext {
   scope: { scopeId: string; area: { radiusM: number } } | null;
   feasibility: { state: string; eligible: number };
   candidates: Array<{ candidateId: string; eligibility: string; why: string }>;
-  proposals: Array<{ proposalId: string; candidateId: string; status: string; stanceCounts: { accept: number; other: number; reject?: number }; vetoStands: boolean; ownStance?: string }>;
+  proposals: Array<{ proposalId: string; candidateId: string; status: string; stances: Array<{ participantId: string; stance: string }>; vetoStands: boolean; ownStance?: string }>;
   agreement?: { proposalId: string; candidateId: string; status: string };
   arrival?: { mode: string; pickupNote?: string };
   impasse?: { active: boolean; text: string };
@@ -292,7 +292,7 @@ describe("proposal, veto, agreement, arrival", () => {
     expect(premature.body.error!.code).toBe("consent_required");
   });
 
-  it("stanceCounts count only own + shared stances; no raw reject count", async () => {
+  it("stances are named for what the viewer may see, and silent otherwise", async () => {
     const privateAccept = await command(room.tokens.joe, "RespondToProposal", {
       baseRevision: revision,
       proposalId: agreedProposalId,
@@ -304,19 +304,24 @@ describe("proposal, veto, agreement, arrival", () => {
 
     const own = (await context(room.tokens.joe)).body.proposals
       .find((p) => p.proposalId === agreedProposalId)!;
-    expect(own.stanceCounts.accept).toBe(1);
+    // One row per participant, so the page can draw the whole room.
+    expect(own.stances).toHaveLength(3);
+    expect(own.stances.find((s) => s.participantId === room.participantIds.joe)!.stance)
+      .toBe("accept");
     expect(own.ownStance).toBe("accept");
 
     const peer = (await context(room.tokens.sarah)).body.proposals
       .find((p) => p.proposalId === agreedProposalId)!;
-    // Joe's application-private stance is invisible to peers, and no reject
-    // count exists to subtract against — only the veto boolean.
-    expect(peer.stanceCounts.accept).toBe(0);
-    expect(peer.stanceCounts.reject).toBeUndefined();
+    // Joe's application-private stance reads exactly like silence to a peer,
+    // and no reject count exists to subtract against — only the veto boolean.
+    expect(peer.stances.map((s) => s.stance)).toEqual(["none", "none", "none"]);
     expect(peer.vetoStands).toBe(false);
     const vetoed = (await context(room.tokens.sarah)).body.proposals
       .find((p) => p.proposalId === vetoProposalId)!;
+    // A veto stands, and the row that cast it is named only because it was
+    // shared — the boolean is what a private veto would leave behind.
     expect(vetoed.vetoStands).toBe(true);
+    expect(vetoed.stances.filter((s) => s.stance === "veto")).toHaveLength(1);
   });
 
   it("all accept + ready, organizer stages, page commit with its nonce moves to agreed", async () => {

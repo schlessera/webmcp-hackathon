@@ -1,10 +1,19 @@
 {
-  "toolContractVersion": "1",
-  "sha256": "4f357f49040b82244829e39e202d80e71163fe9a70d7a89a670c8e1f14074f59",
+  "toolContractVersion": "2",
+  "sha256": "88a27dcba7517bc2f4edcf4794f29a6b5ff5bec0cf83eef45cdef6607d0039d0",
   "manifest": {
     "capabilityManifest": {
       "agreement": {
         "rule": "all-accept-organizer-commit"
+      },
+      "attributeLabels": {
+        "cuisine": "cuisine",
+        "dog-friendly": "dogs welcome",
+        "lactose-free-options": "lactose-free options",
+        "outdoor-seating": "outdoor seating",
+        "price-level": "price",
+        "vegetarian-options": "vegetarian options",
+        "wheelchair-accessible": "step-free access"
       },
       "attributeVocabulary": [
         "vegetarian-options",
@@ -366,6 +375,28 @@
         ],
         "type": "object"
       },
+      "SetRequirementActive": {
+        "additionalProperties": false,
+        "properties": {
+          "active": {
+            "type": "boolean"
+          },
+          "baseRevision": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "requirementId": {
+            "maxLength": 40,
+            "type": "string"
+          }
+        },
+        "required": [
+          "baseRevision",
+          "requirementId",
+          "active"
+        ],
+        "type": "object"
+      },
       "SetSearchScope": {
         "additionalProperties": false,
         "properties": {
@@ -648,6 +679,25 @@
               {
                 "additionalProperties": false,
                 "properties": {
+                  "kind": {
+                    "const": "text",
+                    "type": "string"
+                  },
+                  "text": {
+                    "maxLength": 200,
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "text"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
                   "key": {
                     "const": "cuisine",
                     "type": "string"
@@ -801,6 +851,17 @@
       "negotiation": "v1"
     },
     "results": {
+      "activeNeed": [
+        "id",
+        "label",
+        "ruledOut",
+        "wouldReturn",
+        "unknown",
+        "active",
+        "visibility",
+        "hardness",
+        "ownerId"
+      ],
       "candidateSummary": [
         "candidateId",
         "name",
@@ -816,6 +877,19 @@
         "events",
         "truncated",
         "cursor"
+      ],
+      "facet": [
+        "key",
+        "label",
+        "type",
+        "counts.yes",
+        "counts.no",
+        "counts.unknown",
+        "values",
+        "unit",
+        "range",
+        "histogram",
+        "salience"
       ],
       "failureEnvelope": [
         "ok",
@@ -839,12 +913,23 @@
         "withinDelegatedBound",
         "staged"
       ],
+      "participantSummary": [
+        "participantId",
+        "displayName",
+        "role",
+        "readyState"
+      ],
       "prepareNavigationResult": [
         "ok",
         "target",
         "links.geo",
         "links.googleMaps",
         "links.appleMaps"
+      ],
+      "privateEffect": [
+        "owner",
+        "ruledOut",
+        "topic"
       ],
       "projectedEvent": [
         "revision",
@@ -857,7 +942,7 @@
         "proposalId",
         "candidateId",
         "status",
-        "stanceCounts",
+        "stances",
         "vetoStands",
         "ownStance"
       ],
@@ -901,7 +986,13 @@
         "phase",
         "scope",
         "feasibility",
+        "total",
+        "matching",
         "candidates",
+        "facets",
+        "activeNeeds",
+        "privateEffects",
+        "participants",
         "proposals",
         "agreement",
         "arrival",
@@ -926,10 +1017,11 @@
         "feasibility",
         "brief",
         "delta",
-        "outstanding"
+        "outstanding",
+        "participants"
       ]
     },
-    "toolContractVersion": "1",
+    "toolContractVersion": "2",
     "tools": [
       {
         "annotations": {
@@ -1160,6 +1252,25 @@
                 {
                   "additionalProperties": false,
                   "properties": {
+                    "kind": {
+                      "const": "text",
+                      "type": "string"
+                    },
+                    "text": {
+                      "maxLength": 200,
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "text"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
                     "key": {
                       "const": "cuisine",
                       "type": "string"
@@ -1302,6 +1413,33 @@
           "type": "object"
         },
         "name": "withdraw_requirement"
+      },
+      {
+        "annotations": {},
+        "description": "Set one of your own needs aside, or bring it back, without withdrawing it. An inactive need stops ruling candidates out but keeps its place in the brief, so the group can see what would change. Owner-only.",
+        "inputSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "type": "boolean"
+            },
+            "baseRevision": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "requirementId": {
+              "maxLength": 40,
+              "type": "string"
+            }
+          },
+          "required": [
+            "baseRevision",
+            "requirementId",
+            "active"
+          ],
+          "type": "object"
+        },
+        "name": "set_requirement_active"
       },
       {
         "annotations": {},

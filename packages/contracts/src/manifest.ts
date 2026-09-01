@@ -37,6 +37,24 @@ export const ATTRIBUTE_VOCABULARY = [
   "cuisine",
 ] as const;
 
+/**
+ * Key -> human label. The client renders facet and need labels VERBATIM and
+ * never humanizes a key itself (CLAUDE.md invariant 1: no domain word may be
+ * authored in the chrome). Labels are lowercase and domain-natural; the key
+ * stays the machine-readable identity that round-trips into a requirement
+ * payload. Published in the capability manifest so agents phrase needs the
+ * same way the UI does.
+ */
+export const ATTRIBUTE_LABELS: Record<(typeof ATTRIBUTE_VOCABULARY)[number], string> = {
+  "vegetarian-options": "vegetarian options",
+  "lactose-free-options": "lactose-free options",
+  "wheelchair-accessible": "step-free access",
+  "outdoor-seating": "outdoor seating",
+  "dog-friendly": "dogs welcome",
+  "price-level": "price",
+  cuisine: "cuisine",
+};
+
 export const CAPABILITIES = [
   "destination-search",
   "map-selection",
@@ -79,6 +97,7 @@ export interface CapabilityManifest {
   };
   agreement: { rule: string };
   attributeVocabulary: readonly string[];
+  attributeLabels: Record<string, string>;
   priceLevelEur: Record<string, number>;
   conduct: string;
 }
@@ -93,6 +112,7 @@ export const CAPABILITY_MANIFEST: CapabilityManifest = {
   },
   agreement: { rule: AGREEMENT_RULE },
   attributeVocabulary: ATTRIBUTE_VOCABULARY,
+  attributeLabels: ATTRIBUTE_LABELS,
   priceLevelEur: PRICE_LEVEL_EUR,
   conduct: CONDUCT,
 };

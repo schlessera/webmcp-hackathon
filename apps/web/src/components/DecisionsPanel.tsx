@@ -3,6 +3,7 @@ import type {
   CommandEnvelope,
   OutstandingAdjustment,
   OutstandingItem,
+  ProposalView,
   SpatialContext,
 } from "../spatial-types.ts";
 
@@ -13,6 +14,10 @@ import type {
  * Grants that exceed delegated authority stage first and are confirmed here,
  * on the page — never by an agent alone.
  */
+
+/** Stances arrive per participant now; peers' private ones read "none". */
+const acceptCount = (p: ProposalView) =>
+  p.stances.filter((s) => s.stance === "accept").length;
 
 function describeAdjustment(item: OutstandingAdjustment): string {
   const change = item.change as { dimension?: string; from?: unknown; to?: unknown };
@@ -169,7 +174,7 @@ export function DecisionsPanel({
           <div className="decision-card" data-testid="stance-card" key={proposalId}>
             <h4>Your call: {candidateName(proposal.candidateId)}</h4>
             <p>
-              {proposal.stanceCounts.accept} in favor
+              {acceptCount(proposal)} in favor
               {proposal.vetoStands ? " · a veto stands" : ""}
             </p>
             <div className="decision-actions">
@@ -204,7 +209,7 @@ export function DecisionsPanel({
           <div className="decision-card" data-testid="stage-card" key={p.proposalId}>
             <h4>Stage the agreement?</h4>
             <p>
-              {candidateName(p.candidateId)} — {p.stanceCounts.accept} in favor
+              {candidateName(p.candidateId)} — {acceptCount(p)} in favor
               {p.vetoStands ? ", a veto stands" : ""}. Staging checks that everyone is ready
               and no veto stands.
             </p>

@@ -11,6 +11,7 @@ import {
   type RequirementRow,
   type ScopeState,
 } from "../../apps/server/src/eligibility.ts";
+import { computeFacetsBundle } from "../../apps/server/src/facets.ts";
 import {
   generateAdjustments,
   minimalConflictSet,
@@ -181,7 +182,42 @@ describe("eligibility against the Berlin Mitte dataset", () => {
     }
   });
 
-  it("peer why-strings are count-invariant: no private-requirement fingerprinting", () => {
+  it("free text is unverifiable by construction: everything pending, nothing ruled out", () => {
+    const rows = classifyAll(
+      candidates,
+      [req({ kind: "text", text: "somewhere the kids can run" } as never)],
+      [],
+      scopeAt(1400),
+    );
+    expect(rows.every((r) => r.eligibility === "uncertain")).toBe(true);
+    expect(whyFor(rows[0], "p_org")).toContain("somewhere the kids can run");
+  });
+
+  it("a need its owner set aside classifies nothing", () => {
+    const veto = req(
+      { kind: "attribute", key: "vegetarian-options", expect: "verified_false" },
+      { active: false },
+    );
+    const rows = classifyAll(candidates, [veto], [], null);
+    expect(rows.every((r) => r.eligibility === "eligible")).toBe(true);
+    expect(
+      classifyAll(candidates, [{ ...veto, active: true }], [], null)
+        .some((r) => r.eligibility === "excluded"),
+    ).toBe(true);
+  });
+
+  it("every reason names the requirement it came from (the scope circle names none)", () => {
+    const need = req({ kind: "attribute", key: "lactose-free-options", expect: "verified_true" });
+    const rows = classifyAll(candidates, [need], [], scopeAt(800));
+    const outside = rows.find(
+      (r) => r.exclusion?.text === "outside the current search area",
+    )!;
+    expect(outside.exclusion!.requirementId).toBe("");
+    const pending = rows.find((r) => r.eligibility === "uncertain")!;
+    expect(pending.uncertainReasons!.every((x) => x.requirementId === need.id)).toBe(true);
+  });
+
+  it("peer why-strings are count-invariant, and private effects carry counts without content", () => {
     // Candidate A: excluded by ONE private requirement. Candidate B: excluded
     // by a different owner's private requirement, with TWO more private
     // requirements pending. Peers must see identical strings for both.
@@ -216,6 +252,25 @@ describe("eligibility against the Berlin Mitte dataset", () => {
     expect(three.eligibility).toBe("uncertain");
     expect(whyFor(one, "p_peer")).toBe(whyFor(three, "p_peer"));
     expect(whyFor(one, "p_peer")).not.toContain("vegetarian");
+
+    // The boundary the redesign moved (CLAUDE.md invariant 5): a peer now
+    // learns THAT each private need exists, whose it is, and how many places
+    // it ruled out — and still nothing about what it is. Why-strings stay
+    // count-invariant; the counts live in privateEffects instead.
+    const bundle = computeFacetsBundle(
+      { candidates: [a, b, bare], requirements: reqs, verdicts: [], scope: null },
+      "p_peer",
+    );
+    expect(bundle.privateEffects).toEqual([
+      { owner: "p_joe", ruledOut: 1 },
+      { owner: "p_sarah", ruledOut: 1 },
+      { owner: "p_org", ruledOut: 0 },
+    ]);
+    expect(bundle.activeNeeds).toEqual([]);
+    const wire = JSON.stringify(bundle.privateEffects);
+    for (const content of ["vegetarian", "outdoor", "dog", "verified", "c_a", "c_b"]) {
+      expect(wire).not.toContain(content);
+    }
   });
 });
 

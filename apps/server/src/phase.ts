@@ -34,6 +34,7 @@ export function isPhase(value: string): value is Phase {
 export const PHASE_GATES: Record<CommandType, readonly Phase[]> = {
   SubmitRequirement: ["gathering", "deliberation"],
   WithdrawRequirement: ["gathering", "deliberation"],
+  SetRequirementActive: ["gathering", "deliberation"],
   EvaluateCandidates: ["gathering", "deliberation"],
   RespondToProposal: ["gathering", "deliberation"],
   SetSearchScope: ["gathering", "deliberation"],

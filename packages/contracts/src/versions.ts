@@ -4,7 +4,11 @@
  * - toolContractVersion: changes when tool names, schemas, or result contracts change
  * - domain versions: negotiation and spatial versions evolve independently
  */
-export const TOOL_CONTRACT_VERSION = "1";
+// 2: the facets contract (FACETS.md) — spatial context gained total/matching/
+// facets/activeNeeds/privateEffects/participants, ProposalView replaced the
+// anonymized stanceCounts with named public stances, and SetRequirementActive
+// joined the command bus. Breaking: stanceCounts is gone.
+export const TOOL_CONTRACT_VERSION = "2";
 
 export const PROTOCOL_VERSIONS = {
   negotiation: "v1",
