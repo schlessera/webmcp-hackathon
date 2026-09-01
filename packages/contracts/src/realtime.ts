@@ -50,8 +50,15 @@ export interface ConfirmationMessage {
   nonce: string;
   expiresInMs: number;
 }
+/** Who holds an open socket in the room right now; sent to a socket on
+ * authentication and to the room whenever the set changes. */
+export interface PresenceMessage {
+  type: "presence";
+  present: string[];
+}
 export type ServerMessage =
   | WelcomeMessage
   | EventMessage
   | ErrorMessage
-  | ConfirmationMessage;
+  | ConfirmationMessage
+  | PresenceMessage;

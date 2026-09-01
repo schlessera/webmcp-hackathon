@@ -40,23 +40,30 @@ export function Header({ title, subtitle, participants, onOpenDrawer }: Props) {
       </div>
 
       <div className="avatars" data-testid="avatars">
-        {/* No presence signal exists on the wire yet, so every roster member
-            draws in their own colour; --spoke-person-idle is reserved for the
-            "invited, not yet arrived" state a future presence channel adds. */}
+        {/* Invited but not yet arrived draws idle (mockup 7a); a person
+            looking right now carries a small mark, so presence is never
+            colour alone. Person colours are identity, never semantic. */}
         {participants.map((p, i) => {
+          const state = p.present ? "here now" : p.arrived ? "" : "not arrived yet";
           return (
             <span
               key={p.participantId}
               className="avatar"
               style={{
-                background: personColor(i),
+                background: p.arrived ? personColor(i) : undefined,
                 transform: `rotate(${avatarTilt(i)}deg)`,
               }}
-              title={p.displayName}
+              title={state ? `${p.displayName} · ${state}` : p.displayName}
+              data-idle={p.arrived ? undefined : "true"}
+              data-present={p.present || undefined}
               data-testid={`avatar-${p.participantId}`}
             >
               <span aria-hidden="true">{initials(p.displayName)}</span>
-              <span className="sr-only">{p.displayName}</span>
+              <span className="sr-only">
+                {p.displayName}
+                {state ? `, ${state}` : ""}
+              </span>
+              {p.present && <i className="avatar-here" aria-hidden="true" />}
             </span>
           );
         })}

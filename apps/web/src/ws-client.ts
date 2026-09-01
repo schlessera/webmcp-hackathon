@@ -22,6 +22,8 @@ export interface RealtimeCallbacks {
     expiresInMs: number;
   }): void;
   onStaleBundle(): void;
+  /** Who holds an open socket in the room right now. */
+  onPresence(present: string[]): void;
 }
 
 let pageBuildId: string | null = null;
@@ -107,6 +109,8 @@ export function connectRealtime(
         }
       } else if (message.type === "event") {
         callbacks.onEvents(message.revision, message.events);
+      } else if (message.type === "presence") {
+        callbacks.onPresence(message.present);
       } else if (message.type === "confirmation") {
         // Never logged: the nonce is a credential for one page gesture.
         callbacks.onConfirmation(message);

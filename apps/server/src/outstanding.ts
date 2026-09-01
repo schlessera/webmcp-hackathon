@@ -51,15 +51,23 @@ export async function outstandingFor(
   // in-page confirmation. Addressee-only: peers never see these rows.
   const adjustments = (
     await q.query(
-      `SELECT id, kind, change, projected_gain, within_delegated_bound, status, created_at_revision
-         FROM adjustments
-        WHERE room_id = $1 AND requires_consent_of = $2
-          AND status IN ('proposed', 'staged_grant')
-        ORDER BY id`,
+      `SELECT a.id, a.kind, a.change, a.projected_gain, a.within_delegated_bound,
+              a.status, a.created_at_revision, r.delegation
+         FROM adjustments a
+         LEFT JOIN requirements r
+           ON r.room_id = a.room_id AND r.id = a.target->>'requirementId'
+        WHERE a.room_id = $1 AND a.requires_consent_of = $2
+          AND a.status IN ('proposed', 'staged_grant')
+        ORDER BY a.id`,
       [roomId, participantId],
     )
   ).rows;
   for (const row of adjustments) {
+    // The addressee's own ceiling on the targeted need, when they stated one.
+    // Addressee-only by the WHERE above, so naming the number leaks nothing.
+    const bound = (row.delegation as { bound?: { dimension?: string; max?: unknown } } | null)
+      ?.bound;
+    const delegatedBound = boundOf(bound);
     items.push({
       type: "adjustment_request",
       requestId: row.id,
@@ -68,6 +76,7 @@ export async function outstandingFor(
       change: row.change,
       projectedGain: row.projected_gain,
       withinDelegatedBound: row.within_delegated_bound,
+      ...(delegatedBound ? { delegatedBound } : {}),
       staged: row.status === "staged_grant",
     });
   }
@@ -87,4 +96,15 @@ export async function outstandingFor(
   }
 
   return items;
+}
+
+type BoundDimension = "radius_m" | "per_person_eur" | "walk_min";
+const BOUND_DIMENSIONS = new Set<string>(["radius_m", "per_person_eur", "walk_min"]);
+
+function boundOf(
+  bound: { dimension?: string; max?: unknown } | undefined,
+): { dimension: BoundDimension; max: number } | undefined {
+  if (!bound || typeof bound.max !== "number") return undefined;
+  if (!bound.dimension || !BOUND_DIMENSIONS.has(bound.dimension)) return undefined;
+  return { dimension: bound.dimension as BoundDimension, max: bound.max };
 }

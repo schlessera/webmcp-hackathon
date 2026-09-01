@@ -11,6 +11,7 @@ import { config } from "./config.ts";
 import { onCommit, type CommitNotification } from "./engine.ts";
 import { mintConfirmation, pendingConfirmations } from "./confirmation.ts";
 import { projectEvent } from "./projection.ts";
+import { markClosed, markOpen, presentIn } from "./presence.ts";
 
 interface Connection {
   socket: WebSocket;
@@ -81,6 +82,7 @@ export function attachWebSocket(server: Server): void {
           roomId: participant.roomId,
         };
         connections.add(connection);
+        const becamePresent = markOpen(participant.roomId, participant.id);
         const room = (
           await pool.query("SELECT revision FROM rooms WHERE id = $1", [
             participant.roomId,
@@ -106,6 +108,17 @@ export function attachWebSocket(server: Server): void {
             ...mintConfirmation(participant.roomId, participant.id, subject),
           });
         }
+        // Presence: this socket learns who is here; the room learns of a
+        // newcomer only when the set actually changed (a second tab is not
+        // a second person).
+        if (becamePresent) {
+          broadcastPresence(participant.roomId);
+        } else {
+          send(socket, {
+            type: "presence",
+            present: [...presentIn(participant.roomId)],
+          });
+        }
         // Belt-and-braces: also tell a contract-stale client explicitly.
         if (
           typeof message.clientToolContractVersion === "string" &&
@@ -126,7 +139,12 @@ export function attachWebSocket(server: Server): void {
 
     socket.on("close", () => {
       clearTimeout(authTimer);
-      if (connection) connections.delete(connection);
+      if (connection) {
+        connections.delete(connection);
+        if (markClosed(connection.roomId, connection.participantId)) {
+          broadcastPresence(connection.roomId);
+        }
+      }
     });
   });
 
@@ -179,6 +197,15 @@ async function broadcast(n: CommitNotification): Promise<void> {
       )
       .filter((e) => e !== null);
     send(connection.socket, { type: "event", revision: n.revision, events });
+  }
+}
+
+function broadcastPresence(roomId: string): void {
+  const message: ServerMessage = { type: "presence", present: [...presentIn(roomId)] };
+  for (const connection of connections) {
+    if (connection.roomId !== roomId) continue;
+    if (connection.socket.readyState !== WebSocket.OPEN) continue;
+    send(connection.socket, message);
   }
 }
 

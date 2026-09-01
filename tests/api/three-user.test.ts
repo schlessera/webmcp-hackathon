@@ -75,7 +75,7 @@ describe("identity", () => {
     // requirements, stances, or tokens.
     for (const person of body.participants!) {
       expect(Object.keys(person).sort()).toEqual([
-        "displayName", "participantId", "readyState", "role",
+        "arrived", "displayName", "participantId", "present", "readyState", "role",
       ]);
     }
     expect(raw).not.toContain("payload");

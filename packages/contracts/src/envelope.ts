@@ -21,6 +21,10 @@ export interface OutstandingAdjustmentRequest {
   change: Record<string, unknown>;
   projectedGain: { newCandidates: number };
   withinDelegatedBound: boolean;
+  /** The addressee's own delegated ceiling for the targeted need, when one
+   * was stated, so the consent copy can name the number. Absent for scope
+   * changes (organizer authority carries no bound). */
+  delegatedBound?: { dimension: "radius_m" | "per_person_eur" | "walk_min"; max: number };
   /** True when a grant awaits the human's in-page confirmation. */
   staged: boolean;
 }
@@ -39,6 +43,9 @@ export interface ProjectedEvent {
   text: string;
   /** Present only at level "full" (viewer-authorized content). */
   payload?: unknown;
+  /** The acting participant, only at level "full" and only for events a
+   * person (not the council) authored. Peers of a private move never get it. */
+  actorId?: string;
 }
 
 export interface Delta {
@@ -81,6 +88,10 @@ export interface ParticipantSummary {
   displayName: string;
   role: "organizer" | "member";
   readyState: "contributing" | "ready";
+  /** Has opened the room at least once (first sync on any surface). */
+  arrived: boolean;
+  /** Holds an open realtime socket right now. */
+  present: boolean;
 }
 
 export interface Feasibility {
@@ -111,6 +122,9 @@ export interface SyncSessionResult {
   outstanding: OutstandingItem[];
   /** Everyone in the room — the header's presence row. */
   participants: ParticipantSummary[];
+  /** The revision this participant's previous sync (any surface, any tab)
+   * had seen — 0 for a first arrival. What "while you were away" spans. */
+  lastSyncedRevision: number;
 }
 
 export type SyncSessionResponse = SyncSessionResult | FailureEnvelope;

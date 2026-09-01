@@ -120,12 +120,18 @@ export function App() {
       // A stored token can be dead (make demo-reset wipes the token table).
       // Probe it once; when the invite is still in the fragment, drop the
       // stale session and re-exchange instead of stranding the tab.
+      // The server remembers the revision this person's previous sync had
+      // seen (any tab, any surface); the FIRST contact of this page load is
+      // the one that still reports it, since every sync stamps it afresh.
+      let serverSeen: number | null = null;
       if (established.token) {
         const probe = (await syncSession()) as {
           ok: boolean;
           error?: { code: string };
+          lastSyncedRevision?: number;
         };
         if (cancelled) return;
+        if (probe.ok) serverSeen = probe.lastSyncedRevision ?? 0;
         if (
           !probe.ok &&
           probe.error?.code === "not_authenticated" &&
@@ -142,8 +148,10 @@ export function App() {
 
       const roomId = established.identity.roomId;
       // Captured BEFORE the first advance overwrites it: this is what makes
-      // "while you were away" a fact rather than a guess.
-      const previouslySeen = readLastSeen(roomId);
+      // "while you were away" a fact rather than a guess. The tab's own
+      // floor can run ahead of the server's (live events advance it without
+      // a sync), so the larger of the two is what this person has seen.
+      const tabSeen = readLastSeen(roomId);
 
       const advanceTo = (newRevision: number) => {
         lastSeenRevision.current = Math.max(
@@ -184,11 +192,16 @@ export function App() {
         revision?: number;
         delta?: { events: ProjectedEvent[] };
         outstanding?: OutstandingItem[];
+        lastSyncedRevision?: number;
       };
       if (cancelled) return;
       if (first.ok && first.revision !== undefined) {
         if (first.delta) setFeed((prev) => mergeFeed(first.delta!.events, prev));
         spatial.setOutstanding(first.outstanding);
+        const previouslySeen = Math.max(
+          tabSeen,
+          serverSeen ?? first.lastSyncedRevision ?? 0,
+        );
         if (previouslySeen > 0 && first.revision > previouslySeen) {
           setAway({ since: previouslySeen, until: first.revision });
         }
@@ -219,6 +232,10 @@ export function App() {
             grant.nonce,
             grant.expiresInMs,
           );
+        },
+        onPresence() {
+          // The roster is server truth; presence rides on it.
+          void spatial.refetch();
         },
         onStaleBundle() {
           setStaleBanner(true);
@@ -360,20 +377,25 @@ export function App() {
   })();
 
   /* The subtitle is state, not metadata: the cheapest signal the room has for
-     "where are we". Derived — never a hardcoded name, never a domain word. */
+     "where are we". Derived — never a hardcoded name, never a domain word.
+     "In the room" counts the people who have actually opened it. */
   const people = participants.length;
+  const here = participants.filter((p) => p.arrived).length;
+  const absent = participants
+    .filter((p) => !p.arrived && p.participantId !== id.participantId)
+    .map((p) => p.displayName);
   const subtitle: HeaderSubtitle = settled
     ? { text: `agreed by all ${numberWord(people)}`, tone: "works" }
     : impasse
       ? { text: `nothing works for all ${numberWord(people)}`, tone: "unsure" }
       : awayEvents.length > 0
         ? { text: "you were away", tone: "quiet" }
-        : people <= 1
+        : here <= 1
           ? { text: "you're first here", tone: "quiet" }
           : activeNeeds.length === 0
-            ? { text: `${numberWord(people)} in the room`, tone: "quiet" }
+            ? { text: `${numberWord(here)} in the room`, tone: "quiet" }
             : {
-                text: `${numberWord(people)} in the room · ${matching} ${stillWorkVerb(matching)}`,
+                text: `${numberWord(here)} in the room · ${matching} ${stillWorkVerb(matching)}`,
                 tone: "quiet",
               };
 
@@ -449,6 +471,7 @@ export function App() {
               <Digest
                 events={awayEvents}
                 privateEffects={context?.privateEffects ?? []}
+                participants={participants}
               />
             )}
 
@@ -456,6 +479,7 @@ export function App() {
               needs={activeNeeds}
               privateEffects={context?.privateEffects ?? []}
               participants={participants}
+              absent={absent}
               meId={id.participantId}
               justAppliedId={justAppliedId}
               previewNeedId={spatialState.previewNeedId}

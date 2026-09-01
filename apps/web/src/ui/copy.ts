@@ -43,6 +43,12 @@ export function personColor(index: number): string {
   return `var(--spoke-person-${(index % 5) + 1})`;
 }
 
+/** "Sarah and Joe", "Sarah, Joe and Max" — for sentences about people. */
+export function joinNames(names: string[]): string {
+  if (names.length <= 1) return names[0] ?? "";
+  return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+}
+
 /** Two-letter monogram from a display name. Never an avatar image. */
 export function initials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);

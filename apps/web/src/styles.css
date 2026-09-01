@@ -203,6 +203,16 @@ body { overflow: hidden; }
   background: var(--spoke-person-idle);
   color: var(--spoke-person-idle-text);
 }
+/* Looking right now: a mark, not a colour, so presence survives greyscale. */
+.avatar { position: relative; }
+.avatar-here {
+  position: absolute;
+  right: -3px; bottom: -3px;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--spoke-ink);
+  border: 2px solid var(--spoke-ground);
+}
 
 /* The debugging affordance: no border, no fill, no label (§2). */
 .drawer-open {
@@ -900,6 +910,29 @@ body { overflow: hidden; }
   color: var(--spoke-works-text);
   text-decoration: underline;
   cursor: pointer;
+}
+
+/* ── Not yet arrived (mockup 7a) ───────────────────────────────────────── */
+
+.invite-card {
+  border: var(--spoke-border) dashed var(--spoke-line);
+  border-radius: var(--spoke-radius-card);
+  background: var(--spoke-surface);
+  padding: 11px 12px;
+  margin-bottom: 12px;
+}
+.invite-title {
+  font-weight: var(--spoke-weight-strong);
+  font-size: var(--spoke-size-detail);
+  line-height: 1.4;
+  color: var(--spoke-ink);
+  margin-bottom: 3px;
+}
+.invite-body {
+  font-weight: var(--spoke-weight-quiet);
+  font-size: var(--spoke-size-meta);
+  line-height: 1.45;
+  color: var(--spoke-ink-soft);
 }
 
 /* ── History / digest rows ─────────────────────────────────────────────── */

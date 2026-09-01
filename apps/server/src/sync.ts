@@ -9,6 +9,7 @@ import type { Participant } from "./auth.ts";
 import { buildDelta } from "./delta.ts";
 import { computeEligibility, feasibilityOf } from "./eligibility.ts";
 import { outstandingFor } from "./outstanding.ts";
+import { presentIn } from "./presence.ts";
 import { config } from "./config.ts";
 
 /**
@@ -41,18 +42,28 @@ export async function syncSession(
   }
 
   const eligibilityRows = await computeEligibility(client, actor.roomId);
-  const participants = (
+  const present = presentIn(actor.roomId);
+  const participantRows = (
     await client.query(
-      `SELECT id, display_name, role, ready_state FROM participants
+      `SELECT id, display_name, role, ready_state, arrived_at, last_synced_revision
+         FROM participants
         WHERE room_id = $1 ORDER BY role <> 'organizer', id`,
       [actor.roomId],
     )
-  ).rows.map((p) => ({
+  ).rows;
+  const participants = participantRows.map((p) => ({
     participantId: p.id as string,
     displayName: p.display_name as string,
     role: p.role as "organizer" | "member",
     readyState: p.ready_state as "contributing" | "ready",
+    // This very sync is the caller's arrival.
+    arrived: p.id === actor.id || p.arrived_at !== null,
+    present: present.has(p.id as string),
   }));
+  // Read BEFORE this sync stamps it: it is what the caller had seen.
+  const lastSyncedRevision = Number(
+    participantRows.find((p) => p.id === actor.id)?.last_synced_revision ?? 0,
+  );
   const feasibility = feasibilityOf(eligibilityRows);
   const outstanding = await outstandingFor(client, actor.roomId, actor.id);
 
@@ -79,7 +90,9 @@ export async function syncSession(
   const brief = briefParts.join(" ").slice(0, BUDGETS.briefMax);
 
   await client.query(
-    "UPDATE participants SET last_synced_revision = $2 WHERE id = $1",
+    `UPDATE participants
+        SET last_synced_revision = $2, arrived_at = COALESCE(arrived_at, now())
+      WHERE id = $1`,
     [actor.id, room.revision],
   );
 
@@ -100,6 +113,7 @@ export async function syncSession(
     ...(delta ? { delta } : {}),
     outstanding,
     participants,
+    lastSyncedRevision,
   };
   });
 }

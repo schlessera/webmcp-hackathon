@@ -35,12 +35,13 @@ export const RESULT_CONTRACT = {
   syncSessionResult: [
     "ok", "revision", "buildId", "toolContractVersion", "phase", "identity",
     "manifest", "feasibility", "brief", "delta", "outstanding", "participants",
+    "lastSyncedRevision",
   ],
   delta: ["fromRevision", "events", "truncated", "cursor"],
-  projectedEvent: ["revision", "type", "level", "text", "payload"],
+  projectedEvent: ["revision", "type", "level", "text", "payload", "actorId"],
   outstandingAdjustmentRequest: [
     "type", "requestId", "issuedAtRevision", "kind", "change",
-    "projectedGain", "withinDelegatedBound", "staged",
+    "projectedGain", "withinDelegatedBound", "delegatedBound", "staged",
   ],
   spatialContextResult: [
     "ok", "revision", "phase", "scope", "feasibility", "total", "matching",
@@ -56,7 +57,7 @@ export const RESULT_CONTRACT = {
     "visibility", "hardness", "ownerId",
   ],
   privateEffect: ["owner", "ruledOut", "topic"],
-  participantSummary: ["participantId", "displayName", "role", "readyState"],
+  participantSummary: ["participantId", "displayName", "role", "readyState", "arrived", "present"],
   candidateSummary: [
     "candidateId", "name", "location", "category", "eligibility", "why",
     "walkMin", "priceLevel",
@@ -73,6 +74,7 @@ export const RESULT_CONTRACT = {
     event: ["type", "revision", "events"],
     error: ["type", "code", "message"],
     confirmation: ["type", "kind", "subjectId", "nonce", "expiresInMs"],
+    presence: ["type", "present"],
   },
 } as const;
 

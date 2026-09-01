@@ -13,6 +13,10 @@ export interface ParticipantSummary {
   displayName: string;
   role: "organizer" | "member";
   readyState: "contributing" | "ready";
+  /** Has opened the room at least once. */
+  arrived: boolean;
+  /** Looking right now (open realtime socket). */
+  present: boolean;
 }
 
 export interface CandidateSummary {
@@ -150,6 +154,8 @@ export interface OutstandingAdjustment {
   change: Record<string, unknown>;
   projectedGain?: { newCandidates?: number };
   withinDelegatedBound?: boolean;
+  /** The viewer's own stated ceiling for the targeted need, when there is one. */
+  delegatedBound?: { dimension: "radius_m" | "per_person_eur" | "walk_min"; max: number };
   /** A grant outside delegated bounds succeeded but awaits in-page confirmation. */
   staged?: boolean;
 }

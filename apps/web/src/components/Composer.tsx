@@ -51,8 +51,11 @@ export function payloadFromText(text: string, facets: Facet[]): Payload {
       return { kind: "attribute", key: facet.key, expect: "verified_true" };
     }
   }
+  // A vocabulary label only states a boolean need; a facet the server typed
+  // as anything else (enum, numeric) is not a yes/no claim about a place.
   const byLabel = LABEL_TO_KEY.get(t);
-  if (byLabel && ATTRIBUTE_KEYS.has(byLabel) && byLabel !== "cuisine" && byLabel !== "price-level") {
+  const nonBoolean = new Set(facets.filter((f) => f.type !== "boolean").map((f) => f.key));
+  if (byLabel && ATTRIBUTE_KEYS.has(byLabel) && !nonBoolean.has(byLabel)) {
     return { kind: "attribute", key: byLabel, expect: "verified_true" };
   }
 
@@ -80,8 +83,8 @@ export function payloadFromFacet(facet: Facet, value?: string): Payload | null {
   if (facet.type === "boolean" && ATTRIBUTE_KEYS.has(facet.key)) {
     return { kind: "attribute", key: facet.key, expect: "verified_true" };
   }
-  if (facet.key === "cuisine" && value) {
-    return { kind: "exclusion", key: "cuisine", values: [value], lifetime: "session" };
+  if (facet.type === "enum" && value) {
+    return { kind: "exclusion", key: facet.key, values: [value], lifetime: "session" };
   }
   if (facet.key === "walk-minutes" && facet.range) {
     return { kind: "scope", dimension: "walk_min", max: facet.range.max };

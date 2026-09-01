@@ -14,6 +14,7 @@ import {
 } from "./eligibility.ts";
 import { computeFacetsBundle } from "./facets.ts";
 import { IMPASSE_TEXT } from "./impasse.ts";
+import { presentIn } from "./presence.ts";
 
 /**
  * Spatial read paths — SPATIAL-PROTOCOL.md §6 read commands. Reads carry no
@@ -57,7 +58,7 @@ export async function spatialContext(
           [actor.roomId],
         ),
         client.query(
-          `SELECT id, display_name, role, ready_state FROM participants
+          `SELECT id, display_name, role, ready_state, arrived_at FROM participants
             WHERE room_id = $1 ORDER BY role <> 'organizer', id`,
           [actor.roomId],
         ),
@@ -99,16 +100,20 @@ export async function spatialContext(
     );
     const scope = inputs.scope;
     const bundle = computeFacetsBundle(inputs, actor.id, excludeId);
+    const present = presentIn(actor.roomId);
     const participants = (participantRows.rows as Array<{
       id: string;
       display_name: string;
       role: string;
       ready_state: string;
+      arrived_at: Date | null;
     }>).map((p) => ({
       participantId: p.id,
       displayName: p.display_name,
       role: p.role as "organizer" | "member",
       readyState: p.ready_state as "contributing" | "ready",
+      arrived: p.id === actor.id || p.arrived_at !== null,
+      present: present.has(p.id),
     }));
 
     const stanceRows = stances.rows as Array<{

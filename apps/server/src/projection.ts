@@ -331,6 +331,9 @@ function full(
     level: "full",
     text,
     ...(includePayload ? { payload: redactedFullPayload(event) } : {}),
+    // Full level only: the viewer is authorized for the content, so the
+    // author is theirs to know. Council events carry no actor.
+    ...(event.actorId ? { actorId: event.actorId } : {}),
   };
 }
 

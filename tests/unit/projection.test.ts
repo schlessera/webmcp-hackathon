@@ -31,6 +31,40 @@ describe("new event projections", () => {
     }
   });
 
+  it("names the actor only at full level, never on existence/aggregate or council rows", () => {
+    const shared = projectEvent(
+      ev({ type: "proposal_created", payload: { actorName: "Alex", candidateName: "X" } }),
+      "p_sarah",
+    );
+    expect(shared!.level).toBe("full");
+    expect(shared!.actorId).toBe("p_org");
+
+    const privateToPeer = projectEvent(
+      ev({
+        type: "requirement_submitted",
+        visibility: "application-private",
+        payload: { actorName: "Alex", summary: "secret" },
+      }),
+      "p_sarah",
+    );
+    expect(privateToPeer!.level).toBe("aggregate");
+    expect(privateToPeer).not.toHaveProperty("actorId");
+
+    const declaredToPeer = projectEvent(
+      ev({ type: "private_requirement_declared", payload: { actorName: "Alex" } }),
+      "p_sarah",
+    );
+    expect(declaredToPeer!.level).toBe("existence");
+    expect(declaredToPeer).not.toHaveProperty("actorId");
+
+    const council = projectEvent(
+      ev({ type: "agreement_committed", actorId: null, payload: { candidateName: "X" } }),
+      "p_sarah",
+    );
+    expect(council!.level).toBe("full");
+    expect(council).not.toHaveProperty("actorId");
+  });
+
   it("a private toggle reaches peers as existence only; a shared one in full", () => {
     const toggled = (visibility: string) =>
       ev({

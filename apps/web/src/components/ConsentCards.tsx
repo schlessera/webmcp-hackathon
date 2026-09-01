@@ -28,6 +28,20 @@ function metres(value: unknown): string {
 }
 
 /** The boundary, stated numerically — that is what makes rung 2 a decision. */
+/** "the €30 you delegated" when the wire names the ceiling; "what you
+ * delegated" when it does not (scope changes carry no bound). */
+function boundPhrase(item: OutstandingAdjustment): string {
+  const b = item.delegatedBound;
+  if (!b) return "what you delegated";
+  const amount =
+    b.dimension === "per_person_eur"
+      ? `€${b.max}`
+      : b.dimension === "radius_m"
+        ? metres(b.max)
+        : `${b.max} min`;
+  return `the ${amount} you delegated`;
+}
+
 function describeChange(item: OutstandingAdjustment): string {
   const change = item.change as { dimension?: string; from?: unknown; to?: unknown };
   if (change.dimension === "radius_m") {
@@ -111,7 +125,7 @@ export function ConsentCards({
               <span className="card-title">{describeChange(item)}?</span>
             </div>
             <div className="card-body">
-              Beyond what you delegated.{gainSentence(item)} Your agent staged it;
+              Beyond {boundPhrase(item)}.{gainSentence(item)} Your agent staged it;
               only this gesture applies it.
             </div>
             <div className="card-actions">
@@ -143,8 +157,8 @@ export function ConsentCards({
             <div className="card-body">
               {gainSentence(item).trim()}
               {item.withinDelegatedBound
-                ? " Inside what you delegated, so accepting applies it straight away."
-                : " Beyond what you delegated, so accepting stages it for a second gesture here."}
+                ? ` Inside ${boundPhrase(item)}, so accepting applies it straight away.`
+                : ` Beyond ${boundPhrase(item)}, so accepting stages it for a second gesture here.`}
             </div>
             <div className="card-actions">
               <button

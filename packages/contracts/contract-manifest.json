@@ -1,6 +1,6 @@
 {
   "toolContractVersion": "2",
-  "sha256": "88a27dcba7517bc2f4edcf4794f29a6b5ff5bec0cf83eef45cdef6607d0039d0",
+  "sha256": "2adb77b76758757e641b6a416d6dfa2609d96ec569ac3ce43a1b5ceafab09b6c",
   "manifest": {
     "capabilityManifest": {
       "agreement": {
@@ -911,13 +911,16 @@
         "change",
         "projectedGain",
         "withinDelegatedBound",
+        "delegatedBound",
         "staged"
       ],
       "participantSummary": [
         "participantId",
         "displayName",
         "role",
-        "readyState"
+        "readyState",
+        "arrived",
+        "present"
       ],
       "prepareNavigationResult": [
         "ok",
@@ -936,7 +939,8 @@
         "type",
         "level",
         "text",
-        "payload"
+        "payload",
+        "actorId"
       ],
       "proposalView": [
         "proposalId",
@@ -969,6 +973,10 @@
           "type",
           "revision",
           "events"
+        ],
+        "presence": [
+          "type",
+          "present"
         ],
         "welcome": [
           "type",
@@ -1018,7 +1026,8 @@
         "brief",
         "delta",
         "outstanding",
-        "participants"
+        "participants",
+        "lastSyncedRevision"
       ]
     },
     "toolContractVersion": "2",

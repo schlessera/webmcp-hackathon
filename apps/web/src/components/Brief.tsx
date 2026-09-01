@@ -6,7 +6,7 @@ import type {
   ParticipantSummary,
   PrivateEffect,
 } from "../spatial-types.ts";
-import { COPY, ruledOutLabel } from "../ui/copy.ts";
+import { COPY, initials, joinNames, personColor, ruledOutLabel } from "../ui/copy.ts";
 
 /**
  * "What matters" — the group's stated needs, each toggleable, each carrying
@@ -148,6 +148,8 @@ interface NeedsProps {
   privateEffects: PrivateEffect[];
   participants: ParticipantSummary[];
   meId: string;
+  /** Display names of the people invited who have not opened the room yet. */
+  absent: string[];
   justAppliedId: string | null;
   previewNeedId: string | null;
   matching: number;
@@ -161,6 +163,7 @@ export function NeedsSection({
   privateEffects,
   participants,
   meId,
+  absent,
   justAppliedId,
   previewNeedId,
   matching,
@@ -196,7 +199,23 @@ export function NeedsSection({
         <p className="empty-note" data-testid="brief-empty">
           {COPY.emptyRoom}
         </p>
-      ) : (
+      ) : null}
+
+      {/* Mockup 7a: who has not opened the link yet. The card is status, not
+          an action — invite links are minted per person and never come back
+          to the page, so there is nothing here to send. */}
+      {absent.length > 0 && (
+        <div className="invite-card" data-testid="invite-card">
+          <div className="invite-title">
+            {joinNames(absent)} {absent.length === 1 ? "hasn't" : "haven't"} arrived
+          </div>
+          <div className="invite-body">
+            They'll see the map exactly as it stands when they open the link.
+          </div>
+        </div>
+      )}
+
+      {empty ? null : (
         <div className="need-list">
           {needs.map((n) => (
             <NeedRow
@@ -326,9 +345,10 @@ export function meaningfulEvents(events: ProjectedEvent[]): ProjectedEvent[] {
 interface DigestProps {
   events: ProjectedEvent[];
   privateEffects: PrivateEffect[];
+  participants: ParticipantSummary[];
 }
 
-export function Digest({ events, privateEffects }: DigestProps) {
+export function Digest({ events, privateEffects, participants }: DigestProps) {
   const rows = meaningfulEvents(events);
   if (rows.length === 0) return null;
 
@@ -339,11 +359,14 @@ export function Digest({ events, privateEffects }: DigestProps) {
       </div>
       <div className="record-list">
         {rows.slice(0, 6).map((e) => {
-          // The wire strips the actor's name from a projected payload, so a
-          // row cannot carry a person's colour without inventing one. The
-          // leading chip is therefore reserved for its real job: marking a
-          // move whose content the room may not see (CLAUDE.md §5).
+          // A full-level row names its author (mockup 7d: initials in the
+          // person's colour); a move whose content the room may not see
+          // carries the `?` chip instead (CLAUDE.md §5); council rows, neither.
           const hidden = e.level !== "full";
+          const actorIndex = e.actorId
+            ? participants.findIndex((p) => p.participantId === e.actorId)
+            : -1;
+          const actor = actorIndex >= 0 ? participants[actorIndex] : null;
           return (
             <div
               className="record-row"
@@ -353,6 +376,15 @@ export function Digest({ events, privateEffects }: DigestProps) {
               {hidden ? (
                 <span className="record-avatar" data-anonymous="true" aria-hidden="true">
                   ?
+                </span>
+              ) : actor ? (
+                <span
+                  className="record-avatar"
+                  style={{ background: personColor(actorIndex) }}
+                  data-testid={`digest-actor-${actor.participantId}`}
+                  aria-hidden="true"
+                >
+                  {initials(actor.displayName)}
                 </span>
               ) : (
                 <span className="record-spacer" aria-hidden="true" />
