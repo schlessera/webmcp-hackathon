@@ -6,11 +6,7 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-import {
-  PROTOCOL_VERSIONS,
-  TOOL_CONTRACT_VERSION,
-  type ProjectedEvent,
-} from "@webmcp-hackathon/contracts";
+import type { ProjectedEvent } from "@webmcp-hackathon/contracts";
 import { submitCommand, syncSession } from "./api.ts";
 import {
   clearSession,
@@ -21,14 +17,34 @@ import {
 import { connectRealtime, fetchPageBuild } from "./ws-client.ts";
 import { diagnostics } from "./diagnostics-store.ts";
 import { registerCommandRunner, spatial } from "./spatial-store.ts";
-import type { CommandEnvelope, OutstandingItem } from "./spatial-types.ts";
-import { requirementsFromFeed } from "./requirements.ts";
+import type {
+  ActiveNeed,
+  CommandEnvelope,
+  OutstandingAdjustment,
+  OutstandingItem,
+} from "./spatial-types.ts";
+import { numberWord, stillWorkVerb } from "./ui/copy.ts";
 import { Wordmark } from "./components/Wordmark.tsx";
+import { Header, type HeaderSubtitle } from "./components/Header.tsx";
 import { MapView } from "./components/MapView.tsx";
-import { CandidateSheet } from "./components/CandidateSheet.tsx";
-import { RequirementsPanel } from "./components/RequirementsPanel.tsx";
-import { DecisionsPanel } from "./components/DecisionsPanel.tsx";
-import { ArrivalBanner } from "./components/ArrivalBanner.tsx";
+import {
+  Digest,
+  History,
+  NeedsSection,
+  ReadyToggle,
+  WaysOut,
+} from "./components/Brief.tsx";
+import { Composer } from "./components/Composer.tsx";
+import { ConsentCards } from "./components/ConsentCards.tsx";
+import { PlaceDetails } from "./components/PlaceDetails.tsx";
+import { ArrivalBar } from "./components/ArrivalBar.tsx";
+import { Drawer } from "./components/Drawer.tsx";
+
+/**
+ * The room is the whole app: one screen, no nav bar, no tab bar, no
+ * hamburger (CLAUDE.md §11). Header, map and composer are fixed; only the
+ * brief scrolls. Everything protocol-shaped lives behind `{ }`.
+ */
 
 interface FeedLine extends ProjectedEvent {}
 
@@ -41,31 +57,41 @@ function mergeFeed(incoming: FeedLine[], prev: FeedLine[]): FeedLine[] {
     .slice(0, 40);
 }
 
-/** Human phase labels — the wire enum stays in the chip's title and wire view. */
-const PHASE_LABELS: Record<string, string> = {
-  setup: "Setting up",
-  gathering: "Gathering needs",
-  deliberation: "Deliberating",
-  agreed: "Agreed",
-  arrival: "On our way",
-  closed: "Closed",
-};
+/** Events that state a need, newest first — the "just applied" highlight. */
+const NEED_EVENTS = new Set([
+  "requirement_submitted",
+  "requirement_updated",
+  "private_requirement_declared",
+]);
 
-const FEASIBILITY_CHIP: Record<string, { className: string; label: (e: number, t: number) => string }> = {
-  feasible: { className: "chip-feasible", label: (e, t) => `${e} of ${t} eligible` },
-  fragile: { className: "chip-fragile", label: (e, t) => `only ${e} of ${t} left` },
-  infeasible: { className: "chip-infeasible", label: () => "impasse" },
-  uncertain: { className: "chip-uncertain", label: (e, t) => `${e} of ${t} · checking` },
-};
+const lastSeenKey = (roomId: string) => `spokes:lastSeen:${roomId}`;
+
+function readLastSeen(roomId: string): number {
+  try {
+    return Number(sessionStorage.getItem(lastSeenKey(roomId)) ?? 0) || 0;
+  } catch {
+    return 0;
+  }
+}
+function writeLastSeen(roomId: string, revision: number): void {
+  try {
+    sessionStorage.setItem(lastSeenKey(roomId), String(revision));
+  } catch {
+    /* private-mode surfaces simply never show a digest */
+  }
+}
 
 export function App() {
   const [session, setSession] = useState<SessionState | null>(null);
   const [revision, setRevision] = useState<number>(0);
   const [feed, setFeed] = useState<FeedLine[]>([]);
   const [staleBanner, setStaleBanner] = useState(false);
-  const [lastResult, setLastResult] = useState<{ text: string; kind: "ok" | "error" } | null>(null);
-  const [tab, setTab] = useState<"needs" | "activity" | "decisions">("needs");
-  const [ready, setReady] = useState(false);
+  const [errorLine, setErrorLine] = useState<string | null>(null);
+  const [drawerOpen, setDrawerOpen] = useState(
+    () => new URLSearchParams(window.location.search).has("shim"),
+  );
+  /** Revision this tab had already seen on a previous visit, if any. */
+  const [awaySince, setAwaySince] = useState(0);
 
   const diag = useSyncExternalStore(
     (cb) => diagnostics.subscribe(cb),
@@ -110,7 +136,12 @@ export function App() {
         }
       }
       setSession(established);
-      if (!established.token) return;
+      if (!established.token || !established.identity) return;
+
+      const roomId = established.identity.roomId;
+      // Captured BEFORE the first advance overwrites it: this is what makes
+      // "while you were away" a fact rather than a guess.
+      const previouslySeen = readLastSeen(roomId);
 
       const advanceTo = (newRevision: number) => {
         lastSeenRevision.current = Math.max(
@@ -118,6 +149,7 @@ export function App() {
           newRevision,
         );
         setRevision(lastSeenRevision.current);
+        writeLastSeen(roomId, lastSeenRevision.current);
       };
 
       /** Pull the delta for events this page missed (disconnects, races).
@@ -155,6 +187,9 @@ export function App() {
       if (first.ok && first.revision !== undefined) {
         if (first.delta) setFeed((prev) => mergeFeed(first.delta!.events, prev));
         spatial.setOutstanding(first.outstanding);
+        if (previouslySeen > 0 && first.revision > previouslySeen) {
+          setAwaySince(previouslySeen);
+        }
         advanceTo(first.revision);
       }
       void spatial.refetch();
@@ -218,14 +253,15 @@ export function App() {
           result.revision,
         );
         setRevision(lastSeenRevision.current);
-        setLastResult({ text: result.effect ?? "Done.", kind: "ok" });
+        setErrorLine(null);
         spatial.setOutstanding(result.outstanding);
         void spatial.refetch();
       } else if (!result.ok) {
-        setLastResult({
-          text: `${result.error?.message ?? result.error?.code ?? "Something went wrong."}`,
-          kind: "error",
-        });
+        // Only failures are surfaced. A success is visible in the map and the
+        // count block; a toast celebrating it would be noise.
+        setErrorLine(
+          result.error?.message ?? result.error?.code ?? "Something went wrong.",
+        );
         // Stale base without a live WS would strand every later click on the
         // same revision — pull the delta and advance now.
         if (result.error?.code === "sync_required") {
@@ -242,22 +278,32 @@ export function App() {
     registerCommandRunner(run);
   }, [run]);
 
-  // Toast auto-dismiss: successes clear themselves; errors stay until read.
-  useEffect(() => {
-    if (!lastResult || lastResult.kind === "error") return;
-    const t = setTimeout(() => setLastResult(null), 4000);
-    return () => clearTimeout(t);
-  }, [lastResult]);
-
   const rawContext = spatialState.context;
   // A room can exist without a spatial scope (bare negotiation fixtures);
   // the map and scope-dependent chrome simply stay off in that case.
   const context = rawContext?.scope?.area?.center ? rawContext : null;
-  const requirements = useMemo(() => requirementsFromFeed(feed), [feed]);
+
   const candidateName = useCallback(
     (candidateId: string) =>
-      context?.candidates.find((c) => c.candidateId === candidateId)?.name ?? candidateId,
+      context?.candidates.find((c) => c.candidateId === candidateId)?.name ??
+      candidateId,
     [context],
+  );
+
+  /** The newest need this page has seen stated — drawn with the works border
+   * for a moment so the row that just changed the count is findable. */
+  const justAppliedId = useMemo(() => {
+    for (const e of feed) {
+      if (!NEED_EVENTS.has(e.type)) continue;
+      const id = (e.payload as { requirementId?: string } | undefined)?.requirementId;
+      return id ?? null;
+    }
+    return null;
+  }, [feed]);
+
+  const awayEvents = useMemo(
+    () => (awaySince > 0 ? feed.filter((e) => e.revision > awaySince) : []),
+    [feed, awaySince],
   );
 
   if (!session) {
@@ -286,85 +332,73 @@ export function App() {
   const selected = context?.candidates.find(
     (c) => c.candidateId === spatialState.selectedId,
   );
-  const decisionsCount =
-    spatialState.outstanding.filter((i) => i.type === "adjustment_request").length +
-    (context
-      ? context.proposals.filter((p) => p.status === "open" && !p.ownStance).length
-      : 0) +
-    (context && isOrganizer
-      ? context.proposals.filter((p) => p.status === "staged").length
-      : 0);
-  const feasibility = context ? FEASIBILITY_CHIP[context.feasibility.state] : null;
-  const total = context ? context.candidates.length : 0;
+  const participants = context?.participants ?? [];
+  const activeNeeds = context?.activeNeeds ?? [];
+  const settled = committedId !== null;
+  const impasse = context?.impasse?.active === true;
+  const shown = spatialState.preview ?? context;
+  const matching = shown?.matching ?? 0;
+
+  const proposedRadiusM = (() => {
+    const widen = spatialState.outstanding.find(
+      (i): i is OutstandingAdjustment =>
+        i.type === "adjustment_request" &&
+        (i.change as { dimension?: string }).dimension === "radius_m",
+    );
+    const to = widen ? Number((widen.change as { to?: unknown }).to) : NaN;
+    return Number.isFinite(to) ? to : null;
+  })();
+
+  /* The subtitle is state, not metadata: the cheapest signal the room has for
+     "where are we". Derived — never a hardcoded name, never a domain word. */
+  const people = participants.length;
+  const subtitle: HeaderSubtitle = settled
+    ? { text: `agreed by all ${numberWord(people)}`, tone: "works" }
+    : impasse
+      ? { text: `nothing works for all ${numberWord(people)}`, tone: "unsure" }
+      : awayEvents.length > 0
+        ? { text: "you were away", tone: "quiet" }
+        : people <= 1
+          ? { text: "you're first here", tone: "quiet" }
+          : activeNeeds.length === 0
+            ? { text: `${numberWord(people)} in the room`, tone: "quiet" }
+            : {
+                text: `${numberWord(people)} in the room · ${matching} ${stillWorkVerb(matching)}`,
+                tone: "quiet",
+              };
+
+  const toggleNeed = (need: ActiveNeed) =>
+    void run("SetRequirementActive", {
+      requirementId: need.id,
+      active: !need.active,
+    });
 
   return (
     <div className="app">
       {staleBanner && (
         <div className="stale-banner" role="alert">
-          Protocol updated —{" "}
-          <button onClick={() => window.location.reload()}>tap to refresh</button>
+          This room is running an older version.{" "}
+          <button onClick={() => window.location.reload()}>Reload to catch up</button>
         </div>
       )}
-      <header className="header">
-        <Wordmark />
-        {context && (
-          <span className="header-goal">
-            {context.scope.category} · Berlin Mitte
-          </span>
-        )}
-        {context && (
-          <span className="chip chip-phase" data-testid="phase-chip" title={context.phase}>
-            {PHASE_LABELS[context.phase] ?? context.phase}
-          </span>
-        )}
-        {context && feasibility && (
-          <span
-            className={`chip ${feasibility.className}`}
-            data-testid="feasibility-chip"
-          >
-            {feasibility.label(context.feasibility.eligible, total)}
-          </span>
-        )}
-        <div className="header-right">
-          <span>
-            <span className="identity-name" data-testid="display-name">
-              {id.displayName}
-            </span>{" "}
-            <span className="identity-role" data-testid="role">
-              {id.role}
-            </span>
-          </span>
-          <button
-            className="ready-toggle"
-            data-testid="toggle-ready"
-            data-ready={ready}
-            onClick={() => {
-              const next = !ready;
-              setReady(next);
-              void run("SetReadyState", { state: next ? "ready" : "contributing" });
-            }}
-          >
-            {ready ? "✓ Ready" : "I'm done adding"}
-          </button>
-        </div>
-      </header>
 
-      {(context?.phase === "agreed" || context?.phase === "arrival") && committedId && (
-        <ArrivalBanner
-          destinationName={candidateName(committedId)}
-          arrival={context.arrival}
-          run={run}
-        />
-      )}
+      <Header
+        title={settled && committedId ? candidateName(committedId) : null}
+        subtitle={subtitle}
+        participants={participants}
+        onOpenDrawer={() => setDrawerOpen(true)}
+      />
 
-      <main className="app-main">
-        <section className="map-column">
+      <div className="app-body">
+        <div className="map-column">
           {context ? (
             <MapView
               context={context}
+              preview={spatialState.preview}
               selectedId={spatialState.selectedId}
               focusNonce={spatialState.focusNonce}
               committedId={committedId}
+              proposedRadiusM={proposedRadiusM}
               onSelect={(cid) => spatial.select(cid)}
             />
           ) : (
@@ -372,219 +406,112 @@ export function App() {
               <div className="connect-screen">Loading the shared map…</div>
             </div>
           )}
-          {context && selected && (
-            <CandidateSheet
-              candidate={selected}
-              proposal={context.proposals.find(
-                (p) =>
-                  p.candidateId === selected.candidateId &&
-                  p.status !== "withdrawn",
-              )}
-              phase={context.phase}
-              onClose={() => spatial.select(null)}
+        </div>
+
+        <div className="rail">
+          <div className="brief" data-testid="brief">
+            {context && (
+              <ConsentCards
+                context={context}
+                outstanding={spatialState.outstanding}
+                isOrganizer={isOrganizer}
+                candidateName={candidateName}
+                onOpenCandidate={(cid) => spatial.focus(cid)}
+                run={run}
+              />
+            )}
+
+            {context && impasse && (
+              <WaysOut
+                needs={activeNeeds}
+                participants={participants}
+                meId={id.participantId}
+                onRelax={(n) =>
+                  void run("SetRequirementActive", {
+                    requirementId: n.id,
+                    active: false,
+                  })
+                }
+              />
+            )}
+
+            {awayEvents.length > 0 && (
+              <Digest
+                events={awayEvents}
+                privateEffects={context?.privateEffects ?? []}
+              />
+            )}
+
+            <NeedsSection
+              needs={activeNeeds}
+              privateEffects={context?.privateEffects ?? []}
+              participants={participants}
+              meId={id.participantId}
+              justAppliedId={justAppliedId}
+              previewNeedId={spatialState.previewNeedId}
+              matching={matching}
+              onToggle={toggleNeed}
+              onHoldStart={(n) => spatial.startPreview(n.id)}
+              onHoldEnd={() => spatial.endPreview()}
+            />
+
+            {settled && <History events={feed} />}
+
+            <ReadyToggle run={run} />
+          </div>
+
+          {settled && committedId ? (
+            <ArrivalBar
+              destinationName={candidateName(committedId)}
+              arrival={context?.arrival}
+              walkMin={
+                context?.candidates.find((c) => c.candidateId === committedId)?.walkMin
+              }
+              run={run}
+            />
+          ) : (
+            <Composer
+              facets={context?.facets ?? []}
+              activeNeeds={activeNeeds}
+              disabled={!context}
               run={run}
             />
           )}
-        </section>
+        </div>
 
-        <section className="panel-region">
-          {context?.impasse?.active && (
-            <div className="impasse-banner" data-testid="impasse-banner" role="status">
-              <strong>Impasse.</strong> No option satisfies every confirmed need. The
-              council is privately checking possible adjustments.
-            </div>
-          )}
-          <div className="tabs" role="tablist">
-            <button
-              className="tab"
-              role="tab"
-              aria-selected={tab === "needs"}
-              data-testid="tab-needs"
-              onClick={() => setTab("needs")}
-            >
-              Needs
-            </button>
-            <button
-              className="tab"
-              role="tab"
-              aria-selected={tab === "activity"}
-              data-testid="tab-activity"
-              onClick={() => setTab("activity")}
-            >
-              Activity
-            </button>
-            <button
-              className="tab"
-              role="tab"
-              aria-selected={tab === "decisions"}
-              data-testid="tab-decisions"
-              onClick={() => setTab("decisions")}
-            >
-              Decisions
-              {decisionsCount > 0 && <span className="tab-badge">{decisionsCount}</span>}
-            </button>
-          </div>
-          <div className="panel-body">
-            <div hidden={tab !== "needs"}>
-              <RequirementsPanel
-                requirements={requirements}
-                ownDisplayName={id.displayName}
-                phase={context?.phase ?? "gathering"}
-                run={run}
-              />
-            </div>
-            <div hidden={tab !== "activity"}>
-              <ul className="feed-list" data-testid="feed">
-                {feed.map((line) => (
-                  <li
-                    className="feed-item"
-                    key={`${line.revision}-${line.type}`}
-                    data-level={line.level}
-                  >
-                    <span className="feed-text">{line.text}</span>
-                    {(line.level === "existence" || line.level === "aggregate") && (
-                      <span className="sr-only">(private — details withheld)</span>
-                    )}
-                  </li>
-                ))}
-              </ul>
-              {feed.length === 0 && (
-                <p className="empty-note">Quiet so far — the room's story lands here.</p>
-              )}
-            </div>
-            <div hidden={tab !== "decisions"}>
-              {context ? (
-                <DecisionsPanel
-                  context={context}
-                  outstanding={spatialState.outstanding}
-                  isOrganizer={isOrganizer}
-                  candidateName={candidateName}
-                  onSelectCandidate={(cid) => spatial.focus(cid)}
-                  run={run}
-                />
-              ) : (
-                <p className="empty-note">Waiting for the shared map…</p>
-              )}
-            </div>
-          </div>
-        </section>
-      </main>
+        {context && selected && (
+          <PlaceDetails
+            candidate={selected}
+            proposal={context.proposals.find(
+              (p) => p.candidateId === selected.candidateId && p.status !== "withdrawn",
+            )}
+            activeNeeds={activeNeeds}
+            participants={participants}
+            meId={id.participantId}
+            phase={context.phase}
+            onClose={() => spatial.select(null)}
+            run={run}
+          />
+        )}
+      </div>
 
-      {lastResult && (
-        <div className="toast" data-kind={lastResult.kind} role="status" data-testid="last-result">
-          {lastResult.text}
-          {lastResult.kind === "error" && (
-            <button
-              className="toast-dismiss"
-              aria-label="Dismiss"
-              onClick={() => setLastResult(null)}
-            >
-              ×
-            </button>
-          )}
+      {errorLine && (
+        <div className="error-line" role="alert" data-testid="last-result">
+          {errorLine}
+          <button onClick={() => setErrorLine(null)}>Dismiss</button>
         </div>
       )}
 
-      <details
-        className="dev-tools"
-        data-testid="diagnostics"
-        // Test lanes (?shim=webmcp) read identity/build/protocol values from
-        // here; keep it expanded there so assertions see visible text.
-        open={
-          new URLSearchParams(window.location.search).has("shim") || undefined
-        }
-      >
-        <summary>Wire view — what actually crossed the network</summary>
-        <p className="wire-intro">
-          Every request this page made, verbatim. Private needs are redacted
-          server-side before anything leaves your session — check for yourself.
-        </p>
-        <div>
-          participant <code data-testid="participant-id">{id.participantId}</code> · room{" "}
-          <code data-testid="room-id">{id.roomId}</code> · revision{" "}
-          <strong data-testid="revision">{revision}</strong> · build{" "}
-          <code data-testid="build-id">{diag.buildId ?? "…"}</code> · contract v
-          <span data-testid="contract-version">{TOOL_CONTRACT_VERSION}</span> ·{" "}
-          <code data-testid="protocols">
-            negotiation/{PROTOCOL_VERSIONS.negotiation} {PROTOCOL_VERSIONS.domain}
-          </code>
-        </div>
-        <p className="wire-intro">Put a command on the wire yourself:</p>
-        <div className="actions">
-          <button
-            className="btn"
-            data-testid="submit-shared"
-            onClick={() =>
-              void run("SubmitRequirement", {
-                visibility: "shared",
-                hardness: "hard",
-                delegation: { mode: "approval_required" },
-                payload: {
-                  kind: "attribute",
-                  key: "vegetarian-options",
-                  expect: "verified_true",
-                },
-              })
-            }
-          >
-            Require vegetarian (shared)
-          </button>
-          <button
-            className="btn"
-            data-testid="submit-private"
-            onClick={() =>
-              void run("SubmitRequirement", {
-                visibility: "application-private",
-                hardness: "hard",
-                delegation: { mode: "approval_required" },
-                payload: {
-                  kind: "budget",
-                  perPersonMax: { amount: 18, currency: "EUR" },
-                },
-              })
-            }
-          >
-            Private budget €18
-          </button>
-          <button
-            className="btn"
-            data-testid="declare-agent-private"
-            onClick={() =>
-              void run("SubmitRequirement", {
-                visibility: "agent-private",
-                hardness: "hard",
-                delegation: { mode: "approval_required" },
-                scopeHint: { affects: "candidate-eligibility" },
-              })
-            }
-          >
-            Declare agent-private
-          </button>
-        </div>
-        <ul>
-          <li>
-            document.modelContext:{" "}
-            <strong data-testid="diag-modelcontext">
-              {diag.modelContextPresent ? "present" : "absent"}
-            </strong>
-          </li>
-          <li>
-            tool registration:{" "}
-            <strong data-testid="diag-registration">{diag.registration}</strong>
-            {diag.registrationError && (
-              <span role="alert"> — {diag.registrationError}</span>
-            )}
-          </li>
-          <li>
-            websocket: <span data-testid="diag-ws">{diag.wsState}</span>
-          </li>
-          <li>
-            page build <code>{diag.buildId}</code> · server build{" "}
-            <code data-testid="diag-server-build">{diag.serverBuildId}</code>
-          </li>
-        </ul>
-        <pre data-testid="diag-log">{diag.lines.join("\n")}</pre>
-      </details>
+      {drawerOpen && (
+        <Drawer
+          identity={id}
+          diagnostics={diag}
+          context={context}
+          revision={revision}
+          onClose={() => setDrawerOpen(false)}
+          run={run}
+        />
+      )}
     </div>
   );
 }

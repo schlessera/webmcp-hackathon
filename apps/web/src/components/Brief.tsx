@@ -1,0 +1,434 @@
+import { useRef, useState } from "react";
+import type { ProjectedEvent } from "@webmcp-hackathon/contracts";
+import type {
+  ActiveNeed,
+  CommandEnvelope,
+  ParticipantSummary,
+  PrivateEffect,
+} from "../spatial-types.ts";
+import { COPY, ruledOutLabel } from "../ui/copy.ts";
+
+/**
+ * "What matters" — the group's stated needs, each toggleable, each carrying
+ * what it costs. This replaces every predefined filter control: the app ships
+ * zero domain chips and every row's text is a server label (CLAUDE.md §1).
+ *
+ * Press and hold previews the set WITHOUT that need, live on the map, and
+ * restores on release. It is the core gesture of the app (§7), so it has a
+ * keyboard equivalent (focus the row, hold Space) and an aria-live count.
+ */
+
+const HOLD_MS = 220;
+
+interface RowProps {
+  need: ActiveNeed;
+  ownerName: string | null;
+  isOwn: boolean;
+  /** Only the author may set a need aside (server-enforced, owner-only), so
+      a peer's row draws no toggle rather than a control that would fail. */
+  canToggle: boolean;
+  justApplied: boolean;
+  previewing: boolean;
+  onToggle(): void;
+  onHoldStart(): void;
+  onHoldEnd(): void;
+}
+
+function NeedRow({
+  need,
+  ownerName,
+  isOwn,
+  canToggle,
+  justApplied,
+  previewing,
+  onToggle,
+  onHoldStart,
+  onHoldEnd,
+}: RowProps) {
+  const timer = useRef<number | null>(null);
+  const held = useRef(false);
+
+  const isPrivate = need.visibility !== "shared";
+  const variant = isPrivate
+    ? "private"
+    : need.unknown > 0
+      ? "unsure"
+      : justApplied
+        ? "applied"
+        : "shared";
+
+  const beginHold = () => {
+    held.current = false;
+    timer.current = window.setTimeout(() => {
+      held.current = true;
+      onHoldStart();
+    }, HOLD_MS);
+  };
+  const endHold = () => {
+    if (timer.current !== null) {
+      clearTimeout(timer.current);
+      timer.current = null;
+    }
+    if (held.current) {
+      held.current = false;
+      onHoldEnd();
+      return true;
+    }
+    return false;
+  };
+
+  return (
+    <button
+      type="button"
+      className="need-row"
+      data-variant={variant}
+      data-inactive={!need.active || undefined}
+      data-previewing={previewing || undefined}
+      data-testid={`need-${need.id}`}
+      aria-pressed={need.active}
+      aria-describedby="brief-preview-count"
+      onPointerDown={(e) => {
+        // Capture so the release always lands here even if the finger drifts.
+        // NOTE: setting capture retargets the pointer and fires pointerleave
+        // on the old chain, so this row must NOT end the hold on leave — that
+        // pairing silently cancels every press before it starts.
+        e.currentTarget.setPointerCapture?.(e.pointerId);
+        beginHold();
+      }}
+      onPointerUp={() => {
+        if (!endHold() && canToggle) onToggle();
+      }}
+      onPointerCancel={endHold}
+      onKeyDown={(e) => {
+        if (e.key === " " && !e.repeat) {
+          e.preventDefault();
+          held.current = true;
+          onHoldStart();
+        } else if (e.key === "Enter" && canToggle) {
+          e.preventDefault();
+          onToggle();
+        }
+      }}
+      onKeyUp={(e) => {
+        if (e.key === " " && held.current) {
+          held.current = false;
+          onHoldEnd();
+        }
+      }}
+    >
+      {canToggle && (
+        <span
+          className="need-toggle"
+          data-on={need.active}
+          data-tone={isPrivate ? "private" : need.unknown > 0 ? "unsure" : "works"}
+          aria-hidden="true"
+        />
+      )}
+      <span className="need-label">
+        {need.label}
+        {!isOwn && ownerName && <span className="need-author"> · {ownerName}</span>}
+      </span>
+      {need.unknown > 0 ? (
+        <span className="badge" data-kind="unsure">
+          {need.unknown} unknown
+        </span>
+      ) : isPrivate ? (
+        <span className="badge" data-kind="scope">
+          private
+        </span>
+      ) : (
+        <span className="need-delta">{ruledOutLabel(need.ruledOut)}</span>
+      )}
+    </button>
+  );
+}
+
+interface NeedsProps {
+  needs: ActiveNeed[];
+  privateEffects: PrivateEffect[];
+  participants: ParticipantSummary[];
+  meId: string;
+  justAppliedId: string | null;
+  previewNeedId: string | null;
+  matching: number;
+  onToggle(need: ActiveNeed): void;
+  onHoldStart(need: ActiveNeed): void;
+  onHoldEnd(): void;
+}
+
+export function NeedsSection({
+  needs,
+  privateEffects,
+  participants,
+  meId,
+  justAppliedId,
+  previewNeedId,
+  matching,
+  onToggle,
+  onHoldStart,
+  onHoldEnd,
+}: NeedsProps) {
+  const nameOf = (id: string) =>
+    participants.find((p) => p.participantId === id)?.displayName ?? null;
+  const empty = needs.length === 0 && privateEffects.length === 0;
+
+  return (
+    <section data-testid="brief-needs">
+      <div className="section-head">
+        <span className="section-title">What matters</span>
+        {!empty && (
+          <span className="section-count">{needs.length + privateEffects.length}</span>
+        )}
+        {!empty && <span className="section-hint">{COPY.holdHint}</span>}
+      </div>
+
+      {/* The press-and-hold count, announced politely (SPOKES-UI §11). */}
+      <span
+        id="brief-preview-count"
+        className="sr-only"
+        role="status"
+        aria-live="polite"
+      >
+        {matching} still work
+      </span>
+
+      {empty ? (
+        <p className="empty-note" data-testid="brief-empty">
+          {COPY.emptyRoom}
+        </p>
+      ) : (
+        <div className="need-list">
+          {needs.map((n) => (
+            <NeedRow
+              key={n.id}
+              need={n}
+              isOwn={n.ownerId === meId}
+              canToggle={n.ownerId === meId}
+              ownerName={nameOf(n.ownerId)}
+              justApplied={n.id === justAppliedId}
+              previewing={n.id === previewNeedId}
+              onToggle={() => onToggle(n)}
+              onHoldStart={() => onHoldStart(n)}
+              onHoldEnd={onHoldEnd}
+            />
+          ))}
+
+          {/* A peer's private need: its EFFECT is public, its CONTENT never
+              leaves its owner's client (CLAUDE.md §5). No label beyond the
+              coarse topic the owner opted into, no toggle, no shadow. */}
+          {privateEffects.map((e, i) => (
+            <div
+              key={`${e.owner}-${i}`}
+              className="need-row"
+              data-variant="peer-private"
+              data-testid="private-effect"
+            >
+              <span className="need-label">
+                A private condition{e.topic ? ` about ${e.topic}` : ""}
+              </span>
+              {e.ruledOut > 0 && (
+                <span className="need-delta">−{e.ruledOut}</span>
+              )}
+              <span className="badge" data-kind="scope-quiet">
+                private
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+/* ── Impasse: the ways out, each quantified ──────────────────────────────
+   Offers are consequences, never instructions (COPY.md deltas). */
+
+interface WaysOutProps {
+  needs: ActiveNeed[];
+  participants: ParticipantSummary[];
+  meId: string;
+  onRelax(need: ActiveNeed): void;
+}
+
+export function WaysOut({ needs, participants, meId, onRelax }: WaysOutProps) {
+  const options = needs
+    .filter((n) => n.active && n.wouldReturn > 0)
+    .sort((a, b) => b.wouldReturn - a.wouldReturn)
+    .slice(0, 2);
+  if (options.length === 0) return null;
+
+  const nameOf = (id: string) =>
+    participants.find((p) => p.participantId === id)?.displayName ?? "someone";
+
+  return (
+    <section data-testid="ways-out">
+      <div className="section-head">
+        <span className="section-title" data-tone="unsure">
+          {options.length === 1 ? "One way out" : "Two ways out"}
+        </span>
+      </div>
+      {options.map((n) => {
+        const own = n.ownerId === meId;
+        return (
+          <div
+            key={n.id}
+            className="card"
+            data-tone={own ? "works" : "scope"}
+            data-testid={`way-out-${n.id}`}
+          >
+            <div className="card-head">
+              <span className="card-title">
+                {own
+                  ? `Let “${n.label}” be nice-to-have`
+                  : `${nameOf(n.ownerId)} could set “${n.label}” aside`}
+              </span>
+              <span className="card-delta">+{n.wouldReturn}</span>
+            </div>
+            <div className="card-body">
+              {own
+                ? `${n.wouldReturn} place${n.wouldReturn === 1 ? "" : "s"} come${n.wouldReturn === 1 ? "s" : ""} back if this stops ruling places out.`
+                : "It is theirs to set aside — you can ask them in the room."}
+            </div>
+            {own && (
+              <div className="card-actions">
+                <button
+                  className="btn"
+                  data-tone="works"
+                  data-testid={`relax-${n.id}`}
+                  onClick={() => onRelax(n)}
+                >
+                  Make it optional
+                </button>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </section>
+  );
+}
+
+/* ── Late join: a digest, not a feed to scroll ───────────────────────────
+   Peers' private moves appear as effects, never as contents (§5). */
+
+/**
+ * Bookkeeping the room does not need to read back. The count block already
+ * says how many places still work, so a per-revision recount is churn — and
+ * its server text speaks in wire vocabulary, which invariant 6 keeps out of
+ * the main UI.
+ */
+const DIGEST_NOISE = new Set(["candidates_updated", "phase_changed"]);
+
+export function meaningfulEvents(events: ProjectedEvent[]): ProjectedEvent[] {
+  return events.filter((e) => !DIGEST_NOISE.has(e.type));
+}
+
+interface DigestProps {
+  events: ProjectedEvent[];
+  privateEffects: PrivateEffect[];
+}
+
+export function Digest({ events, privateEffects }: DigestProps) {
+  const rows = meaningfulEvents(events);
+  if (rows.length === 0) return null;
+
+  return (
+    <section data-testid="digest">
+      <div className="section-head">
+        <span className="section-title">While you were away</span>
+      </div>
+      <div className="record-list">
+        {rows.slice(0, 6).map((e) => {
+          // The wire strips the actor's name from a projected payload, so a
+          // row cannot carry a person's colour without inventing one. The
+          // leading chip is therefore reserved for its real job: marking a
+          // move whose content the room may not see (CLAUDE.md §5).
+          const hidden = e.level !== "full";
+          return (
+            <div
+              className="record-row"
+              key={`${e.revision}-${e.type}`}
+              data-private={hidden || undefined}
+            >
+              {hidden ? (
+                <span className="record-avatar" data-anonymous="true" aria-hidden="true">
+                  ?
+                </span>
+              ) : (
+                <span className="record-spacer" aria-hidden="true" />
+              )}
+              <span className="record-text">{e.text}</span>
+            </div>
+          );
+        })}
+        {privateEffects
+          .filter((p) => p.ruledOut > 0)
+          .map((p, i) => (
+            <div className="record-row" data-private="true" key={`pe-${i}`}>
+              <span className="record-avatar" data-anonymous="true" aria-hidden="true">
+                ?
+              </span>
+              <span className="record-text">
+                A private condition ruled {p.ruledOut} out
+              </span>
+              <span className="record-delta">−{p.ruledOut}</span>
+            </div>
+          ))}
+      </div>
+    </section>
+  );
+}
+
+/* ── Agreed: the short record of how it got here ─────────────────────────── */
+
+export function History({ events }: { events: ProjectedEvent[] }) {
+  const ordered = meaningfulEvents(events).reverse();
+  if (ordered.length === 0) return null;
+  return (
+    <section data-testid="history">
+      <div className="section-head">
+        <span className="section-title">How it got here</span>
+      </div>
+      <div className="record-list">
+        {ordered.slice(-8).map((e, i) => (
+          <div
+            className="record-row"
+            key={`${e.revision}-${e.type}`}
+            data-private={e.level !== "full" || undefined}
+          >
+            <span className="record-index">{String(i + 1).padStart(2, "0")}</span>
+            <span className="record-text">{e.text}</span>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+/* ── Ready toggle ────────────────────────────────────────────────────────
+   Small and quiet: the phase machine needs it, the room does not read it. */
+
+export function ReadyToggle({
+  run,
+}: {
+  run(type: string, input: Record<string, unknown>): Promise<CommandEnvelope>;
+}) {
+  const [ready, setReady] = useState(false);
+  return (
+    <div className="brief-foot">
+      <button
+        className="ready-toggle"
+        data-testid="toggle-ready"
+        data-ready={ready}
+        aria-pressed={ready}
+        onClick={() => {
+          const next = !ready;
+          setReady(next);
+          void run("SetReadyState", { state: next ? "ready" : "contributing" });
+        }}
+      >
+        {ready ? "Done adding" : "I'm done adding"}
+      </button>
+    </div>
+  );
+}

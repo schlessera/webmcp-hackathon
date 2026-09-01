@@ -1,27 +1,40 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Layer, Map, Marker, Source, type MapRef } from "@vis.gl/react-maplibre";
 import "maplibre-gl/dist/maplibre-gl.css";
-import type { SpatialContext } from "../spatial-types.ts";
+import { MAP_THEME, TILE_STYLE } from "../map-theme.ts";
+import type { CandidateSummary, SpatialContext } from "../spatial-types.ts";
+import { numberWord, stillWorkVerb, tiltFor } from "../ui/copy.ts";
 
 /**
- * The shared map: scope ring, one pin per candidate colored by eligibility
- * (excluded pins stay visible but dimmed — the room keeps a constant visual
- * representation as options change), proposal rings, committed star.
- * Pins are DOM markers, so the room stays legible (and testable) even when
- * WebGL tiles cannot load.
+ * The shared map.
+ *
+ * Two invariants govern this file:
+ *
+ * §8 — it NEVER re-centres as a result of a set change. The initial fit and
+ * an explicit user action (opening a place, `focus_destination`) are the only
+ * viewport moves. When the candidate set changes, places settle in place.
+ *
+ * §9 — position lives on the outer `.marker-sticker`, animation on the inner
+ * `.sticker-box`. A CSS `animation` that sets `transform` would otherwise
+ * overwrite the positioning translate and the sticker would jump to its
+ * anchor point.
  */
 
-const TILE_STYLE = "https://tiles.openfreemap.org/styles/liberty";
+type MarkerState = "works" | "unsure" | "out" | "selected" | "proposed" | "return";
 
 interface Props {
   context: SpatialContext;
+  /** The set as it would be without one need, while a brief row is held. */
+  preview: SpatialContext | null;
   selectedId: string | null;
   focusNonce: number;
   committedId: string | null;
+  /** A wider radius an agent has asked for, drawn as a second faint ring. */
+  proposedRadiusM: number | null;
   onSelect(candidateId: string | null): void;
 }
 
-/** GeoJSON circle polygon (64 segments) around a lat/lng center. */
+/** GeoJSON circle polygon (64 segments) around a lat/lng centre. */
 function circlePolygon(center: { lat: number; lng: number }, radiusM: number) {
   const points: [number, number][] = [];
   const latR = radiusM / 111320;
@@ -40,56 +53,69 @@ function circlePolygon(center: { lat: number; lng: number }, radiusM: number) {
   };
 }
 
-export function MapView({ context, selectedId, focusNonce, committedId, onSelect }: Props) {
+/**
+ * Which places may carry a name.
+ *
+ * Real geography puts far more eligible places in frame than the authored
+ * mockup ever drew — 31 name cards in a 380px band bury each other, and a
+ * buried sticker is an unreachable place. So names are placed greedily in
+ * priority order and only where the card does not collide with one already
+ * placed; everything else falls back to the "works dot" that is already part
+ * of the pin vocabulary. Nothing is hidden: every place still has a mark on
+ * the map, in its own state's colour, size and border style, and tapping it
+ * opens it.
+ */
+const NAME_CAP = 14;
+/* The collision box is the drawn card plus the height its ±3° tilt adds, so
+   two accepted names can sit shoulder to shoulder but never on top of each
+   other. Widths are estimated rather than measured: measuring would need the
+   cards laid out first, and the whole point is to decide before drawing. */
+const STICKER_H = 38;
+const STICKER_SLACK = 1;
+
+/** Rough drawn width of a sticker: dot + name at ~6.6px/char + optional chip. */
+function stickerWidth(name: string, hasChip: boolean): number {
+  return 44 + name.length * 6.6 + (hasChip ? 40 : 0);
+}
+
+export function MapView({
+  context,
+  preview,
+  selectedId,
+  focusNonce,
+  committedId,
+  proposedRadiusM,
+  onSelect,
+}: Props) {
   const mapRef = useRef<MapRef>(null);
   const { scope, candidates, proposals } = context;
   const center = scope.area.center;
 
-  /* The page's second authored motion moment (with the scope-ring tween):
-     when the room commits, spokes converge on the gold star — once. A page
-     that loads into an already-committed room does not celebrate again. */
-  const prevCommitted = useRef<string | null>(committedId);
-  const [burstId, setBurstId] = useState<string | null>(null);
+  const [viewportWidth, setViewportWidth] = useState(() =>
+    typeof window === "undefined" ? 1024 : window.innerWidth,
+  );
   useEffect(() => {
-    if (committedId && prevCommitted.current !== committedId) {
-      setBurstId(committedId);
-      const t = setTimeout(() => setBurstId(null), 1300);
-      prevCommitted.current = committedId;
-      return () => clearTimeout(t);
-    }
-    prevCommitted.current = committedId;
-  }, [committedId]);
+    const onResize = () => setViewportWidth(window.innerWidth);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
 
-  /* The widen-the-area beat: animate the ring radius with an ease-out tween
-     instead of snapping, so consent visibly grows the shared search space. */
-  const [drawnRadius, setDrawnRadius] = useState(scope.area.radiusM);
-  const animFrom = useRef(scope.area.radiusM);
-  useEffect(() => {
-    const from = animFrom.current;
-    const to = scope.area.radiusM;
-    if (from === to) return;
-    const start = performance.now();
-    const duration = 700;
-    let raf = 0;
-    const tick = (now: number) => {
-      const t = Math.min(1, (now - start) / duration);
-      const eased = 1 - Math.pow(1 - t, 3);
-      setDrawnRadius(from + (to - from) * eased);
-      if (t < 1) raf = requestAnimationFrame(tick);
-      else animFrom.current = to;
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [scope.area.radiusM]);
+  /* Label placement is screen-space, so it is re-resolved when the user has
+     finished moving the map — never mid-gesture, and never as a result of a
+     set change moving the viewport, because a set change never does (§8). */
+  const [viewTick, setViewTick] = useState(0);
 
   const ring = useMemo(
-    () => circlePolygon(center, drawnRadius),
-    [center.lat, center.lng, drawnRadius],
+    () => circlePolygon(center, scope.area.radiusM),
+    [center.lat, center.lng, scope.area.radiusM],
+  );
+  const proposedRing = useMemo(
+    () => (proposedRadiusM ? circlePolygon(center, proposedRadiusM) : null),
+    [center.lat, center.lng, proposedRadiusM],
   );
 
   /* Inverse of the scope circle: the world with the search area punched out,
-     so everything beyond the current range reads dimmed while the area itself
-     stays at full brightness. Follows the same tweened radius as the ring. */
+     so everything beyond the current range reads dimmed at 8%. */
   const outsideMask = useMemo(
     () => ({
       type: "Feature" as const,
@@ -111,80 +137,184 @@ export function MapView({ context, selectedId, focusNonce, committedId, onSelect
     [ring],
   );
 
-  /* Fit the scope circle once on load, and again when the radius settles. */
-  const fitTo = (radiusM: number, animate: boolean) => {
-    const latR = radiusM / 111320;
-    const lngR = radiusM / (111320 * Math.cos((center.lat * Math.PI) / 180));
+  /* The ONLY automatic viewport move: the first fit, once, on load. There is
+     deliberately no effect keyed on the scope radius — a widened area grows
+     the ring under a viewport the user still recognises (§8). */
+  const fitOnce = () => {
+    const latR = scope.area.radiusM / 111320;
+    const lngR =
+      scope.area.radiusM / (111320 * Math.cos((center.lat * Math.PI) / 180));
     mapRef.current?.fitBounds(
       [
         [center.lng - lngR, center.lat - latR],
         [center.lng + lngR, center.lat + latR],
       ],
-      { padding: 28, duration: animate ? 800 : 0 },
+      { padding: 34, duration: 0 },
     );
   };
-  useEffect(() => {
-    fitTo(scope.area.radiusM, true);
-    // Center is a dependency too: SetSearchScope can move the circle without
-    // changing its radius, and the viewport must follow.
-  }, [scope.area.radiusM, center.lat, center.lng]);
 
-  /* focus_destination / pin selection pans to the candidate. */
+  /* Explicit user actions only: opening a place from a card, or the
+     `focus_destination` tool ("show me"). Pin selection does not fly. */
   useEffect(() => {
     if (!selectedId || focusNonce === 0) return;
     const c = candidates.find((v) => v.candidateId === selectedId);
-    if (c) {
-      mapRef.current?.flyTo({
-        center: [c.location.lng, c.location.lat],
-        zoom: Math.max(mapRef.current?.getZoom() ?? 14, 15),
-        duration: 600,
-      });
-    }
+    if (!c) return;
+    mapRef.current?.flyTo({
+      center: [c.location.lng, c.location.lat],
+      zoom: Math.max(mapRef.current?.getZoom() ?? 14, 15),
+      duration: 600,
+    });
   }, [focusNonce, selectedId]);
 
   const proposalByCandidate = useMemo(() => {
-    const map = new Map_<string, string>();
+    const map = new globalThis.Map<string, string>();
     for (const p of proposals) {
       if (p.status === "open" || p.status === "staged") map.set(p.candidateId, "open");
-      if (p.status === "vetoed") map.set(p.candidateId, "vetoed");
     }
     return map;
   }, [proposals]);
 
-  /* The legend teaches the color language and narrates it live: counts move
-     the moment eligibility shifts, and the proposal/agreed rows exist only
-     while such a pin is on the map. */
-  const counts = useMemo(() => {
-    const c = { eligible: 0, uncertain: 0, excluded: 0 };
-    for (const v of candidates) {
-      if (v.candidateId === committedId) continue;
-      c[v.eligibility as keyof typeof c] += 1;
+  /* While a brief row is held, the drawn set is the previewed one, and the
+     places the held need was removing breathe back in as dashed stickers. */
+  const previewEligible = useMemo(() => {
+    if (!preview) return null;
+    const set = new Set<string>();
+    for (const c of preview.candidates) {
+      if (c.eligibility === "eligible") set.add(c.candidateId);
     }
-    return c;
-  }, [candidates, committedId]);
-  const proposedCount = [...proposalByCandidate.values()].filter((s) => s === "open").length;
-  const vetoedCount = [...proposalByCandidate.values()].filter((s) => s === "vetoed").length;
+    return set;
+  }, [preview]);
+
+  const liveEligible = useMemo(() => {
+    const set = new Set<string>();
+    for (const c of candidates) {
+      if (c.eligibility === "eligible") set.add(c.candidateId);
+    }
+    return set;
+  }, [candidates]);
+
+  const stateOf = (c: CandidateSummary): MarkerState => {
+    if (c.candidateId === committedId || c.candidateId === selectedId) return "selected";
+    if (proposalByCandidate.get(c.candidateId) === "open") return "proposed";
+    if (preview && previewEligible) {
+      if (previewEligible.has(c.candidateId)) {
+        return liveEligible.has(c.candidateId) ? "works" : "return";
+      }
+      const shadow = preview.candidates.find((p) => p.candidateId === c.candidateId);
+      return shadow?.eligibility === "uncertain" ? "unsure" : "out";
+    }
+    if (c.eligibility === "eligible") return "works";
+    if (c.eligibility === "uncertain") return "unsure";
+    return "out";
+  };
+
+  const named = useMemo(() => {
+    const map = mapRef.current;
+    const set = new Set<string>();
+    // A place someone acted on always keeps its name, wherever it sits.
+    const priority = (c: CandidateSummary) => {
+      if (c.candidateId === selectedId || c.candidateId === committedId) return 0;
+      if (proposalByCandidate.has(c.candidateId)) return 1;
+      return 2;
+    };
+    const ordered = candidates
+      .filter((c) => stateOf(c) !== "out")
+      .sort((a, b) => priority(a) - priority(b) || a.walkMin - b.walkMin);
+
+    if (!map) {
+      for (const c of ordered.slice(0, NAME_CAP)) set.add(c.candidateId);
+      return set;
+    }
+
+    const placed: Array<{ x: number; y: number; w: number }> = [];
+    for (const c of ordered) {
+      if (set.size >= NAME_CAP) break;
+      let point: { x: number; y: number };
+      try {
+        point = map.project([c.location.lng, c.location.lat]);
+      } catch {
+        continue;
+      }
+      const w = stickerWidth(c.name, true) * STICKER_SLACK;
+      const left = point.x - 13;
+      const collides = placed.some(
+        (p) =>
+          Math.abs(p.y - point.y) < STICKER_H &&
+          left < p.x + p.w &&
+          p.x < left + w,
+      );
+      if (collides) continue;
+      placed.push({ x: left, y: point.y, w });
+      set.add(c.candidateId);
+    }
+    return set;
+  }, [
+    candidates,
+    viewportWidth,
+    selectedId,
+    committedId,
+    proposalByCandidate,
+    preview,
+    viewTick,
+  ]);
+
+  const shown = preview ?? context;
+  const matching = shown.matching;
+  const total = shown.total;
+  const unsure = shown.feasibility.uncertain;
+  const statedNeeds = context.activeNeeds.filter((n) => n.active);
+  const collisions = statedNeeds.filter((n) => n.ruledOut > 0).length;
+  const settled = committedId !== null;
+  const preNeed = statedNeeds.length === 0 && context.privateEffects.length === 0;
+
+  const countState = settled
+    ? "settled"
+    : preNeed
+      ? "pre"
+      : matching === 0
+        ? "impasse"
+        : "works";
+
+  const committedWalk = committedId
+    ? candidates.find((c) => c.candidateId === committedId)?.walkMin
+    : undefined;
+
+  /* The offer chip: what the set would become if the costliest need relaxed.
+     Phrased as a consequence, never as an instruction (COPY.md deltas). */
+  const bestRelaxation = useMemo(() => {
+    const relaxable = context.activeNeeds
+      .filter((n) => n.active && n.wouldReturn > 0)
+      .sort((a, b) => b.wouldReturn - a.wouldReturn);
+    return relaxable[0] ?? null;
+  }, [context.activeNeeds]);
 
   return (
     <div
       className="map-region"
       data-testid="map-region"
       data-scope-radius={Math.round(scope.area.radiusM)}
-      data-phase={context.phase}
+      data-preview={preview ? "true" : undefined}
     >
       <Map
         ref={mapRef}
         initialViewState={{ latitude: center.lat, longitude: center.lng, zoom: 14 }}
         mapStyle={TILE_STYLE}
         attributionControl={{ compact: true }}
-        onLoad={() => fitTo(scope.area.radiusM, false)}
+        onLoad={() => {
+          fitOnce();
+          setViewTick((t) => t + 1);
+        }}
+        onMoveEnd={() => setViewTick((t) => t + 1)}
         onClick={() => onSelect(null)}
       >
         <Source id="scope-mask" type="geojson" data={outsideMask}>
           <Layer
             id="scope-dim"
             type="fill"
-            paint={{ "fill-color": "#23252d", "fill-opacity": 0.14 }}
+            paint={{
+              "fill-color": MAP_THEME.outsideDim.color,
+              "fill-opacity": MAP_THEME.outsideDim.opacity,
+            }}
           />
         </Source>
         <Source id="scope-ring" type="geojson" data={ring}>
@@ -192,113 +322,144 @@ export function MapView({ context, selectedId, focusNonce, committedId, onSelect
             id="scope-line"
             type="line"
             paint={{
-              "line-color": "#4735d8",
-              "line-width": 2,
-              "line-opacity": 0.55,
-              "line-dasharray": [1.5, 1.5],
+              "line-color": MAP_THEME.scopeRing.color,
+              "line-width": MAP_THEME.scopeRing.width,
+              "line-opacity": MAP_THEME.scopeRing.opacity,
+              "line-dasharray": [...MAP_THEME.scopeRing.dash],
             }}
           />
         </Source>
+        {proposedRing && (
+          <Source id="scope-ring-proposed" type="geojson" data={proposedRing}>
+            <Layer
+              id="scope-line-proposed"
+              type="line"
+              paint={{
+                "line-color": MAP_THEME.proposedRing.color,
+                "line-width": MAP_THEME.proposedRing.width,
+                "line-opacity": MAP_THEME.proposedRing.opacity,
+                "line-dasharray": [...MAP_THEME.proposedRing.dash],
+              }}
+            />
+          </Source>
+        )}
         {candidates.map((c) => {
-          const committed = c.candidateId === committedId;
-          const proposal = proposalByCandidate.get(c.candidateId);
+          const state = stateOf(c);
+          const proposed = state === "proposed";
           return (
             <Marker
               key={c.candidateId}
               longitude={c.location.lng}
               latitude={c.location.lat}
               anchor="center"
-              style={{ zIndex: committed ? 5 : c.eligibility === "excluded" ? 1 : 2 }}
+              style={{
+                zIndex: state === "selected" || proposed ? 5 : state === "out" ? 1 : 3,
+              }}
             >
-              {committed ? (
-                <div
-                  className="pin-star"
-                  data-testid={`pin-${c.candidateId}`}
-                  data-committed="true"
-                  data-burst={burstId === c.candidateId || undefined}
-                  role="button"
-                  tabIndex={0}
-                  aria-label={`${c.name} — agreed destination`}
-                  onClick={(e) => {
-                    e.stopPropagation();
+              <div
+                className="marker"
+                data-state={state}
+                data-named={named.has(c.candidateId)}
+                data-testid={`pin-${c.candidateId}`}
+                role="button"
+                tabIndex={0}
+                aria-label={`${c.name} — ${
+                  state === "out"
+                    ? "ruled out"
+                    : state === "unsure"
+                      ? "not yet known"
+                      : "still works"
+                }`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onSelect(c.candidateId);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
                     onSelect(c.candidateId);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      onSelect(c.candidateId);
-                    }
-                  }}
+                  }
+                }}
+              >
+                <i className="marker-dot" aria-hidden="true" />
+                <div
+                  className="marker-sticker"
+                  style={{ "--tilt": `${tiltFor(c.candidateId)}deg` } as CSSProperties}
                 >
-                  ★
-                  {burstId === c.candidateId && (
-                    <span className="commit-burst" aria-hidden="true">
-                      {Array.from({ length: 6 }, (_, i) => (
-                        <i key={i} style={{ transform: `rotate(${i * 60}deg)` }} />
-                      ))}
+                  <div className="sticker-box">
+                    <i className="sticker-dot" aria-hidden="true" />
+                    <span className="sticker-name">
+                      {c.name}
+                      {proposed && <span className="sticker-suffix"> · proposed</span>}
                     </span>
-                  )}
+                    {state === "unsure" ? (
+                      <span className="sticker-chip" aria-hidden="true">?</span>
+                    ) : state === "return" ? (
+                      <span className="sticker-chip">+1</span>
+                    ) : c.walkMin > 0 ? (
+                      <span className="sticker-chip">{c.walkMin} min</span>
+                    ) : null}
+                  </div>
                 </div>
-              ) : (
-                <div
-                  className="pin"
-                  data-testid={`pin-${c.candidateId}`}
-                  data-eligibility={c.eligibility}
-                  data-proposed={proposal === "open" || undefined}
-                  data-vetoed={proposal === "vetoed" || undefined}
-                  data-selected={c.candidateId === selectedId || undefined}
-                  role="button"
-                  tabIndex={0}
-                  aria-label={`${c.name} (${c.eligibility})`}
-                  title={c.name}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onSelect(c.candidateId);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      onSelect(c.candidateId);
-                    }
-                  }}
-                />
-              )}
+              </div>
             </Marker>
           );
         })}
       </Map>
-      <div className="map-legend" data-testid="map-legend" aria-label="Map key">
-        <span className="legend-item">
-          <i className="legend-dot" data-k="eligible" /> {counts.eligible} eligible
-        </span>
-        {counts.uncertain > 0 && (
-          <span className="legend-item">
-            <i className="legend-dot" data-k="uncertain" /> {counts.uncertain} checking
-          </span>
-        )}
-        {counts.excluded > 0 && (
-          <span className="legend-item">
-            <i className="legend-dot" data-k="excluded" /> {counts.excluded} out
-          </span>
-        )}
-        {proposedCount > 0 && (
-          <span className="legend-item">
-            <i className="legend-dot" data-k="proposed" /> proposed
-          </span>
-        )}
-        {vetoedCount > 0 && (
-          <span className="legend-item">
-            <i className="legend-dot" data-k="vetoed" /> vetoed
-          </span>
-        )}
-        {committedId && (
-          <span className="legend-item legend-agreed">★ agreed</span>
+
+      <div className="map-wash" aria-hidden="true" />
+
+      <div className="count-block" data-state={countState} data-testid="count-block">
+        {countState === "settled" ? (
+          <>
+            <div className="count-settled">Settled</div>
+            {committedWalk !== undefined && (
+              <div className="count-sub">{committedWalk} min from you</div>
+            )}
+          </>
+        ) : countState === "pre" ? (
+          <>
+            <div className="count-head">
+              <span className="count-number" data-testid="count-number">{total}</span>
+              <span className="count-label">
+                places
+              </span>
+            </div>
+            <div className="count-sub">nothing ruled out yet</div>
+          </>
+        ) : (
+          <>
+            <div className="count-head">
+              <span className="count-number" data-testid="count-number">{matching}</span>
+              <span className="count-label">
+                {stillWorkVerb(matching).split(" ")[0]}
+                <br />
+                {stillWorkVerb(matching).split(" ")[1]}
+              </span>
+            </div>
+            <div className="count-sub">
+              {countState === "impasse"
+                ? `of ${total} · ${
+                    collisions >= 2
+                      ? `${numberWord(collisions)} needs collide`
+                      : "one need rules the rest out"
+                  }`
+                : `of ${total}${unsure > 0 ? ` · ${unsure} unsure` : ""}`}
+            </div>
+          </>
         )}
       </div>
+
+      {bestRelaxation && !settled && (
+        <div className="delta-chip" data-testid="delta-chip">
+          <span className="delta-number">+{bestRelaxation.wouldReturn}</span>
+          <span className="delta-text">
+            if “{bestRelaxation.label}” went optional
+          </span>
+        </div>
+      )}
+
       <div className="map-attrib-extra">Routing © OSRM/FOSSGIS</div>
     </div>
   );
 }
-
-/* Local alias: `Map` is taken by the react-maplibre component in this module. */
-const Map_ = globalThis.Map;

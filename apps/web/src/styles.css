@@ -1,735 +1,136 @@
-/*
-DIRECTION CONTRACT — Spokes (Operate surface, brief-pinned layout)
-THESIS: The negotiation table happens to be a map — group decision state
-(eligibility, privacy, consent, agreement) is always visible as color and
-geometry. Refuses the category default of "search-results list beside a map".
-OWN-WORLD: Warm paper-neutral ground, ink text, hairline borders; one
-saturated identity accent (spoke indigo) for actions/proposals; semantic
-eligibility trio: teal-green eligible, amber uncertain, dimmed gray excluded;
-violet = privacy; gold = committed. Hub-and-spoke wordmark glyph.
-STORY: A participant reads where the group stands at a glance, states needs
-with explicit privacy, watches the council react live on the map, resolves
-private decisions, commits, navigates.
-FIRST VIEWPORT (600px demo window): brand+status header; map with scope ring
-and pins at ~52vh; tabbed Needs/Activity/Decisions panel below; impasse
-banner slides in above the tabs.
-FORM: Single pinned direction (precise Operate brief) — no concept roll.
-*/
+@import "./tokens.css";
+
+/* ─────────────────────────────────────────────────────────────────────────
+   SPOKES — component styles.
+
+   Every colour, radius, shadow and size here comes from tokens.css. There
+   are NO raw hex values in this file, in any component, or in any inline
+   style; the single sanctioned exception is `map-theme.ts`, whose literals
+   are painted onto the WebGL canvas and cannot read a custom property.
+
+   Structure: fonts → base → shell → header → map → brief → composer →
+   details → drawer → consent → arrival → transients → desktop.
+   ───────────────────────────────────────────────────────────────────── */
+
+/* ── Fonts ─────────────────────────────────────────────────────────────
+   Self-hosted, subset to Latin + tnum. Display names and counts; mono for
+   numerals-in-context and the { } drawer. See public/fonts/README.md. */
+
+@font-face {
+  font-family: "Bricolage Grotesque";
+  src: url("/fonts/bricolage-grotesque-subset.woff2") format("woff2-variations");
+  font-weight: 700 800;
+  font-display: swap;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: "IBM Plex Mono";
+  src: url("/fonts/ibm-plex-mono-subset.woff2") format("woff2-variations");
+  font-weight: 500 700;
+  font-display: swap;
+  font-style: normal;
+}
+
+
+/* ── Derived values ────────────────────────────────────────────────────
+   tokens.css is frozen. These are not new colours: each is a documented
+   composite of an existing token, for surfaces the palette describes but
+   does not enumerate (translucent plates, the drawer's on-ink ramp, hard
+   shadows in a semantic hue). No new hue is introduced and no raw hex is
+   written — change a token and every value below follows it. */
 
 :root {
-  --ink: #23252d;
-  --ink-soft: #5c5f6b;
-  --ink-faint: #6f7380; /* ≥4.5:1 on card and ground — faint text still carries meaning */
-  --ground: #f4f3ee;
-  --card: #ffffff;
-  --line: #e4e2d9;
-  --line-strong: #cfccc0;
+  /* Map attribution plate: --spoke-surface at 62% over tiles, ink at 42%. */
+  --spoke-attrib-plate: color-mix(in srgb, var(--spoke-surface) 62%, transparent);
+  --spoke-attrib-ink:   color-mix(in srgb, var(--spoke-ink) 42%, transparent);
 
-  --spoke: #4735d8;
-  --spoke-deep: #372ab3;
-  --spoke-tint: #edebfc;
+  /* A hard offset shadow in the act hue (consent rung 3, proposal sticker). */
+  --spoke-act-shadow:   color-mix(in srgb, var(--spoke-act) 35%, transparent);
 
-  --eligible: #0e7a63;
-  --eligible-tint: #e0f2ec;
-  --uncertain: #b26205;
-  --uncertain-tint: #fbeedb;
-  --excluded: #a3a5a0;
-  --excluded-tint: #ececea;
+  /* Scrim behind the drawer: ink, not black. */
+  --spoke-scrim:        color-mix(in srgb, var(--spoke-ink) 42%, transparent);
 
-  --privacy: #7c3aed;
-  --privacy-tint: #f2ecfd;
-  --danger: #c22f3d;
-  --danger-tint: #fbe9eb;
-  --gold: #b8860b;
-  --gold-tint: #faf3dd;
+  /* The drawer's on-ink ramp: cream stepped down toward the ink ground. */
+  --spoke-drawer-ink:        color-mix(in srgb, var(--spoke-surface) 90%, var(--spoke-ink));
+  --spoke-drawer-ink-soft:   color-mix(in srgb, var(--spoke-surface) 62%, var(--spoke-ink));
+  --spoke-drawer-well:       color-mix(in srgb, var(--spoke-surface) 7%, transparent);
+  --spoke-drawer-line:       color-mix(in srgb, var(--spoke-surface) 22%, transparent);
+  --spoke-drawer-accent-tint: color-mix(in srgb, var(--spoke-works-pop) 14%, transparent);
 
-  --radius: 10px;
-  --shadow: 0 1px 2px rgba(35, 37, 45, 0.06), 0 4px 14px rgba(35, 37, 45, 0.08);
-  --shadow-lift: 0 2px 4px rgba(35, 37, 45, 0.08), 0 10px 28px rgba(35, 37, 45, 0.14);
-  --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  /* The dashed "would come back" breath. Part of the settle vocabulary, and
+     zeroed alongside it when the viewer asks for reduced motion. */
+  --spoke-dur-breathe: 2600ms;
 }
 
-* { box-sizing: border-box; }
+@media (prefers-reduced-motion: reduce) {
+  :root { --spoke-dur-breathe: 0ms; }
+}
+
+/* ── Base ──────────────────────────────────────────────────────────────── */
+
+*,
+*::before,
+*::after { box-sizing: border-box; }
+
+html, body, #root { height: 100%; }
+
+/* tokens.css sets body's ground, ink, family and size. */
+body { overflow: hidden; }
+
+:where(button, a, input, [tabindex]):focus-visible {
+  outline: 2px solid var(--spoke-act);
+  outline-offset: 2px;
+  border-radius: var(--spoke-radius-badge);
+}
+
 .sr-only {
   position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-  border: 0;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0);
+  white-space: nowrap; border: 0;
 }
-html, body { height: 100%; }
-body {
-  margin: 0;
-  font-family: var(--font);
-  color: var(--ink);
-  background: var(--ground);
-  line-height: 1.5;
-  font-size: 15px;
-}
-#root { height: 100%; }
-button { font: inherit; }
 
-/* ---------- shell ---------- */
+/* A visual box smaller than 44px extends its target with a pseudo-element
+   rather than growing the drawn element (CLAUDE.md §13). */
+.tap-44 { position: relative; }
+.tap-44::before {
+  content: "";
+  position: absolute;
+  left: 50%; top: 50%;
+  width: var(--spoke-tap-min); height: var(--spoke-tap-min);
+  transform: translate(-50%, -50%);
+}
+
+/* ── Shell ─────────────────────────────────────────────────────────────
+   Header, map and composer are fixed; only the brief scrolls (§11). */
 
 .app {
   height: 100%;
-  overflow-y: auto;
   display: flex;
   flex-direction: column;
-}
-.app-main {
-  /* Never shrinks below content (an expanded diagnostics panel must push the
-     page into scroll, not squeeze the tabs underneath itself). */
-  flex: 1 0 auto;
   min-height: 0;
-  display: flex;
-  flex-direction: column;
-}
-.map-column {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-}
-/* The desktop side-by-side media block lives at the END of this sheet: it
-   must out-cascade the base .panel-region/.map-region rules declared below. */
-
-/* ---------- header ---------- */
-
-.header {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  row-gap: 4px;
-  padding: 9px 14px;
-  background: var(--card);
-  border-bottom: 1px solid var(--line);
-  flex-wrap: wrap;
-}
-.wordmark {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-weight: 700;
-  font-size: 20px;
-  letter-spacing: -0.02em;
-  color: var(--ink);
-}
-.wordmark svg { display: block; }
-.header-goal {
-  color: var(--ink-soft);
-  font-size: 13px;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.header-right {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.identity-name { font-weight: 600; font-size: 13px; }
-.identity-role { color: var(--ink-faint); font-size: 12px; }
-
-.chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  border-radius: 999px;
-  padding: 2px 10px;
-  font-size: 12px;
-  font-weight: 600;
-  border: 1px solid transparent;
-  white-space: nowrap;
-}
-.chip-phase { background: var(--spoke-tint); color: var(--spoke-deep); }
-.chip-feasible { background: var(--eligible-tint); color: var(--eligible); }
-.chip-fragile { background: var(--uncertain-tint); color: var(--uncertain); }
-.chip-infeasible { background: var(--danger-tint); color: var(--danger); }
-.chip-uncertain { background: var(--uncertain-tint); color: var(--uncertain); }
-
-.ready-toggle {
-  border: 1px solid var(--line-strong);
-  background: var(--card);
-  color: var(--ink-soft);
-  border-radius: 999px;
-  padding: 4px 12px;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background 160ms ease-out, color 160ms ease-out, border-color 160ms ease-out;
-}
-.ready-toggle:hover { border-color: var(--spoke); color: var(--spoke-deep); }
-.ready-toggle[data-ready="true"] {
-  background: var(--eligible);
-  border-color: var(--eligible);
-  color: #fff;
+  background: var(--spoke-ground);
 }
 
-/* ---------- map ---------- */
-
-.map-region {
-  position: relative;
-  height: 52vh;
-  min-height: 300px;
-  background: #e8ece9;
-}
-.map-region .maplibregl-map { position: absolute; inset: 0; }
-
-.pin {
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  border: 2px solid #fff;
-  box-shadow: 0 1px 3px rgba(35, 37, 45, 0.4);
-  cursor: pointer;
-  transition: transform 160ms cubic-bezier(0.22, 1, 0.36, 1);
-  position: relative;
-}
-.pin:hover { transform: scale(1.25); z-index: 3; }
-.pin[data-eligibility="eligible"] { background: var(--eligible); }
-.pin[data-eligibility="uncertain"] { background: var(--uncertain); }
-.pin[data-eligibility="excluded"] {
-  background: var(--excluded);
-  width: 14px;
-  height: 14px;
-  opacity: 0.65;
-}
-.pin[data-proposed="true"]::after,
-.pin[data-vetoed="true"]::after {
-  content: "";
-  position: absolute;
-  inset: -6px;
-  border-radius: 50%;
-  border: 2.5px solid var(--spoke);
-}
-.pin[data-proposed="true"] { transform: scale(1.15); z-index: 3; }
-.pin[data-proposed="true"]:hover { transform: scale(1.3); }
-.pin[data-proposed="true"]::after {
-  animation: proposal-pulse 2200ms ease-in-out infinite;
-}
-@keyframes proposal-pulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(71, 53, 216, 0.35); }
-  50% { box-shadow: 0 0 0 7px rgba(71, 53, 216, 0); }
-}
-.pin[data-vetoed="true"] { filter: saturate(0.35); }
-.pin[data-vetoed="true"]::after {
-  border-color: var(--danger);
-  border-style: dashed;
-  animation: none;
-}
-.pin[data-vetoed="true"]::before {
-  content: "✕";
-  position: absolute;
-  top: -9px;
-  right: -9px;
-  width: 15px;
-  height: 15px;
-  border-radius: 50%;
-  background: var(--danger);
-  color: #fff;
-  font-size: 10px;
-  font-weight: 700;
-  line-height: 15px;
-  text-align: center;
-  box-shadow: 0 1px 2px rgba(35, 37, 45, 0.4);
-  z-index: 1;
-}
-.pin[data-selected="true"] {
-  transform: scale(1.3);
-  z-index: 4;
-  box-shadow: 0 0 0 5px rgba(71, 53, 216, 0.25), 0 1px 3px rgba(35, 37, 45, 0.4);
-}
-.pin-star {
-  font-size: 26px;
-  line-height: 1;
-  color: var(--gold);
-  text-shadow: 0 1px 2px rgba(35, 37, 45, 0.45), 0 0 3px #fff;
-  cursor: pointer;
-  position: relative;
-}
-.pin-star[data-burst] { animation: star-land 900ms cubic-bezier(0.16, 1, 0.3, 1); }
-@keyframes star-land {
-  0% { transform: scale(0.4); }
-  55% { transform: scale(1.35); }
-  100% { transform: scale(1); }
-}
-/* Six spokes converging on the star — the wordmark motif, once, on commit. */
-.commit-burst {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-}
-.commit-burst i {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 2.5px;
-  height: 44px;
-  margin: -22px 0 0 -1.25px;
-  transform-origin: center;
-}
-.commit-burst i::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 0;
-  width: 100%;
-  height: 14px;
-  border-radius: 2px;
-  background: var(--gold);
-  animation: spoke-converge 900ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
-}
-@keyframes spoke-converge {
-  0% { transform: translateY(-26px); opacity: 0; }
-  25% { opacity: 0.9; }
-  100% { transform: translateY(12px) scaleY(0.25); opacity: 0; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .pin-star[data-burst] { animation: none; }
-  .commit-burst { display: none; }
-  .pin[data-proposed="true"]::after { animation: none; }
-}
-
-/* Legend pill, bottom-left, clear of the attribution controls on the right. */
-.map-legend {
-  position: absolute;
-  left: 8px;
-  bottom: 8px;
-  z-index: 4;
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 4px 10px;
-  background: rgba(255, 255, 255, 0.88);
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  padding: 3px 12px;
-  font-size: 11.5px;
-  font-weight: 600;
-  color: var(--ink-soft);
-  box-shadow: var(--shadow);
-  pointer-events: none;
-  font-variant-numeric: tabular-nums;
-}
-.legend-item { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
-.legend-dot {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  display: inline-block;
-}
-.legend-dot[data-k="eligible"] { background: var(--eligible); }
-.legend-dot[data-k="uncertain"] { background: var(--uncertain); }
-.legend-dot[data-k="excluded"] { background: var(--excluded); width: 7px; height: 7px; opacity: 0.8; }
-.legend-dot[data-k="proposed"] {
-  background: none;
-  border: 2px solid var(--spoke);
-  width: 7px;
-  height: 7px;
-}
-.legend-dot[data-k="vetoed"] {
-  background: none;
-  border: 2px dashed var(--danger);
-  width: 7px;
-  height: 7px;
-}
-.legend-agreed { color: var(--gold); }
-
-.map-attrib-extra {
-  position: absolute;
-  right: 4px;
-  bottom: 20px;
-  font-size: 10px;
-  color: var(--ink-faint);
-  background: rgba(255, 255, 255, 0.75);
-  padding: 0 5px;
-  border-radius: 4px;
-  pointer-events: none;
-}
-
-/* Selected-candidate sheet floats over the map bottom. */
-.candidate-sheet {
-  position: absolute;
-  left: 10px;
-  right: 10px;
-  bottom: 12px;
-  max-width: 440px;
-  margin: 0 auto;
-  background: var(--card);
-  border-radius: var(--radius);
-  border: 1px solid var(--line);
-  box-shadow: var(--shadow-lift);
-  padding: 12px 14px;
-  z-index: 5;
-  max-height: calc(100% - 22px);
-  overflow-y: auto;
-  animation: sheet-in 220ms cubic-bezier(0.16, 1, 0.3, 1);
-}
-@keyframes sheet-in {
-  from { opacity: 0; transform: translateY(14px); }
-}
-.sheet-head { display: flex; align-items: baseline; gap: 8px; }
-.sheet-title { font-weight: 700; font-size: 16px; letter-spacing: -0.01em; }
-.sheet-meta { color: var(--ink-soft); font-size: 12.5px; }
-.sheet-close {
-  margin-left: auto;
-  border: none;
-  background: none;
-  color: var(--ink-faint);
-  font-size: 18px;
-  cursor: pointer;
-  padding: 0 2px;
-  line-height: 1;
-}
-.sheet-why { font-size: 13px; color: var(--ink-soft); margin: 5px 0 8px; }
-.sheet-why[data-eligibility="eligible"] { color: var(--eligible); }
-.sheet-why[data-eligibility="excluded"] { color: var(--ink-faint); }
-
-.attr-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 10px; }
-.attr-chip {
-  font-size: 11.5px;
-  border-radius: 6px;
-  padding: 2px 7px;
-  border: 1px solid var(--line);
-  color: var(--ink-soft);
-  background: var(--ground);
-}
-.attr-chip[data-status="verified_true"] {
-  background: var(--eligible-tint);
-  border-color: transparent;
-  color: var(--eligible);
-}
-.attr-chip[data-status="verified_false"] {
-  background: var(--danger-tint);
-  border-color: transparent;
-  color: var(--danger);
-}
-.sheet-actions { display: flex; flex-wrap: wrap; gap: 6px; }
-
-.btn {
-  border-radius: 8px;
-  border: 1px solid var(--line-strong);
-  background: var(--card);
-  color: var(--ink);
-  padding: 5px 12px;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background 140ms ease-out, border-color 140ms ease-out,
-    color 140ms ease-out, transform 140ms ease-out;
-}
-.btn:hover { border-color: var(--spoke); color: var(--spoke-deep); }
-.btn:active { transform: translateY(1px); }
-.btn:disabled { opacity: 0.5; cursor: default; }
-.btn-primary {
-  background: var(--spoke);
-  border-color: var(--spoke);
-  color: #fff;
-}
-.btn-primary:hover { background: var(--spoke-deep); border-color: var(--spoke-deep); color: #fff; }
-.btn-accept { border-color: var(--eligible); color: var(--eligible); }
-.btn-accept:hover { background: var(--eligible); color: #fff; border-color: var(--eligible); }
-.btn-danger { border-color: var(--danger); color: var(--danger); }
-.btn-danger:hover { background: var(--danger); color: #fff; border-color: var(--danger); }
-.btn-gold {
-  background: var(--gold);
-  border-color: var(--gold);
-  color: #fff;
-}
-
-.veto-menu {
-  margin-top: 8px;
-  border-top: 1px solid var(--line);
-  padding-top: 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-}
-.veto-menu .btn { text-align: left; }
-
-/* ---------- impasse banner ---------- */
-
-.impasse-banner {
-  background: var(--uncertain-tint);
-  border-top: 1px solid #eed9b8;
-  border-bottom: 1px solid #eed9b8;
-  color: #8a4d05;
-  padding: 8px 14px;
-  font-size: 13.5px;
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  animation: sheet-in 260ms cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-/* ---------- panel + tabs ---------- */
-
-.panel-region {
+.app-body {
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
-  background: var(--card);
-  border-top: 1px solid var(--line);
 }
-.tabs {
-  display: flex;
-  border-bottom: 1px solid var(--line);
-  padding: 0 6px;
-  gap: 2px;
-}
-.tab {
-  border: none;
-  background: none;
-  padding: 9px 12px 7px;
-  font-size: 13.5px;
-  font-weight: 600;
-  color: var(--ink-soft);
-  cursor: pointer;
-  border-bottom: 2px solid transparent;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.tab:hover { color: var(--ink); }
-.tab[aria-selected="true"] { color: var(--spoke-deep); border-bottom-color: var(--spoke); }
-.tab-badge {
-  background: var(--danger);
-  color: #fff;
-  font-size: 10.5px;
-  border-radius: 999px;
-  min-width: 17px;
-  height: 17px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0 4px;
-}
-.panel-body {
+
+/* Phone: map, then the brief, then the pinned composer. The rail owns the
+   scroll so the map and composer stay put — only the brief moves (§11). */
+.rail {
   flex: 1;
   min-height: 0;
-  overflow-y: auto;
-  padding: 12px 14px 20px;
-}
-
-/* ---------- needs (requirements) ---------- */
-
-.req-list { display: flex; flex-direction: column; gap: 7px; margin: 0 0 14px; padding: 0; list-style: none; }
-.req-item {
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 7px 10px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13.5px;
-  background: var(--card);
-}
-.req-text { flex: 1; min-width: 0; }
-.badge {
-  font-size: 11px;
-  font-weight: 600;
-  border-radius: 5px;
-  padding: 1px 6px;
-  white-space: nowrap;
-}
-.badge-shared { background: var(--eligible-tint); color: var(--eligible); }
-.badge-app-private { background: var(--privacy-tint); color: var(--privacy); }
-.badge-agent-private { background: var(--privacy); color: #fff; }
-.badge-hard { background: var(--ground); color: var(--ink-soft); border: 1px solid var(--line); }
-.badge-soft { background: none; color: var(--ink-faint); border: 1px dashed var(--line-strong); }
-
-.req-form {
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 12px;
-  background: var(--ground);
   display: flex;
   flex-direction: column;
-  gap: 9px;
 }
-.req-form h3 { margin: 0; font-size: 13.5px; }
-.form-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-.form-row label { font-size: 12.5px; color: var(--ink-soft); font-weight: 600; }
-select, input[type="number"], input[type="text"] {
-  font: inherit;
-  font-size: 13px;
-  border: 1px solid var(--line-strong);
-  border-radius: 7px;
-  padding: 4px 8px;
-  background: var(--card);
-  color: var(--ink);
-  max-width: 100%;
-}
-select:focus, input:focus, .btn:focus-visible, .tab:focus-visible {
-  outline: 2px solid var(--spoke);
-  outline-offset: 1px;
-}
-.visibility-note { font-size: 12px; color: var(--ink-faint); }
-.seg {
-  display: inline-flex;
-  border: 1px solid var(--line-strong);
-  border-radius: 8px;
-  overflow: hidden;
-}
-.seg button {
-  border: none;
-  background: var(--card);
-  padding: 4px 10px;
-  font-size: 12.5px;
-  font-weight: 600;
-  color: var(--ink-soft);
-  cursor: pointer;
-}
-.seg button + button { border-left: 1px solid var(--line); }
-.seg button[aria-pressed="true"] { background: var(--spoke); color: #fff; }
+.map-column { flex: none; }
 
-/* ---------- feed ---------- */
-
-.feed-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
-.feed-item {
-  font-size: 13.5px;
-  display: flex;
-  gap: 8px;
-  align-items: baseline;
-  padding: 4px 2px;
-  border-bottom: 1px dotted var(--line);
-}
-.feed-item[data-level="existence"] .feed-text,
-.feed-item[data-level="aggregate"] .feed-text {
-  font-style: italic;
-  color: var(--privacy);
-}
-
-/* ---------- decisions ---------- */
-
-.decision-card {
-  border: 1px solid var(--line);
-  border-left: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 11px 13px;
-  margin-bottom: 10px;
-  background: var(--card);
-  box-shadow: var(--shadow);
-}
-.decision-card h4 { margin: 0 0 4px; font-size: 13.5px; display: flex; gap: 6px; align-items: center; }
-.decision-card p { margin: 0 0 9px; font-size: 13px; color: var(--ink-soft); }
-.decision-private {
-  background: var(--privacy-tint);
-  border-color: #e2d5fb;
-}
-.decision-confirm {
-  background: var(--spoke-tint);
-  border-color: #cdc6f5;
-}
-.decision-actions { display: flex; gap: 7px; flex-wrap: wrap; }
-.empty-note { color: var(--ink-faint); font-size: 13px; }
-
-/* ---------- arrival ---------- */
-
-.arrival-banner {
-  background: var(--gold-tint);
-  border-bottom: 1px solid #ecdcae;
-  padding: 10px 14px;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px;
-  animation: sheet-in 300ms cubic-bezier(0.16, 1, 0.3, 1);
-}
-.arrival-dest { font-weight: 700; font-size: 15px; }
-.arrival-sub { font-size: 12.5px; color: var(--ink-soft); }
-.arrival-alt { font-size: 12px; }
-.arrival-alt a { color: var(--spoke-deep); }
-
-/* ---------- misc ---------- */
-
-/* Top-center, under the header — never over the legend, attribution, or
-   wire view at the page bottom. */
-.toast {
-  position: fixed;
-  left: 50%;
-  top: 56px;
-  transform: translateX(-50%);
-  background: var(--ink);
-  color: #fff;
-  border-radius: 8px;
-  padding: 7px 14px;
-  font-size: 13px;
-  box-shadow: var(--shadow-lift);
-  z-index: 20;
-  max-width: min(92vw, 480px);
-  animation: toast-in 200ms ease-out;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-@keyframes toast-in {
-  from { opacity: 0; transform: translate(-50%, -8px); }
-}
-.toast[data-kind="error"] { background: var(--danger); }
-.toast-dismiss {
-  border: none;
-  background: none;
-  color: #fff;
-  font-size: 16px;
-  line-height: 1;
-  cursor: pointer;
-  padding: 0 2px;
-  opacity: 0.85;
-}
-.toast-dismiss:hover { opacity: 1; }
-
-.stale-banner {
-  background: var(--uncertain-tint);
-  border-bottom: 1px solid #eed9b8;
-  padding: 7px 14px;
-  font-size: 13px;
-}
-.stale-banner button {
-  border: none;
-  background: none;
-  color: var(--spoke-deep);
-  font-weight: 600;
-  cursor: pointer;
-  text-decoration: underline;
-}
-
-/* Wire view: the "show the wire" trust feature — deliberately part of the
-   product, not scaffolding. Collapsed by default; test lanes open it. */
-.dev-tools {
-  border-top: 1px solid var(--line);
-  padding: 6px 14px 14px;
-  background: var(--ground);
-  font-size: 12.5px;
-  color: var(--ink-soft);
-}
-.dev-tools summary {
-  cursor: pointer;
-  color: var(--ink-soft);
-  font-size: 12px;
-  font-weight: 600;
-  padding: 4px 0;
-}
-.dev-tools summary:hover { color: var(--spoke-deep); }
-.wire-intro { margin: 6px 0; font-size: 12px; color: var(--ink-soft); }
-.dev-tools .actions { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
-.dev-tools pre {
-  font-size: 11px;
-  background: var(--card);
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: 6px;
-  max-height: 180px;
-  overflow-y: auto;
-  white-space: pre-wrap;
-}
 .connect-screen {
   height: 100%;
   display: flex;
@@ -737,20 +138,1472 @@ select:focus, input:focus, .btn:focus-visible, .tab:focus-visible {
   align-items: center;
   justify-content: center;
   gap: 12px;
-  color: var(--ink-soft);
+  padding: var(--spoke-pad-screen);
+  color: var(--spoke-ink-soft);
+  text-align: center;
 }
 
-/* ---------- desktop (side-by-side) ----------
-   Kept last so it out-cascades the stacked-layout base rules above.
-   Side-by-side only when genuinely wide; the three-window demo (~600px each)
-   uses the stacked composition as the primary layout. */
+/* ── Header ────────────────────────────────────────────────────────────
+   Flows straight out of the top. No card, no divider (§11). */
+
+.header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px var(--spoke-pad-screen) 10px;
+}
+
+.header-titles { flex: 1; min-width: 0; }
+
+.header-title {
+  font-family: var(--spoke-font-display);
+  font-weight: var(--spoke-weight-strong);
+  font-size: var(--spoke-size-title);
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  color: var(--spoke-ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.header-subtitle {
+  font-weight: var(--spoke-weight-body);
+  font-size: var(--spoke-size-meta);
+  line-height: 1.35;
+  color: var(--spoke-ink-soft);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.header-subtitle[data-tone="unsure"] { color: var(--spoke-unsure-text); }
+.header-subtitle[data-tone="works"]  { color: var(--spoke-works-text); }
+
+.avatars { display: flex; flex: none; }
+
+.avatar {
+  width: 26px; height: 26px;
+  border-radius: var(--spoke-radius-avatar);
+  border: 2px solid var(--spoke-ground);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--spoke-size-micro);
+  font-weight: var(--spoke-weight-strong);
+  color: var(--spoke-surface);
+  background: var(--spoke-person-1);
+  flex: none;
+}
+.avatar + .avatar { margin-left: -6px; }
+.avatar[data-idle="true"] {
+  background: var(--spoke-person-idle);
+  color: var(--spoke-person-idle-text);
+}
+
+/* The debugging affordance: no border, no fill, no label (§2). */
+.drawer-open {
+  flex: none;
+  width: 22px; height: 22px;
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--spoke-ink-faint);
+  opacity: 0.7;
+  font-family: var(--spoke-font-mono);
+  font-weight: var(--spoke-weight-body);
+  font-size: 9px;
+  line-height: 1;
+  cursor: pointer;
+}
+.drawer-open:hover { opacity: 1; }
+
+.wordmark-glyph { display: block; flex: none; }
+
+/* ── Map band ──────────────────────────────────────────────────────────
+   Edge to edge, bounded by 1.5px rules, never a rounded card (§11). */
+
+.map-region {
+  position: relative;
+  flex: none;
+  height: clamp(240px, 42vh, 380px);
+  background: var(--spoke-surface-sunk);
+  border-top: var(--spoke-border) solid var(--spoke-line);
+  border-bottom: var(--spoke-border) solid var(--spoke-line);
+  overflow: hidden;
+  /* Contain the colour wash's blend group to the map plate, and give the
+     markers a stacking parent of their own. */
+  isolation: isolate;
+}
+
+.map-region .maplibregl-map { position: absolute; inset: 0; }
+
+/* Colour wash so the basemap sits in the same family as the chrome. */
+.map-wash {
+  position: absolute;
+  inset: 0;
+  background: var(--spoke-works);
+  mix-blend-mode: color;
+  opacity: 0.18;
+  pointer-events: none;
+}
+
+/* Attribution is a legal requirement, not a UI element. Never let it grow. */
+.map-region .maplibregl-ctrl-attrib,
+.map-region .maplibregl-ctrl-attrib.maplibregl-compact {
+  max-width: none;
+  white-space: nowrap;
+  font-size: 7px;
+  line-height: 9px;
+  min-height: 0;
+  height: auto;
+  padding: 0 3px;
+  margin: 0;
+  border-radius: 2px;
+  background: var(--spoke-attrib-plate);
+  color: var(--spoke-attrib-ink);
+}
+.map-region .maplibregl-ctrl-attrib a { color: var(--spoke-attrib-ink); }
+.map-region .maplibregl-ctrl-attrib-button,
+.map-region .maplibregl-ctrl-attrib.maplibregl-compact .maplibregl-ctrl-attrib-button { display: none; }
+.map-region .maplibregl-ctrl-bottom-right { padding: 0; }
+.map-region .maplibregl-ctrl-bottom-right .maplibregl-ctrl { margin: 0; }
+
+.map-attrib-extra {
+  position: absolute;
+  right: 3px;
+  bottom: 10px;
+  font-size: 7px;
+  line-height: 9px;
+  padding: 0 3px;
+  border-radius: 2px;
+  background: var(--spoke-attrib-plate);
+  color: var(--spoke-attrib-ink);
+  pointer-events: none;
+}
+
+/* ── Map markers ───────────────────────────────────────────────────────
+   One wrapper per place, holding BOTH forms: the bare ruled-out dot and the
+   sticker. The set change cross-fades between them over 420ms, in place —
+   the map never re-lays-out (§8, §9). Position lives on `.marker-sticker`,
+   animation on `.sticker-box`, so an animated transform can never overwrite
+   a positioning translate. */
+
+/* A real 44x44 box centred on the geographic point: it is the tap target
+   (CLAUDE.md §13) and the focusable element, while the drawn marks stay their
+   own sizes inside it. A 0x0 anchor would leave the 8px ruled-out dot
+   untappable and give the focus ring nothing to draw around. */
+.marker {
+  position: relative;
+  width: var(--spoke-tap-min);
+  height: var(--spoke-tap-min);
+  cursor: pointer;
+}
+
+/* Real geography piles stickers on top of each other in dense clusters, where
+   the authored mockup could space them by hand. Lifting the pointed-at (or
+   focused) marker above its neighbours makes every place reachable without
+   moving, resizing or animating anything. */
+.map-region .maplibregl-marker:has(.marker:hover),
+.map-region .maplibregl-marker:has(.marker:focus-visible) { z-index: 6 !important; }
+
+/* The dot form. Ruled out is 8px, colourless and unbordered; a works or
+   unsure place that could not fit a name keeps the mockup's dot vocabulary,
+   so fill, border style and size still differ per state and the map survives
+   greyscale (CLAUDE.md §13). */
+.marker-dot {
+  position: absolute;
+  left: 50%; top: 50%;
+  width: 8px; height: 8px;
+  margin: -4px 0 0 -4px;
+  border-radius: 50%;
+  background: var(--spoke-out);
+  border: 0 solid transparent;
+  opacity: var(--spoke-out-opacity);
+  transition:
+    opacity var(--spoke-dur-settle) var(--spoke-ease),
+    width var(--spoke-dur-settle) var(--spoke-ease),
+    height var(--spoke-dur-settle) var(--spoke-ease),
+    margin var(--spoke-dur-settle) var(--spoke-ease),
+    background-color var(--spoke-dur-settle) var(--spoke-ease),
+    border-color var(--spoke-dur-settle) var(--spoke-ease);
+}
+.marker[data-state="works"] .marker-dot,
+.marker[data-state="selected"] .marker-dot,
+.marker[data-state="return"] .marker-dot {
+  width: 15px; height: 15px;
+  margin: -7.5px 0 0 -7.5px;
+  background: var(--spoke-works);
+  border: 2.5px solid var(--spoke-surface);
+  opacity: 1;
+}
+.marker[data-state="proposed"] .marker-dot {
+  width: 15px; height: 15px;
+  margin: -7.5px 0 0 -7.5px;
+  background: var(--spoke-act);
+  border: 2.5px solid var(--spoke-surface);
+  opacity: 1;
+}
+.marker[data-state="unsure"] .marker-dot {
+  width: 16px; height: 16px;
+  margin: -8px 0 0 -8px;
+  background: var(--spoke-surface);
+  border: 2.5px solid var(--spoke-unsure);
+  opacity: 1;
+}
+/* Whichever form is not in play fades out over the same 420ms settle. */
+.marker[data-named="true"]:not([data-state="out"]) .marker-dot { opacity: 0; }
+
+.marker-sticker {
+  position: absolute;
+  left: 50%; top: 50%;
+  transform: translate(-13px, -50%) rotate(var(--tilt, 0deg)) scale(1);
+  transform-origin: 13px 50%;
+  opacity: 1;
+  transition:
+    transform var(--spoke-dur-settle) var(--spoke-ease),
+    opacity var(--spoke-dur-settle) var(--spoke-ease);
+}
+.marker[data-state="out"] .marker-sticker,
+.marker[data-named="false"] .marker-sticker {
+  transform: translate(-13px, -50%) rotate(var(--tilt, 0deg)) scale(0.3);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.sticker-box {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  background: var(--spoke-surface);
+  border: var(--spoke-border) solid var(--spoke-line);
+  border-radius: var(--spoke-radius-sticker);
+  box-shadow: var(--spoke-shadow-drop);
+  padding: 5px 9px 5px 7px;
+  white-space: nowrap;
+}
+
+.sticker-dot {
+  width: 11px; height: 11px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--spoke-works);
+  border: var(--spoke-border) solid var(--spoke-line);
+}
+
+.sticker-name {
+  font-family: var(--spoke-font-display);
+  font-weight: var(--spoke-weight-strong);
+  font-size: var(--spoke-size-place);
+  line-height: 1.3;
+  color: var(--spoke-ink);
+}
+
+.sticker-chip {
+  font-size: 9.5px;
+  font-weight: var(--spoke-weight-body);
+  border-radius: 5px;
+  padding: 1px 5px;
+  background: var(--spoke-works-tint);
+  color: var(--spoke-works-text);
+}
+
+/* unsure — hollow dot, soft name, `?` badge. Not a failure (§4). */
+.marker[data-state="unsure"] .sticker-dot {
+  background: var(--spoke-surface);
+  border: 2.5px solid var(--spoke-unsure);
+}
+.marker[data-state="unsure"] .sticker-name { color: var(--spoke-ink-soft); }
+.marker[data-state="unsure"] .sticker-chip {
+  background: var(--spoke-unsure-tint);
+  color: var(--spoke-unsure-text);
+}
+
+/* selected — filled works, cream, idle breath */
+.marker[data-state="selected"] .sticker-box {
+  background: var(--spoke-works);
+  border-color: var(--spoke-works);
+  box-shadow: var(--spoke-shadow-pop);
+  padding: 7px 11px 7px 8px;
+  animation: spoke-pop var(--spoke-dur-pop) ease-in-out infinite;
+}
+.marker[data-state="selected"] .sticker-dot {
+  background: var(--spoke-surface);
+  border: none;
+  width: 12px; height: 12px;
+}
+.marker[data-state="selected"] .sticker-name {
+  color: var(--spoke-surface);
+  font-weight: var(--spoke-weight-display);
+}
+.marker[data-state="selected"] .sticker-chip {
+  background: var(--spoke-works-pop);
+  color: var(--spoke-works-text);
+}
+
+/* proposed — filled act, cream, "· proposed". Authorship, never visibility. */
+.marker[data-state="proposed"] .sticker-box {
+  background: var(--spoke-act);
+  border-color: var(--spoke-act);
+  box-shadow: var(--spoke-shadow-pop);
+  padding: 6px 10px 6px 8px;
+  animation: spoke-pop var(--spoke-dur-pop) ease-in-out infinite;
+}
+.marker[data-state="proposed"] .sticker-dot {
+  background: var(--spoke-surface);
+  border: none;
+}
+.marker[data-state="proposed"] .sticker-name {
+  color: var(--spoke-surface);
+  font-weight: var(--spoke-weight-display);
+}
+
+/* would come back — dashed, breathing, only while a preview is held */
+.marker[data-state="return"] .sticker-box {
+  border-style: dashed;
+  border-color: var(--spoke-works);
+  animation: spoke-breathe var(--spoke-dur-breathe) ease-in-out infinite;
+}
+.marker[data-state="return"] .sticker-dot {
+  background: var(--spoke-surface);
+  border: 2px dashed var(--spoke-works);
+}
+.marker[data-state="return"] .sticker-name { color: var(--spoke-works-text); }
+
+.sticker-suffix { color: var(--spoke-surface); opacity: 0.85; }
+
+/* ── Count block ───────────────────────────────────────────────────────── */
+
+.count-block {
+  position: absolute;
+  left: 14px; top: 14px;
+  z-index: 4;
+  padding: 8px 13px;
+  border-radius: var(--spoke-radius-block);
+  box-shadow: var(--spoke-shadow-pop);
+  transform: rotate(-2deg);
+  background: var(--spoke-works);
+  color: var(--spoke-surface);
+  border: var(--spoke-border) solid var(--spoke-works);
+  pointer-events: none;
+}
+.count-block[data-state="impasse"] {
+  background: var(--spoke-unsure);
+  border-color: var(--spoke-unsure);
+}
+.count-block[data-state="pre"] {
+  background: var(--spoke-surface);
+  border-color: var(--spoke-line);
+  color: var(--spoke-ink);
+}
+.count-block[data-state="settled"] {
+  background: var(--spoke-surface);
+  border-color: var(--spoke-works);
+  color: var(--spoke-works-text);
+}
+
+.count-head { display: flex; align-items: flex-end; gap: 7px; }
+
+.count-number {
+  font-family: var(--spoke-font-display);
+  font-weight: var(--spoke-weight-display);
+  font-size: var(--spoke-size-count);
+  line-height: 0.85;
+  letter-spacing: -0.04em;
+  font-variant-numeric: tabular-nums;
+}
+
+.count-label {
+  font-weight: var(--spoke-weight-strong);
+  font-size: var(--spoke-size-meta);
+  line-height: 1.25;
+  padding-bottom: 2px;
+}
+
+.count-sub {
+  font-family: var(--spoke-font-mono);
+  font-weight: var(--spoke-weight-body);
+  font-size: var(--spoke-size-micro);
+  line-height: 1.3;
+  opacity: 0.85;
+  margin-top: 4px;
+  font-variant-numeric: tabular-nums;
+}
+
+.count-settled {
+  font-family: var(--spoke-font-display);
+  font-weight: var(--spoke-weight-display);
+  font-size: var(--spoke-size-place);
+}
+
+/* ── Delta chip ────────────────────────────────────────────────────────
+   Bottom-LEFT: bottom-right belongs to map attribution (§11). */
+
+.delta-chip {
+  position: absolute;
+  left: 14px; bottom: 12px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 9px;
+  border-radius: 9px;
+  background: var(--spoke-ink);
+  color: var(--spoke-surface);
+  max-width: calc(100% - 28px);
+  pointer-events: none;
+}
+.delta-number {
+  font-family: var(--spoke-font-display);
+  font-weight: var(--spoke-weight-display);
+  font-size: 13px;
+  color: var(--spoke-works-pop);
+  font-variant-numeric: tabular-nums;
+  flex: none;
+}
+.delta-text {
+  font-weight: var(--spoke-weight-body);
+  font-size: 10.5px;
+  line-height: 1.3;
+  opacity: 0.9;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Brief ─────────────────────────────────────────────────────────────
+   The only scrolling region. */
+
+.brief {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 13px var(--spoke-pad-screen) 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.section-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 9px;
+}
+
+.section-title {
+  font-family: var(--spoke-font-display);
+  font-weight: var(--spoke-weight-display);
+  font-size: 12px;
+  line-height: 1.3;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--spoke-ink);
+}
+.section-title[data-tone="unsure"] { color: var(--spoke-unsure-text); }
+.section-title[data-tone="act"] { color: var(--spoke-act-text); }
+
+.section-count {
+  font-weight: var(--spoke-weight-strong);
+  font-size: var(--spoke-size-micro);
+  background: var(--spoke-works-tint);
+  color: var(--spoke-works-text);
+  border-radius: var(--spoke-radius-chip);
+  padding: 1px 7px;
+  font-variant-numeric: tabular-nums;
+}
+
+.section-hint {
+  margin-left: auto;
+  font-weight: var(--spoke-weight-quiet);
+  font-size: 10.5px;
+  color: var(--spoke-ink-soft);
+}
+
+.need-list { display: flex; flex-direction: column; gap: var(--spoke-gap-row); }
+
+.need-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spoke-gap-group);
+  background: var(--spoke-surface);
+  border: var(--spoke-border) solid var(--spoke-line);
+  border-radius: var(--spoke-radius-card);
+  box-shadow: var(--spoke-shadow-drop);
+  padding: 8px 10px;
+  min-height: var(--spoke-tap-min);
+  text-align: left;
+  width: 100%;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  touch-action: none;
+}
+.need-row[data-variant="applied"] {
+  border-color: var(--spoke-works);
+  box-shadow: 2px 2px 0 var(--spoke-works);
+}
+.need-row[data-variant="unsure"] {
+  border-color: var(--spoke-unsure);
+  box-shadow: 2px 2px 0 var(--spoke-unsure);
+}
+.need-row[data-variant="private"] {
+  border-color: var(--spoke-scope);
+  box-shadow: 2px 2px 0 var(--spoke-scope);
+  background: var(--spoke-scope-tint);
+}
+.need-row[data-variant="peer-private"] {
+  border-style: dashed;
+  box-shadow: none;
+  background: transparent;
+  cursor: default;
+}
+.need-row[data-inactive="true"] { opacity: 0.62; }
+.need-row[data-previewing="true"] { border-style: dashed; }
+
+.need-toggle {
+  width: 36px; height: 21px;
+  border-radius: 11px;
+  flex: none;
+  position: relative;
+  border: none;
+  padding: 0;
+  background: var(--spoke-works);
+  cursor: pointer;
+}
+.need-toggle[data-tone="unsure"]  { background: var(--spoke-unsure); }
+.need-toggle[data-tone="private"] { background: var(--spoke-scope); }
+.need-toggle[data-on="false"]     { background: var(--spoke-ink-ghost); }
+.need-toggle::after {
+  content: "";
+  position: absolute;
+  top: 2.5px;
+  right: 2.5px;
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  background: var(--spoke-surface);
+}
+.need-toggle[data-on="false"]::after { right: 17.5px; }
+
+.need-label {
+  flex: 1;
+  min-width: 0;
+  /* tokens.css sets a global button { white-space: nowrap } so short glyph
+     labels like "{ }" can never break. The row is a button, so its label has
+     to opt back in or a long need runs under its own badge. */
+  white-space: normal;
+  font-weight: var(--spoke-weight-body);
+  font-size: var(--spoke-size-body);
+  line-height: 1.35;
+  color: var(--spoke-ink);
+}
+.need-row[data-variant="private"] .need-label { color: var(--spoke-scope-text); }
+.need-row[data-variant="peer-private"] .need-label { color: var(--spoke-ink-soft); font-style: italic; }
+.need-author { color: var(--spoke-ink-soft); font-weight: var(--spoke-weight-quiet); }
+
+.need-delta {
+  flex: none;
+  font-family: var(--spoke-font-mono);
+  font-weight: var(--spoke-weight-strong);
+  font-size: var(--spoke-size-meta);
+  color: var(--spoke-ink-soft);
+  font-variant-numeric: tabular-nums;
+}
+.need-row[data-variant="applied"] .need-delta { color: var(--spoke-works-text); }
+
+.badge {
+  flex: none;
+  font-weight: var(--spoke-weight-strong);
+  font-size: var(--spoke-size-micro);
+  border-radius: var(--spoke-radius-badge);
+  padding: 2px 6px;
+  white-space: nowrap;
+}
+.badge[data-kind="unsure"]  { background: var(--spoke-unsure-tint); color: var(--spoke-unsure-text); }
+.badge[data-kind="scope"]   { background: var(--spoke-scope); color: var(--spoke-surface); }
+.badge[data-kind="scope-quiet"] { background: var(--spoke-scope-tint); color: var(--spoke-scope-text); }
+.badge[data-kind="act"]     { background: var(--spoke-act-tint); color: var(--spoke-act-text); }
+.badge[data-kind="works"]   { background: var(--spoke-works-tint); color: var(--spoke-works-text); }
+
+.empty-note {
+  margin: 0;
+  font-weight: var(--spoke-weight-quiet);
+  font-size: var(--spoke-size-detail);
+  line-height: 1.5;
+  color: var(--spoke-ink-soft);
+}
+
+.brief-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-top: 2px;
+}
+
+.ready-toggle {
+  position: relative;
+  border: var(--spoke-border) solid var(--spoke-line-quiet);
+  background: var(--spoke-surface);
+  border-radius: var(--spoke-radius-chip);
+  padding: 6px 12px;
+  font-weight: var(--spoke-weight-strong);
+  font-size: var(--spoke-size-meta);
+  color: var(--spoke-ink-soft);
+  cursor: pointer;
+}
+/* ~29px tall by design; the target is extended past the drawn box rather
+   than the chip being grown to meet the floor (CLAUDE.md §13). */
+.ready-toggle::before {
+  content: "";
+  position: absolute;
+  left: 0; right: 0;
+  top: 50%;
+  height: var(--spoke-tap-min);
+  transform: translateY(-50%);
+}
+
+.ready-toggle[data-ready="true"] {
+  border-color: var(--spoke-works);
+  background: var(--spoke-works-tint);
+  color: var(--spoke-works-text);
+}
+
+/* ── Cards shared by ways-out, consent and digest ──────────────────────── */
+
+.card {
+  border: var(--spoke-border) solid var(--spoke-line);
+  border-radius: var(--spoke-radius-card);
+  background: var(--spoke-surface);
+  box-shadow: var(--spoke-shadow-drop);
+  padding: 11px 12px;
+}
+.card + .card { margin-top: var(--spoke-gap-row); }
+
+.card[data-tone="works"] {
+  border-color: var(--spoke-works);
+  background: var(--spoke-works-tint);
+}
+.card[data-tone="act"] {
+  border-color: var(--spoke-act);
+  background: var(--spoke-act-tint);
+}
+.card[data-tone="scope"] {
+  border-color: var(--spoke-scope);
+  background: var(--spoke-scope-tint);
+}
+/* Rung 3: neutral surface, act shadow — status, not a decision (§7). */
+.card[data-tone="acting"] { box-shadow: 2px 2px 0 var(--spoke-act-shadow); }
+.card[data-tone="dashed"] {
+  border-style: dashed;
+  border-color: var(--spoke-line-quiet);
+  box-shadow: none;
+}
+
+.card-kicker {
+  font-family: var(--spoke-font-display);
+  font-weight: var(--spoke-weight-display);
+  font-size: 11.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--spoke-act-text);
+  margin-bottom: 5px;
+}
+
+.card-badges { display: flex; gap: 7px; margin-bottom: 5px; flex-wrap: wrap; }
+
+.card-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 3px;
+}
+
+.card-title {
+  flex: 1;
+  font-weight: var(--spoke-weight-strong);
+  font-size: var(--spoke-size-place);
+  line-height: 1.4;
+  color: var(--spoke-ink);
+}
+
+.card-delta {
+  flex: none;
+  font-family: var(--spoke-font-mono);
+  font-weight: var(--spoke-weight-strong);
+  font-size: 12px;
+  white-space: nowrap;
+  color: var(--spoke-works-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.card-body {
+  font-weight: var(--spoke-weight-quiet);
+  font-size: var(--spoke-size-detail);
+  line-height: 1.45;
+  color: var(--spoke-ink-soft);
+  margin-bottom: 10px;
+}
+.card[data-tone="scope"] .card-body { color: var(--spoke-scope-text); }
+
+.card-actions { display: flex; gap: 7px; flex-wrap: wrap; }
+
+/* ── Buttons ───────────────────────────────────────────────────────────── */
+
+.btn {
+  border: var(--spoke-border) solid var(--spoke-line);
+  background: var(--spoke-surface);
+  box-shadow: var(--spoke-shadow-drop);
+  border-radius: 10px;
+  padding: 8px 13px;
+  min-height: var(--spoke-tap-min);
+  font-weight: var(--spoke-weight-strong);
+  font-size: var(--spoke-size-place);
+  color: var(--spoke-ink);
+  cursor: pointer;
+}
+.btn:disabled { opacity: 0.5; cursor: default; }
+
+.btn[data-tone="works"] {
+  border-color: var(--spoke-works);
+  background: var(--spoke-works);
+  color: var(--spoke-surface);
+}
+.btn[data-tone="works-quiet"] {
+  border-color: var(--spoke-works);
+  background: var(--spoke-works-tint);
+  color: var(--spoke-works-text);
+}
+.btn[data-tone="act"] {
+  border-color: var(--spoke-act);
+  background: var(--spoke-act);
+  color: var(--spoke-surface);
+}
+.btn[data-tone="scope"] {
+  border-color: var(--spoke-scope);
+  background: var(--spoke-scope);
+  color: var(--spoke-surface);
+}
+
+.btn-text {
+  border: none;
+  background: none;
+  padding: 0 4px;
+  min-height: var(--spoke-tap-min);
+  font-weight: var(--spoke-weight-strong);
+  font-size: var(--spoke-size-detail);
+  color: var(--spoke-works-text);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* ── History / digest rows ─────────────────────────────────────────────── */
+
+.record-list { border-top: var(--spoke-border) solid var(--spoke-line-quiet); }
+
+.record-row {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--spoke-line-ghost);
+}
+.record-row:last-child { border-bottom: none; }
+
+.record-index {
+  flex: none;
+  width: 18px;
+  font-family: var(--spoke-font-mono);
+  font-weight: var(--spoke-weight-body);
+  font-size: var(--spoke-size-micro);
+  line-height: 1.7;
+  color: var(--spoke-ink-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.record-avatar {
+  flex: none;
+  width: 18px; height: 18px;
+  border-radius: var(--spoke-radius-badge);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 8.5px;
+  font-weight: var(--spoke-weight-strong);
+  color: var(--spoke-surface);
+  background: var(--spoke-person-1);
+  align-self: center;
+}
+.record-avatar[data-anonymous="true"] {
+  background: var(--spoke-scope-tint);
+  color: var(--spoke-scope-text);
+}
+
+.record-spacer { flex: none; width: 18px; }
+
+.record-text {
+  flex: 1;
+  font-weight: var(--spoke-weight-quiet);
+  font-size: var(--spoke-size-detail);
+  line-height: 1.45;
+  color: var(--spoke-ink);
+}
+.record-row[data-private="true"] .record-text {
+  font-style: italic;
+  color: var(--spoke-scope-text);
+}
+
+.record-delta {
+  flex: none;
+  font-family: var(--spoke-font-mono);
+  font-weight: var(--spoke-weight-strong);
+  font-size: var(--spoke-size-meta);
+  color: var(--spoke-ink-soft);
+  font-variant-numeric: tabular-nums;
+}
+.record-row[data-private="true"] .record-delta { color: var(--spoke-scope-text); }
+
+/* ── Composer ──────────────────────────────────────────────────────────── */
+
+.composer {
+  flex: none;
+  padding: 0 var(--spoke-pad-screen) 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--spoke-ground);
+}
+
+.composer-suggest-label {
+  font-weight: var(--spoke-weight-strong);
+  font-size: var(--spoke-size-meta);
+  line-height: 1.3;
+  letter-spacing: 0.02em;
+  color: var(--spoke-ink-soft);
+  padding: 0 2px;
+}
+
+.pill-row { display: flex; flex-wrap: wrap; gap: 6px; }
+
+.pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: var(--spoke-border) solid var(--spoke-line);
+  border-radius: var(--spoke-radius-chip);
+  background: var(--spoke-surface);
+  box-shadow: var(--spoke-shadow-drop);
+  padding: 5px 12px;
+  font-weight: var(--spoke-weight-strong);
+  font-size: 11.5px;
+  color: var(--spoke-ink);
+  cursor: pointer;
+  position: relative;
+}
+/* ~28px tall: extend the target with a pseudo-element, don't grow the pill. */
+.pill::before {
+  content: "";
+  position: absolute;
+  left: 0; right: 0;
+  top: 50%;
+  height: var(--spoke-tap-min);
+  transform: translateY(-50%);
+}
+.pill-count {
+  font-family: var(--spoke-font-mono);
+  font-weight: var(--spoke-weight-strong);
+  font-size: var(--spoke-size-micro);
+  color: var(--spoke-ink-soft);
+  font-variant-numeric: tabular-nums;
+}
+
+.composer-bar-wrap { position: relative; }
+
+.composer-bar {
+  display: flex;
+  align-items: stretch;
+  border: var(--spoke-border) solid var(--spoke-line);
+  border-radius: var(--spoke-radius-card);
+  background: var(--spoke-surface);
+  box-shadow: var(--spoke-shadow-lift);
+  overflow: hidden;
+}
+.composer-bar[data-active="true"] { border-color: var(--spoke-works); }
+
+.composer-scope { display: flex; align-items: center; padding: 0 9px 0 10px; flex: none; }
+
+.scope-chip {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  border: var(--spoke-border) solid var(--spoke-works);
+  border-radius: 7px;
+  background: var(--spoke-works-tint);
+  color: var(--spoke-works-text);
+  padding: 4px 8px;
+  font-weight: var(--spoke-weight-strong);
+  font-size: 10.5px;
+  cursor: pointer;
+  position: relative;
+}
+.scope-chip::before {
+  content: "";
+  position: absolute;
+  left: -4px; right: -4px;
+  top: 50%;
+  height: var(--spoke-tap-min);
+  transform: translateY(-50%);
+}
+.scope-chip[data-scope="application-private"],
+.scope-chip[data-scope="agent-private"] {
+  border-color: var(--spoke-scope);
+  background: var(--spoke-scope-tint);
+  color: var(--spoke-scope-text);
+}
+.scope-caret {
+  display: block;
+  width: 0; height: 0;
+  border-left: 3.5px solid transparent;
+  border-right: 3.5px solid transparent;
+  border-top: 4.5px solid currentColor;
+}
+
+.scope-menu {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 10px;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  border: var(--spoke-border) solid var(--spoke-line);
+  border-radius: 10px;
+  background: var(--spoke-surface);
+  box-shadow: var(--spoke-shadow-lift);
+  overflow: hidden;
+  min-width: 132px;
+}
+.scope-menu button {
+  border: none;
+  background: none;
+  text-align: left;
+  padding: 10px 12px;
+  min-height: var(--spoke-tap-min);
+  font-weight: var(--spoke-weight-strong);
+  font-size: var(--spoke-size-meta);
+  color: var(--spoke-ink);
+  cursor: pointer;
+}
+.scope-menu button + button { border-top: 1px solid var(--spoke-line-ghost); }
+.scope-menu button[aria-checked="true"] { background: var(--spoke-works-tint); color: var(--spoke-works-text); }
+
+.composer-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: none;
+  font-family: inherit;
+  font-weight: var(--spoke-weight-body);
+  font-size: var(--spoke-size-body);
+  color: var(--spoke-ink);
+  padding: 14px 0;
+  min-height: var(--spoke-tap-min);
+}
+.composer-input:focus { outline: none; }
+.composer-input::placeholder { color: var(--spoke-ink-ghost); }
+
+.composer-add {
+  flex: none;
+  border: none;
+  border-left: var(--spoke-border) solid var(--spoke-works);
+  background: var(--spoke-works);
+  color: var(--spoke-surface);
+  font-weight: var(--spoke-weight-strong);
+  font-size: var(--spoke-size-place);
+  padding: 0 15px;
+  cursor: pointer;
+}
+.composer-add:disabled { opacity: 0.55; cursor: default; }
+
+/* ── Arrival bar (replaces the composer once the room agrees) ───────────── */
+
+.arrival-bar {
+  flex: none;
+  padding: 0 var(--spoke-pad-screen) 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  background: var(--spoke-ground);
+}
+.arrival-head { display: flex; align-items: center; gap: 9px; }
+.arrival-copy { flex: 1; min-width: 0; }
+.arrival-title {
+  font-weight: var(--spoke-weight-strong);
+  font-size: var(--spoke-size-place);
+  line-height: 1.35;
+  color: var(--spoke-ink);
+}
+.arrival-sub {
+  font-weight: var(--spoke-weight-quiet);
+  font-size: var(--spoke-size-meta);
+  line-height: 1.4;
+  color: var(--spoke-ink-soft);
+}
+.seg {
+  display: inline-flex;
+  flex: none;
+  border: var(--spoke-border) solid var(--spoke-line);
+  border-radius: 11px;
+  overflow: hidden;
+  box-shadow: var(--spoke-shadow-drop);
+}
+.seg button {
+  border: none;
+  background: var(--spoke-surface);
+  color: var(--spoke-ink);
+  font-weight: var(--spoke-weight-strong);
+  font-size: 11.5px;
+  padding: 9px 11px;
+  min-height: var(--spoke-tap-min);
+  cursor: pointer;
+}
+.seg button + button { border-left: var(--spoke-border) solid var(--spoke-line); }
+.seg button[aria-pressed="true"] { background: var(--spoke-ink); color: var(--spoke-surface); }
+
+.arrival-go {
+  display: block;
+  width: 100%;
+  text-align: center;
+  text-decoration: none;
+  border: var(--spoke-border) solid var(--spoke-works);
+  background: var(--spoke-works);
+  box-shadow: var(--spoke-shadow-lift);
+  border-radius: var(--spoke-radius-card);
+  padding: 14px;
+  font-family: var(--spoke-font-display);
+  font-weight: var(--spoke-weight-display);
+  font-size: 14px;
+  color: var(--spoke-surface);
+  cursor: pointer;
+}
+
+.arrival-alt {
+  font-weight: var(--spoke-weight-quiet);
+  font-size: var(--spoke-size-meta);
+  color: var(--spoke-ink-soft);
+}
+
+/* ── Place details ─────────────────────────────────────────────────────
+   Full-screen takeover on phone, a pushing side panel ≥980px. Never a
+   bottom sheet — the map is the context (§6). */
+
+.details {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  background: var(--spoke-ground);
+  display: flex;
+  flex-direction: column;
+}
+
+.details-nav {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px 10px;
+}
+.details-nav-title {
+  flex: 1;
+  text-align: center;
+  font-family: var(--spoke-font-display);
+  font-weight: var(--spoke-weight-strong);
+  font-size: var(--spoke-size-body);
+  color: var(--spoke-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.details-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.details-group { padding: 17px var(--spoke-pad-screen) 0; }
+.details-group:last-child { padding-bottom: 22px; }
+
+.group-heading {
+  font-family: var(--spoke-font-display);
+  font-weight: var(--spoke-weight-display);
+  font-size: 11px;
+  line-height: 1.3;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--spoke-ink-faint);
+  margin-bottom: 8px;
+}
+
+.details-title {
+  font-family: var(--spoke-font-display);
+  font-weight: var(--spoke-weight-display);
+  font-size: 20px;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  color: var(--spoke-ink);
+}
+
+.details-meta {
+  font-weight: var(--spoke-weight-quiet);
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--spoke-ink-faint);
+  margin-top: 3px;
+}
+
+.verdict {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 13px;
+  padding: 9px 11px;
+  border: var(--spoke-border) solid var(--spoke-works);
+  border-radius: 11px;
+  background: var(--spoke-works-tint);
+}
+.verdict-dot {
+  width: 9px; height: 9px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--spoke-works);
+}
+.verdict-text {
+  font-weight: var(--spoke-weight-body);
+  font-size: var(--spoke-size-place);
+  line-height: 1.45;
+  color: var(--spoke-works-text);
+}
+.verdict[data-state="unsure"] { border-color: var(--spoke-unsure); background: var(--spoke-unsure-tint); }
+.verdict[data-state="unsure"] .verdict-dot { background: var(--spoke-surface); border: 2.5px solid var(--spoke-unsure); }
+.verdict[data-state="unsure"] .verdict-text { color: var(--spoke-unsure-text); }
+.verdict[data-state="out"] { border-color: var(--spoke-line); background: var(--spoke-surface); }
+.verdict[data-state="out"] .verdict-dot { background: var(--spoke-out); }
+.verdict[data-state="out"] .verdict-text { color: var(--spoke-ink-soft); }
+
+.check-list { border-top: var(--spoke-border) solid var(--spoke-line-quiet); }
+.check-row {
+  display: flex;
+  gap: 9px;
+  align-items: baseline;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--spoke-line-ghost);
+}
+.check-row:last-child { border-bottom: none; }
+.check-glyph {
+  flex: none;
+  width: 13px;
+  font-weight: var(--spoke-weight-strong);
+  font-size: 12px;
+  color: var(--spoke-works-text);
+}
+.check-row[data-mark="unknown"] .check-glyph { color: var(--spoke-unsure-text); }
+.check-row[data-mark="out"] .check-glyph { color: var(--spoke-ink-soft); }
+.check-row[data-mark="private"] .check-glyph { color: var(--spoke-scope-text); }
+.check-text {
+  flex: 1;
+  min-width: 0;
+  font-weight: var(--spoke-weight-quiet);
+  font-size: var(--spoke-size-place);
+  line-height: 1.45;
+  color: var(--spoke-ink);
+}
+.check-row[data-mark="private"] .check-text { font-style: italic; color: var(--spoke-scope-text); }
+.check-source {
+  flex: none;
+  max-width: 45%;
+  text-align: right;
+  font-weight: var(--spoke-weight-quiet);
+  font-size: var(--spoke-size-micro);
+  line-height: 1.5;
+  color: var(--spoke-ink-faint);
+}
+.check-row[data-mark="private"] .check-source { color: var(--spoke-scope-text); }
+
+.attr-row {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--spoke-line-ghost);
+}
+.attr-row:last-child { border-bottom: none; }
+.attr-key {
+  flex: 1;
+  font-weight: var(--spoke-weight-body);
+  font-size: var(--spoke-size-detail);
+  color: var(--spoke-ink);
+}
+.attr-value {
+  flex: none;
+  max-width: 58%;
+  text-align: right;
+  font-weight: var(--spoke-weight-quiet);
+  font-size: var(--spoke-size-detail);
+  color: var(--spoke-ink-soft);
+}
+.attr-row[data-status="unknown"] .attr-value,
+.attr-row[data-status="unverified"] .attr-value { color: var(--spoke-unsure-text); }
+
+.stand-row {
+  display: flex;
+  gap: 9px;
+  align-items: center;
+  padding: 6px 0;
+}
+.stand-avatar {
+  flex: none;
+  width: 20px; height: 20px;
+  border-radius: var(--spoke-radius-badge);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  font-weight: var(--spoke-weight-strong);
+  color: var(--spoke-surface);
+  background: var(--spoke-person-1);
+}
+.stand-text {
+  flex: 1;
+  font-weight: var(--spoke-weight-quiet);
+  font-size: var(--spoke-size-detail);
+  color: var(--spoke-ink);
+}
+.stand-row[data-stance="none"] .stand-text { color: var(--spoke-ink-faint); }
+.stand-mark {
+  flex: none;
+  font-weight: var(--spoke-weight-strong);
+  font-size: 12px;
+  color: var(--spoke-works-text);
+}
+
+.details-actions {
+  flex: none;
+  display: flex;
+  gap: 8px;
+  padding: 12px var(--spoke-pad-screen) 22px;
+  border-top: var(--spoke-border) solid var(--spoke-line-quiet);
+  background: var(--spoke-surface);
+}
+.details-actions .btn { flex: 1; }
+.details-actions .btn[data-fit="hug"] { flex: none; }
+
+/* ── { } drawer ────────────────────────────────────────────────────────
+   Everything protocol-shaped lives here and nowhere else (§8). */
+
+.drawer {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  justify-content: flex-end;
+}
+.drawer-scrim { position: absolute; inset: 0; background: var(--spoke-scrim); border: none; padding: 0; }
+
+.drawer-panel {
+  position: relative;
+  width: min(420px, 100%);
+  height: 100%;
+  background: var(--spoke-ink);
+  color: var(--spoke-drawer-ink);
+  display: flex;
+  flex-direction: column;
+  font-family: var(--spoke-font-mono);
+}
+
+.drawer-head { flex: none; padding: 13px 16px 10px; }
+.drawer-head-row { display: flex; align-items: center; gap: 9px; }
+.drawer-title {
+  font-family: var(--spoke-font-mono);
+  font-weight: var(--spoke-weight-strong);
+  font-size: 12px;
+  color: var(--spoke-drawer-ink);
+}
+.drawer-close {
+  margin-left: auto;
+  border: none;
+  background: none;
+  color: var(--spoke-drawer-ink-soft);
+  font-family: var(--spoke-font-text);
+  font-weight: var(--spoke-weight-strong);
+  font-size: 12px;
+  min-height: var(--spoke-tap-min);
+  padding: 0 4px;
+  cursor: pointer;
+}
+/* An aside, not a peer of the title — its own line (§8). */
+.drawer-chip {
+  display: inline-block;
+  margin-top: 7px;
+  font-family: var(--spoke-font-text);
+  font-weight: var(--spoke-weight-body);
+  font-size: 9.5px;
+  color: var(--spoke-works-pop);
+  background: var(--spoke-drawer-accent-tint);
+  border-radius: 5px;
+  padding: 2px 7px;
+}
+
+.drawer-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  margin: 0 12px 12px;
+  padding: 11px 12px;
+  background: var(--spoke-drawer-well);
+  border-radius: 10px;
+  font-size: 10.5px;
+  line-height: 1.8;
+}
+
+.drawer-section { margin-bottom: 14px; }
+.drawer-section-title {
+  font-weight: var(--spoke-weight-strong);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--spoke-drawer-ink-soft);
+  margin-bottom: 4px;
+}
+.drawer-kv { display: flex; flex-wrap: wrap; gap: 4px 14px; color: var(--spoke-drawer-ink-soft); }
+.drawer-kv strong, .drawer-kv code { color: var(--spoke-drawer-ink); font-weight: var(--spoke-weight-strong); }
+.drawer-ok { color: var(--spoke-works-pop); }
+
+.drawer-log, .drawer-json {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--spoke-font-mono);
+  font-size: 10px;
+  line-height: 1.7;
+  color: var(--spoke-drawer-ink);
+  max-height: 220px;
+  overflow: auto;
+}
+
+.drawer-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.drawer-btn {
+  border: var(--spoke-border) solid var(--spoke-drawer-line);
+  background: none;
+  border-radius: 8px;
+  color: var(--spoke-drawer-ink);
+  font-family: var(--spoke-font-text);
+  font-weight: var(--spoke-weight-body);
+  font-size: 11px;
+  padding: 8px 11px;
+  min-height: var(--spoke-tap-min);
+  cursor: pointer;
+}
+
+/* ── Transients ────────────────────────────────────────────────────────
+   Reduced to what states the user must see: an error line and the stale
+   banner. No success celebration. */
+
+.error-line {
+  position: fixed;
+  left: 50%;
+  bottom: 14px;
+  transform: translateX(-50%);
+  z-index: 50;
+  max-width: calc(100% - 32px);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 13px;
+  border-radius: 11px;
+  background: var(--spoke-ink);
+  color: var(--spoke-surface);
+  border-left: 3px solid var(--spoke-unsure);
+  font-weight: var(--spoke-weight-body);
+  font-size: var(--spoke-size-detail);
+}
+.error-line button {
+  border: none;
+  background: none;
+  color: var(--spoke-surface);
+  text-decoration: underline;
+  font-size: var(--spoke-size-meta);
+  cursor: pointer;
+  padding: 0 2px;
+}
+
+.stale-banner {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px var(--spoke-pad-screen);
+  background: var(--spoke-unsure-tint);
+  border-bottom: var(--spoke-border) solid var(--spoke-unsure);
+  color: var(--spoke-unsure-text);
+  font-weight: var(--spoke-weight-body);
+  font-size: var(--spoke-size-detail);
+}
+.stale-banner button {
+  border: none;
+  background: none;
+  color: inherit;
+  text-decoration: underline;
+  font: inherit;
+  cursor: pointer;
+}
+
+/* ── Desktop ≥980px ────────────────────────────────────────────────────
+   Three columns: brief rail left, map centre, details pushing in from the
+   right. The app never renders a chat pane (§9). */
+
 @media (min-width: 980px) {
-  .app-main { flex-direction: row; }
-  .map-column { flex: 1 1 auto; min-width: 0; }
-  .map-region { flex: 1; height: auto; min-height: 0; }
-  .panel-region {
-    flex: 0 0 400px;
-    border-left: 1px solid var(--line);
-    border-top: none;
+  .app-body { flex-direction: row; align-items: stretch; }
+
+  .rail {
+    flex: none;
+    width: 320px;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    background: var(--spoke-surface);
+    border-right: var(--spoke-border) solid var(--spoke-line-quiet);
   }
+  .rail .brief { padding-top: 16px; }
+  .rail .composer,
+  .rail .arrival-bar {
+    background: var(--spoke-surface);
+    border-top: 1px solid var(--spoke-line-ghost);
+    padding: 12px 14px 14px;
+  }
+
+  /* Desktop: the brief rail moves to the left of the map without moving in
+     the DOM, so the phone keeps map-first reading order. */
+  .rail { order: -1; }
+  .map-column { flex: 1; min-width: 0; display: flex; order: 0; }
+  .map-column > .map-region { flex: 1; }
+  .map-region {
+    flex: 1;
+    height: auto;
+    border-top: none;
+    border-bottom: none;
+    border-left: none;
+    border-right: none;
+  }
+
+  .details {
+    position: relative;
+    inset: auto;
+    flex: none;
+    width: 380px;
+    border-left: var(--spoke-border) solid var(--spoke-line-quiet);
+    background: var(--spoke-surface);
+  }
+  .details-nav-title { text-align: left; }
 }

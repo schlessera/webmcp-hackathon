@@ -96,8 +96,22 @@ export function submitCommand(type: string, input: unknown): Promise<unknown> {
  * variants forward tool arguments verbatim for the same reason syncSessionRaw
  * does: server-side Ajv is the enforcement point.
  */
-export function spatialContext(signal?: AbortSignal): Promise<unknown> {
-  return post("/api/spatial/context", {}, signal);
+/**
+ * `excludeRequirementId` is the press-and-hold preview: the server answers
+ * with the whole context as if that one need were inactive, so the map can
+ * settle honestly instead of the page guessing. It is a route-level argument
+ * on purpose — holding a row is a pointer gesture on this page, not a
+ * decision an agent takes, so the WebMCP input schema stays empty.
+ */
+export function spatialContext(
+  signal?: AbortSignal,
+  excludeRequirementId?: string,
+): Promise<unknown> {
+  return post(
+    "/api/spatial/context",
+    excludeRequirementId ? { excludeRequirementId } : {},
+    signal,
+  );
 }
 
 export function spatialInspectRaw(

@@ -26,6 +26,10 @@ export interface SpatialState {
    * A grant beyond the delegated bound comes back as an adjustment_request
    * with staged:true — that flag alone drives the in-page confirm card. */
   outstanding: OutstandingItem[];
+  /** The set as it would be without one need, while its brief row is held.
+   * Never merged into `context`: the live truth must survive the gesture. */
+  preview: SpatialContext | null;
+  previewNeedId: string | null;
 }
 
 type Listener = () => void;
@@ -46,10 +50,13 @@ class SpatialStore {
     selectedId: null,
     focusNonce: 0,
     outstanding: [],
+    preview: null,
+    previewNeedId: null,
   };
   private listeners = new Set<Listener>();
   private inflight: Promise<SpatialContext | null> | null = null;
   private queued = false;
+  private previewAbort: AbortController | null = null;
   private confirmations = new Map<string, HeldConfirmation>();
   private confirmationWaiters = new Map<string, Array<() => void>>();
 
@@ -70,6 +77,34 @@ class SpatialStore {
   }
   setOutstanding(outstanding: OutstandingItem[] | undefined): void {
     if (outstanding) this.update({ outstanding });
+  }
+
+  /**
+   * Press-and-hold: ask the server what the set looks like without one need.
+   * A second hold aborts the first — an in-flight answer for a row the user
+   * already released must never repaint the map.
+   */
+  startPreview(requirementId: string): void {
+    this.previewAbort?.abort();
+    const controller = new AbortController();
+    this.previewAbort = controller;
+    this.update({ previewNeedId: requirementId, preview: null });
+    void (async () => {
+      const result = (await spatialContext(controller.signal, requirementId)) as
+        | SpatialContext
+        | { ok: false };
+      if (controller.signal.aborted) return;
+      if (this.state.previewNeedId !== requirementId) return;
+      if (result.ok) this.update({ preview: result });
+    })();
+  }
+
+  endPreview(): void {
+    this.previewAbort?.abort();
+    this.previewAbort = null;
+    if (this.state.preview || this.state.previewNeedId) {
+      this.update({ preview: null, previewNeedId: null });
+    }
   }
 
   /**
