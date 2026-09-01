@@ -39,12 +39,14 @@ the way: the Vite dep optimizer broke MapLibre's worker (no basemap tiles ever
 painted in dev serving) and the vetoed ring's base CSS only existed under
 `data-proposed`.
 
-**Three-window demo recorded.** `scripts/record-demo.mjs` drives the full
+**Three-window demo recordable.** `scripts/record-demo.mjs` drives the full
 trajectory against its own server + throwaway room and records one paced video
 per participant window plus `beats.log`
-(`test-results/demo-recording/{org,sarah,joe}.webm`, ~55 s arc) — raw material
-for the submission video and the eyes-on check (spikes 6/7/8 evidence, spike 10
-rehearsal input).
+(`test-results/demo-recording/{org,sarah,joe}.webm`, ~55 s arc). These are
+**rehearsal/evidence artifacts only** (spikes 6/7/8 evidence, spike 10 input) —
+the user has explicitly decided the product is NOT ready for the submission
+video: the three planned waves below come first, and recording resumes only
+after them.
 
 **NOT yet done / NOT verified — the real gaps before submission:**
 
@@ -56,8 +58,9 @@ rehearsal input).
    for that origin, and the real ChatGPT app (user-side steps).
 2. **Human eyes-on**: the recordings exist, but a human has to actually watch
    them (or the live three windows) and sign off the flow.
-3. **Submission tail**: the sub-3-minute narrated video, Devpost submission
-   (`docs/SUBMISSION.md` is a draft), and public-repo checklist.
+3. **Submission tail** — deliberately LAST: the sub-3-minute narrated video,
+   Devpost submission (`docs/SUBMISSION.md` is a draft), and public-repo
+   checklist all wait until the planned next waves (see below) are done.
 4. **Deferred review findings still open** (documented in
    `docs/KNOWN-LIMITATIONS.md`, decide per item): organizer scope-change
    consent routing, mapRevision, token expiry, participant lifecycle.
@@ -123,8 +126,29 @@ all-accept-organizer-commit. See `[[product-slice-decisions]]` memory.
   loses the user's pnpm PATH — run the pnpm scripts directly instead. An
   orphan smoke server may linger on **4180**; kill it if tidying.
 
-## Suggested next focus (user to pick)
+## Planned next waves (user-confirmed 2026-09-01; all required before the video)
 
-The ChatGPT WebMCP gate (deploy + origin-trial token + real ChatGPT run of the
-14 tools) · human watch of `test-results/demo-recording/` · the narrated
-sub-3-minute video · remaining deferred findings.
+The user chose ALL of these as still needed, in no committed order, each to be
+PLANNED and DESIGNED before building:
+
+1. **Product depth** — descoped protocol features return to the table:
+   disclosure ladder L1–L3, richer requirement types, time-window eligibility,
+   meeting points, multiple areas/rooms. Discovery path: the protocol docs'
+   open-questions sections (`docs/protocols/*.md`) name each descope and its
+   design questions; `PRODUCT-CONCEPT.md` and `IDEATION-JOURNAL.md` hold the
+   original ambitions to mine.
+2. **Visual identity overhaul** — the critique's verdict stands: the semantic
+   core is authored, the chrome is timid. A real design-direction pass (brand,
+   typography, header, map styling) beyond the shipped polish. Discovery path:
+   `.impeccable/critique/2026-09-01T07-24-12Z__apps-web.md` (especially the
+   "provocative questions"), `apps/web/DESIGN.md` as the incumbent system to
+   evolve or deliberately replace.
+3. **Agent/ChatGPT experience** — deepen the tool surface: first-run
+   instructions, richer tool results, the agent-private screening loop's UX,
+   demo choreography for the agent window. Discovery path:
+   `docs/protocols/INTERACTION-AND-BINDING.md` (tool descriptions and result
+   budgets), `WEBMCP-REFERENCE.md`, the lane-5 gate below.
+
+After those waves: the ChatGPT WebMCP gate (public deploy + origin-trial token
++ real ChatGPT run of the 14 tools), the human sign-off, and only then the
+narrated sub-3-minute video and Devpost submission.
