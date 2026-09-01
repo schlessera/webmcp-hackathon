@@ -224,8 +224,8 @@ const spatialTools: ToolDefinition[] = [
     name: "plan_arrival",
     description:
       "Record your arrival plan for the committed destination: transport mode " +
-      "and an optional pickup note. Available once the room reaches the " +
-      "arrival phase.",
+      "and an optional pickup note. Available once the room has agreed on a " +
+      "destination.",
     inputSchema: PlanArrivalInput,
     annotations: {},
   },

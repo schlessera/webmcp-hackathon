@@ -9,6 +9,7 @@ import {
   type ScopeState,
   type VerdictRow,
 } from "./eligibility.ts";
+import { isDecided, type Phase } from "./phase.ts";
 
 /**
  * Impasse pipeline — NEGOTIATION-PROTOCOL.md §7.2 steps 1-5. Deterministic
@@ -230,7 +231,7 @@ export async function impasseBracket(
   if (!room) return [];
   // The decision is committed: recovery negotiation is over, whatever late
   // requirement edits do to the eligibility picture.
-  if (room.phase === "arrival") return [];
+  if (isDecided(room.phase as Phase)) return [];
   const feasibility = feasibilityOf(after);
 
   if (feasibility.eligible > 0) {

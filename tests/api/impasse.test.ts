@@ -2,7 +2,9 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   apiPost,
   createTestRoom,
+  openRealtime,
   startServer,
+  type TestRealtime,
   type TestRoom,
   type TestServer,
 } from "./helpers.ts";
@@ -52,11 +54,17 @@ interface SpatialContext {
 
 const PICKUP_CANARY = "CANARY-pickup-7741 back entrance on Ziegelstrasse";
 
+let orgChannel: TestRealtime;
+
 beforeAll(async () => {
   server = await startServer();
   room = await createTestRoom(server.baseUrl, { berlin: true });
+  // Confirmation nonces reach the organizer only here — the applying commands
+  // below are the page's gestures, so the test stands in for the page.
+  orgChannel = await openRealtime(server.baseUrl, room.tokens.org);
 });
 afterAll(async () => {
+  orgChannel?.close();
   await room.cleanup();
   await server.stop();
 });
@@ -204,9 +212,11 @@ describe("private adjustment, consent, recovery", () => {
 
   it("the in-page confirmation applies the scope change and resolves the impasse", async () => {
     const before = revision;
+    const nonce = await orgChannel.nonce("private_request", adjustmentId);
     const confirm = await command(room.tokens.org, "ConfirmPrivateRequest", {
       baseRevision: revision,
       requestId: adjustmentId,
+      confirmationNonce: nonce,
     });
     expect(confirm.body.ok).toBe(true);
     revision = confirm.body.revision!;
@@ -309,7 +319,7 @@ describe("proposal, veto, agreement, arrival", () => {
     expect(vetoed.vetoStands).toBe(true);
   });
 
-  it("all accept + ready, organizer stages, page commit moves to arrival", async () => {
+  it("all accept + ready, organizer stages, page commit with its nonce moves to agreed", async () => {
     for (const key of ["org", "sarah", "joe"] as const) {
       const accept = await command(room.tokens[key], "RespondToProposal", {
         baseRevision: revision,
@@ -338,12 +348,14 @@ describe("proposal, veto, agreement, arrival", () => {
     const commit = await command(room.tokens.org, "CommitAgreement", {
       baseRevision: revision,
       proposalId: agreedProposalId,
+      confirmationNonce: await orgChannel.nonce("agreement", agreedProposalId),
     });
     expect(commit.body.ok).toBe(true);
     revision = commit.body.revision!;
 
+    // Committing enters "agreed"; "arrival" opens when someone plans one.
     const after = await context(room.tokens.sarah);
-    expect(after.body.phase).toBe("arrival");
+    expect(after.body.phase).toBe("agreed");
     expect(after.body.agreement!.status).toBe("committed");
     expect(after.body.agreement!.candidateId).toBe(agreedCandidateId);
   });
@@ -379,30 +391,39 @@ describe("proposal, veto, agreement, arrival", () => {
     const recommit = await command(room.tokens.org, "CommitAgreement", {
       baseRevision: revision,
       proposalId: agreedProposalId,
+      confirmationNonce: "",
     });
     expect(recommit.body.ok).toBe(false);
     expect(recommit.body.error!.code).toBe("phase_unavailable");
   });
 
   it("protected-category attributes are forced hard + locked server-side", async () => {
-    const submit = await command(room.tokens.org, "SubmitRequirement", {
-      baseRevision: revision,
-      visibility: "shared",
-      hardness: "soft",
-      delegation: { mode: "negotiable", bound: { dimension: "radius_m", max: 2000 } },
-      payload: { kind: "attribute", key: "wheelchair-accessible", expect: "verified_true" },
-    });
-    expect(submit.body.ok).toBe(true);
-    revision = submit.body.revision!;
-    const row = (
-      await room.pool.query(
-        `SELECT hardness, delegation FROM requirements
-          WHERE room_id = $1 AND payload->>'key' = 'wheelchair-accessible'`,
-        [room.roomId],
-      )
-    ).rows[0];
-    expect(row.hardness).toBe("hard");
-    expect(row.delegation.mode).toBe("locked");
+    // Fresh room: requirement edits are closed once a destination is agreed.
+    const second = await createTestRoom(server.baseUrl, { berlin: true });
+    try {
+      const submit = await apiPost<Envelope>(server.baseUrl, "/api/commands", second.tokens.org, {
+        type: "SubmitRequirement",
+        input: {
+          baseRevision: 0,
+          visibility: "shared",
+          hardness: "soft",
+          delegation: { mode: "negotiable", bound: { dimension: "radius_m", max: 2000 } },
+          payload: { kind: "attribute", key: "wheelchair-accessible", expect: "verified_true" },
+        },
+      });
+      expect(submit.body.ok).toBe(true);
+      const row = (
+        await second.pool.query(
+          `SELECT hardness, delegation FROM requirements
+            WHERE room_id = $1 AND payload->>'key' = 'wheelchair-accessible'`,
+          [second.roomId],
+        )
+      ).rows[0];
+      expect(row.hardness).toBe("hard");
+      expect(row.delegation.mode).toBe("locked");
+    } finally {
+      await second.cleanup();
+    }
   });
 
   it("arrival plans stay per-participant; pickup notes never leak", async () => {
@@ -416,6 +437,8 @@ describe("proposal, veto, agreement, arrival", () => {
     revision = plan.body.revision!;
 
     const own = await context(room.tokens.joe);
+    // The first arrival plan is what carries the room from agreed to arrival.
+    expect(own.body.phase).toBe("arrival");
     expect(own.body.arrival!.mode).toBe("car");
     expect(own.body.arrival!.pickupNote).toBe(PICKUP_CANARY);
 

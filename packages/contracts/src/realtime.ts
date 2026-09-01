@@ -35,4 +35,23 @@ export interface ErrorMessage {
   code: "not_authenticated" | "upgrade_required" | "invalid_message";
   message: string;
 }
-export type ServerMessage = WelcomeMessage | EventMessage | ErrorMessage;
+/**
+ * A short-lived single-use code authorizing ONE applying command
+ * (CommitAgreement / ConfirmPrivateRequest) for the subject it names. It is
+ * delivered only here, to the staging participant's own socket — never in a
+ * command result, so it never reaches an agent surface
+ * (INTERACTION-AND-BINDING.md §5.4).
+ */
+export interface ConfirmationMessage {
+  type: "confirmation";
+  kind: "agreement" | "private_request";
+  /** proposalId for "agreement", requestId for "private_request". */
+  subjectId: string;
+  nonce: string;
+  expiresInMs: number;
+}
+export type ServerMessage =
+  | WelcomeMessage
+  | EventMessage
+  | ErrorMessage
+  | ConfirmationMessage;

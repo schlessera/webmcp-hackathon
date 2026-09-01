@@ -19,10 +19,22 @@ import {
 } from "@webmcp-hackathon/contracts";
 import { withTransaction } from "./db.ts";
 import type { Participant } from "./auth.ts";
+import {
+  consumeConfirmation,
+  mintConfirmation,
+  type ConfirmationGrant,
+  type ConfirmationSubject,
+} from "./confirmation.ts";
 import { buildDelta } from "./delta.ts";
 import { computeEligibility, feasibilityOf, type ScopeState } from "./eligibility.ts";
 import { impasseBracket } from "./impasse.ts";
 import { outstandingFor } from "./outstanding.ts";
+import {
+  availableCommands,
+  isCommandLegal,
+  nextPhase,
+  type Phase,
+} from "./phase.ts";
 
 /**
  * The single command bus (INTERACTION-AND-BINDING.md §1 rule 4): UI gestures
@@ -43,6 +55,8 @@ export interface CommitNotification {
   roomId: string;
   revision: number;
   storedRevisions: number[];
+  /** Nonces to hand to their owner's page sockets — realtime channel only. */
+  confirmations: Array<ConfirmationGrant & { participantId: string }>;
 }
 type CommitListener = (n: CommitNotification) => void;
 const listeners: CommitListener[] = [];
@@ -62,6 +76,8 @@ interface HandlerOutcome {
   effect: string;
   /** Command accepted but its consequence awaits in-page confirmation. */
   staged?: boolean;
+  /** Mint a confirmation nonce for this subject once the transaction commits. */
+  confirm?: ConfirmationSubject;
   error?: FailureEnvelope;
 }
 
@@ -111,6 +127,7 @@ export async function submitCommand(
       );
     }
     const current: number = room.revision;
+    const phase = room.phase as Phase;
 
     if (cmd.baseRevision !== current) {
       const delta = await buildDelta(client, actor.roomId, actor.id, cmd.baseRevision);
@@ -123,6 +140,20 @@ export async function submitCommand(
         },
         delta,
       });
+    }
+
+    // Phase gating (NEGOTIATION-PROTOCOL.md §7.1) ahead of every handler, so
+    // no handler carries its own copy of the rule. After the revision check,
+    // not before: a stale caller needs the delta — phase_unavailable carries
+    // none, and reading the delta is how it learns the phase moved.
+    if (!isCommandLegal(type as CommandType, phase)) {
+      throw new CommandFailure(
+        failure(
+          "phase_unavailable",
+          `${type} is not available while the session is in phase "${phase}".`,
+          `Available now: ${availableCommands(phase).join(", ")}.`,
+        ),
+      );
     }
 
     const before = await computeEligibility(client, actor.roomId);
@@ -157,6 +188,22 @@ export async function submitCommand(
     // recovery from an impasse after every eligibility-perturbing command.
     outcome.events.push(...(await impasseBracket(client, actor.roomId, after)));
 
+    // Phase transition last: it folds over everything this command produced,
+    // impasse-bracket events included.
+    const derivedPhase = nextPhase(phase, outcome.events.map((e) => e.type));
+    if (derivedPhase !== phase) {
+      await client.query("UPDATE rooms SET phase = $2 WHERE id = $1", [
+        actor.roomId,
+        derivedPhase,
+      ]);
+      outcome.events.push({
+        type: "phase_changed",
+        actorId: null,
+        visibility: "shared",
+        payload: { phase: derivedPhase, previousPhase: phase },
+      });
+    }
+
     let revision = current;
     const storedRevisions: number[] = [];
     for (const event of outcome.events) {
@@ -182,7 +229,7 @@ export async function submitCommand(
       ...(outcome.staged ? { staged: true } : {}),
       outstanding,
     };
-    return { success, storedRevisions, revision };
+    return { success, storedRevisions, revision, confirm: outcome.confirm };
     });
   } catch (err) {
     if (err instanceof CommandFailure) {
@@ -190,6 +237,19 @@ export async function submitCommand(
     }
     throw err;
   }
+
+  // Mint only after the write is durable, so a rolled-back stage leaves no
+  // usable nonce behind. The grant rides the commit notification to the
+  // realtime channel and is deliberately absent from `result.success`, which
+  // is what a WebMCP tool result carries back to an agent.
+  const confirmations = result.confirm
+    ? [
+        {
+          participantId: actor.id,
+          ...mintConfirmation(actor.roomId, actor.id, result.confirm),
+        },
+      ]
+    : [];
 
   // WebSocket notifications only after the transaction commits (Gate 4).
   // A listener failure must never fail the committed command.
@@ -199,6 +259,7 @@ export async function submitCommand(
         roomId: actor.roomId,
         revision: result.revision,
         storedRevisions: result.storedRevisions,
+        confirmations,
       });
     } catch (err) {
       console.error("commit listener failed:", err);
@@ -532,21 +593,14 @@ async function respondToProposal(
     );
   }
   const room = (
-    await client.query("SELECT revision, phase FROM rooms WHERE id = $1", [
+    await client.query("SELECT revision FROM rooms WHERE id = $1", [
       actor.roomId,
     ])
   ).rows[0];
-  // Committed and withdrawn are absorbing (§7.3), and no stance may touch a
-  // room already in arrival — a member must not be able to erase a committed
-  // destination (audit finding 1). Staged agreements are protected too: the
-  // organizer aborts or commits on the page.
-  if (room.phase === "arrival") {
-    return errorOutcome(
-      "phase_unavailable",
-      "The destination is committed; stances are closed.",
-      "Use plan_arrival and prepare_navigation in the arrival phase.",
-    );
-  }
+  // Committed and withdrawn are absorbing (§7.3). A room past deliberation is
+  // already closed to stances by the phase gate, so this guard is only about
+  // one proposal's own lifecycle: a staged agreement is the organizer's to
+  // abort or commit on the page.
   if (proposal.status !== "open" && proposal.status !== "vetoed") {
     return errorOutcome(
       "phase_unavailable",
@@ -701,16 +755,6 @@ async function proposeDestination(
   actor: Participant,
   cmd: { candidateId: string },
 ): Promise<HandlerOutcome> {
-  const phase = (
-    await client.query("SELECT phase FROM rooms WHERE id = $1", [actor.roomId])
-  ).rows[0].phase;
-  if (phase === "arrival") {
-    return errorOutcome(
-      "phase_unavailable",
-      "The destination is committed; no new proposals.",
-      "Use plan_arrival and prepare_navigation in the arrival phase.",
-    );
-  }
   const candidate = (
     await client.query(
       "SELECT id, name FROM candidates WHERE id = $1 AND room_id = $2",
@@ -778,17 +822,10 @@ async function planArrival(
   cmd: { mode: "walk" | "bike" | "car"; pickupNote?: string },
 ): Promise<HandlerOutcome> {
   const room = (
-    await client.query("SELECT phase, revision FROM rooms WHERE id = $1", [
+    await client.query("SELECT revision FROM rooms WHERE id = $1", [
       actor.roomId,
     ])
   ).rows[0];
-  if (room.phase !== "arrival") {
-    return errorOutcome(
-      "phase_unavailable",
-      `Arrival plans open once a destination is committed (phase is "${room.phase}").`,
-      "Reach agreement first; then plan_arrival becomes available.",
-    );
-  }
   await client.query(
     `INSERT INTO arrival_plans (room_id, participant_id, mode, pickup_note, at_revision)
      VALUES ($1, $2, $3, $4, $5)
@@ -881,6 +918,7 @@ async function resolvePrivateRequest(
     return {
       events: [],
       staged: true,
+      confirm: { kind: "private_request", subjectId: adj.id },
       effect:
         "Grant staged. This exceeds your delegated bound: confirm on the page to apply it.",
     };
@@ -891,8 +929,20 @@ async function resolvePrivateRequest(
 async function confirmPrivateRequest(
   client: pg.PoolClient,
   actor: Participant,
-  cmd: { requestId: string },
+  cmd: { requestId: string; confirmationNonce: string },
 ): Promise<HandlerOutcome> {
+  // Nonce first, before any lookup: a caller without one learns nothing about
+  // which requests exist or who they are addressed to.
+  if (
+    !consumeConfirmation(
+      actor.roomId,
+      actor.id,
+      { kind: "private_request", subjectId: cmd.requestId },
+      cmd.confirmationNonce,
+    )
+  ) {
+    return unverifiedConfirmation("grant");
+  }
   const adj = await loadAdjustment(client, actor.roomId, cmd.requestId, actor.id);
   if ("events" in adj) return adj;
   if (adj.status !== "staged_grant") {
@@ -903,6 +953,20 @@ async function confirmPrivateRequest(
     );
   }
   return applyAdjustment(client, actor, adj);
+}
+
+/**
+ * The applying commands are reachable over plain HTTP with a participant's own
+ * bearer token, so the binding-layer "no tool route" control is backed by a
+ * nonce the page can only have received on its realtime channel
+ * (INTERACTION-AND-BINDING.md §5.4).
+ */
+function unverifiedConfirmation(what: "grant" | "commit"): HandlerOutcome {
+  return errorOutcome(
+    "consent_required",
+    `This ${what} carries no valid confirmation code.`,
+    "Confirm on the Spokes page: staging sends the page a short-lived, single-use code over its live channel, and only that page gesture can apply it.",
+  );
 }
 
 async function applyAdjustment(
@@ -1080,16 +1144,6 @@ async function confirmAgreement(
       "Set your stance and ready state; the organizer commits.",
     );
   }
-  const phase = (
-    await client.query("SELECT phase FROM rooms WHERE id = $1", [actor.roomId])
-  ).rows[0].phase;
-  if (phase === "arrival") {
-    return errorOutcome(
-      "phase_unavailable",
-      "A destination is already committed.",
-      "Use plan_arrival and prepare_navigation in the arrival phase.",
-    );
-  }
   const proposal = (
     await client.query(
       `SELECT pr.id, pr.status, c.name AS candidate_name FROM proposals pr
@@ -1135,6 +1189,7 @@ async function confirmAgreement(
       },
     ],
     staged: true,
+    confirm: { kind: "agreement", subjectId: cmd.proposalId },
     effect: `Agreement on ${proposal.candidate_name} staged. The organizer confirms on the page.`,
   };
 }
@@ -1142,7 +1197,7 @@ async function confirmAgreement(
 async function commitAgreement(
   client: pg.PoolClient,
   actor: Participant,
-  cmd: { proposalId: string },
+  cmd: { proposalId: string; confirmationNonce: string },
 ): Promise<HandlerOutcome> {
   if (actor.role !== "organizer") {
     return errorOutcome(
@@ -1151,19 +1206,21 @@ async function commitAgreement(
       "Set your stance and ready state; the organizer commits.",
     );
   }
+  if (
+    !consumeConfirmation(
+      actor.roomId,
+      actor.id,
+      { kind: "agreement", subjectId: cmd.proposalId },
+      cmd.confirmationNonce,
+    )
+  ) {
+    return unverifiedConfirmation("commit");
+  }
   const room = (
-    await client.query("SELECT revision, phase FROM rooms WHERE id = $1", [
+    await client.query("SELECT revision FROM rooms WHERE id = $1", [
       actor.roomId,
     ])
   ).rows[0];
-  // A committed room commits nothing further: single active agreement.
-  if (room.phase === "arrival") {
-    return errorOutcome(
-      "phase_unavailable",
-      "A destination is already committed.",
-      "Use plan_arrival and prepare_navigation in the arrival phase.",
-    );
-  }
   const proposal = (
     await client.query(
       `SELECT pr.id, pr.status, pr.candidate_id, c.name AS candidate_name FROM proposals pr
@@ -1218,9 +1275,8 @@ async function commitAgreement(
       WHERE room_id = $1 AND id <> $2 AND status IN ('open', 'vetoed', 'staged')`,
     [actor.roomId, cmd.proposalId],
   );
-  await client.query("UPDATE rooms SET phase = 'arrival' WHERE id = $1", [
-    actor.roomId,
-  ]);
+  // The phase move to "agreed" is the machine's (phase.ts), not this
+  // handler's — it derives from the agreement_committed event below.
   const events: AppendedEvent[] = [
     {
       type: "agreement_committed",
@@ -1234,12 +1290,6 @@ async function commitAgreement(
         committedAtRevision: room.revision + 1,
       },
     },
-    {
-      type: "phase_changed",
-      actorId: null,
-      visibility: "shared",
-      payload: { phase: "arrival" },
-    },
   ];
   if ((retired.rowCount ?? 0) > 0) {
     events.push({
@@ -1251,7 +1301,7 @@ async function commitAgreement(
   }
   return {
     events,
-    effect: `Agreement committed: ${proposal.candidate_name}. Arrival phase open.`,
+    effect: `Agreement committed: ${proposal.candidate_name}. Arrival planning is open.`,
   };
 }
 

@@ -248,15 +248,26 @@ export const ResolvePrivateRequestInput = Type.Object(
 );
 
 /**
+ * Short-lived single-use code the server mints when a stage happens and
+ * delivers ONLY over the participant's realtime channel. It never rides in a
+ * command result, so the agent surface never sees one. Shaped as a plain
+ * capped string (no minLength) so a missing code fails as consent_required —
+ * the honest reason — rather than invalid_input.
+ */
+const ConfirmationNonce = Type.String({ maxLength: 64 });
+
+/**
  * UI-only: applies a staged grant after the human confirms on the page. In
  * COMMAND_SCHEMAS but bound to no WebMCP tool — the page's executeTool switch
  * has no route to it, which is the binding-layer enforcement of "the human
- * confirms on the page" (INTERACTION-AND-BINDING.md §5.4).
+ * confirms on the page" (INTERACTION-AND-BINDING.md §5.4). The nonce closes
+ * the raw-bearer-token path around that binding-layer control.
  */
 export const ConfirmPrivateRequestInput = Type.Object(
   {
     baseRevision: Type.Integer({ minimum: 0 }),
     requestId: Type.String({ maxLength: 40 }),
+    confirmationNonce: ConfirmationNonce,
   },
   { additionalProperties: false },
 );
@@ -274,6 +285,7 @@ export const CommitAgreementInput = Type.Object(
   {
     baseRevision: Type.Integer({ minimum: 0 }),
     proposalId: Type.String({ maxLength: 40 }),
+    confirmationNonce: ConfirmationNonce,
   },
   { additionalProperties: false },
 );

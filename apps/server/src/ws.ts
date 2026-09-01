@@ -9,6 +9,7 @@ import { pool } from "./db.ts";
 import { authenticateToken } from "./auth.ts";
 import { config } from "./config.ts";
 import { onCommit, type CommitNotification } from "./engine.ts";
+import { mintConfirmation, pendingConfirmations } from "./confirmation.ts";
 import { projectEvent } from "./projection.ts";
 
 interface Connection {
@@ -96,6 +97,15 @@ export function attachWebSocket(server: Server): void {
           displayName: participant.displayName,
           role: participant.role,
         });
+        // A reconnecting page has lost any confirmation nonce it held, and the
+        // nonce has no other delivery route — re-mint whatever is still
+        // staged for this participant so a dropped socket cannot wedge it.
+        for (const subject of await pendingConfirmations(pool, participant)) {
+          send(socket, {
+            type: "confirmation",
+            ...mintConfirmation(participant.roomId, participant.id, subject),
+          });
+        }
         // Belt-and-braces: also tell a contract-stale client explicitly.
         if (
           typeof message.clientToolContractVersion === "string" &&
@@ -131,6 +141,18 @@ export function attachWebSocket(server: Server): void {
 }
 
 async function broadcast(n: CommitNotification): Promise<void> {
+  // Confirmation nonces first, and unconditionally: staging an over-bound
+  // grant commits no events at all, so this must not sit behind the
+  // event-broadcast early return. Each goes to its owner's sockets only.
+  for (const grant of n.confirmations) {
+    const { participantId, ...message } = grant;
+    for (const connection of connections) {
+      if (connection.roomId !== n.roomId) continue;
+      if (connection.participantId !== participantId) continue;
+      if (connection.socket.readyState !== WebSocket.OPEN) continue;
+      send(connection.socket, { type: "confirmation", ...message });
+    }
+  }
   if (n.storedRevisions.length === 0) return;
   const rows = (
     await pool.query(

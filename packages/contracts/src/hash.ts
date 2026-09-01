@@ -61,6 +61,7 @@ export const RESULT_CONTRACT = {
     ],
     event: ["type", "revision", "events"],
     error: ["type", "code", "message"],
+    confirmation: ["type", "kind", "subjectId", "nonce", "expiresInMs"],
   },
 } as const;
 

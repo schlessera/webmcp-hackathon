@@ -215,6 +215,86 @@ export async function createTestRoom(
   };
 }
 
+export interface TestRealtime {
+  /** The nonce the server pushed for one staged subject. */
+  nonce(
+    kind: "agreement" | "private_request",
+    subjectId: string,
+    timeoutMs?: number,
+  ): Promise<string>;
+  /** Every raw frame this participant's socket received. */
+  frames(): string[];
+  close(): void;
+}
+
+/**
+ * A participant's realtime channel, the only route a confirmation nonce takes
+ * (INTERACTION-AND-BINDING.md §5.4). Uses Node's global WebSocket.
+ */
+export async function openRealtime(
+  baseUrl: string,
+  token: string,
+): Promise<TestRealtime> {
+  const socket = new WebSocket(`${baseUrl.replace(/^http/, "ws")}/ws`);
+  const received: string[] = [];
+  const grants: Array<{ kind: string; subjectId: string; nonce: string }> = [];
+  let waiters: Array<() => void> = [];
+  let welcomed: () => void = () => {};
+  const welcome = new Promise<void>((resolve) => (welcomed = resolve));
+
+  socket.addEventListener("message", (event) => {
+    const raw = String((event as MessageEvent).data);
+    received.push(raw);
+    const message = JSON.parse(raw) as { type: string } & Record<string, string>;
+    if (message.type === "welcome") welcomed();
+    if (message.type === "confirmation") {
+      grants.push(message as never);
+      const woken = waiters;
+      waiters = [];
+      for (const wake of woken) wake();
+    }
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    socket.addEventListener("open", () => resolve(), { once: true });
+    socket.addEventListener("error", () => reject(new Error("ws failed")), { once: true });
+  });
+  socket.send(
+    JSON.stringify({
+      type: "auth",
+      token,
+      clientBuildId: "test",
+      clientToolContractVersion: "1",
+    }),
+  );
+  await welcome;
+
+  return {
+    frames: () => [...received],
+    close: () => socket.close(),
+    async nonce(kind, subjectId, timeoutMs = 5000) {
+      const deadline = Date.now() + timeoutMs;
+      for (;;) {
+        const index = grants.findIndex(
+          (g) => g.kind === kind && g.subjectId === subjectId,
+        );
+        if (index >= 0) return grants.splice(index, 1)[0].nonce;
+        const remaining = deadline - Date.now();
+        if (remaining <= 0) {
+          throw new Error(`no ${kind} confirmation for ${subjectId} within ${timeoutMs}ms`);
+        }
+        await new Promise<void>((resolve) => {
+          const timer = setTimeout(resolve, Math.min(remaining, 100));
+          waiters.push(() => {
+            clearTimeout(timer);
+            resolve();
+          });
+        });
+      }
+    },
+  };
+}
+
 export interface RawResult<T> {
   body: T;
   /** The exact serialized network payload, for redaction assertions. */

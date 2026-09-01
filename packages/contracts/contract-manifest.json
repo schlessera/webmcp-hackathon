@@ -1,6 +1,6 @@
 {
   "toolContractVersion": "1",
-  "sha256": "ef223f83291afb30e292b81dbaaf308049451a55966f1c3e5c7d9bfb00123362",
+  "sha256": "4f357f49040b82244829e39e202d80e71163fe9a70d7a89a670c8e1f14074f59",
   "manifest": {
     "capabilityManifest": {
       "agreement": {
@@ -66,6 +66,10 @@
             "minimum": 0,
             "type": "integer"
           },
+          "confirmationNonce": {
+            "maxLength": 64,
+            "type": "string"
+          },
           "proposalId": {
             "maxLength": 40,
             "type": "string"
@@ -73,7 +77,8 @@
         },
         "required": [
           "baseRevision",
-          "proposalId"
+          "proposalId",
+          "confirmationNonce"
         ],
         "type": "object"
       },
@@ -102,6 +107,10 @@
             "minimum": 0,
             "type": "integer"
           },
+          "confirmationNonce": {
+            "maxLength": 64,
+            "type": "string"
+          },
           "requestId": {
             "maxLength": 40,
             "type": "string"
@@ -109,7 +118,8 @@
         },
         "required": [
           "baseRevision",
-          "requestId"
+          "requestId",
+          "confirmationNonce"
         ],
         "type": "object"
       },
@@ -857,6 +867,13 @@
           "token",
           "clientBuildId",
           "clientToolContractVersion"
+        ],
+        "confirmation": [
+          "type",
+          "kind",
+          "subjectId",
+          "nonce",
+          "expiresInMs"
         ],
         "error": [
           "type",
@@ -1688,7 +1705,7 @@
       },
       {
         "annotations": {},
-        "description": "Record your arrival plan for the committed destination: transport mode and an optional pickup note. Available once the room reaches the arrival phase.",
+        "description": "Record your arrival plan for the committed destination: transport mode and an optional pickup note. Available once the room has agreed on a destination.",
         "inputSchema": {
           "additionalProperties": false,
           "properties": {
