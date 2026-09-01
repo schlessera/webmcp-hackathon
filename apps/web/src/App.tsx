@@ -90,8 +90,10 @@ export function App() {
   const [drawerOpen, setDrawerOpen] = useState(
     () => new URLSearchParams(window.location.search).has("shim"),
   );
-  /** Revision this tab had already seen on a previous visit, if any. */
-  const [awaySince, setAwaySince] = useState(0);
+  /** The revision span this tab missed: after what it last saw on a
+   * previous visit, up to the room as found on this visit's first sync.
+   * Bounded above so live events after the catch-up never read as "away". */
+  const [away, setAway] = useState<{ since: number; until: number } | null>(null);
 
   const diag = useSyncExternalStore(
     (cb) => diagnostics.subscribe(cb),
@@ -188,7 +190,7 @@ export function App() {
         if (first.delta) setFeed((prev) => mergeFeed(first.delta!.events, prev));
         spatial.setOutstanding(first.outstanding);
         if (previouslySeen > 0 && first.revision > previouslySeen) {
-          setAwaySince(previouslySeen);
+          setAway({ since: previouslySeen, until: first.revision });
         }
         advanceTo(first.revision);
       }
@@ -302,8 +304,11 @@ export function App() {
   }, [feed]);
 
   const awayEvents = useMemo(
-    () => (awaySince > 0 ? feed.filter((e) => e.revision > awaySince) : []),
-    [feed, awaySince],
+    () =>
+      away
+        ? feed.filter((e) => e.revision > away.since && e.revision <= away.until)
+        : [],
+    [feed, away],
   );
 
   if (!session) {
@@ -325,8 +330,13 @@ export function App() {
 
   const id = session.identity;
   const isOrganizer = id.role === "organizer";
+  /* Settled means COMMITTED. `agreement` is also present while a proposal is
+     merely staged (organizer consent pending), and that must not hide the
+     composer or announce agreement. */
   const committedId =
-    context?.agreement?.candidateId ??
+    (context?.agreement?.status === "committed"
+      ? context.agreement.candidateId
+      : undefined) ??
     context?.proposals.find((p) => p.status === "committed")?.candidateId ??
     null;
   const selected = context?.candidates.find(

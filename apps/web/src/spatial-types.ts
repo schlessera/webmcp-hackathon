@@ -108,7 +108,12 @@ export interface SpatialContext {
   privateEffects: PrivateEffect[];
   participants: ParticipantSummary[];
   proposals: ProposalView[];
-  agreement?: { proposalId?: string; candidateId?: string; committedAtRevision?: number };
+  agreement?: {
+    proposalId?: string;
+    candidateId?: string;
+    status?: "staged" | "committed";
+    committedAtRevision?: number;
+  };
   arrival?: { mode?: string; pickupNote?: string };
   impasse?: { active: true; text: string };
 }

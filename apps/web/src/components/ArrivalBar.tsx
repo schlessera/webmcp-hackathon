@@ -53,7 +53,14 @@ export function ArrivalBar({ destinationName, arrival, walkMin, run }: Props) {
             <button
               key={m.value}
               aria-pressed={mode === m.value}
-              onClick={() => void run("PlanArrival", { mode: m.value })}
+              onClick={() =>
+                void run("PlanArrival", {
+                  mode: m.value,
+                  // The server upserts the whole plan; an omitted note is
+                  // erased, so carry the existing one (set via plan_arrival).
+                  ...(arrival?.pickupNote ? { pickupNote: arrival.pickupNote } : {}),
+                })
+              }
             >
               {m.label}
             </button>

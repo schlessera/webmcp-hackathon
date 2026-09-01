@@ -490,7 +490,8 @@ body { overflow: hidden; }
   border: var(--spoke-border) solid var(--spoke-works);
   pointer-events: none;
 }
-.count-block[data-state="impasse"] {
+.count-block[data-state="impasse"],
+.count-block[data-state="pending"] {
   background: var(--spoke-unsure);
   border-color: var(--spoke-unsure);
 }
@@ -640,7 +641,9 @@ body { overflow: hidden; }
   font: inherit;
   color: inherit;
   cursor: pointer;
-  touch-action: none;
+  /* pan-y keeps native vertical scrolling of the brief; a scroll that starts
+     on a row fires pointercancel, which ends the hold cleanly. */
+  touch-action: pan-y;
 }
 .need-row[data-variant="applied"] {
   border-color: var(--spoke-works);
