@@ -177,20 +177,26 @@ signed-off; OPEN = not started.
 5. [DONE] Verify private fields never appear in another participant's network
    payload. (Asserted at the wire in lanes 2–3; hardened after the adversarial
    audit closed two derived-fact leaks.)
-6. [IMPLEMENTED] Validate one direct map action and one WebMCP action through the
-   same command. (One command bus for gestures + tools; e2e covers it. Not yet
-   demonstrated in real ChatGPT.)
-7. [IMPLEMENTED] Build one deterministic infeasible constraint set and calculate
-   a grounded scope-expansion counterfactual. (Berlin demo set → impasse →
-   800→1200 m widening; `tests/api/impasse.test.ts`.)
-8. [IMPLEMENTED] Verify one-click navigation handoff from the accepted
+6. [IMPLEMENTED+RECORDED] Validate one direct map action and one WebMCP action
+   through the same command. (One command bus for gestures + tools; e2e covers
+   it, and the recorded three-window run shows an agent-surface proposal landing
+   on every map. Not yet demonstrated in real ChatGPT — that half stays open
+   with the lane-5 gate.)
+7. [DONE] Build one deterministic infeasible constraint set and calculate a
+   grounded scope-expansion counterfactual. (Berlin demo set → impasse →
+   800→1200 m widening; `tests/api/impasse.test.ts` + recorded run.)
+8. [IMPLEMENTED+RECORDED] Verify one-click navigation handoff from the accepted
    destination. (`prepare_navigation` → geo/Google/Apple links; e2e checks the
-   href. Not yet clicked through on a real device.)
+   href and the recorded run captures it. Not yet clicked through on a real
+   device.)
 9. [DONE] Confirm the selected data and map providers permit the intended usage.
    (Research pass: OpenFreeMap keyless + commercial OK, OSM/ODbL, FOSSGIS OSRM,
    Google Maps URLs — all ToS-cleared and cited; `docs/DEPLOY-COOLIFY.md` +
    `ATTRIBUTION.md`.)
-10. [OPEN] Rehearse the complete three-window narrative within the video limit.
+10. [IN PROGRESS] Rehearse the complete three-window narrative within the video
+    limit. (An automated paced recording of the full arc exists —
+    `test-results/demo-recording/`, ~55 s — well inside the 3-minute limit;
+    the human run-through and narration are still owed.)
 
 ## Open implementation decisions
 
