@@ -115,6 +115,20 @@ Each states what's true, then the one thing to do.
   up." Never a version number in the main UI — that belongs in `{ }`.
 - **Offline** — "You're seeing the map as of 9:24. Changes will sync."
 
+## Map exploration
+
+- Return action: **“Back to the area”**.
+- Organizer action after panning: **“Search here”**.
+- One-place action: **“Bring into the room”**, followed by
+  **“Everyone in the room will see it.”**
+- Desktop batch action: **“Bring in all here (N)”**, where N is the absolute
+  number that will be brought in and never exceeds 40.
+- A capped viewport says **“Zoom in to see every place here.”**
+
+Use **bring in** for moving a place from the map's explore layer into the
+room. Never expose “ref”, endpoint names, command names, or pool vocabulary in
+the visible copy.
+
 ## Tone
 
 Plain, short, declarative. No exclamation marks. No "Oops". No emoji anywhere

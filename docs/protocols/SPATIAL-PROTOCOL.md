@@ -151,7 +151,24 @@ These are the `payload` shapes the negotiation envelope carries when
 { "dimension": "per_person_eur", "from": 15, "to": 18 }
 ```
 
-### 5.5 Hint taxonomy (L1 disclosure)
+### 5.5 Pool growth
+
+The room pool is shared, additive state. The explore layer is not part of the
+pool and has no negotiation effect until a participant dispatches
+`AddCandidates {refs}`. Any participant may do that during gathering or
+deliberation. The server MUST resolve every ref against the room area's loaded
+snapshot, ignore refs already represented by an `osm_ref`, and reject a change
+that would take the room above `POOL_CAP` (400 candidate rows).
+
+A search-scope centre change MUST top the pool up from the same deterministic
+seed rule used at creation: 40 places per distance ring, ordered first by
+distance and ref, then thinned on a 100 m grid with greedy farthest-point
+selection. Existing candidates are never removed. A successful growth emits
+`candidates_added` with the shared actor and count, followed by the ordinary
+`candidates_updated` reconciliation when classifications changed. Pool growth
+does not itself move or fit any participant's map.
+
+### 5.6 Hint taxonomy (L1 disclosure)
 
 The categorical hints an agent-private owner may reveal, one enum value, no
 free text: `dietary`, `accessibility`, `budget`, `distance`, `time`,
@@ -167,6 +184,7 @@ Transport-agnostic, like the negotiation command set. Mutations carry
 | `GetSpatialContext` | read | scope, feasibility counts, candidate summaries, current proposal, selection state |
 | `InspectCandidates { candidateIds[1..3] }` | read | full dossiers (side-by-side when >1 — this is "compare") |
 | `SetSearchScope { area?, timeWindow?, transport? }` | mutate | emits `scope_change_proposed`; auto-applies when within the proposer's authority (organizer, or an accepted adjustment), else routes through negotiation |
+| `AddCandidates { refs[1..40] }` | mutate | brings snapshot places from the explore layer into the shared room pool, additively and subject to the pool ceiling |
 | `ProposeDestination { candidateId }` | mutate | emits negotiation `proposal_created` with `domainRef` |
 | `FocusDestination { candidateId }` | local | pans/highlights the caller's own map view; **no shared state change** |
 | `PlanArrival { mode, origin? , pickup? }` | mutate | per-participant arrival plan: transport mode, meeting/pickup point, route preview; emits `arrival_plan_updated` |
