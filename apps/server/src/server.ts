@@ -1,6 +1,7 @@
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { existsSync } from "node:fs";
+import { createHash } from "node:crypto";
 import Fastify from "fastify";
 import AjvModule from "ajv";
 import {
@@ -179,25 +180,26 @@ const notAuthenticated = {
 app.post("/api/sync", async (req) => {
   const actor = await bearer(req);
   if (!actor) return notAuthenticated;
-  const body = (req.body ?? {}) as { sinceRevision?: number };
+  const body = (req.body ?? {}) as { sinceRevision?: number; cursor?: string };
   // Browser schemas are guidance, not enforcement: re-validate server-side.
   if (!validateSyncInput(body)) {
     return {
       ok: false,
       error: {
         code: "invalid_input",
-        message: "sinceRevision must be a non-negative integer when present.",
-        recovery: "Omit sinceRevision on first connection, or pass the integer revision from your last sync.",
+        message: "sinceRevision must be a non-negative integer and cursor a valid string when present.",
+        recovery: "Omit both on first connection, pass sinceRevision to start catch-up, or return a cursor unchanged.",
       },
     };
   }
-  const result = await syncSession(actor, body.sinceRevision);
+  const result = await syncSession(actor, body.sinceRevision, body.cursor);
   req.log.info(
     {
       correlationId: correlationId(req),
       participantId: actor.id,
       command: "SyncSession",
       sinceRevision: body.sinceRevision ?? null,
+      continued: body.cursor !== undefined,
       outcome: result.ok ? "ok" : result.error.code,
       revision: result.ok ? result.revision : undefined,
     },
@@ -292,7 +294,29 @@ app.post("/api/commands", async (req) => {
     };
   }
   const body = req.body as { type?: string; input?: unknown };
-  const result = await submitCommand(actor, String(body?.type), body?.input ?? {});
+  const rawIdempotencyKey = req.headers["idempotency-key"];
+  if (
+    rawIdempotencyKey !== undefined &&
+    (typeof rawIdempotencyKey !== "string" ||
+      rawIdempotencyKey.length < 1 ||
+      rawIdempotencyKey.length > 128)
+  ) {
+    return invalidInput(
+      "Idempotency-Key must be a 1-128 character header value.",
+      "Reuse one key only for retries of the same mutation.",
+    );
+  }
+  const requestHash = rawIdempotencyKey
+    ? createHash("sha256").update(stableJson(body)).digest("hex")
+    : undefined;
+  const result = await submitCommand(
+    actor,
+    String(body?.type),
+    body?.input ?? {},
+    rawIdempotencyKey && requestHash
+      ? { key: rawIdempotencyKey, requestHash }
+      : undefined,
+  );
   req.log.info(
     {
       correlationId: correlationId(req),
@@ -305,6 +329,19 @@ app.post("/api/commands", async (req) => {
   );
   return result;
 });
+
+/** R6: semantically identical JSON hashes identically even if property order
+ * changes between a retrying transport and the first request. */
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, item]) => `${JSON.stringify(key)}:${stableJson(item)}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "null";
+}
 
 function correlationId(req: { headers: Record<string, unknown> }): string {
   return String(req.headers["x-correlation-id"] ?? "none");

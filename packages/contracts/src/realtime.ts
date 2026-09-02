@@ -36,6 +36,9 @@ export interface WelcomeMessage {
 export interface EventMessage {
   type: "event";
   revision: number;
+  /** R10: revision immediately preceding this ordered frame. Older clients
+   * ignore it; newer clients use it to detect gaps and reorderings. */
+  fromRevision?: number;
   /** Projected for THIS participant only — server-side redaction. */
   events: ProjectedEvent[];
 }

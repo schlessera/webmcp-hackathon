@@ -37,7 +37,10 @@ export const RESULT_CONTRACT = {
     "manifest", "feasibility", "brief", "delta", "outstanding", "participants",
     "lastSyncedRevision",
   ],
-  delta: ["fromRevision", "events", "truncated", "cursor"],
+  delta: [
+    "fromRevision", "events", "truncated", "cursor", "throughRevision",
+    "resyncRequired",
+  ],
   projectedEvent: ["revision", "type", "level", "text", "payload", "actorId"],
   outstandingEvaluationRequest: ["type", "candidateIds", "issuedAtRevision", "heldByPageAgent"],
   outstandingAdjustmentRequest: [
@@ -75,7 +78,7 @@ export const RESULT_CONTRACT = {
       "type", "buildId", "toolContractVersion", "revision",
       "participantId", "displayName", "role",
     ],
-    event: ["type", "revision", "events"],
+    event: ["type", "revision", "fromRevision", "events"],
     error: ["type", "code", "message"],
     confirmation: ["type", "kind", "subjectId", "nonce", "expiresInMs"],
     presence: ["type", "present", "viewing"],

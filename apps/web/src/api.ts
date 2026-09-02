@@ -26,6 +26,7 @@ async function post(
   path: string,
   body: unknown,
   signal?: AbortSignal,
+  idempotent = false,
 ): Promise<unknown> {
   const token = currentToken();
   if (!token) {
@@ -42,6 +43,9 @@ async function post(
         authorization: `Bearer ${token}`,
         "x-correlation-id": correlationId,
         "x-tool-contract-version": TOOL_CONTRACT_VERSION,
+        // R6: one invocation already has a unique diagnostic identity. Reuse
+        // it as the mutation key so a transport retry cannot apply twice.
+        ...(idempotent ? { "idempotency-key": correlationId } : {}),
       },
       body: JSON.stringify(body),
       signal,
@@ -64,10 +68,16 @@ async function post(
   }
 }
 
-export function syncSession(sinceRevision?: number): Promise<unknown> {
+export function syncSession(
+  sinceRevision?: number,
+  cursor?: string,
+): Promise<unknown> {
   return post(
     "/api/sync",
-    sinceRevision === undefined ? {} : { sinceRevision },
+    {
+      ...(sinceRevision === undefined ? {} : { sinceRevision }),
+      ...(cursor === undefined ? {} : { cursor }),
+    },
   );
 }
 
@@ -88,7 +98,7 @@ export function syncSessionRaw(
 }
 
 export function submitCommand(type: string, input: unknown): Promise<unknown> {
-  return post("/api/commands", { type, input });
+  return post("/api/commands", { type, input }, undefined, true);
 }
 
 /**

@@ -46,6 +46,19 @@ export function mintConfirmation(
   now = Date.now(),
 ): ConfirmationGrant {
   sweep(now);
+  // R12: restaging or reconnecting replaces the credential for the same
+  // subject. Keeping the earlier nonce live would permit two confirmations
+  // for one currently staged decision.
+  for (const [existingNonce, entry] of live) {
+    if (
+      entry.roomId === roomId &&
+      entry.participantId === participantId &&
+      entry.kind === subject.kind &&
+      entry.subjectId === subject.subjectId
+    ) {
+      live.delete(existingNonce);
+    }
+  }
   const nonce = randomBytes(24).toString("hex");
   live.set(nonce, {
     roomId,

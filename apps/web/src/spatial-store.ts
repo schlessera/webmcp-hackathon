@@ -61,7 +61,9 @@ interface HeldConfirmation {
 /** How long a confirm/commit gesture waits for its nonce to land on the socket. */
 const CONFIRMATION_WAIT_MS = 3000;
 
-class SpatialStore {
+type ContextFetcher = () => Promise<unknown>;
+
+export class SpatialStore {
   state: SpatialState = {
     context: null,
     selectedId: null,
@@ -76,9 +78,13 @@ class SpatialStore {
   private listeners = new Set<Listener>();
   private inflight: Promise<SpatialContext | null> | null = null;
   private queued = false;
+  private requestedMinRevision = 0;
+  private outstandingRevision = 0;
   private previewAbort: AbortController | null = null;
   private confirmations = new Map<string, HeldConfirmation>();
   private confirmationWaiters = new Map<string, Array<() => void>>();
+
+  constructor(private readonly fetchContext: ContextFetcher = spatialContext) {}
 
   subscribe(listener: Listener): () => void {
     this.listeners.add(listener);
@@ -95,8 +101,13 @@ class SpatialStore {
   focus(candidateId: string): void {
     this.update({ selectedId: candidateId, focusNonce: this.state.focusNonce + 1 });
   }
-  setOutstanding(outstanding: OutstandingItem[] | undefined): void {
-    if (outstanding) this.update({ outstanding });
+  setOutstanding(outstanding: OutstandingItem[] | undefined, revision = 0): void {
+    // R10: overlapping syncs may finish in reverse order. Never let an older
+    // participant-private outstanding list replace one from a newer revision.
+    if (outstanding && revision >= this.outstandingRevision) {
+      this.outstandingRevision = revision;
+      this.update({ outstanding });
+    }
   }
   setViewing(rows: Array<{ participantId: string; candidateId: string }>): void {
     const viewing: Record<string, string> = {};
@@ -202,15 +213,28 @@ class SpatialStore {
     return take();
   }
 
-  /** Coalesced refetch; resolves with the freshest context it observed. */
-  refetch(): Promise<SpatialContext | null> {
+  /** Coalesced refetch. With minRevision, resolves only after the stored
+   * projection reaches that committed revision. */
+  refetch(minRevision = 0): Promise<SpatialContext | null> {
+    const priorRequestedMin = this.requestedMinRevision;
+    this.requestedMinRevision = Math.max(
+      this.requestedMinRevision,
+      minRevision,
+    );
     if (this.inflight) {
-      this.queued = true;
+      // A second caller asking for the same committed revision can share the
+      // already-targeted loop. A fresh untargeted request, or a higher target,
+      // still requires a successor after the request already in flight.
+      if (minRevision === 0 || minRevision > priorRequestedMin) {
+        this.queued = true;
+      }
       return this.inflight;
     }
     this.inflight = (async () => {
-      try {
-        const result = (await spatialContext()) as
+      for (;;) {
+        this.queued = false;
+        const targetRevision = this.requestedMinRevision;
+        const result = (await this.fetchContext()) as
           | SpatialContext
           | { ok: false; error?: { code: string } };
         if (result.ok) {
@@ -218,20 +242,25 @@ class SpatialStore {
           if (!prev || result.revision >= prev.revision) {
             this.update({ context: result });
           }
+          // R8: an older request may have been in flight when the mutation
+          // committed. Keep the shared promise pending through the queued
+          // successor until the visible projection reaches the target.
+          if ((this.state.context?.revision ?? -1) < targetRevision) {
+            this.queued = true;
+          }
+          if (this.queued) continue;
           return this.state.context;
         }
         diagnostics.log(
           `spatial context unavailable: ${(result as { error?: { code: string } }).error?.code}`,
         );
         return this.state.context;
-      } finally {
-        this.inflight = null;
-        if (this.queued) {
-          this.queued = false;
-          void this.refetch();
-        }
       }
-    })();
+    })().finally(() => {
+      this.inflight = null;
+      this.queued = false;
+      this.requestedMinRevision = 0;
+    });
     return this.inflight;
   }
 }

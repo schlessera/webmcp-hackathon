@@ -13,7 +13,11 @@ export interface RealtimeCallbacks {
     revision: number;
     participantId: string;
   }): void;
-  onEvents(revision: number, events: ProjectedEvent[]): void;
+  onEvents(
+    revision: number,
+    events: ProjectedEvent[],
+    fromRevision?: number,
+  ): void;
   /** The realtime channel is the ONLY route a confirmation nonce takes. */
   onConfirmation(grant: {
     kind: "agreement" | "private_request";
@@ -32,6 +36,15 @@ export interface RealtimeHandle {
   /** Tell the room which place this page has open (null: none). Presence
    * only; dropped silently while the socket is down and re-sent on welcome. */
   setViewing(candidateId: string | null): void;
+}
+
+/** R10: an ordered frame must begin exactly where this client stopped. The
+ * field is optional so a mixed deployment remains wire-compatible. */
+export function hasRevisionGap(
+  projectedThroughRevision: number,
+  fromRevision?: number,
+): boolean {
+  return fromRevision !== undefined && fromRevision !== projectedThroughRevision;
 }
 
 let pageBuildId: string | null = null;
@@ -127,7 +140,7 @@ export function connectRealtime(
           }
         }
       } else if (message.type === "event") {
-        callbacks.onEvents(message.revision, message.events);
+        callbacks.onEvents(message.revision, message.events, message.fromRevision);
       } else if (message.type === "presence") {
         callbacks.onPresence(message.present, message.viewing ?? []);
       } else if (message.type === "confirmation") {

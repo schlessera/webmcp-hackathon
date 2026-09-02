@@ -18,7 +18,7 @@ import {
   type ToolResult,
   ATTRIBUTE_LABELS,
 } from "@webmcp-hackathon/contracts";
-import { withTransaction } from "./db.ts";
+import { pool, withTransaction } from "./db.ts";
 import type { Participant } from "./auth.ts";
 import {
   consumeConfirmation,
@@ -59,6 +59,58 @@ export interface CommitNotification {
   /** Nonces to hand to their owner's page sockets — realtime channel only. */
   confirmations: Array<ConfirmationGrant & { participantId: string }>;
 }
+
+export interface CommandIdempotency {
+  key: string;
+  requestHash: string;
+}
+
+async function storedIdempotencyOutcome(
+  q: pg.PoolClient | pg.Pool,
+  actorId: string,
+  idempotency: CommandIdempotency,
+): Promise<ToolResult | null> {
+  const row = (
+    await q.query(
+      `SELECT request_hash, response
+         FROM command_idempotency
+        WHERE participant_id = $1 AND idempotency_key = $2
+          AND expires_at > now()`,
+      [actorId, idempotency.key],
+    )
+  ).rows[0] as { request_hash: string; response: ToolResult } | undefined;
+  if (!row) return null;
+  return row.request_hash === idempotency.requestHash
+    ? row.response
+    : failure(
+        "invalid_input",
+        "Idempotency-Key was already used with a different mutation.",
+        "Generate a new key for a different command body.",
+      );
+}
+
+async function rememberNonMutatingOutcome(
+  actorId: string,
+  idempotency: CommandIdempotency | undefined,
+  outcome: ToolResult,
+): Promise<ToolResult> {
+  if (!idempotency) return outcome;
+  await pool.query(
+    `DELETE FROM command_idempotency
+      WHERE participant_id = $1 AND idempotency_key = $2
+        AND expires_at <= now()`,
+    [actorId, idempotency.key],
+  );
+  const inserted = await pool.query(
+    `INSERT INTO command_idempotency
+       (participant_id, idempotency_key, request_hash, response, expires_at)
+     VALUES ($1, $2, $3, $4, now() + interval '10 minutes')
+     ON CONFLICT (participant_id, idempotency_key) DO NOTHING`,
+    [actorId, idempotency.key, idempotency.requestHash, outcome],
+  );
+  if (inserted.rowCount === 1) return outcome;
+  return (await storedIdempotencyOutcome(pool, actorId, idempotency)) ?? outcome;
+}
 type CommitListener = (n: CommitNotification) => void;
 const listeners: CommitListener[] = [];
 export function onCommit(listener: CommitListener): void {
@@ -96,19 +148,32 @@ export async function submitCommand(
   actor: Participant,
   type: string,
   input: unknown,
+  idempotency?: CommandIdempotency,
 ): Promise<ToolResult> {
+  if (idempotency) {
+    const replay = await storedIdempotencyOutcome(pool, actor.id, idempotency);
+    if (replay) return replay;
+  }
   if (!validators.has(type as CommandType)) {
-    return failure("invalid_input", `Unknown command type "${type}".`,
-      `Use one of: ${[...validators.keys()].join(", ")}.`);
+    return rememberNonMutatingOutcome(
+      actor.id,
+      idempotency,
+      failure("invalid_input", `Unknown command type "${type}".`,
+        `Use one of: ${[...validators.keys()].join(", ")}.`),
+    );
   }
   const validate = validators.get(type as CommandType)!;
   if (!validate(input)) {
     const first = validate.errors?.[0];
     const field = first?.instancePath?.replace(/^\//, "") || first?.params?.additionalProperty || "input";
-    return failure(
-      "invalid_input",
-      `Invalid ${String(field)}: ${first?.message ?? "validation failed"}.`,
-      "Correct the named field to the documented closed value set and retry.",
+    return rememberNonMutatingOutcome(
+      actor.id,
+      idempotency,
+      failure(
+        "invalid_input",
+        `Invalid ${String(field)}: ${first?.message ?? "validation failed"}.`,
+        "Correct the named field to the documented closed value set and retry.",
+      ),
     );
   }
   const cmd = input as { baseRevision: number };
@@ -129,6 +194,26 @@ export async function submitCommand(
     }
     const current: number = room.revision;
     const phase = room.phase as Phase;
+
+    if (idempotency) {
+      const replay = await storedIdempotencyOutcome(client, actor.id, idempotency);
+      if (replay) {
+        return {
+          success: replay,
+          storedRevisions: [],
+          revision: replay.ok ? replay.revision : current,
+          replayed: true as const,
+        };
+      }
+      // An expired row must stop owning the primary key before this request
+      // records its fresh outcome.
+      await client.query(
+        `DELETE FROM command_idempotency
+          WHERE participant_id = $1 AND idempotency_key = $2
+            AND expires_at <= now()`,
+        [actor.id, idempotency.key],
+      );
+    }
 
     if (cmd.baseRevision !== current) {
       const delta = await buildDelta(client, actor.roomId, actor.id, cmd.baseRevision);
@@ -230,14 +315,41 @@ export async function submitCommand(
       ...(outcome.staged ? { staged: true } : {}),
       outstanding,
     };
-    return { success, storedRevisions, revision, confirm: outcome.confirm };
+    if (idempotency) {
+      // R6: stored in the same transaction as the mutation. Once the command
+      // is durable, its replay record is durable too; ambiguous HTTP delivery
+      // cannot create a second event sequence during the ten-minute window.
+      await client.query(
+        `INSERT INTO command_idempotency
+           (participant_id, idempotency_key, request_hash, response, expires_at)
+         VALUES ($1, $2, $3, $4, now() + interval '10 minutes')`,
+        [actor.id, idempotency.key, idempotency.requestHash, success],
+      );
+    }
+    return {
+      success,
+      storedRevisions,
+      revision,
+      confirm: outcome.confirm,
+      replayed: false as const,
+    };
     });
   } catch (err) {
     if (err instanceof CommandFailure) {
-      return err.envelope as ToolResult;
+      // R6: failures mutate nothing because the transaction rolled back, so
+      // they can be recorded immediately afterward and replayed exactly too.
+      return rememberNonMutatingOutcome(
+        actor.id,
+        idempotency,
+        err.envelope as ToolResult,
+      );
     }
     throw err;
   }
+
+  // A replay returns the byte-equivalent domain outcome and deliberately has
+  // no second notification or nonce: it did not commit a second mutation.
+  if (result.replayed) return result.success;
 
   // Mint only after the write is durable, so a rolled-back stage leaves no
   // usable nonce behind. The grant rides the commit notification to the
@@ -1091,7 +1203,20 @@ async function resolvePrivateRequest(
       [adj.id],
     );
     return {
-      events: [],
+      // R12: staging is durable room state. The owner-only event advances the
+      // revision and wakes every one of this addressee's tabs without leaking
+      // the private adjustment's content to peers.
+      events: [
+        {
+          type: "adjustment_grant_staged",
+          actorId: actor.id,
+          visibility: "application-private",
+          payload: {
+            targetParticipantId: actor.id,
+            adjustmentId: adj.id,
+          },
+        },
+      ],
       staged: true,
       confirm: { kind: "private_request", subjectId: adj.id },
       effect:

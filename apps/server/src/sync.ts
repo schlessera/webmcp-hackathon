@@ -6,7 +6,7 @@ import {
 } from "@webmcp-hackathon/contracts";
 import { withTransaction } from "./db.ts";
 import type { Participant } from "./auth.ts";
-import { buildDelta } from "./delta.ts";
+import { buildDelta, InvalidDeltaCursor } from "./delta.ts";
 import { computeEligibility, feasibilityOf } from "./eligibility.ts";
 import { outstandingFor } from "./outstanding.ts";
 import { presentIn } from "./presence.ts";
@@ -20,6 +20,7 @@ import { config } from "./config.ts";
 export async function syncSession(
   actor: Participant,
   sinceRevision?: number,
+  cursor?: string,
 ): Promise<SyncSessionResponse> {
   // One consistent snapshot: FOR SHARE on the room row keeps a concurrent
   // command's revision bump (FOR UPDATE) out of the read window, so revision,
@@ -69,10 +70,30 @@ export async function syncSession(
   const feasibility = feasibilityOf(eligibilityRows);
   const outstanding = await outstandingFor(client, actor.roomId, actor.id);
 
-  const firstConnection = sinceRevision === undefined;
-  const delta = firstConnection
-    ? undefined
-    : await buildDelta(client, actor.roomId, actor.id, sinceRevision);
+  const firstConnection = sinceRevision === undefined && cursor === undefined;
+  let delta;
+  try {
+    delta = firstConnection
+      ? undefined
+      : await buildDelta(
+          client,
+          actor.roomId,
+          actor.id,
+          sinceRevision,
+          cursor,
+          Number(room.revision),
+        );
+  } catch (err) {
+    if (!(err instanceof InvalidDeltaCursor)) throw err;
+    return {
+      ok: false,
+      error: {
+        code: "invalid_input",
+        message: err.message,
+        recovery: "Restart catch-up with sinceRevision from your last completed sync.",
+      },
+    };
+  }
 
   const briefParts = [
     `${feasibility.eligible} candidate${feasibility.eligible === 1 ? "" : "s"} remain eligible.`,
@@ -95,7 +116,9 @@ export async function syncSession(
     `UPDATE participants
         SET last_synced_revision = $2, arrived_at = COALESCE(arrived_at, now())
       WHERE id = $1`,
-    [actor.id, room.revision],
+    // R1: a truncated page has consumed only throughRevision. Recording the
+    // room head here would claim omitted history had been seen.
+    [actor.id, delta?.throughRevision ?? room.revision],
   );
 
   return {

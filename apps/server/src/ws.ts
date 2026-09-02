@@ -24,6 +24,31 @@ let nextSocketId = 0;
 
 const connections = new Set<Connection>();
 
+/** R10: one tail per room preserves commit order without coupling unrelated
+ * rooms. A failed delivery is reported for that item but cannot poison the
+ * room's later broadcasts. Exported so the ordering guarantee is unit-tested
+ * with a deliberately delayed first delivery. */
+export class RoomBroadcastQueue<T extends { roomId: string }> {
+  private tails = new Map<string, Promise<void>>();
+  private readonly deliver: (item: T) => Promise<void>;
+
+  constructor(deliver: (item: T) => Promise<void>) {
+    this.deliver = deliver;
+  }
+
+  enqueue(item: T): Promise<void> {
+    const previous = this.tails.get(item.roomId) ?? Promise.resolve();
+    const task = previous.catch(() => undefined).then(() => this.deliver(item));
+    this.tails.set(item.roomId, task);
+    void task.finally(() => {
+      if (this.tails.get(item.roomId) === task) this.tails.delete(item.roomId);
+    }).catch(() => undefined);
+    return task;
+  }
+}
+
+const broadcastQueue = new RoomBroadcastQueue<CommitNotification>(broadcast);
+
 export function attachWebSocket(server: Server): void {
   const wss = new WebSocketServer({ server, path: "/ws" });
 
@@ -170,16 +195,15 @@ export function attachWebSocket(server: Server): void {
   // (Gate 4). A broadcast failure must never surface as an unhandled
   // rejection — the command has already committed and returned.
   onCommit((n) => {
-    broadcast(n).catch((err) => {
+    broadcastQueue.enqueue(n).catch((err) => {
       console.error("post-commit broadcast failed:", err);
     });
   });
 }
 
 async function broadcast(n: CommitNotification): Promise<void> {
-  // Confirmation nonces first, and unconditionally: staging an over-bound
-  // grant commits no events at all, so this must not sit behind the
-  // event-broadcast early return. Each goes to its owner's sockets only.
+  // Confirmation nonces first and unconditionally. Each goes to its owner's
+  // sockets only; idempotent no-event outcomes still must not affect this path.
   for (const grant of n.confirmations) {
     const { participantId, ...message } = grant;
     for (const connection of connections) {
@@ -214,7 +238,14 @@ async function broadcast(n: CommitNotification): Promise<void> {
         ),
       )
       .filter((e) => e !== null);
-    send(connection.socket, { type: "event", revision: n.revision, events });
+    send(connection.socket, {
+      type: "event",
+      revision: n.revision,
+      // R10: clients can prove continuity even when every event in this frame
+      // is omitted by their privacy projection.
+      fromRevision: n.storedRevisions[0] - 1,
+      events,
+    });
   }
 }
 

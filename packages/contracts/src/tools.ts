@@ -45,6 +45,14 @@ export const SYNC_SESSION_INPUT = Type.Object(
           "Revision from your last sync. Omit on first connection to receive the capability manifest.",
       }),
     ),
+    cursor: Type.Optional(
+      Type.String({
+        minLength: 1,
+        maxLength: 512,
+        description:
+          "Opaque continuation from a truncated delta. Pass it back unchanged until truncated is false.",
+      }),
+    ),
   },
   { additionalProperties: false },
 );
@@ -57,7 +65,8 @@ export const syncSessionTool: ToolDefinition = {
     "versions, current revision, privacy rules, a brief of what happened, and " +
     "your outstanding decisions. Call without sinceRevision on first connection " +
     "to receive the capability manifest; call with sinceRevision from your last " +
-    "sync to receive the delta of missed events. Read-only.",
+    "sync to receive the delta of missed events. Continue every truncated delta " +
+    "with its cursor before acting. Read-only.",
   inputSchema: SYNC_SESSION_INPUT,
   annotations: { readOnlyHint: true, untrustedContentHint: true },
 };

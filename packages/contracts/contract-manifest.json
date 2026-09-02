@@ -1,6 +1,6 @@
 {
   "toolContractVersion": "3",
-  "sha256": "a3dc6d8fe9b49831d0905b06dc4799c480055c40428a15ff2b811999629c22f1",
+  "sha256": "979873e6ef7ee96c570052c3ddce3dbd0a62c06742c98825d74722e5c70f6c5b",
   "manifest": {
     "capabilityManifest": {
       "agreement": {
@@ -1064,7 +1064,9 @@
         "fromRevision",
         "events",
         "truncated",
-        "cursor"
+        "cursor",
+        "throughRevision",
+        "resyncRequired"
       ],
       "facet": [
         "key",
@@ -1170,6 +1172,7 @@
         "event": [
           "type",
           "revision",
+          "fromRevision",
           "events"
         ],
         "presence": [
@@ -1240,10 +1243,16 @@
           "readOnlyHint": true,
           "untrustedContentHint": true
         },
-        "description": "The first tool to call on this planning page. Connects you to the shared planning session as one participant and returns your identity, protocol versions, current revision, privacy rules, a brief of what happened, and your outstanding decisions. Call without sinceRevision on first connection to receive the capability manifest; call with sinceRevision from your last sync to receive the delta of missed events. Read-only.",
+        "description": "The first tool to call on this planning page. Connects you to the shared planning session as one participant and returns your identity, protocol versions, current revision, privacy rules, a brief of what happened, and your outstanding decisions. Call without sinceRevision on first connection to receive the capability manifest; call with sinceRevision from your last sync to receive the delta of missed events. Continue every truncated delta with its cursor before acting. Read-only.",
         "inputSchema": {
           "additionalProperties": false,
           "properties": {
+            "cursor": {
+              "description": "Opaque continuation from a truncated delta. Pass it back unchanged until truncated is false.",
+              "maxLength": 512,
+              "minLength": 1,
+              "type": "string"
+            },
             "sinceRevision": {
               "description": "Revision from your last sync. Omit on first connection to receive the capability manifest.",
               "minimum": 0,

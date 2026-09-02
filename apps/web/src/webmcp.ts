@@ -285,7 +285,9 @@ async function executeTool(
         // A grant beyond the delegated bound also lands here as ok:true — the
         // refreshed outstanding list carries staged:true, which is what makes
         // the in-page confirm card visible; no error branch is involved.
-        await spatial.refetch();
+        // R8: await the committed revision, not merely whichever projection
+        // request happened to be in flight before this mutation.
+        await spatial.refetch(result.revision);
       }
       return result;
     }

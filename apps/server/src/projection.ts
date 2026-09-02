@@ -198,6 +198,13 @@ export function projectEvent(
         `Private adjustment available: ${describeAdjustment(p)}.`,
       );
 
+    case "adjustment_grant_staged":
+      // R12: even the existence of this confirmation is private. Only the
+      // addressee receives a projection; targetParticipantId is stripped by
+      // redactedFullPayload before it crosses the wire.
+      if (!isActorTarget(event, viewerId)) return null;
+      return full(event, "Your adjustment grant is staged for page confirmation.");
+
     case "adjustment_resolved": {
       if (isActorTarget(event, viewerId)) {
         return full(
