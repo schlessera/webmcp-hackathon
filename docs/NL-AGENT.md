@@ -59,7 +59,10 @@ the shape of the job is. Models are configurable (`NL_FAST_MODEL`,
   private content never reaches it (it gets counts, like the page).
 - Tool catalog: the registered WebMCP tools minus `sync_session` (it gets a
   room snapshot up front) and `focus_destination` (page-local). `baseRevision`
-  is injected server-side from the live room; one `sync_required` is retried.
+  is the revision of the snapshot/read the model actually saw. A
+  `sync_required` result returns to the next model round; the runtime never
+  silently retries old arguments at the live room revision. Only one mutation
+  executes per model round.
 - Cannot commit or confirm: `CommitAgreement` and `ConfirmPrivateRequest`
   have no tool route here either. The human's page gesture stays the only
   path (INTERACTION-AND-BINDING.md §5.4).

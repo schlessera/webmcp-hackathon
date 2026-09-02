@@ -185,7 +185,42 @@ Design intents:
   are summary rows (≤8 by default) with counts for the remainder; full detail
   is pull-based via `inspect_candidates`.
 - **UI-before-return**: mutation results resolve only after the local view
-  reflects the change, so an agent inspecting the page sees consistent state.
+  reflects at least the result's `revision`, so an agent inspecting the page
+  sees consistent state. A caller joining an older in-flight projection read
+  waits for the queued revision-targeted successor.
+
+### 3.1 Reliable mutation and event delivery
+
+HTTP mutation requests MAY carry `Idempotency-Key`. The browser uses the
+invocation's existing correlation ID as that key. For ten minutes the server
+binds `(participant, key)` to the canonical request hash and completed
+response. A success is stored in the command transaction; a failure is stored
+after its transaction has rolled back. An identical repeat returns that
+response without a second mutation, event sequence, broadcast, or confirmation
+nonce; the same key with a different body returns `invalid_input`. This header
+is additive and clients that omit it retain the existing
+at-most-once-per-request behavior.
+
+The browser maintains two revision values. `knownRoomRevision` is advanced by
+sync, welcome, event, and HTTP success and is safe as the base for a new page
+gesture. `projectedThroughRevision` is advanced only by an in-order event frame
+or by fully consumed delta pages. Every welcome starts catch-up from the latter,
+even when it equals `knownRoomRevision`, because an HTTP response is not proof
+that the corresponding WebSocket frame arrived.
+
+Server event frames are serialized per room and MAY include additive
+`fromRevision`, the revision immediately before the frame's first stored event.
+A client that sees `fromRevision` differ from its projection watermark MUST
+discard that frame as a direct update and invoke paginated sync. Participant-
+private `outstanding` responses are revision-gated so a slower old sync cannot
+overwrite a newer one.
+
+`sync_session` accepts additive optional `cursor`, returned by a truncated
+delta. Events are forward pages over stored revisions; `throughRevision`
+advances across viewer-omitted events. Callers continue until `truncated` is
+false before advancing to the room head. `resyncRequired:
+"backlog_too_large"` explicitly requires replacement from a full state read;
+the server never silently advances past an unreplayed backlog.
 
 ## 4. End-to-end sequences (demo beats)
 
@@ -244,6 +279,7 @@ Joe's next sync → outstanding: [{ type: "adjustment_request", adj… }]  (priv
 Joe's agent: resolve_private_request { requestId, decision: "grant" }
   → { ok: false → NO — returns ok with staged: true }  … consent_required path:
   → result: "Grant staged. Joe must confirm on the page." + page shows confirm card
+  → adjustment_grant_staged (owner-only revisioned event; no peer projection)
 Joe (UI): taps Confirm → adjustment_resolved, requirement_relaxed (rev 33)
   → recompute → impasse_resolved; feeds: "Search adjusted. 3 new candidates."
   (owner and reason never published)

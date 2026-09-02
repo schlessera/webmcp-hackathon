@@ -195,7 +195,9 @@ command. One command model, two entry surfaces.
 An agent invoking the equivalent tool produces the identical command, so both
 surfaces update every projection identically and immediately. **Tool results
 return only after the local UI reflects the change** (agents plan against
-what they can see).
+what they can see). Concretely, a mutation waits for a projection read at least
+as new as its returned room revision; joining an older in-flight read queues
+and awaits a successor rather than resolving against stale map state.
 
 ## 8. Eligibility semantics
 

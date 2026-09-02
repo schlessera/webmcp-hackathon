@@ -169,6 +169,12 @@ Council-computed, quantified recovery option during an impasse.
 under the owner's `negotiable` envelope; everything else becomes a private
 outstanding decision for the owner.
 
+Granting an adjustment outside that envelope first changes its durable status
+to `staged_grant` and appends `adjustment_grant_staged`. That event advances
+the room revision but projects only to the addressee; peers receive no content
+or existence signal. Restaging the same request replaces its prior live
+confirmation nonce, so only the latest credential can apply it.
+
 ### 3.7 Agreement
 
 ```jsonc
@@ -216,6 +222,7 @@ scope_change_proposed      scope_change_applied
 impasse_detected           adjustment_proposed        adjustment_resolved
 disclosure_requested       disclosure_resolved
 ready_state_changed        agreement_staged           agreement_committed
+adjustment_grant_staged
 phase_changed              arrival_plan_updated       session_closed
 ```
 
@@ -332,7 +339,8 @@ secrecy from the operator. (See PRODUCT-CONCEPT.md privacy promise.)
 ### 6.1 Sync request/response
 
 Personal agents are not daemons; they catch up on their next tool call.
-`sync_session` (read-only) with optional `sinceRevision`:
+`sync_session` (read-only) with optional `sinceRevision` or continuation
+`cursor`:
 
 ```jsonc
 // result (see INTERACTION-AND-BINDING.md §3 for the shared envelope)
@@ -346,8 +354,10 @@ Personal agents are not daemons; they catch up on their next tool call.
   "brief": "2 candidates remain eligible. Joe added a private requirement (3 candidates excluded). Sarah vetoed Cedar Table.",
   "delta": {
     "fromRevision": 40,
-    "events": [ /* projected events, most recent first, capped */ ],
-    "truncated": false
+    "events": [ /* projected events, stored-revision order, capped */ ],
+    "truncated": true,
+    "throughRevision": 44,
+    "cursor": "opaque; return unchanged"
   },
   "outstanding": [
     { "type": "evaluation_request", "candidateIds": ["place_51"], "issuedAtRevision": 45 },
@@ -361,8 +371,19 @@ Personal agents are not daemons; they catch up on their next tool call.
   rule — see INTERACTION-AND-BINDING.md §2.2) and a state summary instead of
   a delta. This is the first-connection contract.
 - `brief` is a ≤400-character natural-language summary the agent can relay.
-- Deltas are capped (~10 projected events + counts); `truncated: true` plus
-  a `cursor` allows continuation, but the brief must remain sufficient to act.
+- Deltas are forward pages capped at about ten projected events. A caller MUST
+  return `cursor` unchanged while `truncated: true`; it MUST NOT advance its
+  consumed-event watermark to the room's `revision` until every page is
+  consumed. `throughRevision` is the last stored revision scanned and advances
+  across events omitted from this viewer's projection, so private events do not
+  stall continuation.
+- `revision` is the room head, not proof that its projected events were
+  consumed. Clients maintain it separately from `throughRevision`.
+- If the stored backlog exceeds the replay safety cap, the delta contains
+  `resyncRequired: "backlog_too_large"` and no cursor. The caller MUST replace
+  its state projections from a full sync/read before moving its event
+  watermark. This is an explicit loss of incremental history, never a silent
+  truncation.
 
 ### 6.2 Mutation discipline
 
@@ -377,6 +398,12 @@ Every mutating command carries `baseRevision`. Server behavior:
    revision. The server never silently acts on stale intent for stances,
    agreement, consent, or disclosure — those are always case 1 or 3, never
    rebased.
+
+An in-page agent carries the snapshot revision it reasoned from. It submits
+against exactly that revision; a `sync_required` result is model input for the
+next round, not permission for the runtime to replay the same arguments at a
+fresh revision. The agent re-reads, reconsiders, and may then form a new move.
+At most one mutating tool call executes per model round.
 
 ## 7. State machines
 

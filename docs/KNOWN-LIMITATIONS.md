@@ -43,6 +43,22 @@ bounded, honest threat model. We list them rather than hide them.
   start (see the protocol docs' open-questions sections). The agent-private
   screening loop (L0) is implemented.
 
+## Reliability findings closed in pass 1
+
+- Delta catch-up now pages forward with an opaque stored-event cursor, advances
+  across viewer-omitted private events, and signals an oversized backlog as an
+  explicit full resync instead of silently dropping history.
+- Page-authored mutation revisions and consumed WebSocket projection revisions
+  are separate. Event broadcasts are ordered per room, frames carry an
+  additive continuity revision, and gaps trigger catch-up.
+- Mutations use participant-scoped ten-minute idempotency keys, and WebMCP
+  mutation completion waits for the visible spatial projection to reach the
+  committed revision.
+- The in-page agent acts against the snapshot revision it saw and receives
+  `sync_required` as model input. Over-bound grant staging now advances the
+  room revision through an owner-only event and replaces older confirmation
+  nonces for the same subject.
+
 ## Data honesty
 
 The venue dataset is a real one-time OpenStreetMap extract of Berlin Mitte
