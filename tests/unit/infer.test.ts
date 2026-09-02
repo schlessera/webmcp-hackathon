@@ -1,0 +1,134 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  applyInferredAttributes,
+  claimsFromAnswer,
+  inferAttributes,
+  INFERENCE_CONFIDENCE_CAPS,
+  type InferInput,
+} from "../../apps/server/src/enrich/infer.ts";
+import { setTransport } from "../../apps/server/src/nl/openai.ts";
+
+const INPUT: InferInput = {
+  name: "Quiet Garden Café",
+  category: "cafe",
+  cuisine: ["coffee_shop"],
+  texts: [
+    { source: "osm", text: "A calm courtyard with step-free access." },
+    { source: "web", text: "Dogs are welcome on our terrace." },
+    { source: "menu", text: "Vegan bowl   (VG)\nGluten-free cake" },
+    { source: "wikidata", text: "café in Berlin" },
+  ],
+  keys: ["wheelchair-accessible", "dog-friendly", "vegan-options", "price-level"],
+};
+
+const answer = (claims: unknown[]) => ({ claims });
+
+afterEach(() => {
+  setTransport(null);
+  vi.unstubAllEnvs();
+});
+
+describe("inference answer validation", () => {
+  it("drops non-verbatim spans, wrong source buckets, unrequested keys and keys outside the vocabulary", () => {
+    const claims = claimsFromAnswer(
+      answer([
+        { key: "dog-friendly", lean: "yes", confidence: 0.8, evidence: "Dogs are welcome", evidenceSource: "description_website", value: null },
+        { key: "wheelchair-accessible", lean: "yes", confidence: 0.8, evidence: "wheelchair ramp", evidenceSource: "description_website", value: null },
+        { key: "vegan-options", lean: "yes", confidence: 0.8, evidence: "Vegan bowl (VG)", evidenceSource: "description_website", value: null },
+        { key: "delivery", lean: "yes", confidence: 0.8, evidence: "cafe", evidenceSource: "name_category", value: null },
+        { key: "karaoke", lean: "yes", confidence: 0.8, evidence: "cafe", evidenceSource: "name_category", value: null },
+      ]),
+      INPUT,
+      "model-test",
+    );
+    expect(claims).toEqual([
+      expect.objectContaining({ key: "dog-friendly", evidence: "Dogs are welcome" }),
+    ]);
+  });
+
+  it("normalises whitespace for span matching and enforces every source clamp", () => {
+    const claims = claimsFromAnswer(
+      answer([
+        { key: "dog-friendly", lean: "yes", confidence: 0.99, evidence: "Quiet Garden Café", evidenceSource: "name_category", value: null },
+        { key: "wheelchair-accessible", lean: "yes", confidence: 0.99, evidence: "step-free access", evidenceSource: "description_website", value: null },
+        { key: "vegan-options", lean: "yes", confidence: 0.99, evidence: "Vegan bowl (VG)", evidenceSource: "menu", value: null },
+        { key: "price-level", lean: "yes", confidence: 0.5, evidence: "Gluten-free cake", evidenceSource: "menu", value: 5 },
+      ]),
+      INPUT,
+      "model-test",
+    );
+    expect(claims.map((claim) => claim.confidence)).toEqual([
+      INFERENCE_CONFIDENCE_CAPS.name_category,
+      INFERENCE_CONFIDENCE_CAPS.description_website,
+      INFERENCE_CONFIDENCE_CAPS.menu,
+    ]);
+    expect(claims[2].evidence).toBe("Vegan bowl (VG)");
+    expect(claims.some((claim) => claim.key === "price-level")).toBe(false);
+  });
+});
+
+describe("inference merge", () => {
+  it("fills only unknown slots, always through likely status, with source and evidence note", () => {
+    const out = applyInferredAttributes(
+      [
+        { key: "dog-friendly", status: "verified_false", source: "osm:dog" },
+        { key: "vegan-options", status: "likely_true", source: "guess:cuisine" },
+        { key: "wheelchair-accessible", status: "unknown", source: "osm:wheelchair" },
+      ],
+      {
+        "dog-friendly": { key: "dog-friendly", lean: "yes", confidence: 0.45, evidence: "Quiet Garden Café", source: "infer:m", observedAt: "2026-09-03T00:00:00Z" },
+        "vegan-options": { key: "vegan-options", lean: "no", confidence: 0.6, evidence: "Vegan bowl", source: "infer:m", observedAt: "2026-09-03T00:00:00Z" },
+        "wheelchair-accessible": { key: "wheelchair-accessible", lean: "yes", confidence: 0.6, evidence: "step-free access", source: "infer:m", observedAt: "2026-09-03T00:00:00Z" },
+        delivery: { key: "delivery", lean: "no", confidence: 0.45, evidence: "cafe", source: "infer:m", observedAt: "2026-09-03T00:00:00Z" },
+      },
+    );
+    const by = Object.fromEntries(out.map((attribute) => [attribute.key, attribute]));
+    expect(by["dog-friendly"]).toMatchObject({ status: "verified_false", source: "osm:dog" });
+    expect(by["vegan-options"]).toMatchObject({ status: "likely_true", source: "guess:cuisine" });
+    expect(by["wheelchair-accessible"]).toMatchObject({ status: "likely_true", source: "infer:m", note: "step-free access" });
+    expect(by.delivery).toMatchObject({ status: "likely_false", source: "infer:m", note: "cafe" });
+    expect(out.some((attribute) => attribute.status.startsWith("verified_") && attribute.source === "infer:m")).toBe(false);
+  });
+});
+
+describe("inference off switches", () => {
+  it.each([
+    ["ENRICH_NETWORK", "0"],
+    ["INFER", "0"],
+    ["OPENAI_API_KEY", ""],
+  ])("does not call the model when %s=%s", async (name, value) => {
+    vi.stubEnv("ENRICH_NETWORK", "1");
+    vi.stubEnv("INFER", "1");
+    vi.stubEnv("OPENAI_API_KEY", "test");
+    vi.stubEnv(name, value);
+    let calls = 0;
+    setTransport(async () => {
+      calls += 1;
+      return { output: [] };
+    });
+    expect(await inferAttributes(INPUT)).toEqual([]);
+    expect(calls).toBe(0);
+  });
+
+  it("uses the fast model, strict schema, no reasoning, and a 12 second timeout", async () => {
+    vi.stubEnv("ENRICH_NETWORK", "1");
+    vi.stubEnv("INFER", "1");
+    vi.stubEnv("OPENAI_API_KEY", "test");
+    let wire: Record<string, unknown> | undefined;
+    let timeout = 0;
+    setTransport(async (body, timeoutMs) => {
+      wire = body;
+      timeout = timeoutMs;
+      return {
+        output: [{ type: "message", content: [{ type: "output_text", text: JSON.stringify(answer([])) }] }],
+      };
+    });
+    await inferAttributes(INPUT);
+    expect(wire).toMatchObject({
+      model: expect.any(String),
+      reasoning: { effort: "none" },
+      text: { format: { type: "json_schema", strict: true } },
+    });
+    expect(timeout).toBe(12_000);
+  });
+});
