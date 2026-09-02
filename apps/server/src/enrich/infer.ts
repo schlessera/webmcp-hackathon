@@ -154,6 +154,7 @@ export function claimsFromAnswer(
     const confidence = Math.min(rawConfidence, INFERENCE_CONFIDENCE_CAPS[evidenceSource]);
     const value = Number(raw.value);
     if (key === "price-level" && (!Number.isInteger(value) || value < 1 || value > 4)) continue;
+    if (key === "price-level" && raw.lean !== "yes") continue;
     claims.push({
       key: key as InferableKey,
       lean: raw.lean,

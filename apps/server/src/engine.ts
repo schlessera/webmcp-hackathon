@@ -18,7 +18,7 @@ import {
   type ToolResult,
   ATTRIBUTE_LABELS,
 } from "@webmcp-hackathon/contracts";
-import { withTransaction } from "./db.ts";
+import { pool, withTransaction } from "./db.ts";
 import type { Participant } from "./auth.ts";
 import {
   consumeConfirmation,
@@ -27,7 +27,14 @@ import {
   type ConfirmationSubject,
 } from "./confirmation.ts";
 import { buildDelta } from "./delta.ts";
-import { computeEligibility, feasibilityOf, type ScopeState } from "./eligibility.ts";
+import {
+  computeEligibility,
+  feasibilityOf,
+  loadEligibilityInputs,
+  type ScopeState,
+} from "./eligibility.ts";
+import { inScope } from "./facets.ts";
+import { lookupNow, lookupTargetOf } from "./enrich/index.ts";
 import { impasseBracket } from "./impasse.ts";
 import { outstandingFor } from "./outstanding.ts";
 import {
@@ -80,6 +87,8 @@ interface HandlerOutcome {
   /** Mint a confirmation nonce for this subject once the transaction commits. */
   confirm?: ConfirmationSubject;
   error?: FailureEnvelope;
+  /** An attribute need that should start an opportunistic lookup after commit. */
+  lookup?: { key: string; label: string };
 }
 
 /** Thrown inside the command transaction so failures ROLL BACK any writes a
@@ -230,7 +239,13 @@ export async function submitCommand(
       ...(outcome.staged ? { staged: true } : {}),
       outstanding,
     };
-    return { success, storedRevisions, revision, confirm: outcome.confirm };
+    return {
+      success,
+      storedRevisions,
+      revision,
+      confirm: outcome.confirm,
+      lookup: outcome.lookup,
+    };
     });
   } catch (err) {
     if (err instanceof CommandFailure) {
@@ -266,7 +281,38 @@ export async function submitCommand(
       console.error("commit listener failed:", err);
     }
   }
+  if (result.lookup) {
+    // The command is already durable. Lookup selection and every downstream
+    // fetch/model failure are intentionally detached from command success.
+    void triggerNeedLookup(actor.roomId, result.lookup.key, result.lookup.label).catch((err) => {
+      console.error("need-triggered lookup failed:", err);
+    });
+  }
   return result.success;
+}
+
+async function triggerNeedLookup(
+  roomId: string,
+  key: string,
+  label: string,
+): Promise<void> {
+  const inputs = await loadEligibilityInputs(pool, roomId);
+  const unknown = inScope(inputs.candidates, inputs.scope)
+    .filter(
+      (candidate) =>
+        (candidate.attributes.find((attribute) => attribute.key === key)?.status ?? "unknown") ===
+        "unknown",
+    )
+    .sort((a, b) => a.walk_min - b.walk_min || a.id.localeCompare(b.id))
+    .slice(0, 24);
+  const targets = unknown.flatMap((candidate) => {
+    const target = lookupTargetOf(candidate);
+    return target ? [{ candidateId: candidate.id, ...target }] : [];
+  });
+  await lookupNow(pool, roomId, targets, {
+    keys: [key],
+    reason: { kind: "need", label },
+  });
 }
 
 async function dispatch(
@@ -460,6 +506,17 @@ async function submitRequirement(
   return {
     events,
     effect: `Requirement ${existing ? "updated" : "recorded"}.`,
+    ...(cmd.payload?.kind === "attribute"
+      ? {
+          lookup: {
+            key: String(cmd.payload.key),
+            label:
+              cmd.payload.expect === "verified_false"
+                ? `no ${ATTRIBUTE_LABELS[cmd.payload.key as keyof typeof ATTRIBUTE_LABELS] ?? cmd.payload.key}`
+                : ATTRIBUTE_LABELS[cmd.payload.key as keyof typeof ATTRIBUTE_LABELS] ?? String(cmd.payload.key),
+          },
+        }
+      : {}),
   };
 }
 
@@ -575,6 +632,17 @@ async function setRequirementActive(
       },
     ],
     effect: cmd.active ? "Need reapplied." : "Need set aside.",
+    ...(cmd.active && row.payload?.kind === "attribute"
+      ? {
+          lookup: {
+            key: String(row.payload.key),
+            label:
+              row.payload.expect === "verified_false"
+                ? `no ${ATTRIBUTE_LABELS[row.payload.key as keyof typeof ATTRIBUTE_LABELS] ?? row.payload.key}`
+                : ATTRIBUTE_LABELS[row.payload.key as keyof typeof ATTRIBUTE_LABELS] ?? String(row.payload.key),
+          },
+        }
+      : {}),
   };
 }
 

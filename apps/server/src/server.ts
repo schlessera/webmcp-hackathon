@@ -5,6 +5,7 @@ import Fastify from "fastify";
 import AjvModule from "ajv";
 import {
   INSPECT_CANDIDATES_INPUT,
+  LOOK_UP_PLACES_INPUT,
   PREPARE_NAVIGATION_INPUT,
   SPATIAL_CONTEXT_INPUT,
   SYNC_SESSION_INPUT,
@@ -24,6 +25,7 @@ const validateContextInput = readAjv.compile({
   properties: { excludeRequirementId: { type: "string", maxLength: 40 } },
 });
 const validateInspectInput = readAjv.compile(INSPECT_CANDIDATES_INPUT);
+const validateLookupInput = readAjv.compile(LOOK_UP_PLACES_INPUT);
 const validateNavigationInput = readAjv.compile(PREPARE_NAVIGATION_INPUT);
 import { config } from "./config.ts";
 import { authenticateToken, exchangeInviteSecret } from "./auth.ts";
@@ -31,7 +33,7 @@ import { submitCommand } from "./engine.ts";
 import { syncSession } from "./sync.ts";
 import { areaSummaries } from "./places.ts";
 import { createRoom } from "./rooms.ts";
-import { inspectCandidates, prepareNavigation, spatialContext } from "./spatial.ts";
+import { inspectCandidates, lookUpPlaces, prepareNavigation, spatialContext } from "./spatial.ts";
 import { attachWebSocket } from "./ws.ts";
 import { pool } from "./db.ts";
 import { say } from "./nl/say.ts";
@@ -244,6 +246,21 @@ app.post("/api/spatial/inspect", async (req) => {
   }
   const result = await inspectCandidates(actor, body.candidateIds!);
   logRead(req, actor.id, "InspectCandidates", result.ok);
+  return result;
+});
+
+app.post("/api/spatial/lookup", async (req) => {
+  const actor = await bearer(req);
+  if (!actor) return notAuthenticated;
+  const body = (req.body ?? {}) as { candidateIds?: string[]; keys?: string[] };
+  if (!validateLookupInput(body)) {
+    return invalidInput(
+      "candidateIds must be 1-3 candidate ID strings and keys, when present, 1-6 attribute keys.",
+      "Pass candidateIds from get_spatial_context and optional facet keys.",
+    );
+  }
+  const result = await lookUpPlaces(actor, body.candidateIds!, body.keys);
+  logRead(req, actor.id, "LookUpPlaces", result.ok);
   return result;
 });
 

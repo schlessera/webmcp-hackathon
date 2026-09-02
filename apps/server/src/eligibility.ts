@@ -57,6 +57,7 @@ export interface CandidateRow {
     confidence?: number;
     attestedBy?: string;
   }>;
+  extras?: { website?: string; wikidata?: string } | null;
 }
 export interface RequirementRow {
   id: string;

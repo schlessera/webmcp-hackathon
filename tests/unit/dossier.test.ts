@@ -110,4 +110,21 @@ describe("dossierFromTags", () => {
     expect(hours).toMatchObject({ status: "likely_true", value: "sunset-late", confidence: 0.5 });
     expect(d.hours).toEqual([]);
   });
+  it("keeps a compact record address and phone for the server dossier", () => {
+    const d = dossierFromTags(
+      {
+        amenity: "cafe",
+        name: "X",
+        "addr:street": "Torstraße",
+        "addr:housenumber": "1",
+        "addr:postcode": "10119",
+        "addr:city": "Berlin",
+        "addr:country": "DE",
+        "contact:phone": "+49 30 1234",
+      },
+      AT,
+    );
+    expect(d.extras.address).toBe("Torstraße 1, 10119 Berlin, DE");
+    expect(d.extras.phone).toBe("+49 30 1234");
+  });
 });

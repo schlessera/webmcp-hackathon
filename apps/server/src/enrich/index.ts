@@ -78,15 +78,23 @@ interface Row {
   error: string | null;
 }
 
-const rowToEnrichment = (r: Row): Enrichment => ({
-  osmRef: r.osm_ref,
-  fetchedAt: r.fetched_at.toISOString(),
-  website: r.website,
-  wikidata: r.wikidata,
-  inferred: r.inferred ?? {},
-  inferredAt: r.inferred_at?.toISOString() ?? null,
-  error: r.error,
-});
+const rowToEnrichment = (r: Row): Enrichment => {
+  const inferred = Object.fromEntries(
+    Object.entries(r.inferred ?? {}).filter(([, claim]) => {
+      const observed = new Date(claim.observedAt).getTime();
+      return Number.isFinite(observed) && Date.now() - observed < TTL_INFER_MS;
+    }),
+  );
+  return {
+    osmRef: r.osm_ref,
+    fetchedAt: r.fetched_at.toISOString(),
+    website: r.website,
+    wikidata: r.wikidata,
+    inferred,
+    inferredAt: r.inferred_at?.toISOString() ?? null,
+    error: r.error,
+  };
+};
 
 export async function loadCached(
   q: pg.PoolClient | pg.Pool,
@@ -293,13 +301,33 @@ async function saveInferences(
  * presentation-only. A facts frame and map_revision bump happen only when
  * the stable merged attribute hash changes.
  */
-export async function lookupNow(
+export function lookupNow(
   pool: pg.Pool,
   roomId: string,
   targets: RoomLookupTarget[],
   options: LookupNowOptions = {},
 ): Promise<string[]> {
-  if (process.env.ENRICH_NETWORK === "0" || targets.length === 0) return [];
+  if (process.env.ENRICH_NETWORK === "0" || targets.length === 0) return Promise.resolve([]);
+  const tracked = targets.filter(
+    (target) => target.osmRef && (target.website || target.wikidata || inferenceEnabled()),
+  );
+  if (tracked.length === 0) return Promise.resolve([]);
+  // Begin before the first await so a read issued immediately after this call
+  // can truthfully return lookupPending=true.
+  const endProgress = beginLookups(
+    roomId,
+    tracked.map((target) => target.candidateId),
+    options.reason,
+  );
+  return runLookupNow(pool, roomId, tracked, options).finally(endProgress);
+}
+
+async function runLookupNow(
+  pool: pg.Pool,
+  roomId: string,
+  targets: RoomLookupTarget[],
+  options: LookupNowOptions,
+): Promise<string[]> {
   const wantedIds = [...new Set(targets.map((target) => target.candidateId))];
   const targetById = new Map(targets.map((target) => [target.candidateId, target]));
   const rows = (
@@ -315,7 +343,6 @@ export async function lookupNow(
   });
   if (actionable.length === 0) return [];
 
-  const endProgress = beginLookups(roomId, actionable.map((row) => row.id), options.reason);
   const attestations = await loadAttestations(pool, roomId);
   const requested = [...new Set(options.keys ?? [...INFERABLE_KEYS])].filter((key) =>
     (INFERABLE_KEYS as readonly string[]).includes(key),
@@ -346,12 +373,9 @@ export async function lookupNow(
             ),
             observedAt,
           );
-          const fresh = current?.inferredAt
-            ? Date.now() - new Date(current.inferredAt).getTime() < TTL_INFER_MS
-            : false;
           const unknown = requested.filter((key) => {
             if (base.find((attribute) => attribute.key === key)?.status !== "unknown") return false;
-            return !(fresh && current?.inferred?.[key]);
+            return !current?.inferred?.[key];
           });
           if (unknown.length > 0) {
             const claims = await inferAttributes({
@@ -375,26 +399,22 @@ export async function lookupNow(
       }
     }
   };
-  try {
-    await Promise.all(
-      Array.from({ length: Math.min(WARM_CONCURRENCY, actionable.length) }, () => worker()),
+  await Promise.all(
+    Array.from({ length: Math.min(WARM_CONCURRENCY, actionable.length) }, () => worker()),
+  );
+  if (changed.length > 0) {
+    await pool.query(
+      `UPDATE candidates SET map_revision = map_revision + 1
+         WHERE room_id = $1 AND id = ANY($2)`,
+      [roomId, changed],
     );
-    if (changed.length > 0) {
-      await pool.query(
-        `UPDATE candidates SET map_revision = map_revision + 1
-           WHERE room_id = $1 AND id = ANY($2)`,
-        [roomId, changed],
-      );
-      publishFacts(roomId, {
-        type: "facts",
-        candidateIds: [...changed].sort(),
-        reason: inferenceChanged ? "inference" : "lookup",
-      });
-    }
-    return changed;
-  } finally {
-    endProgress();
+    publishFacts(roomId, {
+      type: "facts",
+      candidateIds: [...changed].sort(),
+      reason: inferenceChanged ? "inference" : "lookup",
+    });
   }
+  return changed;
 }
 
 /** Background warm-up for a fresh room's pool: bounded, visible, fire-and-forget. */

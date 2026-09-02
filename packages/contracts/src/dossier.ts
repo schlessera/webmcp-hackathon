@@ -128,6 +128,10 @@ export const KEPT_TAGS: readonly string[] = [
   "brand:wikidata",
   "addr:street",
   "addr:housenumber",
+  "addr:postcode",
+  "addr:city",
+  "addr:place",
+  "addr:country",
   "check_date",
 ];
 
@@ -225,6 +229,17 @@ export interface DossierExtras {
   /** For the enrichment layer (apps/server/src/enrich): where to look. */
   website?: string;
   wikidata?: string;
+  address?: string;
+  phone?: string;
+}
+
+function addressFromTags(tags: Record<string, string | undefined>): string | undefined {
+  const street = [tags["addr:street"], tags["addr:housenumber"]].filter(Boolean).join(" ");
+  const locality = [tags["addr:postcode"], tags["addr:city"] ?? tags["addr:place"]]
+    .filter(Boolean)
+    .join(" ");
+  const address = [street, locality, tags["addr:country"]].filter(Boolean).join(", ");
+  return address || undefined;
 }
 
 /**
@@ -278,6 +293,8 @@ export function dossierFromTags(
   });
   const links = linksFromTags(tags);
   const website = links.find((l) => l.kind === "website")?.url;
+  const address = addressFromTags(tags);
+  const phone = tags.phone ?? tags["contact:phone"];
   return {
     category: tags.amenity ?? "place",
     attributes,
@@ -290,6 +307,8 @@ export function dossierFromTags(
         : {}),
       ...(website ? { website } : {}),
       ...(tags.wikidata ? { wikidata: tags.wikidata } : {}),
+      ...(address ? { address } : {}),
+      ...(phone ? { phone: phone.slice(0, 80) } : {}),
     },
   };
 }

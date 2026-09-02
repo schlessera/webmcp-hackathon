@@ -10,7 +10,7 @@ import { config } from "../config.ts";
 import { pool } from "../db.ts";
 import { submitCommand } from "../engine.ts";
 import { outstandingFor } from "../outstanding.ts";
-import { inspectCandidates, prepareNavigation, spatialContext } from "../spatial.ts";
+import { inspectCandidates, lookUpPlaces, prepareNavigation, spatialContext } from "../spatial.ts";
 import { respond, type FunctionTool, type InputItem } from "./openai.ts";
 
 /**
@@ -163,8 +163,12 @@ function compactDossier(d: CandidateDossier) {
     name: d.name,
     category: d.category,
     priceLevel: d.priceLevel,
+    address: d.address,
+    phone: d.phone,
+    needs: d.needs,
+    lookupPending: d.lookupPending,
     attributes: d.attributes.map(
-      (a) => `${a.key}=${a.status}${a.value !== undefined ? `(${String(a.value)})` : ""} [${a.source.split(":")[0]}]`,
+      (a) => `${a.key}=${a.status}${a.value !== undefined ? `(${String(a.value)})` : ""} [${a.source.split(":")[0]}]${a.note ? ` — ${a.note.slice(0, 80)}` : ""}`,
     ),
   };
 }
@@ -183,6 +187,13 @@ async function execute(
     case "inspect_candidates": {
       const ids = Array.isArray(args.candidateIds) ? (args.candidateIds as string[]).slice(0, 3) : [];
       const result = await inspectCandidates(actor, ids);
+      if (!result.ok) return result;
+      return { ok: true, candidates: result.candidates.map(compactDossier) };
+    }
+    case "look_up_places": {
+      const ids = Array.isArray(args.candidateIds) ? (args.candidateIds as string[]).slice(0, 3) : [];
+      const keys = Array.isArray(args.keys) ? (args.keys as string[]).slice(0, 6) : undefined;
+      const result = await lookUpPlaces(actor, ids, keys);
       if (!result.ok) return result;
       return { ok: true, candidates: result.candidates.map(compactDossier) };
     }

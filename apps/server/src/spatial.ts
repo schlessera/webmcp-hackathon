@@ -13,12 +13,20 @@ import {
   mergedAttributes,
   whyFor,
 } from "./eligibility.ts";
-import { computeFacetsBundle } from "./facets.ts";
+import { computeFacetsBundle, labelForRequirement } from "./facets.ts";
 import { IMPASSE_TEXT } from "./impasse.ts";
 import { presentIn } from "./presence.ts";
 import type { DataSource } from "./places.ts";
 import { loadAttestations } from "./attestations.ts";
-import { enrichmentView, ensureEnrichments, lookupTargetOf } from "./enrich/index.ts";
+import {
+  enrichmentView,
+  ensureEnrichments,
+  loadCached,
+  lookupNow,
+  lookupTargetOf,
+  type RoomLookupTarget,
+} from "./enrich/index.ts";
+import { lookupPending } from "./enrich/progress.ts";
 import { pool } from "./db.ts";
 
 /** How long a place panel waits for a fresh lookup before opening with what
@@ -276,6 +284,7 @@ export async function spatialContext(
 export async function inspectCandidates(
   actor: Participant,
   candidateIds: string[],
+  options: { triggerLookup?: boolean; waitMs?: number } = {},
 ): Promise<InspectCandidatesResponse> {
   return withTransaction(async (client) => {
     const room = (
@@ -293,9 +302,20 @@ export async function inspectCandidates(
     ).rows;
     const attestations = await loadAttestations(client, actor.roomId);
     const targets = rows
-      .map((r) => lookupTargetOf(r as { osm_ref: string | null; extras: Record<string, unknown> | null }))
-      .filter((t): t is NonNullable<typeof t> => t !== null);
-    const enrichments = await ensureEnrichments(pool, targets, INSPECT_LOOKUP_WAIT_MS);
+      .map((r) => {
+        const target = lookupTargetOf(r as { osm_ref: string | null; extras: Record<string, unknown> | null });
+        return target ? { candidateId: r.id as string, ...target } : null;
+      })
+      .filter((t): t is RoomLookupTarget => t !== null);
+    if (options.triggerLookup !== false) {
+      void lookupNow(pool, actor.roomId, targets, { reason: { kind: "place" } }).catch(() => {
+        /* opening a place remains a read even when its lookup fails */
+      });
+    }
+    const waitMs = options.waitMs ?? INSPECT_LOOKUP_WAIT_MS;
+    const enrichments = waitMs > 0
+      ? await ensureEnrichments(pool, targets, waitMs)
+      : await loadCached(pool, targets.map((target) => target.osmRef));
     const found = new Set(rows.map((r) => r.id as string));
     const missing = candidateIds.find((id) => !found.has(id));
     if (missing) {
@@ -308,6 +328,38 @@ export async function inspectCandidates(
         },
       };
     }
+    const inputs = await loadEligibilityInputs(client, actor.roomId);
+    const candidateById = new Map(inputs.candidates.map((candidate) => [candidate.id, candidate]));
+    const needsFor = (candidateId: string): CandidateDossier["needs"] => {
+      const candidate = candidateById.get(candidateId);
+      if (!candidate) return [];
+      return inputs.requirements.map((requirement) => {
+        const classified = classifyAll(
+          [candidate],
+          [{ ...requirement, active: true, hardness: "hard" }],
+          inputs.verdicts,
+          null,
+        )[0];
+        const verdict =
+          classified.eligibility === "eligible"
+            ? "yes"
+            : classified.eligibility === "excluded"
+              ? "no"
+              : classified.eligibility === "uncertain"
+                ? "unknown"
+                : classified.eligibility;
+        if (requirement.owner_id !== actor.id && requirement.visibility !== "shared") {
+          return { requirementId: requirement.id, private: true as const, verdict };
+        }
+        return {
+          requirementId: requirement.id,
+          label: labelForRequirement(requirement, requirement.owner_id === actor.id),
+          verdict,
+          ...(classified.confidence !== undefined ? { confidence: classified.confidence } : {}),
+          why: whyFor(classified, actor.id),
+        };
+      });
+    };
     const dossiers: CandidateDossier[] = rows.map((r) => {
       const enrichment = r.osm_ref ? enrichments.get(r.osm_ref as string) : undefined;
       const view = enrichmentView(r.extras ?? null, enrichment);
@@ -327,6 +379,10 @@ export async function inspectCandidates(
           attestations,
         ) as CandidateDossier["attributes"],
         mapRevision: r.map_revision,
+        ...(r.extras?.address ? { address: String(r.extras.address) } : {}),
+        ...(r.extras?.phone ? { phone: String(r.extras.phone) } : {}),
+        needs: needsFor(r.id as string),
+        lookupPending: lookupPending(actor.roomId, r.id as string),
         ...(view.links.length ? { links: view.links } : {}),
         ...(view.description ? { description: view.description } : {}),
         ...(view.rating ? { rating: view.rating } : {}),
@@ -335,6 +391,32 @@ export async function inspectCandidates(
     });
     return { ok: true as const, revision: room.revision as number, candidates: dossiers };
   });
+}
+
+/** Start an explicit lookup and return the dossiers exactly as they stand.
+ * The work is fire-and-forget: a failed source/model never fails this read. */
+export async function lookUpPlaces(
+  actor: Participant,
+  candidateIds: string[],
+  keys?: string[],
+): Promise<InspectCandidatesResponse> {
+  const rows = (
+    await pool.query(
+      "SELECT id, osm_ref, extras FROM candidates WHERE room_id = $1 AND id = ANY($2)",
+      [actor.roomId, candidateIds],
+    )
+  ).rows;
+  const targets = rows.flatMap((row) => {
+    const target = lookupTargetOf(row as { osm_ref: string | null; extras: Record<string, unknown> | null });
+    return target ? [{ candidateId: row.id as string, ...target }] : [];
+  });
+  void lookupNow(pool, actor.roomId, targets, {
+    keys,
+    reason: { kind: "place" },
+  }).catch(() => {
+    /* explicit lookups are advisory and never turn a read into a failure */
+  });
+  return inspectCandidates(actor, candidateIds, { triggerLookup: false, waitMs: 0 });
 }
 
 export async function prepareNavigation(

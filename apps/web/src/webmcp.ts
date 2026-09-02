@@ -1,6 +1,7 @@
 import { TOOLS, type ToolDefinition } from "@webmcp-hackathon/contracts";
 import {
   spatialInspectRaw,
+  spatialLookupRaw,
   spatialNavigationRaw,
   syncSessionRaw,
 } from "./api.ts";
@@ -225,6 +226,9 @@ async function executeTool(
 
     case "inspect_candidates":
       return trimInspect(await spatialInspectRaw(args ?? {}, signal));
+
+    case "look_up_places":
+      return trimInspect(await spatialLookupRaw(args ?? {}, signal));
 
     case "prepare_navigation":
       return spatialNavigationRaw(args ?? {}, signal);
