@@ -121,11 +121,13 @@ interface SayResult {
 interface Props {
   facets: Facet[];
   activeNeeds: ActiveNeed[];
+  /** In-scope places, for "updating 40 places…". */
+  placeCount: number;
   disabled: boolean;
   run(type: string, input: Record<string, unknown>): Promise<CommandEnvelope>;
 }
 
-export function Composer({ facets, activeNeeds, disabled, run }: Props) {
+export function Composer({ facets, activeNeeds, placeCount, disabled, run }: Props) {
   const [scope, setScope] = useState<Visibility>("shared");
   const [scopeOpen, setScopeOpen] = useState(false);
   const [text, setText] = useState("");
@@ -137,6 +139,10 @@ export function Composer({ facets, activeNeeds, disabled, run }: Props) {
   const busy = useSyncExternalStore(
     (cb) => spatial.subscribe(cb),
     () => spatial.state.agentBusy,
+  );
+  const agentPhase = useSyncExternalStore(
+    (cb) => spatial.subscribe(cb),
+    () => spatial.state.agentPhase,
   );
 
   const stated = useMemo(
@@ -164,8 +170,11 @@ export function Composer({ facets, activeNeeds, disabled, run }: Props) {
   // The topic the agent read off a sentence is deliberately NOT attached as
   // a scope hint: disclosing a category is the owner's opt-in (FACETS.md §4)
   // and the composer offers no way to give it yet.
-  const submitPayload = (payload: Payload | null) =>
-    run("SubmitRequirement", {
+  // The row exists on the brief from this moment (SPOKES-UI §4, pending):
+  // in the person's words until the room brings the real one.
+  const submitPayload = async (payload: Payload | null, said: string) => {
+    const localId = spatial.beginPendingNeed(said, scope);
+    const result = await run("SubmitRequirement", {
       visibility: scope,
       hardness: "hard",
       delegation: { mode: "approval_required" },
@@ -177,11 +186,17 @@ export function Composer({ facets, activeNeeds, disabled, run }: Props) {
           ? { payload }
           : {}),
     });
+    spatial.settlePendingCommit(localId, result.ok);
+    return result;
+  };
+  /** What the row says while the room has not phrased it yet. */
+  const saidLabel = (sentence: string) =>
+    agentOnly ? COPY.pendingAgentOnly : sentence.trim().slice(0, 80);
 
   /** A pill or a sentence without an agent: the label match, then the bus. */
-  const submitPlain = (payload: Payload | null) => {
+  const submitPlain = (payload: Payload | null, said: string) => {
     if (disabled) return;
-    void submitPayload(payload);
+    void submitPayload(payload, said);
     setText("");
   };
 
@@ -190,14 +205,14 @@ export function Composer({ facets, activeNeeds, disabled, run }: Props) {
     if (disabled || busy) return;
     const trimmed = sentence.trim();
     if (!trimmed) return;
-    spatial.setAgentBusy(true);
+    spatial.setAgentBusy(true, "reading");
     try {
       if (agentOnly) {
         const result = (await nlCondition(trimmed)) as SayResult & { topic?: string | null };
         if (!result.ok) {
           diagnostics.log(`agent condition refused: ${result.error?.code}`);
           // The declaration still stands; the agent simply holds nothing.
-          void submitPayload(null);
+          void submitPayload(null, saidLabel(trimmed));
         } else {
           diagnostics.log(`agent holds a condition (${result.meta?.route?.model} ${result.meta?.route?.ms}ms)`);
           spatial.pushAgentReply({ text: COPY.agentHolds, actions: [], answer: true });
@@ -209,7 +224,7 @@ export function Composer({ facets, activeNeeds, disabled, run }: Props) {
       if (!result.ok) {
         // No agent to be had: the label match is the honest fallback.
         diagnostics.log(`agent unavailable (${result.error?.code}); label match used`);
-        void submitPayload(payloadFromText(trimmed, facets));
+        void submitPayload(payloadFromText(trimmed, facets), saidLabel(trimmed));
         setText("");
         return;
       }
@@ -221,7 +236,10 @@ export function Composer({ facets, activeNeeds, disabled, run }: Props) {
         })`,
       );
       if (result.intent === "need") {
-        for (const need of result.needs ?? []) await submitPayload(need.payload);
+        spatial.setAgentBusy(true, "applying");
+        for (const need of result.needs ?? []) {
+          await submitPayload(need.payload, need.gist || saidLabel(trimmed));
+        }
       } else if (result.intent === "ask" || result.intent === "act") {
         spatial.pushAgentReply({
           text: result.reply ?? "",
@@ -244,7 +262,7 @@ export function Composer({ facets, activeNeeds, disabled, run }: Props) {
 
   const submitText = () => {
     if (nlAvailable) return void submitSentence(text);
-    submitPlain(agentOnly ? null : payloadFromText(text, facets));
+    submitPlain(agentOnly ? null : payloadFromText(text, facets), saidLabel(text));
   };
 
   const scopeLabel = SCOPES.find((s) => s.value === scope)!.label;
@@ -261,7 +279,8 @@ export function Composer({ facets, activeNeeds, disabled, run }: Props) {
     <div className="composer" data-testid="composer" data-busy={busy || undefined}>
       {busy ? (
         <div className="composer-suggest-label" data-tone="act" role="status" data-testid="agent-busy">
-          {COPY.agentBusy}
+          <i className="busy-ring row-busy" aria-hidden="true" />
+          {agentPhase === "applying" ? COPY.agentApplying(placeCount) : COPY.agentReading}
         </div>
       ) : (
         pills.length > 0 &&
@@ -275,7 +294,7 @@ export function Composer({ facets, activeNeeds, disabled, run }: Props) {
                   className="pill"
                   data-testid={`pill-${f.key}`}
                   disabled={disabled}
-                  onClick={() => submitPlain(payloadFromFacet(f))}
+                  onClick={() => submitPlain(payloadFromFacet(f), f.label)}
                 >
                   {f.label}
                   <span className="pill-count">{(f.counts.yes ?? 0) + (f.counts.likely ?? 0)}</span>

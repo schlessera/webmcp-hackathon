@@ -120,6 +120,10 @@ interface Props {
   phase: string;
   /** participantId -> candidateId: who has which place open right now. */
   viewing: Record<string, string>;
+  /** The server is looking this place up right now (`lookups` frame). */
+  busy: boolean;
+  /** The last `facts` frame: re-read the dossier when it named this place. */
+  factsFrame: { ids: string[]; nonce: number };
   onClose(): void;
   run(type: string, input: Record<string, unknown>): Promise<CommandEnvelope>;
 }
@@ -133,10 +137,15 @@ export function PlaceDetails({
   meId,
   phase,
   viewing,
+  busy,
+  factsFrame,
   onClose,
   run,
 }: Props) {
   const [dossier, setDossier] = useState<CandidateDossier | null>(null);
+  /* A facts frame naming this place re-reads the dossier in place — the
+     rows update, the panel does not blank. */
+  const factsNonce = factsFrame.ids.includes(candidate.candidateId) ? factsFrame.nonce : 0;
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -147,7 +156,6 @@ export function PlaceDetails({
   }, [onClose]);
 
   useEffect(() => {
-    setDossier(null);
     let cancelled = false;
     void (async () => {
       const result = (await spatialInspectRaw({
@@ -160,7 +168,12 @@ export function PlaceDetails({
     return () => {
       cancelled = true;
     };
+  }, [candidate.candidateId, factsNonce]);
+  // A different place: the old dossier must not read as this one's.
+  useEffect(() => {
+    setDossier(null);
   }, [candidate.candidateId]);
+  const lookingUp = busy || dossier?.lookupPending === true;
 
   const eligible = candidate.eligibility === "eligible";
   const verdictState =
@@ -337,6 +350,24 @@ export function PlaceDetails({
             <span className="verdict-text">
               {eligible ? COPY.verdictClears : candidate.why}
             </span>
+          </div>
+          {/* Reserved from the first paint (SPOKES-UI §6): the panel never
+              looks final before the facts have landed. */}
+          <div
+            className="details-lookup"
+            data-state={lookingUp ? "busy" : dossier ? "done" : "loading"}
+            data-testid="details-lookup"
+            role="status"
+            aria-busy={lookingUp || !dossier || undefined}
+          >
+            {lookingUp || !dossier ? (
+              <>
+                <i className="busy-ring line-busy" aria-hidden="true" />
+                {lookingUp ? COPY.lookingUp : COPY.readingRecord}
+              </>
+            ) : (
+              COPY.recordRead
+            )}
           </div>
         </div>
 

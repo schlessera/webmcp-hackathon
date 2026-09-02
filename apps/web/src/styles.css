@@ -2111,3 +2111,118 @@ body { overflow: hidden; }
   background: var(--spoke-surface);
   color: var(--spoke-unsure-text);
 }
+
+/* ── In progress (2026-09-03): the busy ring ────────────────────────────
+   One drawing, four placements. A dashed ring in the state's own colour
+   turning around the thing being looked up (`spoke-busy`, tokens.css). It
+   is always its own element, so the animated transform never touches
+   anything positioned (§9). With reduced motion the duration is zero and
+   the ring stands still beside its text — never nothing. */
+.busy-ring {
+  display: inline-block;
+  flex: none;
+  box-sizing: border-box;
+  border-radius: 50%;
+  border: 1.5px dashed var(--spoke-works);
+  animation: spoke-busy var(--spoke-dur-busy) linear infinite;
+  pointer-events: none;
+}
+/* Inline: beside a line of text (need row, count block, panel, composer). */
+.row-busy, .line-busy {
+  width: 13px; height: 13px;
+  vertical-align: -2px;
+  margin-right: 6px;
+}
+.line-busy { width: 12px; height: 12px; }
+
+/* On the map: around the anchor dot, or around the sticker's own dot when
+   the place carries a name card. Hidden unless the marker is busy. */
+.marker-busy, .sticker-busy {
+  position: absolute;
+  opacity: 0;
+  transition: opacity var(--spoke-dur-settle) var(--spoke-ease);
+}
+.marker-busy {
+  left: 50%; top: 50%;
+  width: 26px; height: 26px;
+  margin: -13px 0 0 -13px;
+}
+.sticker-box { position: relative; }
+.sticker-busy {
+  left: 14px; top: 50%;
+  width: 21px; height: 21px;
+  margin: -10.5px 0 0 -10.5px;
+}
+.marker[data-busy="true"] .marker-busy { opacity: 1; }
+.marker[data-busy="true"][data-named="true"]:not([data-state="out"]) .marker-busy { opacity: 0; }
+.marker[data-busy="true"][data-named="true"]:not([data-state="out"]) .sticker-busy { opacity: 1; }
+/* The ring takes the state's colour, so a lookup on an unsure place reads
+   unsure, and one on a ruled-out place stays colourless. */
+.marker[data-state="unsure"] .busy-ring,
+.marker[data-state="unlikely"] .busy-ring { border-color: var(--spoke-unsure); }
+.marker[data-state="out"] .busy-ring { border-color: var(--spoke-out); }
+.marker[data-state="proposed"] .busy-ring,
+.marker[data-state="staged"] .busy-ring,
+.marker[data-state="vetoed"] .busy-ring { border-color: var(--spoke-act); }
+.marker[data-state="selected"] .sticker-busy,
+.marker[data-state="proposed"] .sticker-busy,
+.marker[data-state="settled"] .sticker-busy { border-color: var(--spoke-surface); }
+
+/* A pending need row: dashed, no shadow, the ring beside "checking…". It
+   is the same row it will become, drawn as not-yet. */
+.need-row[data-pending="true"] {
+  border-style: dashed;
+  box-shadow: none;
+}
+.need-row[data-provisional="true"] { cursor: default; }
+.need-pending {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  font-weight: var(--spoke-weight-quiet);
+  font-size: var(--spoke-size-meta);
+  color: var(--spoke-ink-soft);
+  white-space: nowrap;
+}
+.need-row[data-variant="private"] .need-pending { color: var(--spoke-scope-text); }
+.need-row[data-variant="private"] .row-busy { border-color: var(--spoke-scope); }
+.need-row[data-variant="unsure"] .row-busy { border-color: var(--spoke-unsure); }
+
+/* The count block's busy line: what is being checked, and for what. */
+.count-busy {
+  display: flex;
+  align-items: center;
+  margin-top: 5px;
+  font-family: var(--spoke-font-mono);
+  font-weight: var(--spoke-weight-body);
+  font-size: var(--spoke-size-micro);
+  line-height: 1.3;
+  font-variant-numeric: tabular-nums;
+}
+.count-block .line-busy { border-color: currentColor; }
+
+/* The hint slot names the preview while a row is held (W11). */
+.section-hint[data-tone="preview"] {
+  color: var(--spoke-works-text);
+  font-weight: var(--spoke-weight-strong);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 55%;
+}
+
+/* The composer's status line carries the ring in act colour. */
+.composer-suggest-label[data-tone="act"] .row-busy { border-color: var(--spoke-act); }
+
+/* The panel's lookup line, reserved under the verdict. */
+.details-lookup {
+  display: flex;
+  align-items: center;
+  min-height: 20px;
+  margin-top: 8px;
+  font-weight: var(--spoke-weight-quiet);
+  font-size: var(--spoke-size-detail);
+  color: var(--spoke-ink-faint);
+}
+.details-lookup[data-state="busy"] { color: var(--spoke-works-text); }
+.details-lookup .line-busy { border-color: currentColor; }

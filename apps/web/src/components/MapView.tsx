@@ -8,6 +8,7 @@ import type {
   ParticipantSummary,
   SpatialContext,
 } from "../spatial-types.ts";
+import type { LookupReason } from "../spatial-store.ts";
 import { initials, numberWord, personColor, stillWorkVerb, tiltFor } from "../ui/copy.ts";
 
 /**
@@ -76,6 +77,11 @@ interface Props {
   viewing: Record<string, string>;
   participants: ParticipantSummary[];
   meId: string;
+  /** Places the server is looking up right now: a busy ring on each. */
+  busy: ReadonlySet<string>;
+  busyReason: LookupReason | null;
+  /** Needs this page said that have not settled yet. */
+  pendingCount: number;
   onSelect(candidateId: string | null): void;
 }
 
@@ -137,6 +143,9 @@ export function MapView({
   viewing,
   participants,
   meId,
+  busy,
+  busyReason,
+  pendingCount,
   onSelect,
 }: Props) {
   const mapRef = useRef<MapRef>(null);
@@ -428,6 +437,27 @@ export function MapView({
   }`;
   const statedNeeds = context.activeNeeds.filter((n) => n.active);
   const collisions = statedNeeds.filter((n) => n.ruledOut > 0).length;
+  /* What a zero is made of (COPY.md impasse): unknowns first — "none
+     confirmed" is not "none" — then how many needs are doing the ruling out. */
+  const zeroReason =
+    unsure > 0
+      ? `none confirmed · ${unsure} still to check`
+      : collisions >= 2
+        ? `${numberWord(collisions)} needs collide`
+        : collisions === 1
+          ? "one need rules the rest out"
+          : "nothing clears every need";
+  /* The busy line: a lookup a need or the pool started, never a single
+     place someone opened (the panel says that). */
+  const busyCount = busy.size;
+  const busyLine =
+    busyCount > 0 && busyReason?.kind !== "place"
+      ? busyReason?.kind === "need" && busyReason.label
+        ? `checking ${busyCount} for ${busyReason.label}`
+        : `checking ${busyCount} place${busyCount === 1 ? "" : "s"}`
+      : pendingCount > 0
+        ? "checking…"
+        : null;
   const settled = committedId !== null;
   const preNeed = statedNeeds.length === 0 && context.privateEffects.length === 0;
 
@@ -465,6 +495,7 @@ export function MapView({
       data-scope-radius={Math.round(scope.area.radiusM)}
       data-preview={preview ? "true" : undefined}
       data-loaded={loaded ? "true" : undefined}
+      aria-busy={busyCount > 0 || pendingCount > 0 || undefined}
     >
       <Map
         ref={mapRef}
@@ -540,11 +571,14 @@ export function MapView({
                 className="marker"
                 data-state={state}
                 data-named={named.has(c.candidateId)}
+                data-busy={busy.has(c.candidateId) || undefined}
                 data-viewers={viewers.length || undefined}
                 data-testid={`pin-${c.candidateId}`}
                 role="button"
                 tabIndex={0}
                 aria-label={`${c.name} — ${STATE_LABEL[state]}${
+                  busy.has(c.candidateId) ? ", being looked up" : ""
+                }${
                   viewers.length
                     ? `, ${viewers.map((v) => v.p.displayName).join(" and ")} looking`
                     : ""
@@ -567,6 +601,10 @@ export function MapView({
                 }}
               >
                 <i className="marker-dot" aria-hidden="true" />
+                {/* In progress: a dashed ring turning around the dot (§9,
+                    spoke-busy). Its own element, so the animated transform
+                    never touches anything positioned. */}
+                <i className="busy-ring marker-busy" aria-hidden="true" />
                 {/* Peers looking: initials peek out from behind the dot when
                     the place has no name card. Identity colours, never
                     semantic ones. */}
@@ -605,6 +643,7 @@ export function MapView({
                   )}
                   <div className="sticker-box">
                     <i className="sticker-dot" aria-hidden="true" />
+                    <i className="busy-ring sticker-busy" aria-hidden="true" />
                     <span className="sticker-name">
                       {c.name}
                       {state === "proposed" && (
@@ -661,15 +700,15 @@ export function MapView({
               </span>
             </div>
             <div className="count-sub">
-              {countState === "impasse"
-                ? `of ${total}${guessed} · ${
-                    collisions >= 2
-                      ? `${numberWord(collisions)} needs collide`
-                      : "one need rules the rest out"
-                  }`
-                : `of ${total}${guessed}`}
+              {countState === "impasse" ? `of ${total}${guessed} · ${zeroReason}` : `of ${total}${guessed}`}
             </div>
           </>
+        )}
+        {busyLine && countState !== "settled" && (
+          <div className="count-busy" data-testid="count-busy">
+            <i className="busy-ring line-busy" aria-hidden="true" />
+            <span>{busyLine}</span>
+          </div>
         )}
       </div>
 

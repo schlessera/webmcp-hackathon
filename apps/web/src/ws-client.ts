@@ -25,6 +25,15 @@ export interface RealtimeCallbacks {
   /** Who holds an open socket in the room right now, and who has which
    * place open. */
   onPresence(present: string[], viewing: Array<{ participantId: string; candidateId: string }>): void;
+  /** Which places the server is looking up right now (presentation only). */
+  onLookups(pending: string[], reason: LookupReason | null): void;
+  /** Facts about places changed outside the event stream: re-read. */
+  onFacts(candidateIds: string[], reason: string): void;
+}
+
+export interface LookupReason {
+  kind: "need" | "place" | "pool";
+  label?: string;
 }
 
 export interface RealtimeHandle {
@@ -130,6 +139,14 @@ export function connectRealtime(
         callbacks.onEvents(message.revision, message.events);
       } else if (message.type === "presence") {
         callbacks.onPresence(message.present, message.viewing ?? []);
+      } else if (message.type === "lookups") {
+        const pending = Array.isArray(message.pending) ? message.pending : [];
+        diagnostics.log(`lookups: ${pending.length} pending${message.reason ? ` (${message.reason.kind})` : ""}`);
+        callbacks.onLookups(pending, message.reason ?? null);
+      } else if (message.type === "facts") {
+        const ids = Array.isArray(message.candidateIds) ? message.candidateIds : [];
+        diagnostics.log(`facts: ${ids.length} changed (${message.reason})`);
+        callbacks.onFacts(ids, message.reason);
       } else if (message.type === "confirmation") {
         // Never logged: the nonce is a credential for one page gesture.
         callbacks.onConfirmation(message);

@@ -115,6 +115,7 @@ export interface SpatialContext {
   phase: string;
   scope: SpatialScope;
   area?: AreaView;
+  pool?: PoolView;
   feasibility: {
     state: "feasible" | "fragile" | "infeasible" | "uncertain";
     eligible: number;
@@ -154,8 +155,21 @@ export interface DossierAttribute {
   confidence: number;
   /** Present when someone in the room attested (or disputed) this fact. */
   attestedBy?: string;
+  /** Why the source says so: a rule's reason, an evidence span, a note. */
   note?: string;
   sourceUrl?: string;
+}
+
+/** How this place stands against one need the viewer may see, composed
+ * server-side (contracts CandidateNeedVerdict). A peer's private need is a
+ * row with `private` and no label. */
+export interface CandidateNeedVerdict {
+  requirementId: string;
+  label?: string;
+  private?: true;
+  verdict: "yes" | "likely" | "unlikely" | "no" | "unknown";
+  confidence?: number;
+  why?: string;
 }
 
 export interface CandidateDossier {
@@ -172,6 +186,18 @@ export interface CandidateDossier {
   description?: { text: string; source: string };
   rating?: { value: number; best: number; count?: number; source: string; label: string };
   awards?: Array<{ label: string; source: string }>;
+  address?: string;
+  phone?: string;
+  needs?: CandidateNeedVerdict[];
+  /** The server is looking this place up right now. */
+  lookupPending?: boolean;
+}
+
+/** The room's pool of places as it stands (contracts PoolView). */
+export interface PoolView {
+  size: number;
+  cap: number;
+  explorable: boolean;
 }
 
 export interface NavigationLinks {

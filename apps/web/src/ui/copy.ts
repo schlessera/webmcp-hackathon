@@ -146,13 +146,20 @@ export const COPY = {
   stale: "This room is running an older version. Reload to catch up.",
   quiet: "Quiet so far.",
   verdictClears: "Clears every need the room has stated",
-  holdHint: "hold to preview without",
+  holdHint: "hold a need to preview without it",
   reassurance: "nothing here is needed to use the app",
   agentBusy: "your agent is on it",
+  agentReading: "reading what you said…",
+  lookingUp: "looking it up…",
+  readingRecord: "reading the record…",
+  recordRead: "what the record says",
+  pendingAgentOnly: "a condition your agent holds",
   agentUnclear: "Say what would rule a place in or out, or ask about the room.",
   agentHolds: "Your agent holds it. The room learns only that a condition exists.",
   startLede:
     "Pick an area. The places come from OpenStreetMap, and what it knows about them differs by city. The room shows that difference instead of hiding it.",
   startUnknown:
     "What the data does not know shows as unsure, never as a no. Thin data is where an agent can look things up.",
+  /** "updating 40 places…" — the agent's second phase (COPY.md in progress). */
+  agentApplying: (places: number) => `updating ${places} place${places === 1 ? "" : "s"}…`,
 } as const;
