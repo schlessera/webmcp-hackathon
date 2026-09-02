@@ -151,6 +151,37 @@ awards as P166 (Michelin star Q20824563, Bib Gourmand Q16143906), the
 official site as P856, and links the Wikipedia article. CC0: storable,
 redistributable, no attribution obligation (we attribute anyway).
 
+## Inference: evidence-backed likely facts
+
+When the record, looked-up web facts and the small deterministic guess table
+still leave a requested attribute unknown, the server may ask the fast NL
+model for a lean. The input is limited to the place name, category, cuisine
+tokens, OSM/Wikidata descriptions, parsed website facts and description, and
+menu words/readings already gathered by the enrichment layer. The output key
+must be one of the dossier's boolean attributes or `price-level` (band 1–4).
+
+Inference is never verification. Every accepted claim is merged through the
+graded status path as `likely_true` or `likely_false`, with source
+`infer:<model>` and its evidence span in `note`. It fills only a slot that is
+still `unknown`; record, web, deterministic guess and attested facts keep
+their precedence. The server drops a claim unless its evidence is a substring
+of the exact input bucket the model named. Whitespace runs are collapsed to
+one ASCII space on both sides before that comparison.
+
+The model's stated confidence is capped in code:
+
+| evidence used | maximum confidence |
+|---|---:|
+| name, category or cuisine token only | 0.45 |
+| OSM/Wikidata description or parsed website text | 0.60 |
+| menu words or a prior menu reading | 0.69 |
+
+Accepted claims are cached per attribute key in `enrichments.inferred` for
+seven days. Inference is completely off when `ENRICH_NETWORK=0`, when
+`OPENAI_API_KEY` is absent, or when `INFER=0`; those paths make no model call
+and write no inference cache entry. Menu image reading remains a separate
+smart-tier job.
+
 ## Sources evaluated and not used
 
 | source | licence / terms | verdict |

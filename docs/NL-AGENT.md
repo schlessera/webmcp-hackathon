@@ -13,11 +13,12 @@ participant at a time, through the **same** tool surface and the **same**
 command bus. Nothing about the protocols changed; the page gained a way to
 turn words into commands.
 
-Three jobs, two model tiers, one rule for choosing between them.
+Four jobs, two model tiers, one rule for choosing between them.
 
 | Job | Where | Tier | Why this tier |
 |---|---|---|---|
 | Route a composer sentence: need / ask / act / unclear, and turn a need into typed payloads | `apps/server/src/nl/say.ts` | fast (`gpt-5.6-luna`) | bounded, schema-shaped, must feel like typing. A strict JSON schema is the whole output; every payload is re-validated by the server's Ajv pass like a hand-typed one. |
+| Infer still-unknown place attributes from supplied evidence spans | `apps/server/src/enrich/infer.ts` | fast (`gpt-5.6-luna`) | bounded extraction over a closed key set. The server validates the quoted span, clamps confidence below verification and drops unsupported claims. |
 | Act on the room or answer a question about it | `apps/server/src/nl/agent.ts` | smart (`gpt-5.6-sol`) | open-ended: read state, weigh, call tools, explain. A wrong move changes a shared room. |
 | Screen places against an agent-private condition | `apps/server/src/nl/screening.ts` | smart | judging evidence against a person's private condition is where a wrong call costs most — a place wrongly ruled out never comes back. Told to prefer `needs_info` over a guess. |
 
