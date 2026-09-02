@@ -3,6 +3,7 @@ import type { Feasibility } from "@webmcp-hackathon/contracts";
 import { PRICE_LEVEL_EUR, leans, isVerified, normalizeStatus } from "@webmcp-hackathon/contracts";
 import { applyAttestations, loadAttestations } from "./attestations.ts";
 import { applyEnrichmentAttributes, loadCached } from "./enrich/index.ts";
+import { applyInferredAttributes } from "./enrich/infer.ts";
 import { applyGuesses } from "./guess.ts";
 
 /**
@@ -258,7 +259,10 @@ export function mergedAttributes(
   const normalised = (c.attributes ?? []).map((a) => normalizeStatus(a));
   return applyAttestations(
     c.id,
-    applyGuesses(c.category, applyEnrichmentAttributes(normalised, enrichment), observedAt),
+    applyInferredAttributes(
+      applyGuesses(c.category, applyEnrichmentAttributes(normalised, enrichment), observedAt),
+      enrichment?.inferred,
+    ),
     attestations,
   );
 }

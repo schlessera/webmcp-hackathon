@@ -12,6 +12,7 @@ import { onCommit, type CommitNotification } from "./engine.ts";
 import { mintConfirmation, pendingConfirmations } from "./confirmation.ts";
 import { projectEvent } from "./projection.ts";
 import { markClosed, markOpen, presentIn, setViewing, viewingIn } from "./presence.ts";
+import { currentLookups, onFacts, onLookupProgress } from "./enrich/progress.ts";
 
 interface Connection {
   socket: WebSocket;
@@ -137,6 +138,9 @@ export function attachWebSocket(server: Server): void {
         } else {
           send(socket, presenceMessage(participant.roomId));
         }
+        // Presentation state follows presence on every authentication. An
+        // empty frame is meaningful: it clears rings left by a dropped socket.
+        send(socket, currentLookups(participant.roomId));
         // Belt-and-braces: also tell a contract-stale client explicitly.
         if (
           typeof message.clientToolContractVersion === "string" &&
@@ -174,6 +178,8 @@ export function attachWebSocket(server: Server): void {
       console.error("post-commit broadcast failed:", err);
     });
   });
+  onLookupProgress((roomId, message) => broadcastRoomMessage(roomId, message));
+  onFacts((roomId, message) => broadcastRoomMessage(roomId, message));
 }
 
 async function broadcast(n: CommitNotification): Promise<void> {
@@ -224,6 +230,14 @@ function presenceMessage(roomId: string): ServerMessage {
 
 function broadcastPresence(roomId: string): void {
   const message = presenceMessage(roomId);
+  for (const connection of connections) {
+    if (connection.roomId !== roomId) continue;
+    if (connection.socket.readyState !== WebSocket.OPEN) continue;
+    send(connection.socket, message);
+  }
+}
+
+function broadcastRoomMessage(roomId: string, message: ServerMessage): void {
   for (const connection of connections) {
     if (connection.roomId !== roomId) continue;
     if (connection.socket.readyState !== WebSocket.OPEN) continue;

@@ -157,10 +157,11 @@ export async function createRoom(input: CreateRoomInput): Promise<CreateRoomResu
   // first place panel someone opens should already be warm.
   warmEnrichments(
     pool,
+    roomId,
     set.candidates.flatMap((c) => {
       const extras = (c.extras ?? {}) as { website?: string; wikidata?: string };
       return c.osmRef && (extras.website || extras.wikidata)
-        ? [{ osmRef: c.osmRef, ...(extras.website ? { website: extras.website } : {}), ...(extras.wikidata ? { wikidata: extras.wikidata } : {}) }]
+        ? [{ candidateId: c.id, osmRef: c.osmRef, ...(extras.website ? { website: extras.website } : {}), ...(extras.wikidata ? { wikidata: extras.wikidata } : {}) }]
         : [];
     }),
   );

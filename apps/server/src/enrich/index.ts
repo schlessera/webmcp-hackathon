@@ -1,8 +1,19 @@
 import type pg from "pg";
-import type { DossierLink } from "@webmcp-hackathon/contracts";
+import { normalizeStatus, type DossierLink, type LookupsMessage } from "@webmcp-hackathon/contracts";
+import { createHash } from "node:crypto";
 import { fetchWebsiteFacts, type FetchLike, type WebFacts } from "./website.ts";
 import { fetchWikidataFacts, type WikiFacts } from "./wikidata.ts";
 import { menuReaderEnabled, readMenu } from "./menu-reader.ts";
+import {
+  applyInferredAttributes,
+  inferAttributes,
+  inferenceEnabled,
+  INFERABLE_KEYS,
+  type StoredInference,
+} from "./infer.ts";
+import { applyGuesses } from "../guess.ts";
+import { applyAttestations, loadAttestations } from "../attestations.ts";
+import { beginLookups, publishFacts } from "./progress.ts";
 
 /**
  * The enrichment layer (docs/ENRICHMENT-SOURCES.md): what the server looks
@@ -28,6 +39,8 @@ export interface Enrichment {
   fetchedAt: string;
   website: WebFacts | null;
   wikidata: WikiFacts | null;
+  inferred?: Record<string, StoredInference>;
+  inferredAt?: string | null;
   error: string | null;
 }
 
@@ -40,6 +53,7 @@ export interface LookupTarget {
 /** A successful lookup is good for a week; a failed one is retried after an hour. */
 const TTL_OK_MS = 7 * 24 * 60 * 60 * 1000;
 const TTL_FAIL_MS = 60 * 60 * 1000;
+const TTL_INFER_MS = 7 * 24 * 60 * 60 * 1000;
 const WARM_CONCURRENCY = 4;
 
 const OFFLINE = "ENRICH_NETWORK=0";
@@ -59,6 +73,8 @@ interface Row {
   expires_at: Date;
   website: WebFacts | null;
   wikidata: WikiFacts | null;
+  inferred: Record<string, StoredInference>;
+  inferred_at: Date | null;
   error: string | null;
 }
 
@@ -67,6 +83,8 @@ const rowToEnrichment = (r: Row): Enrichment => ({
   fetchedAt: r.fetched_at.toISOString(),
   website: r.website,
   wikidata: r.wikidata,
+  inferred: r.inferred ?? {},
+  inferredAt: r.inferred_at?.toISOString() ?? null,
   error: r.error,
 });
 
@@ -169,22 +187,225 @@ export async function ensureEnrichments(
   return found;
 }
 
-/** Background warm-up for a fresh room's pool: bounded concurrency, fire and forget. */
-export function warmEnrichments(pool: pg.Pool, targets: LookupTarget[]): void {
-  const queue = targets.filter((t) => t.website || t.wikidata);
-  let index = 0;
+export interface RoomLookupTarget extends LookupTarget {
+  candidateId: string;
+}
+
+export interface LookupNowOptions {
+  keys?: string[];
+  reason?: NonNullable<LookupsMessage["reason"]>;
+}
+
+interface LookupCandidateRow {
+  id: string;
+  osm_ref: string | null;
+  name: string;
+  category: string;
+  attributes: AttributeLike[];
+  extras: {
+    description?: { text?: string };
+    website?: string;
+    wikidata?: string;
+  } | null;
+}
+
+function mergedForLookup(
+  row: LookupCandidateRow,
+  enrichment: Enrichment | undefined,
+  attestations: Awaited<ReturnType<typeof loadAttestations>>,
+  observedAt: string,
+): AttributeLike[] {
+  const normalised = (row.attributes ?? []).map((attribute) => normalizeStatus(attribute));
+  const enriched = applyEnrichmentAttributes(normalised, enrichment);
+  const guessed = applyGuesses(row.category, enriched, observedAt);
+  const inferred = applyInferredAttributes(guessed, enrichment?.inferred);
+  return applyAttestations(row.id, inferred, attestations);
+}
+
+/** A deterministic factual hash: order-independent and deliberately omits
+ * observedAt because category guesses are stamped at read time. */
+export function stableAttributeHash(attributes: AttributeLike[]): string {
+  const factual = attributes
+    .map(({ observedAt: _observedAt, ...attribute }) => attribute)
+    .sort((a, b) => a.key.localeCompare(b.key));
+  return createHash("sha256").update(JSON.stringify(factual)).digest("hex");
+}
+
+function inferenceTexts(row: LookupCandidateRow, enrichment: Enrichment | undefined) {
+  const texts: Array<{ source: "osm" | "web" | "menu" | "wikidata"; text: string }> = [];
+  const osmDescription = row.extras?.description?.text;
+  if (osmDescription) texts.push({ source: "osm", text: osmDescription });
+  const web = enrichment?.website;
+  if (web?.description) texts.push({ source: "web", text: web.description });
+  if (web) {
+    const facts = [
+      web.cuisine?.length ? `Cuisine: ${web.cuisine.join(", ")}` : "",
+      web.priceLevel ? `Price level: ${web.priceLevel}` : "",
+      web.wheelchair !== undefined ? `Wheelchair accessible: ${web.wheelchair ? "yes" : "no"}` : "",
+      web.hours?.length ? `Opening hours: ${web.hours.join("; ")}` : "",
+    ].filter(Boolean);
+    if (facts.length) texts.push({ source: "web", text: facts.join(". ") });
+    const menu = [
+      ...(web.menuMentions ?? []).map((key) => `${key} mentioned on the menu`),
+      ...(web.menuReading?.claims ?? []).map((claim) => claim.evidence),
+      ...(web.menuReading?.cuisine ?? []),
+      web.menuReading?.priceLevel ? `Menu price level: ${web.menuReading.priceLevel}` : "",
+    ].filter(Boolean);
+    if (menu.length) texts.push({ source: "menu", text: menu.join(". ") });
+  }
+  if (enrichment?.wikidata?.description) {
+    texts.push({ source: "wikidata", text: enrichment.wikidata.description });
+  }
+  return texts;
+}
+
+function cuisineTokens(attributes: AttributeLike[]): string[] {
+  const cuisine = attributes.find((attribute) => attribute.key === "cuisine");
+  return typeof cuisine?.value === "string"
+    ? cuisine.value.split(";").map((token) => token.trim()).filter(Boolean)
+    : [];
+}
+
+async function saveInferences(
+  pool: pg.Pool,
+  osmRef: string,
+  claims: Awaited<ReturnType<typeof inferAttributes>>,
+  observedAt: string,
+): Promise<void> {
+  if (claims.length === 0 || !inferenceEnabled()) return;
+  const inferred = Object.fromEntries(
+    claims.map((claim) => [claim.key, { ...claim, observedAt }]),
+  );
+  await pool.query(
+    `INSERT INTO enrichments
+       (osm_ref, fetched_at, expires_at, website, wikidata, inferred, inferred_at, error)
+     VALUES ($1, now(), now() + ($2 || ' milliseconds')::interval, NULL, NULL, $3, now(), NULL)
+     ON CONFLICT (osm_ref) DO UPDATE SET
+       inferred = enrichments.inferred || EXCLUDED.inferred,
+       inferred_at = now(),
+       expires_at = GREATEST(enrichments.expires_at, EXCLUDED.expires_at)`,
+    [osmRef, String(TTL_INFER_MS), JSON.stringify(inferred)],
+  );
+}
+
+/**
+ * Run live lookups for room candidates, at most four at once. Progress is
+ * presentation-only. A facts frame and map_revision bump happen only when
+ * the stable merged attribute hash changes.
+ */
+export async function lookupNow(
+  pool: pg.Pool,
+  roomId: string,
+  targets: RoomLookupTarget[],
+  options: LookupNowOptions = {},
+): Promise<string[]> {
+  if (process.env.ENRICH_NETWORK === "0" || targets.length === 0) return [];
+  const wantedIds = [...new Set(targets.map((target) => target.candidateId))];
+  const targetById = new Map(targets.map((target) => [target.candidateId, target]));
+  const rows = (
+    await pool.query(
+      `SELECT id, osm_ref, name, category, attributes, extras
+         FROM candidates WHERE room_id = $1 AND id = ANY($2)`,
+      [roomId, wantedIds],
+    )
+  ).rows as LookupCandidateRow[];
+  const actionable = rows.filter((row) => {
+    const target = targetById.get(row.id);
+    return Boolean(row.osm_ref && (target?.website || target?.wikidata || inferenceEnabled()));
+  });
+  if (actionable.length === 0) return [];
+
+  const endProgress = beginLookups(roomId, actionable.map((row) => row.id), options.reason);
+  const attestations = await loadAttestations(pool, roomId);
+  const requested = [...new Set(options.keys ?? [...INFERABLE_KEYS])].filter((key) =>
+    (INFERABLE_KEYS as readonly string[]).includes(key),
+  );
+  const changed: string[] = [];
+  let inferenceChanged = false;
+  let cursor = 0;
   const worker = async () => {
-    while (index < queue.length) {
-      const t = queue[index++];
+    while (cursor < actionable.length) {
+      const row = actionable[cursor++];
+      const target = targetById.get(row.id)!;
+      const observedAt = new Date().toISOString();
       try {
-        const cached = await loadCached(pool, [t.osmRef]);
-        if (!cached.has(t.osmRef)) await lookup(pool, t);
+        let current = (await loadCached(pool, [row.osm_ref!])).get(row.osm_ref!);
+        const before = stableAttributeHash(mergedForLookup(row, current, attestations, observedAt));
+
+        if (!current && (target.website || target.wikidata)) {
+          await lookup(pool, target);
+          current = (await loadCached(pool, [row.osm_ref!])).get(row.osm_ref!);
+        }
+
+        if (inferenceEnabled() && requested.length > 0) {
+          const base = applyGuesses(
+            row.category,
+            applyEnrichmentAttributes(
+              (row.attributes ?? []).map((attribute) => normalizeStatus(attribute)),
+              current,
+            ),
+            observedAt,
+          );
+          const fresh = current?.inferredAt
+            ? Date.now() - new Date(current.inferredAt).getTime() < TTL_INFER_MS
+            : false;
+          const unknown = requested.filter((key) => {
+            if (base.find((attribute) => attribute.key === key)?.status !== "unknown") return false;
+            return !(fresh && current?.inferred?.[key]);
+          });
+          if (unknown.length > 0) {
+            const claims = await inferAttributes({
+              name: row.name,
+              category: row.category,
+              cuisine: cuisineTokens(base),
+              texts: inferenceTexts(row, current),
+              keys: unknown,
+            });
+            await saveInferences(pool, row.osm_ref!, claims, observedAt);
+            if (claims.length > 0) inferenceChanged = true;
+            current = (await loadCached(pool, [row.osm_ref!])).get(row.osm_ref!);
+          }
+        }
+
+        const after = stableAttributeHash(mergedForLookup(row, current, attestations, observedAt));
+        if (before !== after) changed.push(row.id);
       } catch {
-        /* a failed lookup is recorded on the row; nothing to raise */
+        // A lookup is opportunistic. One broken site/model/database row must
+        // not fail the caller or prevent the rest of the batch completing.
       }
     }
   };
-  for (let i = 0; i < WARM_CONCURRENCY; i += 1) void worker();
+  try {
+    await Promise.all(
+      Array.from({ length: Math.min(WARM_CONCURRENCY, actionable.length) }, () => worker()),
+    );
+    if (changed.length > 0) {
+      await pool.query(
+        `UPDATE candidates SET map_revision = map_revision + 1
+           WHERE room_id = $1 AND id = ANY($2)`,
+        [roomId, changed],
+      );
+      publishFacts(roomId, {
+        type: "facts",
+        candidateIds: [...changed].sort(),
+        reason: inferenceChanged ? "inference" : "lookup",
+      });
+    }
+    return changed;
+  } finally {
+    endProgress();
+  }
+}
+
+/** Background warm-up for a fresh room's pool: bounded, visible, fire-and-forget. */
+export function warmEnrichments(
+  pool: pg.Pool,
+  roomId: string,
+  targets: RoomLookupTarget[],
+): void {
+  void lookupNow(pool, roomId, targets, { reason: { kind: "pool" } }).catch(() => {
+    /* warm-up never holds room creation hostage */
+  });
 }
 
 // --- merging into a dossier -----------------------------------------------
