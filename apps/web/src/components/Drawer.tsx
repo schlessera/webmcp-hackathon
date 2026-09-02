@@ -200,7 +200,7 @@ export function Drawer({
             </>
           )}
 
-          <Section title="put a command on the wire">
+          <Section title="put a command on the wire" open>
             <div className="drawer-actions">
               <button
                 className="drawer-btn"

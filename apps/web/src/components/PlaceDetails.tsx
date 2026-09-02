@@ -260,6 +260,8 @@ export function PlaceDetails({
   const facts = (dossier?.attributes ?? []).filter(
     (a) =>
       !askedKeys.has(a.key) &&
+      // The price band is said once, in the meta line (W8).
+      !(a.key === "price-level" && candidate.priceLevel !== null) &&
       // A fact with neither a value nor a place in the vocabulary has no
       // words to render ("hours · likely" said nothing, W8).
       (inVocabulary(a.key) || (a.value !== undefined && a.value !== null)),
@@ -306,7 +308,6 @@ export function PlaceDetails({
       : priceGuessed
         ? `likely ${eurBand(candidate.priceLevel)}`
         : eurBand(candidate.priceLevel);
-  if (priceAttr) askedKeys.add("price-level");
   const meta = [
     candidate.category.replace(/_/g, " "),
     candidate.walkMin > 0 ? `${candidate.walkMin} min away` : null,
