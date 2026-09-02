@@ -179,6 +179,15 @@ shared response therefore carries the effect only:
 
 The owner's own client receives the full need; peers receive only this.
 
+The same boundary governs a place dossier's `needs[]`. The viewer's own needs
+and every shared need are full rows, each naming its requirement. Every
+**peer-private** need collapses into a single row — `{ private: true, verdict }`
+— with no `requirementId`, no label and no why, carrying the worst verdict any
+of them reaches (`no` > `unlikely` > `unknown` > `likely` > `yes`). One row
+however many such needs exist: a per-need verdict would let a reader pair a
+condition with the places it removes, and a row count would leak how many
+conditions a peer is holding.
+
 ---
 
 ## 5. What to build first

@@ -33,6 +33,24 @@ import { pool } from "./db.ts";
  * is cached. The lookup keeps running and lands for the next read. */
 const INSPECT_LOOKUP_WAIT_MS = 3500;
 
+type NeedVerdict = NonNullable<CandidateDossier["needs"]>[number]["verdict"];
+
+/** Harshest first: the aggregate peer-private row reports the worst verdict
+ * any one of those needs reaches, so the row can never understate the effect. */
+const VERDICT_SEVERITY: Record<NeedVerdict, number> = {
+  no: 0,
+  unlikely: 1,
+  unknown: 2,
+  likely: 3,
+  yes: 4,
+};
+
+export function worstVerdict(verdicts: NeedVerdict[]): NeedVerdict {
+  return verdicts.reduce((worst, verdict) =>
+    VERDICT_SEVERITY[verdict] < VERDICT_SEVERITY[worst] ? verdict : worst,
+  );
+}
+
 /**
  * Spatial read paths — SPATIAL-PROTOCOL.md §6 read commands. Reads carry no
  * baseRevision (they never conflict) and follow the sync-path consistency
@@ -333,7 +351,9 @@ export async function inspectCandidates(
     const needsFor = (candidateId: string): CandidateDossier["needs"] => {
       const candidate = candidateById.get(candidateId);
       if (!candidate) return [];
-      return inputs.requirements.map((requirement) => {
+      const rows: NonNullable<CandidateDossier["needs"]> = [];
+      const peerPrivate: NeedVerdict[] = [];
+      for (const requirement of inputs.requirements) {
         const classified = classifyAll(
           [candidate],
           [{ ...requirement, active: true, hardness: "hard" }],
@@ -348,17 +368,26 @@ export async function inspectCandidates(
               : classified.eligibility === "uncertain"
                 ? "unknown"
                 : classified.eligibility;
+        // CLAUDE.md §5: a private need's effect is public, its content is not.
+        // Every peer-private need collapses into ONE row carrying only the
+        // harshest verdict, so a viewer cannot pair a per-place verdict with a
+        // particular need — not even by counting rows.
         if (requirement.owner_id !== actor.id && requirement.visibility !== "shared") {
-          return { requirementId: requirement.id, private: true as const, verdict };
+          peerPrivate.push(verdict);
+          continue;
         }
-        return {
+        rows.push({
           requirementId: requirement.id,
           label: labelForRequirement(requirement, requirement.owner_id === actor.id),
           verdict,
           ...(classified.confidence !== undefined ? { confidence: classified.confidence } : {}),
           why: whyFor(classified, actor.id),
-        };
-      });
+        });
+      }
+      if (peerPrivate.length > 0) {
+        rows.push({ private: true as const, verdict: worstVerdict(peerPrivate) });
+      }
+      return rows;
     };
     const dossiers: CandidateDossier[] = rows.map((r) => {
       const enrichment = r.osm_ref ? enrichments.get(r.osm_ref as string) : undefined;

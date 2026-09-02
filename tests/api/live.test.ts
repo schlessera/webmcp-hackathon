@@ -66,7 +66,21 @@ describe("look_up_places route and dossier privacy", () => {
     expect(Number((await room.pool.query("SELECT count(*) FROM enrichments WHERE osm_ref = $1", [osmRef])).rows[0].count)).toBe(0);
   });
 
-  it("shows own and shared needs in full but reduces a peer private need to its verdict", async () => {
+  it("collapses every peer private need into one worst-verdict row and keeps own needs full", async () => {
+    const candidateId = `place_a_${room.roomId.slice("room_test_".length)}`;
+    // place_a is verified_false for takeaway, so the second private need below
+    // lands on "no" while the first stays "unknown".
+    await room.pool.query(
+      `UPDATE candidates
+          SET attributes = $2::jsonb
+        WHERE id = $1`,
+      [
+        candidateId,
+        JSON.stringify([
+          { key: "takeaway", status: "verified_false", source: "osm:test", confidence: 0.9 },
+        ]),
+      ],
+    );
     expect(await command(room.tokens.org, "SubmitRequirement", {
       visibility: "shared",
       hardness: "hard",
@@ -80,27 +94,39 @@ describe("look_up_places route and dossier privacy", () => {
       payload: { kind: "attribute", key: "wheelchair-accessible", expect: "verified_true" },
       note: "Sarah's private access detail",
     })).toMatchObject({ ok: true });
+    expect(await command(room.tokens.org, "SubmitRequirement", {
+      visibility: "application-private",
+      hardness: "hard",
+      delegation: { mode: "locked" },
+      payload: { kind: "attribute", key: "takeaway", expect: "verified_true" },
+      note: "the organizer's private takeaway detail",
+    })).toMatchObject({ ok: true });
 
-    const candidateId = `place_a_${room.roomId.slice("room_test_".length)}`;
     const peer = await apiPost<{
       ok: boolean;
       candidates: Array<{ needs: Array<Record<string, unknown>> }>;
     }>(server.baseUrl, "/api/spatial/inspect", room.tokens.joe, { candidateIds: [candidateId] });
-    const privateNeed = peer.body.candidates[0].needs.find((need) => need.private === true)!;
-    expect(privateNeed).toEqual({
-      requirementId: expect.any(String),
-      private: true,
-      verdict: "unknown",
-    });
-    expect(privateNeed).not.toHaveProperty("label");
-    expect(privateNeed).not.toHaveProperty("why");
+    const privateRows = peer.body.candidates[0].needs.filter((need) => need.private === true);
+    // Two peer-private needs, one row: a count would itself be a leak.
+    expect(privateRows).toHaveLength(1);
+    // "no" is the worst of {unknown, no}, so the aggregate reports it.
+    expect(privateRows[0]).toEqual({ private: true, verdict: "no" });
+    expect(privateRows[0]).not.toHaveProperty("requirementId");
+    expect(privateRows[0]).not.toHaveProperty("label");
+    expect(privateRows[0]).not.toHaveProperty("why");
     expect(peer.raw).not.toContain("Sarah's private access detail");
+    expect(peer.raw).not.toContain("the organizer's private takeaway detail");
     expect(peer.body.candidates[0].needs.some((need) => need.label === "vegetarian options")).toBe(true);
 
+    // An owner still sees their own private need as a full, named row.
     const owner = await apiPost<{
       candidates: Array<{ needs: Array<Record<string, unknown>> }>;
     }>(server.baseUrl, "/api/spatial/inspect", room.tokens.sarah, { candidateIds: [candidateId] });
     expect(owner.body.candidates[0].needs.some((need) => need.label === "step-free access" && need.private !== true)).toBe(true);
+    // Sarah has exactly one peer-private need (the organizer's), also collapsed.
+    expect(owner.body.candidates[0].needs.filter((need) => need.private === true)).toEqual([
+      { private: true, verdict: "no" },
+    ]);
   });
 });
 

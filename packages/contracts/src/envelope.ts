@@ -406,8 +406,10 @@ export interface CandidateDossier {
   phone?: string;
   /**
    * How this place stands against each need the viewer may see, composed
-   * server-side so the page never parses a label. A peer's private need is
-   * one row with `private: true` and no label. `verdict` follows §8.2:
+   * server-side so the page never parses a label. Every peer-private need
+   * collapses into ONE row with `private: true`, no `requirementId` and no
+   * label, carrying the worst verdict any of them reaches (CLAUDE.md §5: the
+   * effect is public, the content is not). `verdict` follows §8.2:
    * yes / likely / unlikely / no / unknown.
    */
   needs?: CandidateNeedVerdict[];
@@ -417,7 +419,9 @@ export interface CandidateDossier {
 }
 
 export interface CandidateNeedVerdict {
-  requirementId: string;
+  /** Absent on the single aggregate row that stands for every peer-private
+   * need: naming one would let a reader pair a verdict with a need. */
+  requirementId?: string;
   label?: string;
   private?: true;
   verdict: "yes" | "likely" | "unlikely" | "no" | "unknown";
