@@ -571,8 +571,8 @@ export function enrichmentView(
 
 /** What to look up for a candidate row: its site and its Wikidata id. */
 export function lookupTargetOf(row: {
-  osm_ref: string | null;
-  extras: { website?: string; wikidata?: string } | null;
+  osm_ref?: string | null;
+  extras?: { website?: string; wikidata?: string } | null;
 }): LookupTarget | null {
   if (!row.osm_ref) return null;
   return {
