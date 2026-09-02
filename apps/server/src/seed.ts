@@ -41,6 +41,7 @@ interface VenueFile {
     priceLevel: number | null;
     hours: Array<{ day: string; open: string; close: string }>;
     attributes: Array<Record<string, unknown>>;
+    osmRef?: string;
   }>;
 }
 
@@ -176,14 +177,15 @@ await withTransaction(async (client) => {
       Math.round(haversineMeters(v.location, center) / WALK_SPEED_M_PER_MIN),
     );
     await client.query(
-      `INSERT INTO candidates (id, room_id, name, category, price_level, walk_min, location, attributes, hours)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) ON CONFLICT (id) DO NOTHING`,
+      `INSERT INTO candidates (id, room_id, name, category, price_level, walk_min, location, attributes, hours, osm_ref)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+       ON CONFLICT (id) DO UPDATE SET osm_ref = COALESCE(candidates.osm_ref, EXCLUDED.osm_ref)`,
       [
         // null stays null: an unknown price is uncertain under a budget need,
         // never a silently invented band (migration 006).
         v.candidateId, ROOM_ID, v.name, v.category, v.priceLevel, walkMin,
         JSON.stringify(v.location), JSON.stringify(v.attributes),
-        JSON.stringify(v.hours ?? []),
+        JSON.stringify(v.hours ?? []), v.osmRef ?? null,
       ],
     );
   }

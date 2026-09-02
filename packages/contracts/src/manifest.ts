@@ -29,10 +29,15 @@ export const HINT_TAXONOMY = [
 
 export const ATTRIBUTE_VOCABULARY = [
   "vegetarian-options",
+  "vegan-options",
+  "gluten-free-options",
+  "halal-options",
   "lactose-free-options",
   "wheelchair-accessible",
   "outdoor-seating",
   "dog-friendly",
+  "takeaway",
+  "delivery",
   "price-level",
   "cuisine",
 ] as const;
@@ -47,10 +52,15 @@ export const ATTRIBUTE_VOCABULARY = [
  */
 export const ATTRIBUTE_LABELS: Record<(typeof ATTRIBUTE_VOCABULARY)[number], string> = {
   "vegetarian-options": "vegetarian options",
+  "vegan-options": "vegan options",
+  "gluten-free-options": "gluten-free options",
+  "halal-options": "halal options",
   "lactose-free-options": "lactose-free options",
   "wheelchair-accessible": "step-free access",
   "outdoor-seating": "outdoor seating",
   "dog-friendly": "dogs welcome",
+  takeaway: "takeaway",
+  delivery: "delivery",
   "price-level": "price",
   cuisine: "cuisine",
 };

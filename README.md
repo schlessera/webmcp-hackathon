@@ -45,7 +45,9 @@ tests/e2e            lane 3 — three-context Playwright trajectory + product UI
 Places: two areas (Berlin Mitte, San Francisco SoMa) on OpenStreetMap
 snapshots built by `make venues`; what was measured about each city's data,
 why no public place API is in the request path, and the engine decision are
-in [docs/DATA-QUALITY.md](docs/DATA-QUALITY.md).
+in [docs/DATA-QUALITY.md](docs/DATA-QUALITY.md); what a room looks up about
+a place beyond its record (menus, links, descriptions, awards) and which
+sources were rejected are in [docs/ENRICHMENT-SOURCES.md](docs/ENRICHMENT-SOURCES.md).
 
 Deploy: [docs/DEPLOY-COOLIFY.md](docs/DEPLOY-COOLIFY.md)
 (`compose.coolify.yaml`). Handoff/status: [docs/PROJECT-STATUS.md](docs/PROJECT-STATUS.md).

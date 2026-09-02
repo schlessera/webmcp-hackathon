@@ -313,6 +313,25 @@ export interface SpatialContextResult {
   impasse?: { active: true; text: string };
 }
 
+/** A link the place panel offers; `label` is server-authored. */
+export interface DossierLinkView {
+  kind: string;
+  label: string;
+  url: string;
+  source: string;
+}
+
+/** A rating the place published about itself, or an award on record. Never
+ * a review-site score: none is redistributable (docs/ENRICHMENT-SOURCES.md). */
+export interface DossierRating {
+  value: number;
+  best: number;
+  count?: number;
+  source: string;
+  /** Server-authored: "as published by the place". */
+  label: string;
+}
+
 export interface CandidateDossier {
   candidateId: string;
   name: string;
@@ -320,6 +339,10 @@ export interface CandidateDossier {
   category: string;
   priceLevel: number | null;
   hours: Array<{ day: string; open: string; close: string }>;
+  links?: DossierLinkView[];
+  description?: { text: string; source: string };
+  rating?: DossierRating;
+  awards?: Array<{ label: string; source: string }>;
   attributes: Array<{
     key: string;
     value?: string | number;

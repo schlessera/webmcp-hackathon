@@ -2,6 +2,7 @@ import type pg from "pg";
 import type { Feasibility } from "@webmcp-hackathon/contracts";
 import { PRICE_LEVEL_EUR } from "@webmcp-hackathon/contracts";
 import { applyAttestations, loadAttestations } from "./attestations.ts";
+import { applyEnrichmentAttributes, loadCached } from "./enrich/index.ts";
 
 /**
  * Deterministic eligibility per SPATIAL-PROTOCOL.md §8:
@@ -38,6 +39,7 @@ export type Eligibility = "eligible" | "uncertain" | "excluded";
 
 export interface CandidateRow {
   id: string;
+  osm_ref?: string | null;
   name: string;
   category: string;
   price_level: number | null;
@@ -204,12 +206,21 @@ export async function loadEligibilityInputs(
     loadAttestations(q, roomId),
   ]);
   const center = scope?.area?.center;
+  // Looked-up facts (cached only — the classifier never waits on the
+  // network) fill what the record left open; attestations come last so a
+  // person's word can dispute a looked-up fact like any other.
+  const refs = (candidates.rows as CandidateRow[]).map((c) => c.osm_ref).filter((r): r is string => Boolean(r));
+  const enrichments = await loadCached(q, refs);
   return {
-    // Attestations are merged here, at read time, so every classifier pass
-    // (facets, impasse, previews) sees the same dossier the ledger shows.
+    // Merged here, at read time, so every classifier pass (facets, impasse,
+    // previews) sees the same dossier the ledger shows.
     candidates: (candidates.rows as CandidateRow[]).map((c) => ({
       ...c,
-      attributes: applyAttestations(c.id, c.attributes, attestations),
+      attributes: applyAttestations(
+        c.id,
+        applyEnrichmentAttributes(c.attributes, c.osm_ref ? enrichments.get(c.osm_ref) : undefined),
+        attestations,
+      ),
       walk_min: walkMinutesFrom(center, c.location, c.walk_min),
     })),
     requirements: requirements.rows as RequirementRow[],

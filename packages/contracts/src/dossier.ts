@@ -31,11 +31,62 @@ export interface DossierHours {
 /** The boolean facts the engine reads, in render order. */
 export const BOOLEAN_ATTRS: ReadonlyArray<{ key: string; tag: string }> = [
   { key: "vegetarian-options", tag: "diet:vegetarian" },
+  { key: "vegan-options", tag: "diet:vegan" },
+  { key: "gluten-free-options", tag: "diet:gluten_free" },
+  { key: "halal-options", tag: "diet:halal" },
   { key: "lactose-free-options", tag: "diet:lactose_free" },
   { key: "wheelchair-accessible", tag: "wheelchair" },
   { key: "outdoor-seating", tag: "outdoor_seating" },
   { key: "dog-friendly", tag: "dog" },
+  { key: "takeaway", tag: "takeaway" },
+  { key: "delivery", tag: "delivery" },
 ];
+
+/** A link the place panel can offer. `label` is server-authored and the
+ * client renders it verbatim — link kinds are data, not chrome. */
+export interface DossierLink {
+  kind: "website" | "menu" | "hours" | "instagram" | "wikipedia" | "reservations";
+  label: string;
+  url: string;
+  source: string;
+}
+
+const LINK_TAGS: ReadonlyArray<{ kind: DossierLink["kind"]; label: string; tags: string[] }> = [
+  { kind: "menu", label: "menu", tags: ["website:menu", "menu:url", "contact:menu"] },
+  { kind: "website", label: "website", tags: ["website", "contact:website"] },
+  { kind: "hours", label: "opening hours", tags: ["opening_hours:url"] },
+  { kind: "instagram", label: "instagram", tags: ["contact:instagram", "instagram"] },
+  { kind: "reservations", label: "reservations", tags: ["reservation:url", "contact:reservation"] },
+];
+
+function asUrl(raw: string): string | null {
+  const v = raw.trim().split(";")[0].trim();
+  if (!v) return null;
+  if (/^https?:\/\//i.test(v)) return v;
+  if (/^[a-z0-9.-]+\.[a-z]{2,}(\/|$)/i.test(v)) return `https://${v}`;
+  if (/^@?[A-Za-z0-9_.]{2,30}$/.test(v)) return null; // a bare handle; resolved per kind below
+  return null;
+}
+
+/** The links OSM itself carries for a place. */
+export function linksFromTags(tags: Record<string, string | undefined>): DossierLink[] {
+  const out: DossierLink[] = [];
+  for (const { kind, label, tags: keys } of LINK_TAGS) {
+    for (const key of keys) {
+      const raw = tags[key];
+      if (!raw) continue;
+      let url = asUrl(raw);
+      if (!url && kind === "instagram") {
+        const handle = raw.trim().replace(/^@/, "");
+        if (/^[A-Za-z0-9_.]{2,30}$/.test(handle)) url = `https://www.instagram.com/${handle}/`;
+      }
+      if (!url) continue;
+      out.push({ kind, label, url, source: `osm:${key}` });
+      break;
+    }
+  }
+  return out;
+}
 
 /** Tags the snapshot keeps per venue: everything the mapping reads, plus the
  * few a person or their agent can act on (website, phone) — never the whole
@@ -45,18 +96,31 @@ export const KEPT_TAGS: readonly string[] = [
   "name",
   "cuisine",
   "opening_hours",
+  "opening_hours:url",
   "diet:vegetarian",
   "diet:vegan",
   "diet:lactose_free",
   "diet:gluten_free",
+  "diet:halal",
   "wheelchair",
+  "toilets:wheelchair",
   "outdoor_seating",
   "dog",
+  "takeaway",
+  "delivery",
+  "reservation",
   "internet_access",
   "website",
   "contact:website",
+  "website:menu",
+  "menu:url",
+  "contact:instagram",
   "phone",
   "contact:phone",
+  "description",
+  "wikidata",
+  "brand",
+  "brand:wikidata",
   "addr:street",
   "addr:housenumber",
   "check_date",
@@ -145,6 +209,16 @@ export interface Dossier {
   /** Always null on the live path: OSM carries no price band, and an unknown
    * price is uncertain under a budget need, never an invented band. */
   priceLevel: null;
+  /** What OSM knows beyond facts: links, a description, ids to look up. */
+  extras: DossierExtras;
+}
+
+export interface DossierExtras {
+  links: DossierLink[];
+  description?: { text: string; source: string };
+  /** For the enrichment layer (apps/server/src/enrich): where to look. */
+  website?: string;
+  wikidata?: string;
 }
 
 /**
@@ -195,11 +269,21 @@ export function dossierFromTags(
     observedAt,
     confidence: hours ? 0.8 : 0.6,
   });
+  const links = linksFromTags(tags);
+  const website = links.find((l) => l.kind === "website")?.url;
   return {
     category: tags.amenity ?? "place",
     attributes,
     hours: hours ?? [],
     priceLevel: null,
+    extras: {
+      links,
+      ...(tags.description
+        ? { description: { text: tags.description.slice(0, 400), source: "osm:description" } }
+        : {}),
+      ...(website ? { website } : {}),
+      ...(tags.wikidata ? { wikidata: tags.wikidata } : {}),
+    },
   };
 }
 

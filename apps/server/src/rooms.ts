@@ -8,6 +8,8 @@ import {
 import { withTransaction } from "./db.ts";
 import { sha256 } from "./auth.ts";
 import { candidatesFor, type DataSource } from "./places.ts";
+import { pool } from "./db.ts";
+import { warmEnrichments } from "./enrich/index.ts";
 
 /**
  * Room creation from the area picker: one organizer, up to five members,
@@ -135,11 +137,12 @@ export async function createRoom(input: CreateRoomInput): Promise<CreateRoomResu
     }
     for (const c of set.candidates) {
       await client.query(
-        `INSERT INTO candidates (id, room_id, name, category, price_level, walk_min, location, attributes, hours)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+        `INSERT INTO candidates (id, room_id, name, category, price_level, walk_min, location, attributes, hours, osm_ref, extras)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
         [
           c.id, roomId, c.name, c.category, c.price_level, c.walk_min,
           JSON.stringify(c.location), JSON.stringify(c.attributes), JSON.stringify(c.hours),
+          c.osmRef ?? null, JSON.stringify(c.extras ?? {}),
         ],
       );
     }
@@ -150,5 +153,16 @@ export async function createRoom(input: CreateRoomInput): Promise<CreateRoomResu
     );
   });
 
+  // Look the pool up in the background (docs/ENRICHMENT-SOURCES.md): the
+  // first place panel someone opens should already be warm.
+  warmEnrichments(
+    pool,
+    set.candidates.flatMap((c) => {
+      const extras = (c.extras ?? {}) as { website?: string; wikidata?: string };
+      return c.osmRef && (extras.website || extras.wikidata)
+        ? [{ osmRef: c.osmRef, ...(extras.website ? { website: extras.website } : {}), ...(extras.wikidata ? { wikidata: extras.wikidata } : {}) }]
+        : [];
+    }),
+  );
   return { ok: true, roomId, areaId: area.id, invites, dataSource: set.dataSource };
 }

@@ -1,6 +1,6 @@
 {
   "toolContractVersion": "2",
-  "sha256": "07c62ec455382767323470a9f4c04a135ab5ebc23ab222f806d6145bd97f6c2b",
+  "sha256": "4171a174bd86c7362f40b6e3ad2b22e4fb4696cd4305a1a048bd38c16d5c4ee2",
   "manifest": {
     "capabilityManifest": {
       "agreement": {
@@ -8,19 +8,29 @@
       },
       "attributeLabels": {
         "cuisine": "cuisine",
+        "delivery": "delivery",
         "dog-friendly": "dogs welcome",
+        "gluten-free-options": "gluten-free options",
+        "halal-options": "halal options",
         "lactose-free-options": "lactose-free options",
         "outdoor-seating": "outdoor seating",
         "price-level": "price",
+        "takeaway": "takeaway",
+        "vegan-options": "vegan options",
         "vegetarian-options": "vegetarian options",
         "wheelchair-accessible": "step-free access"
       },
       "attributeVocabulary": [
         "vegetarian-options",
+        "vegan-options",
+        "gluten-free-options",
+        "halal-options",
         "lactose-free-options",
         "wheelchair-accessible",
         "outdoor-seating",
         "dog-friendly",
+        "takeaway",
+        "delivery",
         "price-level",
         "cuisine"
       ],
@@ -91,6 +101,18 @@
                 "type": "string"
               },
               {
+                "const": "vegan-options",
+                "type": "string"
+              },
+              {
+                "const": "gluten-free-options",
+                "type": "string"
+              },
+              {
+                "const": "halal-options",
+                "type": "string"
+              },
+              {
                 "const": "lactose-free-options",
                 "type": "string"
               },
@@ -104,6 +126,14 @@
               },
               {
                 "const": "dog-friendly",
+                "type": "string"
+              },
+              {
+                "const": "takeaway",
+                "type": "string"
+              },
+              {
+                "const": "delivery",
                 "type": "string"
               }
             ]
@@ -649,6 +679,18 @@
                         "type": "string"
                       },
                       {
+                        "const": "vegan-options",
+                        "type": "string"
+                      },
+                      {
+                        "const": "gluten-free-options",
+                        "type": "string"
+                      },
+                      {
+                        "const": "halal-options",
+                        "type": "string"
+                      },
+                      {
                         "const": "lactose-free-options",
                         "type": "string"
                       },
@@ -662,6 +704,14 @@
                       },
                       {
                         "const": "dog-friendly",
+                        "type": "string"
+                      },
+                      {
+                        "const": "takeaway",
+                        "type": "string"
+                      },
+                      {
+                        "const": "delivery",
                         "type": "string"
                       },
                       {
@@ -1287,6 +1337,18 @@
                           "type": "string"
                         },
                         {
+                          "const": "vegan-options",
+                          "type": "string"
+                        },
+                        {
+                          "const": "gluten-free-options",
+                          "type": "string"
+                        },
+                        {
+                          "const": "halal-options",
+                          "type": "string"
+                        },
+                        {
                           "const": "lactose-free-options",
                           "type": "string"
                         },
@@ -1300,6 +1362,14 @@
                         },
                         {
                           "const": "dog-friendly",
+                          "type": "string"
+                        },
+                        {
+                          "const": "takeaway",
+                          "type": "string"
+                        },
+                        {
+                          "const": "delivery",
                           "type": "string"
                         },
                         {
@@ -1873,7 +1943,7 @@
           "readOnlyHint": true,
           "untrustedContentHint": true
         },
-        "description": "Fetch full dossiers for 1-3 candidates: attributes with verification status (verified_true / verified_false / unverified / unknown), sources, freshness, hours, price level. Two or three IDs give a side-by-side comparison. Read-only.",
+        "description": "Fetch full dossiers for 1-3 candidates: attributes with verification status (verified_true / verified_false / unverified / unknown), sources, freshness, hours, price level, plus links the place publishes (website, menu, reservations), a description and any self-published rating or award. Two or three IDs compare. Read-only.",
         "inputSchema": {
           "additionalProperties": false,
           "properties": {
@@ -2084,6 +2154,18 @@
                   "type": "string"
                 },
                 {
+                  "const": "vegan-options",
+                  "type": "string"
+                },
+                {
+                  "const": "gluten-free-options",
+                  "type": "string"
+                },
+                {
+                  "const": "halal-options",
+                  "type": "string"
+                },
+                {
                   "const": "lactose-free-options",
                   "type": "string"
                 },
@@ -2097,6 +2179,14 @@
                 },
                 {
                   "const": "dog-friendly",
+                  "type": "string"
+                },
+                {
+                  "const": "takeaway",
+                  "type": "string"
+                },
+                {
+                  "const": "delivery",
                   "type": "string"
                 }
               ]

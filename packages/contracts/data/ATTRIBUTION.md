@@ -49,3 +49,20 @@ under the ODbL 1.0.
 
 Refreshing: `make venues-refresh` re-downloads the extracts and rebuilds both
 files. The prepared extracts live in `data/osm/` and are not committed.
+
+## Looked-up facts (runtime cache, not committed)
+
+`docs/ENRICHMENT-SOURCES.md`. The server may look a place up and cache the
+parsed result for seven days in the `enrichments` table:
+
+- **The place's own website** (from its OSM `website` tag): schema.org
+  JSON-LD facts, a menu link, a one-line description. Facts carry the source
+  `web:<host>`; a rating is shown only as "as published by the place". Page
+  text is never stored. robots.txt is honoured; the User-Agent names this
+  project.
+- **Wikidata** (from the OSM `wikidata` tag): description, Wikipedia link,
+  official site, awards. CC0 — <https://creativecommons.org/publicdomain/zero/1.0/>.
+  Source `wikidata:<id>`.
+
+No review platform is used: none permits redistribution or caching on terms
+this project can meet.

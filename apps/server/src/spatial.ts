@@ -17,6 +17,17 @@ import { IMPASSE_TEXT } from "./impasse.ts";
 import { presentIn } from "./presence.ts";
 import type { DataSource } from "./places.ts";
 import { applyAttestations, loadAttestations } from "./attestations.ts";
+import {
+  applyEnrichmentAttributes,
+  enrichmentView,
+  ensureEnrichments,
+  lookupTargetOf,
+} from "./enrich/index.ts";
+import { pool } from "./db.ts";
+
+/** How long a place panel waits for a fresh lookup before opening with what
+ * is cached. The lookup keeps running and lands for the next read. */
+const INSPECT_LOOKUP_WAIT_MS = 3500;
 
 /**
  * Spatial read paths — SPATIAL-PROTOCOL.md §6 read commands. Reads carry no
@@ -283,6 +294,10 @@ export async function inspectCandidates(
       )
     ).rows;
     const attestations = await loadAttestations(client, actor.roomId);
+    const targets = rows
+      .map((r) => lookupTargetOf(r as { osm_ref: string | null; extras: Record<string, unknown> | null }))
+      .filter((t): t is NonNullable<typeof t> => t !== null);
+    const enrichments = await ensureEnrichments(pool, targets, INSPECT_LOOKUP_WAIT_MS);
     const found = new Set(rows.map((r) => r.id as string));
     const missing = candidateIds.find((id) => !found.has(id));
     if (missing) {
@@ -295,16 +310,31 @@ export async function inspectCandidates(
         },
       };
     }
-    const dossiers: CandidateDossier[] = rows.map((r) => ({
-      candidateId: r.id,
-      name: r.name,
-      location: r.location,
-      category: r.category,
-      priceLevel: r.price_level,
-      hours: r.hours ?? [],
-      attributes: applyAttestations(r.id as string, r.attributes ?? [], attestations),
-      mapRevision: r.map_revision,
-    }));
+    const dossiers: CandidateDossier[] = rows.map((r) => {
+      const enrichment = r.osm_ref ? enrichments.get(r.osm_ref as string) : undefined;
+      const view = enrichmentView(r.extras ?? null, enrichment);
+      const webPrice = enrichment?.website?.priceLevel;
+      return {
+        candidateId: r.id,
+        name: r.name,
+        location: r.location,
+        category: r.category,
+        // A published price range fills an unknown band for the panel's meta
+        // line, the same way it fills the price-level attribute.
+        priceLevel: r.price_level ?? (webPrice ?? null),
+        hours: r.hours ?? [],
+        attributes: applyAttestations(
+          r.id as string,
+          applyEnrichmentAttributes(r.attributes ?? [], enrichment),
+          attestations,
+        ),
+        mapRevision: r.map_revision,
+        ...(view.links.length ? { links: view.links } : {}),
+        ...(view.description ? { description: view.description } : {}),
+        ...(view.rating ? { rating: view.rating } : {}),
+        ...(view.awards ? { awards: view.awards } : {}),
+      };
+    });
     return { ok: true as const, revision: room.revision as number, candidates: dossiers };
   });
 }

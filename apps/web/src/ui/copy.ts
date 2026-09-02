@@ -84,6 +84,8 @@ export function sourceLabel(source: string): string {
   if (source.startsWith("curated:")) return "checked by the room's data";
   if (source.startsWith("agent:")) return "checked by someone in the room";
   if (source.startsWith("disputed:")) return "disputed in the room";
+  if (source.startsWith("web:")) return "published by the place";
+  if (source.startsWith("wikidata:")) return "from Wikidata";
   if (!source) return "unknown";
   return source;
 }

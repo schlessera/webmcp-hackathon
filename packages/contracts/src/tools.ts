@@ -199,8 +199,9 @@ const spatialTools: ToolDefinition[] = [
     description:
       "Fetch full dossiers for 1-3 candidates: attributes with verification " +
       "status (verified_true / verified_false / unverified / unknown), " +
-      "sources, freshness, hours, price level. Two or three IDs give a " +
-      "side-by-side comparison. Read-only.",
+      "sources, freshness, hours, price level, plus links the place " +
+      "publishes (website, menu, reservations), a description and any " +
+      "self-published rating or award. Two or three IDs compare. Read-only.",
     inputSchema: INSPECT_CANDIDATES_INPUT,
     annotations: { readOnlyHint: true, untrustedContentHint: true },
   },

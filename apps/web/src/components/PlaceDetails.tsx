@@ -280,7 +280,8 @@ export function PlaceDetails({
     if (typeof a.value === "boolean" || a.value === undefined || a.value === null) {
       return a.status === "verified_false" ? `no ${label}` : label;
     }
-    return `${label}: ${String(a.value).replace(/[_;]/g, ", ")}`;
+    // OSM multi-values are ";"-separated and words are "_"-joined: "steak_house;brazilian".
+    return `${label}: ${String(a.value).replace(/;/g, ", ").replace(/_/g, " ")}`;
   };
 
   const sources = [
@@ -345,6 +346,48 @@ export function PlaceDetails({
                 </div>
               ))}
             </div>
+          </div>
+        )}
+
+        {dossier && (dossier.description || dossier.rating || dossier.awards) && (
+          <div className="details-group" data-testid="about">
+            {dossier.description && (
+              <p className="details-description">
+                {dossier.description.text}
+                <span className="fact-note"> · {sourceLabel(dossier.description.source)}</span>
+              </p>
+            )}
+            {dossier.awards?.map((a) => (
+              <span className="fact attr-row" data-status="verified_true" key={a.label}>
+                {a.label}
+                <span className="fact-note"> · {sourceLabel(a.source)}</span>
+              </span>
+            ))}
+            {dossier.rating && (
+              <p className="details-rating" data-testid="rating">
+                Rated {dossier.rating.value} of {dossier.rating.best}
+                {dossier.rating.count ? ` by ${dossier.rating.count}` : ""}, {dossier.rating.label}.
+              </p>
+            )}
+          </div>
+        )}
+
+        {dossier?.links && dossier.links.length > 0 && (
+          <div className="details-group details-links" data-testid="links">
+            {/* Server labels, verbatim; a link is a fact about the place, not
+                chrome, and opens outside the room. */}
+            {dossier.links.map((l) => (
+              <a
+                key={l.kind + l.url}
+                className="details-link"
+                href={l.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                title={sourceLabel(l.source)}
+              >
+                {l.label}
+              </a>
+            ))}
           </div>
         )}
 

@@ -364,17 +364,25 @@ says so.
 
 Measured at build time from the snapshots themselves
 (`manifest.coverage`), with the engine's own definition of decisive
-(`verified_true` or `verified_false`), over the five boolean attributes the
-engine reads:
+(`verified_true` or `verified_false`), over the **ten** boolean attributes
+the engine reads since 2026-09-02 (vegetarian, vegan, gluten-free, halal,
+lactose-free, step-free, outdoor seating, dogs, takeaway, delivery — the
+five added ones are rarer tags, which is why the shares below are lower
+than the five-attribute figures measured earlier that day):
 
 | | Berlin Mitte | San Francisco SoMa |
 | --- | --- | --- |
 | venues in the city bbox | 12,149 | 3,671 |
 | venues within 1.4 km of the default centre | 874 | 910 |
-| decisive, city | 26.1 % | 11.8 % |
-| decisive, 1.4 km focus | 34.0 % | 12.8 % |
-| decisive, the 120-place pool a room starts with | 32.8 % (197 of 600) | 15.8 % (95 of 600) |
+| decisive, city | 16.7 % | 8.3 % |
+| decisive, 1.4 km focus | 21.2 % | 8.9 % |
+| decisive, the 120-place pool a room starts with | 21.2 % (254 of 1,200) | 11.4 % (137 of 1,200) |
 | `opening_hours` in the pool | 82 of 120 | 69 of 120 |
+| `website` in the pool | 41 of 120 | 65 of 120 |
+
+What a room can learn about a place **beyond** its record — menus, links,
+descriptions, self-published ratings, awards — is a separate layer with its
+own research and measurements: `docs/ENRICHMENT-SOURCES.md`.
 
 The picker renders these as absolute counts and a meter, never as
 percentages (`CLAUDE.md` §10). The pool rule — the 40 nearest inside 800 m,

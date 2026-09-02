@@ -30,6 +30,7 @@ export async function startServer(): Promise<TestServer> {
         DATABASE_URL,
         PORT: String(port),
         SERVE_STATIC: "1", // skip Vite middleware in API tests
+        ENRICH_NETWORK: "0", // no venue or Wikidata lookups from a test server
         LOG_LEVEL: "info",
       },
       stdio: ["ignore", "pipe", "pipe"],

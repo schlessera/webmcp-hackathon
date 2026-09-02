@@ -2023,3 +2023,28 @@ body { overflow: hidden; }
   line-height: 1.4;
   color: var(--spoke-ink-faint);
 }
+
+/* ── Place panel: what the place publishes (links, description, rating) ── */
+.details-description,
+.details-rating {
+  margin: 0 0 6px;
+  font-size: var(--spoke-size-detail);
+  line-height: 1.45;
+  color: var(--spoke-ink-soft);
+}
+.details-links { display: flex; flex-wrap: wrap; gap: 6px; }
+.details-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 4px 12px;
+  border: var(--spoke-border) solid var(--spoke-line-quiet);
+  border-radius: var(--spoke-radius-chip);
+  background: var(--spoke-surface);
+  color: var(--spoke-ink);
+  font-size: var(--spoke-size-meta);
+  font-weight: var(--spoke-weight-strong);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.details-link::after { content: " ↗"; color: var(--spoke-ink-ghost); }

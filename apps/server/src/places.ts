@@ -6,6 +6,7 @@ import {
   POOL_PER_RING,
   dossierFromTags,
   type AreaDefinition,
+  type DossierExtras,
 } from "@webmcp-hackathon/contracts";
 import { haversineMeters } from "./eligibility.ts";
 
@@ -87,6 +88,8 @@ export interface CandidateSeed {
   attributes: unknown[];
   hours: unknown[];
   osmRef?: string;
+  /** Links, description, lookup ids (dossier.ts DossierExtras). */
+  extras?: DossierExtras;
 }
 
 const dataDir = join(
@@ -217,6 +220,7 @@ export function candidatesFor(
       attributes: dossier.attributes,
       hours: dossier.hours,
       osmRef: v.ref,
+      extras: dossier.extras,
     };
   });
   const focusVenues = snapshot.venues.filter(

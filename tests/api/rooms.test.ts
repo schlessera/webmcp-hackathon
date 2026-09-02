@@ -122,6 +122,21 @@ describe("POST /api/rooms", () => {
     const attrs = inspect.body.candidates[0].attributes;
     expect(attrs.map((a) => a.key)).toContain("hours");
     for (const a of attrs) expect(a.source.startsWith("osm:")).toBe(true);
+    // Links the record carries come through with server labels and osm:*
+    // sources even with the lookup network off (ENRICH_NETWORK=0); a shared
+    // cache may add web:* ones from a live server on the same database.
+    const withLinks = await apiPost<{
+      candidates: Array<{ candidateId: string; links?: Array<{ kind: string; label: string; url: string; source: string }> }>;
+    }>(server.baseUrl, "/api/spatial/inspect", token, {
+      candidateIds: context.body.candidates.slice(0, 3).map((c) => c.candidateId),
+    });
+    const anyLinks = withLinks.body.candidates.flatMap((c) => c.links ?? []);
+    expect(anyLinks.some((l) => l.source.startsWith("osm:"))).toBe(true);
+    for (const l of anyLinks) {
+      expect(l.url).toMatch(/^https?:\/\//);
+      expect(l.source).toMatch(/^(osm|web|wikidata):/);
+      expect(l.label.length).toBeGreaterThan(0);
+    }
     // A budget need over a room with no price bands rules nothing out: every
     // in-scope place is uncertain, none is excluded (attribute honesty).
     const budget = await apiPost<{ ok: boolean }>(server.baseUrl, "/api/commands", token, {

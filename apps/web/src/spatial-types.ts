@@ -159,6 +159,11 @@ export interface CandidateDossier {
   hours?: Array<{ day: string; open: string; close: string }>;
   attributes: DossierAttribute[];
   mapRevision: number;
+  /** Server-authored labels; the client renders them verbatim. */
+  links?: Array<{ kind: string; label: string; url: string; source: string }>;
+  description?: { text: string; source: string };
+  rating?: { value: number; best: number; count?: number; source: string; label: string };
+  awards?: Array<{ label: string; source: string }>;
 }
 
 export interface NavigationLinks {

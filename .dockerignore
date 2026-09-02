@@ -6,3 +6,5 @@ playwright-report
 .git
 .rtk
 *.log
+data
+.env
