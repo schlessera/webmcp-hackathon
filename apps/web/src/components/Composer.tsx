@@ -179,6 +179,19 @@ export function Composer({ facets, activeNeeds, placeCount, disabled, run }: Pro
     };
   });
 
+  /* The scope menu closes on Escape, like every other disclosure. */
+  useEffect(() => {
+    if (!scopeOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setScopeOpen(false);
+        inputRef.current?.focus();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [scopeOpen]);
+
   /* Focusing the pinned field must never scroll the app frame (W16): the
      browser's scroll-into-view can drag the header and map off-screen on a
      phone. Only the brief may scroll (CLAUDE.md §11). */
