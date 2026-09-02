@@ -684,6 +684,9 @@ export function App() {
           diagnostics={diag}
           context={context}
           revision={revision}
+          busy={spatialState.busy}
+          busyReason={spatialState.busyReason}
+          pendingNeeds={pendingNeeds}
           onClose={() => setDrawerOpen(false)}
           run={run}
         />

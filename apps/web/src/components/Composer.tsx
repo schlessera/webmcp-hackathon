@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { ATTRIBUTE_LABELS, ATTRIBUTE_VOCABULARY } from "@webmcp-hackathon/contracts";
 import { nlCondition, nlSay } from "../api.ts";
 import { diagnostics } from "../diagnostics-store.ts";
@@ -28,10 +28,12 @@ import { COPY } from "../ui/copy.ts";
  * below is all the parsing there is.
  */
 
-const SCOPES: Array<{ value: Visibility; label: string }> = [
-  { value: "shared", label: "Shared" },
-  { value: "application-private", label: "Private" },
-  { value: "agent-private", label: "Agent only" },
+/* Each scope says what leaves the device and what the room sees, at the
+   point of choice (SPOKES-UI §5, W10). Visibility, in the reader's words. */
+const SCOPES: Array<{ value: Visibility; label: string; means: string }> = [
+  { value: "shared", label: "Shared", means: "everyone in the room reads it" },
+  { value: "application-private", label: "Private", means: "the room sees only what it rules out" },
+  { value: "agent-private", label: "Agent only", means: "your agent holds it; the room learns a condition exists" },
 ];
 
 const ATTRIBUTE_KEYS = new Set<string>(ATTRIBUTE_VOCABULARY);
@@ -149,6 +151,48 @@ export function Composer({ facets, activeNeeds, placeCount, disabled, run }: Pro
     () => new Set(activeNeeds.map((n) => n.label.toLowerCase())),
     [activeNeeds],
   );
+
+  /* The pill row scrolls sideways under the finger; a clipped third pill
+     needs a cue that there is more (W15). Measured, not assumed. */
+  const pillRowRef = useRef<HTMLDivElement>(null);
+  const [pillOverflow, setPillOverflow] = useState<"right" | "left" | "both" | null>(null);
+  useEffect(() => {
+    const el = pillRowRef.current;
+    if (!el) {
+      setPillOverflow(null);
+      return;
+    }
+    const measure = () => {
+      const more = el.scrollWidth - el.clientWidth > 2;
+      if (!more) return setPillOverflow(null);
+      const atStart = el.scrollLeft <= 1;
+      const atEnd = el.scrollLeft + el.clientWidth >= el.scrollWidth - 1;
+      setPillOverflow(atStart ? "right" : atEnd ? "left" : "both");
+    };
+    measure();
+    el.addEventListener("scroll", measure, { passive: true });
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(measure) : null;
+    ro?.observe(el);
+    return () => {
+      el.removeEventListener("scroll", measure);
+      ro?.disconnect();
+    };
+  });
+
+  /* Focusing the pinned field must never scroll the app frame (W16): the
+     browser's scroll-into-view can drag the header and map off-screen on a
+     phone. Only the brief may scroll (CLAUDE.md §11). */
+  const holdFrame = () => {
+    const reset = () => {
+      const scroller = document.scrollingElement ?? document.documentElement;
+      if (scroller.scrollTop !== 0) scroller.scrollTop = 0;
+      const app = document.querySelector<HTMLElement>(".app");
+      if (app && app.scrollTop !== 0) app.scrollTop = 0;
+    };
+    reset();
+    requestAnimationFrame(reset);
+    window.setTimeout(reset, 120);
+  };
 
   /* Top three yes/no facets nobody has stated yet, most available first.
      Order comes from the server; we only drop what is already a need. */
@@ -287,7 +331,12 @@ export function Composer({ facets, activeNeeds, placeCount, disabled, run }: Pro
         !agentOnly && (
           <>
             <div className="composer-suggest-label">Also worth asking for</div>
-            <div className="pill-row" data-testid="facet-pills">
+            <div
+              className="pill-row"
+              data-testid="facet-pills"
+              data-overflow={pillOverflow ?? undefined}
+              ref={pillRowRef}
+            >
               {pills.map((f) => (
                 <button
                   key={f.key}
@@ -316,6 +365,7 @@ export function Composer({ facets, activeNeeds, placeCount, disabled, run }: Pro
                 key={s.value}
                 role="menuitemradio"
                 aria-checked={s.value === scope}
+                data-scope={s.value}
                 data-testid={`scope-${s.value}`}
                 onClick={() => {
                   setScope(s.value);
@@ -323,7 +373,8 @@ export function Composer({ facets, activeNeeds, placeCount, disabled, run }: Pro
                   inputRef.current?.focus();
                 }}
               >
-                {s.label}
+                <span className="scope-option-label">{s.label}</span>
+                <span className="scope-option-means">{s.means}</span>
               </button>
             ))}
           </div>
@@ -352,6 +403,7 @@ export function Composer({ facets, activeNeeds, placeCount, disabled, run }: Pro
           disabled={!canType}
           aria-label="What matters to you?"
           placeholder={placeholder}
+          onFocus={holdFrame}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter" && (text.trim() || (agentOnly && !nlAvailable))) {

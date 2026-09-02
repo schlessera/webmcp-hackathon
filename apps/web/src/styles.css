@@ -2246,3 +2246,103 @@ body { overflow: hidden; }
   color: var(--spoke-ink);
   max-width: 60%;
 }
+
+/* ── Composer: scope explanations, overflow cue (2026-09-03) ──────────── */
+.scope-menu { min-width: 232px; }
+.scope-menu button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  white-space: normal;
+}
+.scope-option-label { font-weight: var(--spoke-weight-strong); font-size: var(--spoke-size-meta); }
+.scope-option-means {
+  font-weight: var(--spoke-weight-quiet);
+  font-size: var(--spoke-size-micro);
+  line-height: 1.35;
+  color: var(--spoke-ink-soft);
+}
+.scope-menu button[data-scope="application-private"][aria-checked="true"],
+.scope-menu button[data-scope="agent-private"][aria-checked="true"] {
+  background: var(--spoke-scope-tint);
+  color: var(--spoke-scope-text);
+}
+/* A fade at the clipped edge says "more this way" without a scrollbar. */
+.pill-row[data-overflow="right"] {
+  mask-image: linear-gradient(to right, var(--spoke-ink) calc(100% - 28px), transparent);
+}
+.pill-row[data-overflow="left"] {
+  mask-image: linear-gradient(to right, transparent, var(--spoke-ink) 28px);
+}
+.pill-row[data-overflow="both"] {
+  mask-image: linear-gradient(to right, transparent, var(--spoke-ink) 28px, var(--spoke-ink) calc(100% - 28px), transparent);
+}
+/* Belt and braces for W16: the frame itself never scrolls. */
+html, body, #root { height: 100%; overflow: hidden; }
+
+/* ── Header: roster disclosure (W12) ──────────────────────────────────── */
+.roster { position: relative; flex: none; }
+.avatars {
+  border: none;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  min-height: var(--spoke-tap-min);
+  align-items: center;
+}
+.roster-card {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 30;
+  min-width: 200px;
+  border: var(--spoke-border) solid var(--spoke-line);
+  border-radius: var(--spoke-radius-card);
+  background: var(--spoke-surface);
+  box-shadow: var(--spoke-shadow-lift);
+  padding: 6px 10px;
+}
+.roster-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: var(--spoke-tap-min);
+}
+.roster-row .avatar { border-color: var(--spoke-surface); }
+.roster-name {
+  flex: 1;
+  font-weight: var(--spoke-weight-strong);
+  font-size: var(--spoke-size-body);
+  color: var(--spoke-ink);
+  white-space: nowrap;
+}
+.roster-role { font-weight: var(--spoke-weight-quiet); color: var(--spoke-ink-soft); }
+.roster-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-weight: var(--spoke-weight-quiet);
+  font-size: var(--spoke-size-meta);
+  color: var(--spoke-ink-soft);
+  white-space: nowrap;
+}
+.roster-here { position: static; border: none; width: 7px; height: 7px; }
+
+/* ── Drawer: folding groups (W13) ────────────────────────────────────── */
+details.drawer-section > summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+}
+details.drawer-section > summary::-webkit-details-marker { display: none; }
+details.drawer-section > summary::before {
+  content: "+";
+  display: inline-block;
+  width: 10px;
+  color: var(--spoke-drawer-ink-soft);
+}
+details.drawer-section[open] > summary::before { content: "−"; }
