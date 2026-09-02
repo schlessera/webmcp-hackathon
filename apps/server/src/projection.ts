@@ -133,6 +133,14 @@ export function projectEvent(
         text: aggregateEligibilityText(p),
       };
 
+    case "candidates_added": {
+      const count = (p.count as number) ?? 0;
+      const text = `${isActor ? "You" : actorName} brought ${count} place${count === 1 ? "" : "s"} in.`;
+      return isActor
+        ? full(event, text)
+        : { revision: event.revision, type: event.type, level: "existence", text };
+    }
+
     case "stance_submitted": {
       if (event.visibility === "shared" || isActor) {
         const verb =

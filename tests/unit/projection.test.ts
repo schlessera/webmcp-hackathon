@@ -17,6 +17,7 @@ describe("new event projections", () => {
   it("every emitted domain event type projects for its actor (never dropped)", () => {
     const types = [
       "scope_change_proposed", "scope_change_applied", "proposal_created",
+      "candidates_added",
       "requirement_toggled",
       "impasse_detected", "adjustment_resolved", "requirement_relaxed",
       "impasse_resolved", "agreement_staged", "agreement_stage_aborted",
@@ -29,6 +30,24 @@ describe("new event projections", () => {
       );
       expect(projected, `event type ${type} was dropped by the projector`).not.toBeNull();
     }
+  });
+
+  it("shares who grew the pool but only gives the actor the place names", () => {
+    const event = ev({
+      type: "candidates_added",
+      payload: { actorName: "Alex", count: 3, names: ["One", "Two", "Three"] },
+    });
+    const actor = projectEvent(event, "p_org")!;
+    expect(actor.level).toBe("full");
+    expect(actor.payload).toEqual({ count: 3, names: ["One", "Two", "Three"] });
+
+    const peer = projectEvent(event, "p_sarah")!;
+    expect(peer).toMatchObject({
+      level: "existence",
+      text: "Alex brought 3 places in.",
+    });
+    expect(peer.payload).toBeUndefined();
+    expect(peer.actorId).toBeUndefined();
   });
 
   it("names the actor only at full level, never on existence/aggregate or council rows", () => {

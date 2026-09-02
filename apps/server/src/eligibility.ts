@@ -104,6 +104,8 @@ export interface EligibilityReason {
 
 export interface CandidateEligibility {
   candidateId: string;
+  /** Stable area-snapshot ref, when the candidate has one. */
+  ref?: string;
   name: string;
   category: string;
   location: { lat: number; lng: number };
@@ -509,6 +511,7 @@ function excluded(
 function base(c: CandidateRow) {
   return {
     candidateId: c.id,
+    ...(c.osm_ref ? { ref: c.osm_ref } : {}),
     name: c.name,
     category: c.category,
     location: c.location,

@@ -9,9 +9,12 @@ import {
 } from "../../packages/contracts/src/index.ts";
 import {
   areaSummaries,
+  candidatesForRefs,
   candidatesFor,
+  explorePlaces,
   loadSnapshot,
   poolFor,
+  topUp,
 } from "../../apps/server/src/places.ts";
 import { haversineMeters } from "../../apps/server/src/eligibility.ts";
 
@@ -75,7 +78,7 @@ describe.each(AREAS.map((a) => [a.id, a] as const))("snapshot %s", (_id, area) =
     );
   });
 
-  it("pools the nearest N per ring, deterministically, out to the widening ceiling", () => {
+  it("spreads N deterministic places across every ring out to the widening ceiling", () => {
     const pool = poolFor(area, snapshot, area.center);
     const again = poolFor(area, snapshot, area.center);
     expect(pool.map((v) => v.ref)).toEqual(again.map((v) => v.ref));
@@ -93,13 +96,79 @@ describe.each(AREAS.map((a) => [a.id, a] as const))("snapshot %s", (_id, area) =
       expect(v.distance).toBeGreaterThan(wide);
       expect(v.distance).toBeLessThanOrEqual(max);
     }
-    // Nearest-first inside each ring.
-    for (const ring of [inner, middle, outer]) {
-      for (let i = 1; i < ring.length; i += 1) {
-        expect(ring[i].distance).toBeGreaterThanOrEqual(ring[i - 1].distance);
-      }
+    // The old nearest-40 rule collapsed the inner ring into roughly 300 m.
+    // Every ring now reaches its outer edge and covers all four quadrants,
+    // with almost every choice coming from a distinct 100 m grid cell.
+    const bounds = [narrow, wide, max];
+    for (const [index, selected] of [inner, middle, outer].entries()) {
+      expect(Math.max(...selected.map((venue) => venue.distance))).toBeGreaterThan(
+        bounds[index] * 0.9,
+      );
+      const quadrants = new Set(
+        selected.map(
+          (venue) =>
+            `${venue.location.lat >= area.center.lat ? 1 : 0}${
+              venue.location.lng >= area.center.lng ? 1 : 0
+            }`,
+        ),
+      );
+      expect(quadrants.size).toBe(4);
+      const cells = new Set(
+        selected.map((venue) => {
+          const x =
+            (venue.location.lng - area.center.lng) *
+            111_320 *
+            Math.cos((area.center.lat * Math.PI) / 180);
+          const y = (venue.location.lat - area.center.lat) * 111_320;
+          return `${Math.floor(x / 100)},${Math.floor(y / 100)}`;
+        }),
+      );
+      expect(cells.size).toBeGreaterThanOrEqual(35);
     }
     expect(new Set(pool.map((v) => v.ref)).size).toBe(pool.length);
+  });
+
+  it("queries the snapshot by bbox with a deterministic cap", () => {
+    const bbox: [number, number, number, number] = [
+      area.center.lat - 0.004,
+      area.center.lng - 0.004,
+      area.center.lat + 0.004,
+      area.center.lng + 0.004,
+    ];
+    const result = explorePlaces(area, snapshot, bbox, 7);
+    expect(result.places).toHaveLength(7);
+    expect(result.truncated).toBe(true);
+    expect(result.places.map((place) => place.ref)).toEqual(
+      [...result.places.map((place) => place.ref)].sort(),
+    );
+    for (const place of result.places) {
+      expect(place.location.lat).toBeGreaterThanOrEqual(bbox[0]);
+      expect(place.location.lng).toBeGreaterThanOrEqual(bbox[1]);
+      expect(place.location.lat).toBeLessThanOrEqual(bbox[2]);
+      expect(place.location.lng).toBeLessThanOrEqual(bbox[3]);
+    }
+  });
+
+  it("tops up from the spread rule without returning refs already in the room", () => {
+    const existing = new Set(poolFor(area, snapshot, area.center).map((venue) => venue.ref));
+    const shifted = { lat: area.center.lat + 0.008, lng: area.center.lng + 0.008 };
+    const first = topUp("room_test", area, snapshot, shifted, existing);
+    const again = topUp("room_test", area, snapshot, shifted, existing);
+    expect(first.length).toBeGreaterThan(0);
+    expect(first.length).toBeLessThanOrEqual(3 * POOL_PER_RING);
+    expect(first.map((seed) => seed.osmRef)).toEqual(again.map((seed) => seed.osmRef));
+    for (const seed of first) expect(existing.has(seed.osmRef!)).toBe(false);
+  });
+
+  it("names snapshot additions safely for the curated demo room", () => {
+    const seed = candidatesForRefs(
+      "room_demo",
+      snapshot,
+      [snapshot.venues[0].ref],
+      area.center,
+    )![0];
+    expect(seed.id).toBe("pl_demo_001");
+    expect(seed.id).not.toMatch(/^place_\d+$/);
   });
 
   it("seeds a room with namespaced ids and nothing invented", () => {

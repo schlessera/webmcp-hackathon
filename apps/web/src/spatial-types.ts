@@ -21,6 +21,8 @@ export interface ParticipantSummary {
 
 export interface CandidateSummary {
   candidateId: string;
+  /** Stable area-snapshot ref, when this place has one. */
+  ref?: string;
   name: string;
   location: { lat: number; lng: number };
   category: string;
@@ -109,12 +111,27 @@ export interface AreaView {
   focusVenues: number;
 }
 
+export interface PoolView {
+  size: number;
+  cap: number;
+  explorable: boolean;
+}
+
+export interface ExplorePlace {
+  ref: string;
+  name: string;
+  location: { lat: number; lng: number };
+  category: string;
+  candidateId?: string;
+}
+
 export interface SpatialContext {
   ok: true;
   revision: number;
   phase: string;
   scope: SpatialScope;
   area?: AreaView;
+  pool?: PoolView;
   feasibility: {
     state: "feasible" | "fragile" | "infeasible" | "uncertain";
     eligible: number;

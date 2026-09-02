@@ -4,6 +4,7 @@ import type {
   PrepareNavigationResponse,
   SpatialContextResponse,
 } from "@webmcp-hackathon/contracts";
+import { POOL_CAP } from "@webmcp-hackathon/contracts";
 import { withTransaction } from "./db.ts";
 import type { Participant } from "./auth.ts";
 import {
@@ -16,7 +17,7 @@ import {
 import { computeFacetsBundle } from "./facets.ts";
 import { IMPASSE_TEXT } from "./impasse.ts";
 import { presentIn } from "./presence.ts";
-import type { DataSource } from "./places.ts";
+import { loadSnapshot, type DataSource } from "./places.ts";
 import { loadAttestations } from "./attestations.ts";
 import { enrichmentView, ensureEnrichments, lookupTargetOf } from "./enrich/index.ts";
 import { pool } from "./db.ts";
@@ -48,7 +49,7 @@ export async function spatialContext(
   return withTransaction(async (client) => {
     const room = (
       await client.query(
-        "SELECT revision, phase, impasse_active, data_source FROM rooms WHERE id = $1 FOR SHARE",
+        "SELECT revision, phase, impasse_active, data_source, area_id FROM rooms WHERE id = $1 FOR SHARE",
         [actor.roomId],
       )
     ).rows[0];
@@ -222,6 +223,9 @@ export async function spatialContext(
       : undefined;
 
     const source = room.data_source as DataSource | null;
+    const poolSize = inputs.candidates.length;
+    const explorable =
+      typeof room.area_id === "string" && loadSnapshot(room.area_id) !== null;
     return {
       ok: true as const,
       revision: room.revision as number,
@@ -235,11 +239,12 @@ export async function spatialContext(
               kind: source.kind,
               source: source.source,
               dataAsOf: source.extractTimestamp,
-              poolSize: source.poolSize,
+              poolSize,
               focusVenues: source.focusVenues,
             },
           }
         : {}),
+      pool: { size: poolSize, cap: POOL_CAP, explorable },
       feasibility: feasibilityOf(rows),
       total: bundle.total,
       matching: bundle.matching,
@@ -250,6 +255,7 @@ export async function spatialContext(
       participants,
       candidates: rows.map((r) => ({
         candidateId: r.candidateId,
+        ...(r.ref ? { ref: r.ref } : {}),
         name: r.name,
         location: r.location,
         category: r.category,

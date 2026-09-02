@@ -9,6 +9,7 @@ import {
   SPATIAL_CONTEXT_INPUT,
   SYNC_SESSION_INPUT,
   TOOL_CONTRACT_VERSION,
+  areaById,
 } from "@webmcp-hackathon/contracts";
 
 const Ajv = ((AjvModule as never as { default?: unknown }).default ??
@@ -29,7 +30,13 @@ import { config } from "./config.ts";
 import { authenticateToken, exchangeInviteSecret } from "./auth.ts";
 import { submitCommand } from "./engine.ts";
 import { syncSession } from "./sync.ts";
-import { areaSummaries } from "./places.ts";
+import {
+  areaSummaries,
+  explorePlaces,
+  loadSnapshot,
+  type ExploreBbox,
+} from "./places.ts";
+import { haversineMeters } from "./eligibility.ts";
 import { createRoom } from "./rooms.ts";
 import { inspectCandidates, prepareNavigation, spatialContext } from "./spatial.ts";
 import { attachWebSocket } from "./ws.ts";
@@ -231,6 +238,81 @@ app.post("/api/spatial/context", async (req) => {
   logRead(req, actor.id, "GetSpatialContext", result.ok);
   return result;
 });
+
+const MAX_EXPLORE_SIDE_M = 6000;
+
+app.get("/api/rooms/:id/places", async (req, reply) => {
+  const actor = await bearer(req);
+  if (!actor) return reply.code(401).send(notAuthenticated);
+  const roomId = (req.params as { id?: string }).id;
+  if (!roomId || roomId !== actor.roomId) {
+    return reply.code(404).send({ error: "Room not found." });
+  }
+  const raw = (req.query as { bbox?: unknown }).bbox;
+  const bbox = parseExploreBbox(raw);
+  if (!bbox) {
+    return reply.code(400).send({ error: "bbox must be south,west,north,east." });
+  }
+  const [south, west, north, east] = bbox;
+  const middleLat = (south + north) / 2;
+  const middleLng = (west + east) / 2;
+  const width = haversineMeters(
+    { lat: middleLat, lng: west },
+    { lat: middleLat, lng: east },
+  );
+  const height = haversineMeters(
+    { lat: south, lng: middleLng },
+    { lat: north, lng: middleLng },
+  );
+  if (width > MAX_EXPLORE_SIDE_M || height > MAX_EXPLORE_SIDE_M) {
+    return reply.code(400).send({ error: "bbox must be no more than 6 km on either side." });
+  }
+  const room = (
+    await pool.query("SELECT area_id FROM rooms WHERE id = $1", [roomId])
+  ).rows[0] as { area_id: string | null } | undefined;
+  const area = room?.area_id ? areaById(room.area_id) : undefined;
+  const snapshot = area ? loadSnapshot(area.id) : null;
+  if (!area || !snapshot) {
+    return { ok: true as const, places: [], truncated: false };
+  }
+  const result = explorePlaces(area, snapshot, bbox, 600);
+  const refs = result.places.map((place) => place.ref);
+  const existing = refs.length
+    ? (
+        await pool.query(
+          "SELECT id, osm_ref FROM candidates WHERE room_id = $1 AND osm_ref = ANY($2)",
+          [roomId, refs],
+        )
+      ).rows as Array<{ id: string; osm_ref: string }>
+    : [];
+  const candidateByRef = new Map(existing.map((row) => [row.osm_ref, row.id]));
+  logRead(req, actor.id, "ExplorePlaces", true);
+  return {
+    ...result,
+    places: result.places.map((place) => {
+      const candidateId = candidateByRef.get(place.ref);
+      return candidateId ? { ...place, candidateId } : place;
+    }),
+  };
+});
+
+function parseExploreBbox(value: unknown): ExploreBbox | null {
+  if (typeof value !== "string") return null;
+  const parts = value.split(",").map(Number);
+  if (
+    parts.length !== 4 ||
+    parts.some((part) => !Number.isFinite(part)) ||
+    parts[0] < -90 ||
+    parts[2] > 90 ||
+    parts[1] < -180 ||
+    parts[3] > 180 ||
+    parts[0] >= parts[2] ||
+    parts[1] >= parts[3]
+  ) {
+    return null;
+  }
+  return parts as ExploreBbox;
+}
 
 app.post("/api/spatial/inspect", async (req) => {
   const actor = await bearer(req);

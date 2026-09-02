@@ -101,31 +101,31 @@
    "pool": {
     "venues": 120,
     "slots": 1200,
-    "decisive": 137,
-    "decisivePct": 11.4,
+    "decisive": 94,
+    "decisivePct": 7.8,
     "tagCounts": {
-     "opening_hours": 69,
-     "wheelchair": 53,
-     "outdoor_seating": 37,
-     "diet:vegetarian": 11,
-     "diet:vegan": 8,
+     "opening_hours": 64,
+     "wheelchair": 33,
+     "outdoor_seating": 30,
+     "diet:vegetarian": 5,
+     "diet:vegan": 3,
      "diet:lactose_free": 0,
-     "dog": 1,
-     "cuisine": 84,
-     "internet_access": 5,
-     "website": 65
+     "dog": 0,
+     "cuisine": 69,
+     "internet_access": 7,
+     "website": 56
     },
     "tags": {
-     "opening_hours": 57.5,
-     "wheelchair": 44.2,
-     "outdoor_seating": 30.8,
-     "diet:vegetarian": 9.2,
-     "diet:vegan": 6.7,
+     "opening_hours": 53.3,
+     "wheelchair": 27.5,
+     "outdoor_seating": 25,
+     "diet:vegetarian": 4.2,
+     "diet:vegan": 2.5,
      "diet:lactose_free": 0,
-     "dog": 0.8,
-     "cuisine": 70,
-     "internet_access": 4.2,
-     "website": 54.2
+     "dog": 0,
+     "cuisine": 57.5,
+     "internet_access": 5.8,
+     "website": 46.7
     }
    },
    "poolRule": {
