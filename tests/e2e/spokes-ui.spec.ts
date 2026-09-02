@@ -1228,7 +1228,7 @@ test("place details read the server's verdicts, address and hours, and say when 
   await expect(rows.nth(0)).toHaveAttribute("data-mark", "likely");
   await expect(rows.nth(0)).toContainText("vegetarian options");
   await expect(rows.nth(0)).toContainText("the menu mentions a vegan bowl");
-  await expect(rows.nth(0)).toContainText("likely · likely");
+  await expect(rows.nth(0).locator(".ledger-answer")).toHaveText(/^likely: likely$/);
   await expect(rows.nth(1)).toHaveAttribute("data-mark", "in");
   await expect(rows.nth(1)).toContainText("yes");
   await expect(rows.nth(2)).toHaveAttribute("data-mark", "unknown");

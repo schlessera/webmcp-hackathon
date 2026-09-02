@@ -79,8 +79,10 @@ function answerOf(v: CandidateNeedVerdict): string {
   if (v.verdict === "yes") return "yes";
   if (v.verdict === "no") return "no";
   if (v.verdict === "likely" || v.verdict === "unlikely") {
-    const word = v.verdict;
-    return v.confidence !== undefined ? `${word} · ${confidenceWord(v.confidence)}` : word;
+    // The verdict word already says "likely"; the confidence word only
+    // adds something at either end of the scale.
+    const sure = v.confidence === undefined ? null : confidenceWord(v.confidence);
+    return sure && sure !== "likely" ? `${v.verdict} · ${sure}` : v.verdict;
   }
   return UNKNOWN_SOURCE;
 }
