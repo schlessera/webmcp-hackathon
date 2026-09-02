@@ -38,6 +38,7 @@ export const PHASE_GATES: Record<CommandType, readonly Phase[]> = {
   EvaluateCandidates: ["gathering", "deliberation"],
   RespondToProposal: ["gathering", "deliberation"],
   SetSearchScope: ["gathering", "deliberation"],
+  AddCandidates: ["gathering", "deliberation"],
   ProposeDestination: ["gathering", "deliberation"],
   // Evidence about a place is useful while the room is still choosing.
   AttestAttribute: ["gathering", "deliberation"],

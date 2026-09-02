@@ -302,12 +302,43 @@ export interface AreaView {
   focusVenues: number;
 }
 
+/**
+ * The room's pool of places as it stands (SPATIAL-PROTOCOL §5.5): how many
+ * candidate rows the room holds, the ceiling it may grow to, and whether the
+ * data behind it can offer more (a city snapshot: yes; a curated fixture: no).
+ */
+export interface PoolView {
+  size: number;
+  cap: number;
+  explorable: boolean;
+}
+
+/**
+ * One place from the data behind the map that is NOT (yet) in the room —
+ * the explore layer a participant pans through. `candidateId` is set when
+ * the place already is a candidate, so the page draws it once.
+ */
+export interface ExplorePlace {
+  ref: string;
+  name: string;
+  location: LatLng;
+  category: string;
+  candidateId?: string;
+}
+export interface ExplorePlacesResult {
+  ok: true;
+  places: ExplorePlace[];
+  /** True when the bbox held more than the cap; zoom in to see the rest. */
+  truncated: boolean;
+}
+
 export interface SpatialContextResult {
   ok: true;
   revision: number;
   phase: string;
   scope: ScopeView | null;
   area?: AreaView;
+  pool?: PoolView;
   feasibility: Feasibility;
   /** Places inside the current scope — the denominator of "N of TOTAL". The
    * candidates array carries more: out-of-scope places are returned excluded
@@ -366,8 +397,33 @@ export interface CandidateDossier {
     source: string;
     observedAt: string;
     confidence: number;
+    /** Why the source says so: a rule's reason, a verbatim evidence span an
+     * inference rests on, an attester's note. Rendered in the ledger. */
+    note?: string;
   }>;
+  /** The record's street address and contact, when the data carries them. */
+  address?: string;
+  phone?: string;
+  /**
+   * How this place stands against each need the viewer may see, composed
+   * server-side so the page never parses a label. A peer's private need is
+   * one row with `private: true` and no label. `verdict` follows §8.2:
+   * yes / likely / unlikely / no / unknown.
+   */
+  needs?: CandidateNeedVerdict[];
+  /** Places the server is looking up right now include this one. */
+  lookupPending?: boolean;
   mapRevision: number;
+}
+
+export interface CandidateNeedVerdict {
+  requirementId: string;
+  label?: string;
+  private?: true;
+  verdict: "yes" | "likely" | "unlikely" | "no" | "unknown";
+  confidence?: number;
+  /** Reader-facing, ≤120 chars, never wire vocabulary. */
+  why?: string;
 }
 
 export interface InspectCandidatesResult {

@@ -266,6 +266,22 @@ export const SetSearchScopeInput = Type.Object(
   { additionalProperties: false },
 );
 
+/**
+ * Bring places from the data behind the map into the room's pool
+ * (SPATIAL-PROTOCOL §5.5). Additive and shared: any participant may add,
+ * nothing is ever removed, and the pool has a ceiling the server enforces.
+ */
+export const AddCandidatesInput = Type.Object(
+  {
+    baseRevision: Type.Integer({ minimum: 0 }),
+    refs: Type.Array(
+      Type.String({ maxLength: 40, description: "A `ref` from the explore layer (GET /api/rooms/:id/places)." }),
+      { minItems: 1, maxItems: 40, uniqueItems: true },
+    ),
+  },
+  { additionalProperties: false },
+);
+
 export const ProposeDestinationInput = Type.Object(
   {
     baseRevision: Type.Integer({ minimum: 0 }),
@@ -372,6 +388,7 @@ export const COMMAND_SCHEMAS = {
   RespondToProposal: RespondToProposalInput,
   SetReadyState: SetReadyStateInput,
   SetSearchScope: SetSearchScopeInput,
+  AddCandidates: AddCandidatesInput,
   ProposeDestination: ProposeDestinationInput,
   PlanArrival: PlanArrivalInput,
   AttestAttribute: AttestAttributeInput,

@@ -8,7 +8,13 @@
 // facets/activeNeeds/privateEffects/participants, ProposalView replaced the
 // anonymized stanceCounts with named public stances, and SetRequirementActive
 // joined the command bus. Breaking: stanceCounts is gone.
-export const TOOL_CONTRACT_VERSION = "2";
+// 3: the pool grows (SPATIAL-PROTOCOL §5.5) — AddCandidates joined the
+// command bus with the add_candidates tool, look_up_places asks for facts on
+// demand, spatial context gained `pool`, dossiers gained address / phone /
+// per-need verdicts / a note per attribute, and the realtime channel gained
+// the presentation-only `lookups` and `facts` frames. Additive on the wire;
+// bumped because the tool catalog changed.
+export const TOOL_CONTRACT_VERSION = "3";
 
 export const PROTOCOL_VERSIONS = {
   negotiation: "v1",

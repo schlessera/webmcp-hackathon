@@ -51,6 +51,7 @@ const MUTATIONS: Record<string, string> = {
   set_ready_state: "SetReadyState",
   confirm_agreement: "ConfirmAgreement",
   set_search_scope: "SetSearchScope",
+  add_candidates: "AddCandidates",
   propose_destination: "ProposeDestination",
   plan_arrival: "PlanArrival",
   attest_attribute: "AttestAttribute",

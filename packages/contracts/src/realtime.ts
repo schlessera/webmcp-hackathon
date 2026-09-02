@@ -68,9 +68,36 @@ export interface PresenceMessage {
    * Omitted rows mean "nothing open". Presence, never room state. */
   viewing: Array<{ participantId: string; candidateId: string }>;
 }
+/**
+ * Which places the server is looking up right now (a venue site, Wikidata,
+ * a menu, an inference), for THIS room. Sent to a socket on authentication
+ * and to the room whenever the set changes, coalesced. Presentation only —
+ * the page draws a busy ring on those places; it never changes room state
+ * and is never revisioned. An empty `pending` clears every ring.
+ */
+export interface LookupsMessage {
+  type: "lookups";
+  pending: string[];
+  /** Why they are being looked up, for the count block ("checking 12 places
+   * for step-free access"). Absent for a warm-up nobody asked for. */
+  reason?: { kind: "need" | "place" | "pool"; label?: string };
+}
+/**
+ * Facts about places changed outside the event stream (a lookup landed, an
+ * inference was made, a pool grew). Not a negotiation event: it carries no
+ * revision bump and no baseRevision discipline. The page re-reads the
+ * spatial context and any open dossier among `candidateIds`.
+ */
+export interface FactsMessage {
+  type: "facts";
+  candidateIds: string[];
+  reason: "lookup" | "inference" | "pool";
+}
 export type ServerMessage =
   | WelcomeMessage
   | EventMessage
   | ErrorMessage
   | ConfirmationMessage
-  | PresenceMessage;
+  | PresenceMessage
+  | LookupsMessage
+  | FactsMessage;

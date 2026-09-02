@@ -1,6 +1,6 @@
 {
-  "toolContractVersion": "2",
-  "sha256": "4c60d7cb163bf819bdd7ebfb34fef110fe98fe00a58f685ff3bfeff10c133ef2",
+  "toolContractVersion": "3",
+  "sha256": "a3dc6d8fe9b49831d0905b06dc4799c480055c40428a15ff2b811999629c22f1",
   "manifest": {
     "capabilityManifest": {
       "agreement": {
@@ -78,6 +78,31 @@
       }
     },
     "commands": {
+      "AddCandidates": {
+        "additionalProperties": false,
+        "properties": {
+          "baseRevision": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "refs": {
+            "items": {
+              "description": "A `ref` from the explore layer (GET /api/rooms/:id/places).",
+              "maxLength": 40,
+              "type": "string"
+            },
+            "maxItems": 40,
+            "minItems": 1,
+            "type": "array",
+            "uniqueItems": true
+          }
+        },
+        "required": [
+          "baseRevision",
+          "refs"
+        ],
+        "type": "object"
+      },
       "AttestAttribute": {
         "additionalProperties": false,
         "properties": {
@@ -1208,7 +1233,7 @@
         "lastSyncedRevision"
       ]
     },
-    "toolContractVersion": "2",
+    "toolContractVersion": "3",
     "tools": [
       {
         "annotations": {
@@ -2044,6 +2069,72 @@
           "type": "object"
         },
         "name": "set_search_scope"
+      },
+      {
+        "annotations": {},
+        "description": "Bring up to 40 places from the data behind the map into the room's pool, by the refs the explore layer reports. Additive and shared: nothing is removed, every participant sees the new places, and the room's pool ceiling applies.",
+        "inputSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "baseRevision": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "refs": {
+              "items": {
+                "description": "A `ref` from the explore layer (GET /api/rooms/:id/places).",
+                "maxLength": 40,
+                "type": "string"
+              },
+              "maxItems": 40,
+              "minItems": 1,
+              "type": "array",
+              "uniqueItems": true
+            }
+          },
+          "required": [
+            "baseRevision",
+            "refs"
+          ],
+          "type": "object"
+        },
+        "name": "add_candidates"
+      },
+      {
+        "annotations": {
+          "readOnlyHint": true
+        },
+        "description": "Ask the server to look up 1-3 places now — their website, Wikidata, menu and an inference over what was found — filling facts the record left unknown as likely/unlikely with a confidence, never as verified. Returns what is known right away; more lands on the page as it arrives. Optionally name the attribute keys that matter.",
+        "inputSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "candidateIds": {
+              "items": {
+                "description": "Stable candidateId from get_spatial_context.",
+                "maxLength": 40,
+                "type": "string"
+              },
+              "maxItems": 3,
+              "minItems": 1,
+              "type": "array"
+            },
+            "keys": {
+              "items": {
+                "description": "Attribute keys to focus on (facet keys).",
+                "maxLength": 40,
+                "type": "string"
+              },
+              "maxItems": 6,
+              "minItems": 1,
+              "type": "array"
+            }
+          },
+          "required": [
+            "candidateIds"
+          ],
+          "type": "object"
+        },
+        "name": "look_up_places"
       },
       {
         "annotations": {},

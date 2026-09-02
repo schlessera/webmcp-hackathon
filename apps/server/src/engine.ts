@@ -290,6 +290,8 @@ async function dispatch(
       return setReadyState(client, actor, input as never);
     case "SetSearchScope":
       return setSearchScope(client, actor, input as never);
+    case "AddCandidates":
+      return addCandidates(client, actor, input as never);
     case "ProposeDestination":
       return proposeDestination(client, actor, input as never);
     case "PlanArrival":
@@ -778,6 +780,19 @@ async function setReadyState(
     ],
     effect: `Ready state set to "${cmd.state}".`,
   };
+}
+
+/** Stub until the pool-growth wave lands (SPATIAL-PROTOCOL §5.5). */
+async function addCandidates(
+  _client: pg.PoolClient,
+  _actor: Participant,
+  _cmd: { refs: string[] },
+): Promise<HandlerOutcome> {
+  return errorOutcome(
+    "invalid_input",
+    "Bringing places into the room is not available yet.",
+    "Use the places already on the map.",
+  );
 }
 
 async function setSearchScope(

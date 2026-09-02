@@ -23,6 +23,8 @@ export interface DossierAttribute {
   source: string;
   observedAt: string;
   confidence: number;
+  /** Why the source says so (a rule's reason, an evidence span, a note). */
+  note?: string;
 }
 
 export interface DossierHours {

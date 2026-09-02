@@ -10,6 +10,7 @@ import {
   SetReadyStateInput,
   SetRequirementActiveInput,
   SetSearchScopeInput,
+  AddCandidatesInput,
   SubmitRequirementInput,
   WithdrawRequirementInput,
 } from "./commands.ts";
@@ -74,6 +75,24 @@ export const INSPECT_CANDIDATES_INPUT = Type.Object(
         description: "Stable candidateId from get_spatial_context.",
       }),
       { minItems: 1, maxItems: 3 },
+    ),
+  },
+  { additionalProperties: false },
+);
+export const LOOK_UP_PLACES_INPUT = Type.Object(
+  {
+    candidateIds: Type.Array(
+      Type.String({
+        maxLength: 40,
+        description: "Stable candidateId from get_spatial_context.",
+      }),
+      { minItems: 1, maxItems: 3 },
+    ),
+    keys: Type.Optional(
+      Type.Array(Type.String({ maxLength: 40, description: "Attribute keys to focus on (facet keys)." }), {
+        minItems: 1,
+        maxItems: 6,
+      }),
     ),
   },
   { additionalProperties: false },
@@ -215,6 +234,27 @@ const spatialTools: ToolDefinition[] = [
       "sees the change.",
     inputSchema: SetSearchScopeInput,
     annotations: {},
+  },
+  {
+    name: "add_candidates",
+    description:
+      "Bring up to 40 places from the data behind the map into the room's " +
+      "pool, by the refs the explore layer reports. Additive and shared: " +
+      "nothing is removed, every participant sees the new places, and the " +
+      "room's pool ceiling applies.",
+    inputSchema: AddCandidatesInput,
+    annotations: {},
+  },
+  {
+    name: "look_up_places",
+    description:
+      "Ask the server to look up 1-3 places now — their website, Wikidata, " +
+      "menu and an inference over what was found — filling facts the record " +
+      "left unknown as likely/unlikely with a confidence, never as verified. " +
+      "Returns what is known right away; more lands on the page as it " +
+      "arrives. Optionally name the attribute keys that matter.",
+    inputSchema: LOOK_UP_PLACES_INPUT,
+    annotations: { readOnlyHint: true },
   },
   {
     name: "propose_destination",
