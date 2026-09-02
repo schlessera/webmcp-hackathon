@@ -1,6 +1,7 @@
 # Venue data: sources, cost, quality, and what it costs the demo
 
-Last updated: 2026-09-01. Measurements in this document were taken on that
+Last updated: 2026-09-02 (engine decision and city snapshots added; every
+earlier measurement is dated 2026-09-01). Measurements in this document were taken on that
 date from this repository's development machine. They are reproducible — every
 query is given in full.
 
@@ -275,3 +276,121 @@ curl -sL -r 0-0 -D - -o /dev/null https://download.geofabrik.de/europe/germany/b
 - Overture Places — https://docs.overturemaps.org/guides/places/
 - Foursquare OS Places — https://opensource.foursquare.com/os-places/
 - Geofabrik extracts — https://download.geofabrik.de/
+
+
+## Engine decision (2026-09-02)
+
+The question left open on 2026-09-01 was whether a self-hosted Overpass
+instance should sit in the request path. Both candidates were built and
+measured on the same machine (32 cores, 31 GiB, WSL2, Docker 29).
+
+### What was measured
+
+**Self-hosted Overpass** (`wiktorn/overpass-api`, `OVERPASS_META=no`,
+`OVERPASS_USE_AREAS=false`), fed the Berlin Mitte clip of the Geofabrik
+extract (`osmium extract`, bbox 13.352,52.499,13.428,52.545 — 8.0 MiB, 2,551
+venue features):
+
+| measurement | value |
+| --- | --- |
+| image size | 540 MB |
+| import, init to exit (8 MiB clip) | 4 min 24 s |
+| database on disk after import | **4.2 GB** (fixed-size index files; the clip size barely matters) |
+| boot from an imported volume to first 200 | 10 s |
+| idle memory | 76 MiB |
+| query, 1.4 km radius, 6 amenity values, `out tags center` | 0.46 s first, 0.31–0.37 s warm |
+
+The image expects a `.osm.bz2` planet; a `.pbf` needs the documented
+`OVERPASS_PLANET_PREPROCESS` hook (`osmium cat`) or the import fails silently
+("bunzip2: (stdin) is not a bzip2 file"). A whole-city Berlin import (95 MiB)
+was not attempted; the disk figure alone rules it out for the deploy target.
+
+**In-process snapshot engine** (`apps/server/src/places.ts`): every named
+venue with the product's amenity tags inside each **city** bounding box,
+exported once by `osmium` and committed as JSON with the subset of tags the
+mapping reads (`packages/contracts/src/dossier.ts`, `KEPT_TAGS`).
+
+| measurement | Berlin | San Francisco |
+| --- | --- | --- |
+| build (`make venues`), extract → JSON, osmium via Docker | 21 s | 23 s |
+| venues in the city bbox | 12,149 | 3,671 |
+| snapshot on disk (committed) | 4.7 MiB | 1.4 MiB |
+| load into memory (`node data/osm/bench.mjs`, one process) | 42 ms | 7 ms |
+| first pool query (120 places, three rings) | 6.2 ms | 1.1 ms |
+| warm pool query | 2.8 ms | 1.0 ms |
+| added image size, added services | 0, 0 |
+| process RSS with both snapshots loaded, no server | 154 MiB |
+
+### The decision
+
+The in-process snapshot is the engine. Overpass is a general query engine
+and this product asks it one query shape over two cities; the 4.2 GB
+per-area footprint, the 4½-minute import on every cold volume and a second
+container with its own health, disk and restart story buy nothing the
+committed snapshot does not already give. The snapshot answers in
+milliseconds, identically cold or warm, needs no volume, no init container
+and no change to `compose.coolify.yaml`, and cannot be down while the app is
+up.
+
+The privacy property the 2026-09-01 notes insist on holds trivially: no
+request leaves the process. A room is seeded from the snapshot at creation
+(`POST /api/rooms`); nothing is fetched at read time.
+
+### What "live" means here, honestly
+
+OpenStreetMap has no real-time data. The snapshot carries the Geofabrik
+extract timestamp (`manifest.extract.timestamp`, currently
+`2026-08-31T20:21:20Z`) and stamps it on every attribute as `observedAt`; the
+UI shows it as "Places from OpenStreetMap, as of 31 Aug 2026" and the area
+picker shows it per area. Refreshing is `make venues-refresh` (re-download
+the two extracts, rebuild, commit). Minutely diffs against the extract are
+**not** consumed; the `updates` URL is recorded on each area for whoever
+wires that later. Nothing in the UI claims more than the extract date.
+
+### Fallback chain
+
+1. The area snapshot (`packages/contracts/data/areas/<id>.json`) — the
+   normal path, committed, so a deploy cannot lack it.
+2. For Berlin only: the curated demo dataset
+   (`berlin-mitte-venues.json`), if the snapshot file is missing.
+3. Otherwise room creation answers 503 and the picker marks the area
+   unavailable. No invented places.
+
+`room_demo` is seeded from the curated dataset as before; its provenance is
+recorded on the room (`rooms.data_source.kind = "curated"`) and the brief
+says so.
+
+### Coverage as shipped
+
+Measured at build time from the snapshots themselves
+(`manifest.coverage`), with the engine's own definition of decisive
+(`verified_true` or `verified_false`), over the five boolean attributes the
+engine reads:
+
+| | Berlin Mitte | San Francisco SoMa |
+| --- | --- | --- |
+| venues in the city bbox | 12,149 | 3,671 |
+| venues within 1.4 km of the default centre | 874 | 910 |
+| decisive, city | 26.1 % | 11.8 % |
+| decisive, 1.4 km focus | 34.0 % | 12.8 % |
+| decisive, the 120-place pool a room starts with | 32.8 % (197 of 600) | 15.8 % (95 of 600) |
+| `opening_hours` in the pool | 82 of 120 | 69 of 120 |
+
+The picker renders these as absolute counts and a meter, never as
+percentages (`CLAUDE.md` §10). The pool rule — the 40 nearest inside 800 m,
+40 more out to 1.4 km, 40 more out to 2 km — is stated on the card; the
+outer rings are the buffer a room widens into.
+
+### Not done, deliberately
+
+- Supplementary San Francisco sources (Open Food Facts, Wikidata, Foursquare
+  OS Places, venue-site JSON-LD): all redistributable, none wired. The gap is
+  shown, not closed.
+- Attestations (done the same day): `attest_attribute` lets a participant or
+  their agent resolve an unknown fact for the room, named and noted, with the
+  record's verified facts taking precedence (`docs/protocols/SPATIAL-PROTOCOL.md`
+  §8.1). Nothing looks anything up by itself — the agent brings the evidence.
+- Budget needs are EUR-only in the command contract; a San Francisco room
+  accepts a budget in EUR bands only, and since no price band exists on the
+  live path it classifies every place unsure.
+- Time-of-day evaluation of `opening_hours` in the client.

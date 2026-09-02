@@ -160,6 +160,28 @@ describe("eligibility against the Berlin Mitte dataset", () => {
     expect(whyFor(rows[0], "p_peer")).toBe("excluded italian");
   });
 
+  it("cuisine inclusion: a verified match passes, a verified mismatch is ruled out, no record is unsure", () => {
+    const mk = (id: string, attrs: CandidateRow["attributes"]): CandidateRow => ({
+      ...candidates[0], id, category: "restaurant", attributes: attrs,
+    });
+    const rows = classifyAll(
+      [
+        mk("c_match", [{ key: "cuisine", status: "verified_true", value: "asian;vietnamese" }]),
+        mk("c_miss", [{ key: "cuisine", status: "verified_true", value: "italian" }]),
+        mk("c_none", [{ key: "cuisine", status: "unknown" }]),
+      ],
+      [req({ kind: "inclusion", key: "cuisine", values: ["asian"], lifetime: "session" } as never)],
+      [],
+      null,
+    );
+    const by = Object.fromEntries(rows.map((r) => [r.candidateId, r]));
+    expect(by.c_match.eligibility).toBe("eligible");
+    expect(by.c_miss.eligibility).toBe("excluded");
+    expect(whyFor(by.c_miss, "p_peer")).toBe("not asian");
+    expect(by.c_none.eligibility).toBe("uncertain");
+    expect(whyFor(by.c_none, "p_peer")).toBe("cuisine unverified");
+  });
+
   it("application-private exclusions never cite content in peer why-strings; owners see their own", () => {
     const rows = classifyAll(
       candidates,

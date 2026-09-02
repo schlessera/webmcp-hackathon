@@ -16,6 +16,7 @@ import {
   type FailureEnvelope,
   type SuccessEnvelope,
   type ToolResult,
+  ATTRIBUTE_LABELS,
 } from "@webmcp-hackathon/contracts";
 import { withTransaction } from "./db.ts";
 import type { Participant } from "./auth.ts";
@@ -293,6 +294,8 @@ async function dispatch(
       return proposeDestination(client, actor, input as never);
     case "PlanArrival":
       return planArrival(client, actor, input as never);
+    case "AttestAttribute":
+      return attestAttribute(client, actor, input as never);
     case "ResolvePrivateRequest":
       return resolvePrivateRequest(client, actor, input as never);
     case "ConfirmPrivateRequest":
@@ -909,6 +912,70 @@ async function proposeDestination(
   };
 }
 
+async function attestAttribute(
+  client: pg.PoolClient,
+  actor: Participant,
+  cmd: {
+    candidateId: string;
+    key: string;
+    status: "verified_true" | "verified_false";
+    confidence: number;
+    note: string;
+    sourceUrl?: string;
+  },
+): Promise<HandlerOutcome> {
+  const candidate = (
+    await client.query(
+      "SELECT id, name FROM candidates WHERE id = $1 AND room_id = $2",
+      [cmd.candidateId, actor.roomId],
+    )
+  ).rows[0];
+  if (!candidate) {
+    return errorOutcome(
+      "not_found",
+      "Unknown candidateId.",
+      "Call get_spatial_context to refresh candidate IDs.",
+    );
+  }
+  const room = (
+    await client.query("SELECT revision FROM rooms WHERE id = $1", [actor.roomId])
+  ).rows[0];
+  // One attestation per person per fact per place: saying it again replaces.
+  await client.query(
+    `INSERT INTO attestations
+       (room_id, candidate_id, key, participant_id, status, confidence, note, source_url, at_revision)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+     ON CONFLICT (room_id, candidate_id, key, participant_id) DO UPDATE SET
+       status = EXCLUDED.status, confidence = EXCLUDED.confidence, note = EXCLUDED.note,
+       source_url = EXCLUDED.source_url, at_revision = EXCLUDED.at_revision, created_at = now()`,
+    [
+      actor.roomId, cmd.candidateId, cmd.key, actor.id, cmd.status, cmd.confidence,
+      cmd.note, cmd.sourceUrl ?? null, room.revision + 1,
+    ],
+  );
+  const label = ATTRIBUTE_LABELS[cmd.key as keyof typeof ATTRIBUTE_LABELS] ?? cmd.key;
+  const answer = cmd.status === "verified_true" ? "yes" : "no";
+  return {
+    events: [
+      {
+        type: "attribute_attested",
+        actorId: actor.id,
+        visibility: "shared",
+        payload: {
+          actorName: actor.displayName,
+          candidateId: cmd.candidateId,
+          candidateName: candidate.name,
+          key: cmd.key,
+          label,
+          status: cmd.status,
+          confidence: cmd.confidence,
+        },
+      },
+    ],
+    effect: `Attested ${label}: ${answer} for ${candidate.name}.`,
+  };
+}
+
 async function planArrival(
   client: pg.PoolClient,
   actor: Participant,
@@ -1427,6 +1494,12 @@ function summarizePayload(payload: Record<string, unknown>): string {
         .map((v) => v.charAt(0).toUpperCase() + v.slice(1))
         .join(", ");
       return `no ${values}${payload.key === "cuisine" ? " food" : ""}`;
+    }
+    case "inclusion": {
+      const values = (payload.values as string[])
+        .map((v) => v.charAt(0).toUpperCase() + v.slice(1))
+        .join(" or ");
+      return `${values}${payload.key === "cuisine" ? " food" : ""} only`;
     }
     default:
       return "requirement";

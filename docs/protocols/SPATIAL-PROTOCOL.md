@@ -123,6 +123,7 @@ These are the `payload` shapes the negotiation envelope carries when
 
 // Exclusion (temporary preference: "not Italian today")
 { "kind": "exclusion", "key": "cuisine", "values": ["italian"], "lifetime": "session" }
+{ "kind": "inclusion", "key": "cuisine", "values": ["asian", "vietnamese"], "lifetime": "session" }
 ```
 
 ### 5.2 Delegation bounds
@@ -216,6 +217,29 @@ soft requirements & preferences            → scoring only, never exclusion
 Public explanation strings for exclusions cite **evidence status and shared
 requirements only** ("no verified vegetarian options") or aggregates
 ("excluded by a private requirement") — never a private owner or reason.
+
+### 8.1 Attestations (amendment, 2026-09-02)
+
+Where the record is silent, a participant may say what they found out:
+`AttestAttribute { candidateId, key, status: verified_true | verified_false,
+confidence, note, sourceUrl? }` (tool `attest_attribute`). Attestations are
+**shared** evidence, stored per room and per (place, fact, participant), and
+merged into the dossier **at read time** — the source record is never
+rewritten. Precedence:
+
+```text
+source fact verified (osm:* / curated:*)
+    attestation agrees                     → unchanged
+    attestation contradicts                → unverified, source "disputed:…", both sides shown
+source fact unknown / unverified
+    one attester, or all agree             → attested status, source "agent:<participantId>"
+    attesters disagree                     → unverified, source "disputed:…"
+```
+
+The status vocabulary is unchanged (`verified_true`, `verified_false`,
+`unverified`, `unknown`); "disputed" is a source prefix. An attested fact
+is decisive for eligibility exactly like a verified record fact, and the
+ledger names the attester and their note. Attestations never cross rooms.
 
 ## 9. Navigation handoff
 

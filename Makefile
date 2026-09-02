@@ -2,7 +2,7 @@
 SHELL := /bin/bash
 COMPOSE := docker compose
 
-.PHONY: doctor dev demo demo-reset demo-public update test test-native logs stop
+.PHONY: doctor dev demo demo-reset demo-public update test test-native logs stop venues venues-refresh
 
 doctor: ## verify Docker, ports, configuration, browser image
 	@command -v docker >/dev/null || { echo "FAIL: docker missing"; exit 1; }
@@ -48,6 +48,12 @@ demo-public: ## enable the fixed HTTPS tunnel (requires TUNNEL_TOKEN + non-defau
 	$(COMPOSE) run --rm seed-demo node apps/server/src/seed.ts --reset
 	$(COMPOSE) run --rm seed-demo
 	@echo "NOTE: invite URLs printed by seed carry secrets; treat logs as secret-bearing."
+
+venues: ## rebuild the committed area snapshots from the Geofabrik extracts in data/osm/ (downloads once)
+	node scripts/build-area-snapshot.mjs
+
+venues-refresh: ## re-download the extracts, then rebuild — the "refresh the places" path (docs/DATA-QUALITY.md)
+	node scripts/build-area-snapshot.mjs --refresh
 
 test: ## unit, contract, API, privacy, and three-user tests
 	$(COMPOSE) up --detach --wait db

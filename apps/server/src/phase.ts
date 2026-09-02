@@ -39,6 +39,8 @@ export const PHASE_GATES: Record<CommandType, readonly Phase[]> = {
   RespondToProposal: ["gathering", "deliberation"],
   SetSearchScope: ["gathering", "deliberation"],
   ProposeDestination: ["gathering", "deliberation"],
+  // Evidence about a place is useful while the room is still choosing.
+  AttestAttribute: ["gathering", "deliberation"],
   ResolvePrivateRequest: ["gathering", "deliberation"],
   ConfirmPrivateRequest: ["gathering", "deliberation"],
   // Staging and committing need a proposal to exist, and the first proposal is

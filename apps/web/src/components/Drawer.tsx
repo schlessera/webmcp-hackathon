@@ -48,6 +48,25 @@ export function Drawer({
         </div>
 
         <div className="drawer-body">
+          {context?.area && (
+            <div className="drawer-section">
+              <div className="drawer-section-title">places</div>
+              <div className="drawer-kv">
+                <span>
+                  area <code data-testid="diag-area">{context.area.areaId}</code>
+                </span>
+                <span>
+                  source <code>{context.area.kind}</code>
+                </span>
+                <span>
+                  extract <code>{context.area.dataAsOf}</code>
+                </span>
+                <span>
+                  pool {context.area.poolSize} of {context.area.focusVenues} within reach
+                </span>
+              </div>
+            </div>
+          )}
           <div className="drawer-section">
             <div className="drawer-section-title">session</div>
             <div className="drawer-kv">

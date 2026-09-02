@@ -88,6 +88,22 @@ describe("say: draft → payloads", () => {
     ]);
   });
 
+  it("a wanted cuisine is an inclusion, never an exclusion (the 'Asian cuisine please' bug)", async () => {
+    scripted({
+      intent: "need",
+      reply: null,
+      needs: [
+        { kind: "inclusion", attributeKey: null, expect: null, amountEur: null, walkMin: null, excludeValues: [], includeValues: ["vietnamese", "martian"], text: null, topic: "cuisine", gist: "vietnamese" },
+        { kind: "inclusion", attributeKey: null, expect: null, amountEur: null, walkMin: null, excludeValues: [], includeValues: ["martian"], text: "martian food", topic: null, gist: "martian" },
+      ],
+    });
+    const out = await say("Vietnamese please, or martian", "shared", context);
+    expect(out.needs.map((n) => n.payload)).toEqual([
+      { kind: "inclusion", key: "cuisine", values: ["vietnamese"], lifetime: "session" },
+      { kind: "text", text: "martian food" },
+    ]);
+  });
+
   it("a need intent with nothing usable reads as unclear; ask and act carry no needs", async () => {
     scripted({ intent: "need", reply: null, needs: [] });
     expect((await say("hmm", "shared", context)).intent).toBe("unclear");

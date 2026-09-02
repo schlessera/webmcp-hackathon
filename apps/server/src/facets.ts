@@ -337,6 +337,8 @@ export function labelForRequirement(
     }
     case "exclusion":
       return `avoid ${(p.values ?? []).join(", ")}`;
+    case "inclusion":
+      return `only ${(p.values ?? []).join(", ")}`;
     case "text":
       return String(p.text ?? "").slice(0, 200);
     default:

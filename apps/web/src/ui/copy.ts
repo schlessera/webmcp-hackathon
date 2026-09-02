@@ -82,6 +82,8 @@ export function avatarTilt(index: number): number {
 export function sourceLabel(source: string): string {
   if (source.startsWith("osm:")) return "from OpenStreetMap";
   if (source.startsWith("curated:")) return "checked by the room's data";
+  if (source.startsWith("agent:")) return "checked by someone in the room";
+  if (source.startsWith("disputed:")) return "disputed in the room";
   if (!source) return "unknown";
   return source;
 }
@@ -111,6 +113,24 @@ export function attributeValue(value: unknown, status: string): string {
   return "not known";
 }
 
+/** "31 Aug 2026" — when the facts were true, in the reader's locale. */
+export function asOf(iso: string | null | undefined): string {
+  if (!iso) return "an unknown date";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+}
+
+/** The provenance line under the brief: where the places came from. */
+export function provenanceLine(area: {
+  kind: "osm-snapshot" | "curated";
+  source: string;
+  dataAsOf: string;
+}): string {
+  const base = `Places from ${area.source}, as of ${asOf(area.dataAsOf)}`;
+  return area.kind === "curated" ? `${base}; some facts checked by the room's data.` : `${base}.`;
+}
+
 /** Empty and error states, verbatim from COPY.md. */
 export const COPY = {
   emptyRoom:
@@ -124,4 +144,8 @@ export const COPY = {
   agentBusy: "your agent is on it",
   agentUnclear: "Say what would rule a place in or out, or ask about the room.",
   agentHolds: "Your agent holds it. The room learns only that a condition exists.",
+  startLede:
+    "Pick an area. The places come from OpenStreetMap, and what it knows about them differs by city. The room shows that difference instead of hiding it.",
+  startUnknown:
+    "What the data does not know shows as unsure, never as a no. Thin data is where an agent can look things up.",
 } as const;

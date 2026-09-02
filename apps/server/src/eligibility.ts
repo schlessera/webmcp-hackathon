@@ -1,6 +1,7 @@
 import type pg from "pg";
 import type { Feasibility } from "@webmcp-hackathon/contracts";
 import { PRICE_LEVEL_EUR } from "@webmcp-hackathon/contracts";
+import { applyAttestations, loadAttestations } from "./attestations.ts";
 
 /**
  * Deterministic eligibility per SPATIAL-PROTOCOL.md §8:
@@ -13,7 +14,9 @@ import { PRICE_LEVEL_EUR } from "@webmcp-hackathon/contracts";
  *   candidate's price level;
  * - cuisine exclusions match the candidate's cuisine attribute value
  *   (tokenized on ';' — OSM multi-values like "pizza;italian"), falling back
- *   to its category;
+ *   to its category; cuisine inclusions require a verified cuisine token
+ *   among the wanted values, and a place with no cuisine on record is
+ *   uncertain, never excluded;
  * - agent-private declarations consult recorded screening verdicts:
  *   unacceptable -> excluded, missing/needs_info -> uncertain;
  * - free-text needs are unverifiable by construction: every candidate is
@@ -40,7 +43,13 @@ export interface CandidateRow {
   price_level: number | null;
   walk_min: number;
   location: { lat: number; lng: number };
-  attributes: Array<{ key: string; status: string; value?: string | number }>;
+  attributes: Array<{
+    key: string;
+    status: string;
+    value?: string | number;
+    source?: string;
+    attestedBy?: string;
+  }>;
 }
 export interface RequirementRow {
   id: string;
@@ -184,7 +193,7 @@ export async function loadEligibilityInputs(
   q: pg.PoolClient | pg.Pool,
   roomId: string,
 ): Promise<EligibilityInputs> {
-  const [candidates, requirements, verdicts, scope] = await Promise.all([
+  const [candidates, requirements, verdicts, scope, attestations] = await Promise.all([
     q.query("SELECT * FROM candidates WHERE room_id = $1 ORDER BY id", [roomId]),
     q.query(
       "SELECT * FROM requirements WHERE room_id = $1 AND NOT withdrawn",
@@ -192,11 +201,15 @@ export async function loadEligibilityInputs(
     ),
     q.query("SELECT * FROM verdicts WHERE room_id = $1", [roomId]),
     loadScope(q, roomId),
+    loadAttestations(q, roomId),
   ]);
   const center = scope?.area?.center;
   return {
+    // Attestations are merged here, at read time, so every classifier pass
+    // (facets, impasse, previews) sees the same dossier the ledger shows.
     candidates: (candidates.rows as CandidateRow[]).map((c) => ({
       ...c,
+      attributes: applyAttestations(c.id, c.attributes, attestations),
       walk_min: walkMinutesFrom(center, c.location, c.walk_min),
     })),
     requirements: requirements.rows as RequirementRow[],
@@ -336,6 +349,26 @@ function classify(
         // Nothing has been checked against free text, so nothing may pass on
         // it and nothing may be ruled out by it.
         pending.push({ ...owner, text: `"${p.text}" unverified` });
+        break;
+      }
+      case "inclusion": {
+        if (p.key === "cuisine") {
+          const attr = candidate.attributes.find((a) => a.key === "cuisine");
+          const tokens =
+            attr?.status === "verified_true" && typeof attr.value === "string"
+              ? attr.value.split(";").map((t) => t.trim()).filter(Boolean)
+              : [];
+          if (tokens.length === 0) {
+            pending.push({ ...owner, text: "cuisine unverified" });
+          } else if (!tokens.some((t) => p.values?.includes(t))) {
+            return excluded(candidate, {
+              ...owner,
+              text: `not ${(p.values ?? []).join(" or ")}`,
+            });
+          }
+        } else {
+          pending.push({ ...owner, text: "inclusion evidence pending" });
+        }
         break;
       }
       case "exclusion": {

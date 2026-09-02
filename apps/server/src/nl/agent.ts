@@ -53,6 +53,7 @@ const MUTATIONS: Record<string, string> = {
   set_search_scope: "SetSearchScope",
   propose_destination: "ProposeDestination",
   plan_arrival: "PlanArrival",
+  attest_attribute: "AttestAttribute",
 };
 
 /** The page-local and session-bootstrap tools have no meaning on the server. */

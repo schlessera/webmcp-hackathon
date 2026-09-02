@@ -4,7 +4,7 @@ A shared map where a small group and their personal AI agents privately
 negotiate a meeting venue — state requirements (shared / application-private /
 agent-private), see live eligibility, resolve impasses with quantified
 counterfactuals under in-page consent, reach an organizer-committed agreement,
-and hand off to navigation. Built on **WebMCP**: 15 tools on
+and hand off to navigation. Built on **WebMCP**: 16 tools on
 `document.modelContext` expose two custom protocols (`negotiation/v1` +
 `spatial-destination/v1`), so a personal agent acts in the same live session the
 human sees, one command model for clicks and tool calls alike.
@@ -41,6 +41,11 @@ tests/api            lane 2 — three-user API + privacy-at-the-wire + impasse f
 tests/e2e            lane 3 — three-context Playwright trajectory + product UI
                      lane 4 — native WebMCP in real Chrome 149+ (origin trial)
 ```
+
+Places: two areas (Berlin Mitte, San Francisco SoMa) on OpenStreetMap
+snapshots built by `make venues`; what was measured about each city's data,
+why no public place API is in the request path, and the engine decision are
+in [docs/DATA-QUALITY.md](docs/DATA-QUALITY.md).
 
 Deploy: [docs/DEPLOY-COOLIFY.md](docs/DEPLOY-COOLIFY.md)
 (`compose.coolify.yaml`). Handoff/status: [docs/PROJECT-STATUS.md](docs/PROJECT-STATUS.md).

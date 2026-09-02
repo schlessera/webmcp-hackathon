@@ -40,12 +40,13 @@ export interface SayOutcome {
 interface Draft {
   intent: Intent;
   needs: Array<{
-    kind: "attribute" | "budget" | "walk" | "exclusion" | "text";
+    kind: "attribute" | "budget" | "walk" | "exclusion" | "inclusion" | "text";
     attributeKey: string | null;
     expect: "verified_true" | "verified_false" | null;
     amountEur: number | null;
     walkMin: number | null;
     excludeValues: string[];
+    includeValues: string[];
     text: string | null;
     topic: string | null;
     gist: string;
@@ -64,21 +65,22 @@ const SCHEMA = {
     intent: { type: "string", enum: ["need", "ask", "act", "unclear"] },
     needs: {
       type: "array",
-      maxItems: 3,
+      maxItems: 5,
       items: {
         type: "object",
         additionalProperties: false,
         required: [
           "kind", "attributeKey", "expect", "amountEur", "walkMin",
-          "excludeValues", "text", "topic", "gist",
+          "excludeValues", "includeValues", "text", "topic", "gist",
         ],
         properties: {
-          kind: { type: "string", enum: ["attribute", "budget", "walk", "exclusion", "text"] },
+          kind: { type: "string", enum: ["attribute", "budget", "walk", "exclusion", "inclusion", "text"] },
           attributeKey: NULLABLE_STRING,
           expect: { type: ["string", "null"], enum: ["verified_true", "verified_false", null] },
           amountEur: NULLABLE_NUMBER,
           walkMin: NULLABLE_NUMBER,
           excludeValues: { type: "array", items: { type: "string" } },
+          includeValues: { type: "array", items: { type: "string" } },
           text: NULLABLE_STRING,
           topic: { type: ["string", "null"], enum: [...HINT_TAXONOMY, null] },
           gist: { type: "string" },
@@ -108,7 +110,7 @@ function instructions(context: SpatialContextResult, scope: string): string {
   return [
     "You route one sentence a person typed into a shared planning room where a small group is choosing a place to meet.",
     "Decide the intent:",
-    "- need: the sentence states something that would rule places in or out (a condition, a budget, how far they can go, something to avoid). Extract up to three needs.",
+    "- need: the sentence states something that would rule places in or out (a condition, a budget, how far they can go, something to avoid, a kind of place they want). One sentence often carries several: extract every distinct one, up to five, each as its own need.",
     "- act: the sentence asks for a move in the room — propose or put a place forward, accept or rule out a proposal, widen the area, set a need aside or bring it back, withdraw a need, mark done.",
     "- ask: the sentence is a question about the room, the places, what changed, or what to do.",
     "- unclear: nothing above fits; say in `reply` (one short sentence, no exclamation mark) what would help.",
@@ -116,13 +118,14 @@ function instructions(context: SpatialContextResult, scope: string): string {
     `- kind attribute: only for these keys: ${vocab}. expect verified_true for wanting it, verified_false for wanting its absence.`,
     "- kind budget: a per-person ceiling in euros (amountEur). Words like cheap mean 15, mid-range 25, splurge 40.",
     "- kind walk: a maximum walking time in minutes (walkMin). 'close by' means 10, 'not far' 15.",
-    `- kind exclusion: cuisines to avoid, only from: ${cuisines || "(none known)"}. Put the matching values in excludeValues.`,
+    `- kind exclusion: cuisines the person wants to AVOID ("no Italian", "not sushi", "anything but pizza"), only from: ${cuisines || "(none known)"}. Put the matching values in excludeValues.`,
+    `- kind inclusion: cuisines the person WANTS ("Asian please", "let's do Italian", "I fancy ramen"), from the same list. Put the matching values in includeValues. Wanting a cuisine is never an exclusion of it; when the wanted cuisine is not in the list, use kind text.`,
     "- kind text: anything else, verbatim in `text` (max 120 chars). It rules nothing out until checked, so prefer a typed kind whenever one honestly fits.",
     "- topic: the coarse category of the need, from the allowed list; null when none fits.",
     "- gist: the need in at most six words, lowercase, no domain jargon.",
     `The person chose visibility "${scope}" for what they say; that does not change the intent.`,
     `Needs already stated in the room: ${needs}. Places currently on the table: ${proposals}. People: ${people}.`,
-    "Never invent keys or cuisine values. Never answer the question yourself. Output only the JSON.",
+    "Never invent keys or cuisine values. A cuisine value must be the one the person named or its plain synonym, never a broader family (sushi is not asian, pizza is not italian); a cuisine missing from the list becomes kind text. Never answer the question yourself. Output only the JSON.",
   ].join("\n");
 }
 
@@ -172,12 +175,13 @@ export async function say(
         ...base,
         payload: { kind: "scope", dimension: "walk_min", max: Math.round(n.walkMin) },
       });
-    } else if (n.kind === "exclusion") {
-      const values = n.excludeValues.filter((v) => cuisines.has(v)).slice(0, 8);
+    } else if (n.kind === "exclusion" || n.kind === "inclusion") {
+      const source = n.kind === "exclusion" ? n.excludeValues : n.includeValues;
+      const values = (source ?? []).filter((v) => cuisines.has(v)).slice(0, 8);
       if (values.length) {
         needs.push({
           ...base,
-          payload: { kind: "exclusion", key: "cuisine", values, lifetime: "session" },
+          payload: { kind: n.kind, key: "cuisine", values, lifetime: "session" },
         });
       } else {
         needs.push({ ...base, payload: { kind: "text", text: (n.text ?? text).slice(0, 200) } });

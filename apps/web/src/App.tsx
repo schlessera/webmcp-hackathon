@@ -40,6 +40,8 @@ import { ConsentCards } from "./components/ConsentCards.tsx";
 import { PlaceDetails } from "./components/PlaceDetails.tsx";
 import { ArrivalBar } from "./components/ArrivalBar.tsx";
 import { Drawer } from "./components/Drawer.tsx";
+import { Start } from "./components/Start.tsx";
+import { provenanceLine } from "./ui/copy.ts";
 
 /**
  * The room is the whole app: one screen, no nav bar, no tab bar, no
@@ -397,6 +399,19 @@ export function App() {
     );
   }
   if (!session.identity) {
+    // No invite anywhere: this is someone arriving cold, so offer to open a
+    // room. An invite that failed to exchange is still an error to show.
+    if (!inviteSecretFromFragment()) {
+      return (
+        <Start
+          onOpen={(inviteSecret) => {
+            clearSession();
+            window.location.assign(`/#invite=${inviteSecret}`);
+            window.location.reload();
+          }}
+        />
+      );
+    }
     return (
       <div className="connect-screen">
         <Wordmark />
@@ -566,6 +581,12 @@ export function App() {
 
             {!settled && (
               <ReadyToggle ready={me?.readyState === "ready"} run={run} />
+            )}
+
+            {context?.area && (
+              <p className="brief-provenance" data-testid="provenance">
+                {provenanceLine(context.area)}
+              </p>
             )}
           </div>
 

@@ -94,6 +94,15 @@ function ownMeasure(
     const avoided = avoid[1].split(",").map((t) => t.trim());
     return !tokens.some((t) => avoided.includes(t));
   }
+  const only = /^only (.+)$/.exec(label);
+  if (only) {
+    // Mirrors the classifier: no cuisine on record is unknown, not a no.
+    const attr = dossier?.attributes.find((a) => a.key === "cuisine");
+    if (attr?.status !== "verified_true" || typeof attr.value !== "string") return null;
+    const tokens = attr.value.split(";").map((t) => t.trim()).filter(Boolean);
+    const wanted = only[1].split(",").map((t) => t.trim());
+    return tokens.some((t) => wanted.includes(t));
+  }
   return null;
 }
 
@@ -163,6 +172,16 @@ export function PlaceDetails({
   /* One row per stated need. Unknown is drawn, never treated as a failure
      and never silently dropped (CLAUDE.md §4). A need with dossier evidence
      answers from the evidence; one without answers from the verdict. */
+  /* Provenance in the reader's language. An attested fact names its
+     attester — that is the point of an attestation — and "you" when it was
+     this person. */
+  const nameOf = (pid: string) =>
+    pid === meId ? "you" : (participants.find((p) => p.participantId === pid)?.displayName ?? "someone");
+  const sourceOf = (a: { source: string; attestedBy?: string }) => {
+    if (a.source.startsWith("disputed:") && a.attestedBy) return `disputed by ${nameOf(a.attestedBy)}`;
+    if (a.source.startsWith("agent:") && a.attestedBy) return `checked by ${nameOf(a.attestedBy)}`;
+    return sourceLabel(a.source);
+  };
   const askedKeys = new Set<string>();
   const checks: Check[] = activeNeeds
     .filter((n) => n.active)
@@ -182,7 +201,7 @@ export function PlaceDetails({
           mark: isPrivate && mark === "in" ? "private" : mark,
           label: n.label,
           answer: mark === "unknown" ? UNKNOWN_SOURCE : attributeValue(attr.value, attr.status),
-          source: mark === "unknown" ? undefined : sourceLabel(attr.source),
+          source: mark === "unknown" ? undefined : sourceOf(attr),
         };
       }
       if (n.visibility === "agent-private") {
@@ -201,7 +220,8 @@ export function PlaceDetails({
       // Needs without a dossier field answer from their own measure, never
       // from the place's aggregate verdict: another need's exclusion must not
       // read as this one's. The server-composed label is the contract here
-      // (labelForRequirement): "budget €15", "within 10 min walk", "avoid x".
+      // (labelForRequirement): "budget €15", "within 10 min walk", "avoid x",
+      // "only x".
       const verdict = ownMeasure(n.label, candidate, dossier);
       const mark: Mark =
         verdict === null ? "unknown" : verdict ? (isPrivate ? "private" : "in") : "out";
@@ -265,7 +285,7 @@ export function PlaceDetails({
 
   const sources = [
     ...new Set(
-      [...checks.map((c) => c.source), ...known.map((a) => sourceLabel(a.source))].filter(
+      [...checks.map((c) => c.source), ...known.map((a) => sourceOf(a))].filter(
         (s): s is string => Boolean(s),
       ),
     ),

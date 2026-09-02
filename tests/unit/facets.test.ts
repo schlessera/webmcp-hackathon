@@ -232,6 +232,7 @@ describe("activeNeeds carry the counterfactual deltas the brief rows show", () =
     expect(label({ kind: "scope", dimension: "walk_min", max: 12 })).toBe("within 12 min walk");
     expect(label({ kind: "scope", dimension: "radius_m", max: 800 })).toBe("within 800 m");
     expect(label({ kind: "exclusion", key: "cuisine", values: ["italian"] })).toBe("avoid italian");
+    expect(label({ kind: "inclusion", key: "cuisine", values: ["asian", "vietnamese"] })).toBe("only asian, vietnamese");
     expect(label({ kind: "text", text: "somewhere the kids can run" }))
       .toBe("somewhere the kids can run");
     // agent-private: the server holds no content to label.

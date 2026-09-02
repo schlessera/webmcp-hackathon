@@ -267,11 +267,33 @@ export interface PrivateEffect {
   topic?: string;
 }
 
+/**
+ * Where the room's places came from, so the page can say so. Present when
+ * the room was seeded from an area (docs/DATA-QUALITY.md); absent for bare
+ * fixtures. `dataAsOf` is the extract timestamp: the moment the facts were
+ * true in OpenStreetMap, never the moment they were read.
+ */
+export interface AreaView {
+  areaId: string;
+  label: string;
+  /** "osm-snapshot": the area snapshot; "curated": the shipped demo dataset
+   * (real tags plus a curated overlay whose provenance every attribute
+   * names). */
+  kind: "osm-snapshot" | "curated";
+  source: string;
+  dataAsOf: string;
+  /** How many places the room started with, and how many named places the
+   * data holds within the wide radius of its centre. */
+  poolSize: number;
+  focusVenues: number;
+}
+
 export interface SpatialContextResult {
   ok: true;
   revision: number;
   phase: string;
   scope: ScopeView | null;
+  area?: AreaView;
   feasibility: Feasibility;
   /** Places inside the current scope — the denominator of "N of TOTAL". The
    * candidates array carries more: out-of-scope places are returned excluded

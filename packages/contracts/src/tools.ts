@@ -1,5 +1,6 @@
 import { Type, type TSchema } from "@sinclair/typebox";
 import {
+  AttestAttributeInput,
   ConfirmAgreementInput,
   EvaluateCandidatesInput,
   PlanArrivalInput,
@@ -15,7 +16,7 @@ import {
 
 /**
  * WebMCP tool surface — INTERACTION-AND-BINDING.md §2.3: the full static
- * 15-tool surface (8 negotiation + 7 spatial), registered once at page load.
+ * 16-tool surface (8 negotiation + 8 spatial), registered once at page load.
  * Names ≤30 chars, descriptions ≤500 chars, results ≤1.5K chars. All schemas
  * additionalProperties: false. v1 names carry no version suffix.
  * ConfirmPrivateRequest and CommitAgreement are deliberately NOT bound to
@@ -238,6 +239,17 @@ const spatialTools: ToolDefinition[] = [
       "and an optional pickup note. Available once the room has agreed on a " +
       "destination.",
     inputSchema: PlanArrivalInput,
+    annotations: {},
+  },
+  {
+    name: "attest_attribute",
+    description:
+      "Record what you found out about a place: a fact the record marks " +
+      "unknown or unverified in inspect_candidates. Say what you checked in " +
+      "note and how sure you are. Over an unknown fact your attestation lets " +
+      "the room rule on it, labelled with your name; one that contradicts a " +
+      "verified fact marks it disputed instead. Shared with the whole room.",
+    inputSchema: AttestAttributeInput,
     annotations: {},
   },
   {

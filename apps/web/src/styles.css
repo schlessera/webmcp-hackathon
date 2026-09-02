@@ -1861,3 +1861,165 @@ body { overflow: hidden; }
   }
   .details-nav-title { text-align: left; }
 }
+
+/* ── Before a room: the area picker (components/Start.tsx) ─────────────────
+   One column, the same surfaces as the brief. Numbers are absolute; the
+   meter draws the same two numbers, unknown hollow (CLAUDE.md §4, §10). */
+.start {
+  min-height: 100%;
+  max-width: 440px;
+  margin: 0 auto;
+  padding: 28px var(--spoke-pad-screen) 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  color: var(--spoke-ink);
+}
+.start-title {
+  margin: 8px 0 0;
+  font-family: var(--spoke-font-display);
+  font-weight: var(--spoke-weight-display);
+  font-size: 22px;
+  line-height: 1.15;
+}
+.start-lede,
+.start-note {
+  margin: 0;
+  font-size: var(--spoke-size-body);
+  line-height: 1.45;
+  color: var(--spoke-ink-soft);
+}
+.start-note { font-size: var(--spoke-size-detail); }
+.start-quiet { color: var(--spoke-ink-ghost); font-size: var(--spoke-size-detail); }
+.start-error {
+  margin: 0;
+  padding: var(--spoke-pad-card);
+  border: var(--spoke-border) solid var(--spoke-unsure);
+  border-radius: var(--spoke-radius-card);
+  background: var(--spoke-unsure-tint);
+  color: var(--spoke-unsure-text);
+  font-size: var(--spoke-size-detail);
+}
+
+.area-list { display: flex; flex-direction: column; gap: var(--spoke-gap-row); }
+.area-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  white-space: normal;
+  font: inherit;
+  color: inherit;
+}
+.area-card + .area-card { margin-top: 0; }
+.area-card[data-checked] {
+  border-color: var(--spoke-works);
+  box-shadow: var(--spoke-shadow-lift);
+}
+.area-card:disabled { cursor: default; opacity: 0.6; }
+.area-name {
+  font-family: var(--spoke-font-display);
+  font-weight: var(--spoke-weight-display);
+  font-size: var(--spoke-size-title);
+}
+.area-line {
+  font-size: var(--spoke-size-detail);
+  line-height: 1.4;
+  color: var(--spoke-ink-soft);
+}
+.area-facts { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; color: var(--spoke-ink); }
+.area-facts .mark { margin-left: 6px; }
+.area-facts .mark:first-child { margin-left: 0; }
+.area-meter {
+  display: block;
+  width: 100%;
+  height: 8px;
+  margin-top: 4px;
+  border: 1.5px solid var(--spoke-unsure);
+  border-radius: var(--spoke-radius-chip);
+  background: var(--spoke-surface);
+  overflow: hidden;
+  box-sizing: border-box;
+}
+.area-meter-known {
+  display: block;
+  height: 100%;
+  background: var(--spoke-works);
+}
+.area-asof {
+  margin-top: 2px;
+  font-family: var(--spoke-font-mono);
+  font-size: var(--spoke-size-micro);
+  color: var(--spoke-ink-faint);
+}
+
+.start-names { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
+.start-field {
+  display: grid;
+  grid-template-columns: 72px 1fr;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--spoke-size-meta);
+  color: var(--spoke-ink-faint);
+}
+.start-field input {
+  min-height: 36px;
+  padding: 6px 10px;
+  border: var(--spoke-border) solid var(--spoke-line-quiet);
+  border-radius: var(--spoke-radius-badge);
+  background: var(--spoke-surface);
+  font: inherit;
+  font-size: var(--spoke-size-body);
+  color: var(--spoke-ink);
+}
+.start-add {
+  justify-self: start;
+  align-self: flex-start;
+  margin-left: 80px;
+  padding: 6px 12px;
+  border: var(--spoke-border) solid var(--spoke-line-quiet);
+  border-radius: var(--spoke-radius-chip);
+  background: var(--spoke-surface);
+  font-size: var(--spoke-size-meta);
+  color: var(--spoke-ink-soft);
+}
+.start-button {
+  margin-top: 8px;
+  min-height: var(--spoke-tap-min);
+  padding: 10px 16px;
+  border: var(--spoke-border) solid var(--spoke-works);
+  border-radius: var(--spoke-radius-card);
+  background: var(--spoke-works-tint);
+  box-shadow: var(--spoke-shadow-drop);
+  font-family: var(--spoke-font-display);
+  font-weight: var(--spoke-weight-display);
+  font-size: var(--spoke-size-title);
+  color: var(--spoke-works-text);
+}
+.start-button:disabled { opacity: 0.55; box-shadow: none; }
+
+.invite-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--spoke-gap-row); }
+.invite-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.invite-row + .invite-row { margin-top: 0; }
+.invite-name { font-weight: var(--spoke-weight-strong); font-size: var(--spoke-size-body); }
+.invite-role { font-weight: var(--spoke-weight-quiet); color: var(--spoke-ink-soft); }
+.invite-copy {
+  min-height: 36px;
+  padding: 6px 12px;
+  border: var(--spoke-border) solid var(--spoke-line-quiet);
+  border-radius: var(--spoke-radius-chip);
+  background: var(--spoke-surface);
+  font-size: var(--spoke-size-meta);
+  color: var(--spoke-ink);
+}
+
+/* The provenance line: where the places came from, at the foot of the brief. */
+.brief-provenance {
+  margin: 4px 0 0;
+  font-size: var(--spoke-size-micro);
+  line-height: 1.4;
+  color: var(--spoke-ink-faint);
+}

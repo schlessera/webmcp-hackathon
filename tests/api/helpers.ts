@@ -201,7 +201,7 @@ export async function createTestRoom(
     proposalId: `prop_${suffix}`,
     pool,
     cleanup: async () => {
-      for (const table of ["stances", "proposals", "verdicts", "requirements", "adjustments", "arrival_plans", "events", "candidates", "invite_secrets"]) {
+      for (const table of ["stances", "proposals", "verdicts", "requirements", "adjustments", "arrival_plans", "attestations", "events", "candidates", "invite_secrets"]) {
         await pool.query(`DELETE FROM ${table} WHERE room_id = $1`, [roomId]);
       }
       await pool.query(

@@ -170,6 +170,16 @@ export function projectEvent(
         `${isActor ? "You" : actorName} proposed ${p.candidateName ?? p.candidateId}.`,
       );
 
+    case "attribute_attested":
+      // Shared evidence: the attester is named on purpose — provenance is
+      // the point of an attestation.
+      return full(
+        event,
+        `${isActor ? "You" : actorName} checked ${p.label ?? p.key} at ${p.candidateName ?? p.candidateId}: ${
+          p.status === "verified_true" ? "yes" : "no"
+        }.`,
+      );
+
     case "impasse_detected":
       // Council event, deliberately neutral for everyone: never announce who
       // is "blocking" (EXPERIENCE-AND-DEMO.md).
@@ -285,6 +295,9 @@ function describeAdjustment(p: Record<string, unknown>): string {
   }
   if (change?.dimension === "exclusion") {
     return `drop an exclusion (${gainText})`;
+  }
+  if (change?.dimension === "inclusion") {
+    return `drop a must-have (${gainText})`;
   }
   return gainText;
 }

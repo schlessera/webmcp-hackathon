@@ -27,3 +27,25 @@ deterministic. Attributes with `source` starting `osm:` reflect real
 OpenStreetMap tags at extract time; `curated:berlin-mitte-2026-08` marks
 heuristic values (price-level guesses, default opening hours) that are best
 effort, not verified.
+
+## areas/berlin-mitte.json, areas/sf-soma.json
+
+Area snapshots: every named place tagged `amenity` in
+`cafe|restaurant|bar|pub|biergarten|fast_food` inside the city bounding box,
+with the subset of tags the product reads (`packages/contracts/src/dossier.ts`,
+`KEPT_TAGS`). Derived from **OpenStreetMap**, © OpenStreetMap contributors,
+under the ODbL 1.0.
+
+- Source: Geofabrik extracts (`berlin-latest.osm.pbf`,
+  `norcal-latest.osm.pbf`), clipped with `osmium`, built by
+  `scripts/build-area-snapshot.mjs` (`make venues`). No public query API is
+  used.
+- Extract timestamp: recorded per file in `manifest.extract.timestamp`, and
+  carried on every attribute as `observedAt`.
+- No overlay, no heuristics: every attribute's `source` is `osm:*`. A tag
+  OpenStreetMap does not carry is `unknown`; prices are never guessed.
+- Coverage numbers in `manifest.coverage` are measured from the same file at
+  build time (`docs/DATA-QUALITY.md`).
+
+Refreshing: `make venues-refresh` re-downloads the extracts and rebuilds both
+files. The prepared extracts live in `data/osm/` and are not committed.

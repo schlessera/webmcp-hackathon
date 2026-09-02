@@ -93,6 +93,25 @@ export const RequirementPayload = Type.Union([
     },
     { additionalProperties: false },
   ),
+  /**
+   * The positive twin of an exclusion: the place's cuisine must include one
+   * of these values. A place whose cuisine is on record and matches none is
+   * ruled out; one with no cuisine on record is uncertain, never ruled out
+   * (attribute honesty). Without this kind, "Asian please" had only the
+   * exclusion shape to land in — and landed inverted.
+   */
+  Type.Object(
+    {
+      kind: Type.Literal("inclusion"),
+      key: Type.Literal("cuisine"),
+      values: Type.Array(Type.String({ maxLength: 60 }), {
+        minItems: 1,
+        maxItems: 8,
+      }),
+      lifetime: Type.Union([Type.Literal("session"), Type.Literal("durable")]),
+    },
+    { additionalProperties: false },
+  ),
 ]);
 
 const DelegationBound = Type.Object(
@@ -317,6 +336,33 @@ export const CommitAgreementInput = Type.Object(
   { additionalProperties: false },
 );
 
+/**
+ * Record what a participant found out about a place that the map data did
+ * not know (SPATIAL-PROTOCOL.md §8, attestations). Shared with the room and
+ * labelled with the attester; a verified source fact is never overwritten,
+ * only disputed. Boolean facts only — price and cuisine are read from the
+ * record as they are.
+ */
+const AttestableKeyEnum = Type.Union(
+  ATTRIBUTE_VOCABULARY.filter((k) => k !== "price-level" && k !== "cuisine").map((v) =>
+    Type.Literal(v),
+  ),
+);
+export const AttestAttributeInput = Type.Object(
+  {
+    baseRevision: Type.Integer({ minimum: 0 }),
+    candidateId: Type.String({ maxLength: 40 }),
+    key: AttestableKeyEnum,
+    status: Type.Union([Type.Literal("verified_true"), Type.Literal("verified_false")]),
+    /** 0–1: how sure the attester is. Shown, never used to rank. */
+    confidence: Type.Number({ minimum: 0, maximum: 1 }),
+    /** What was checked — the room reads this next to the fact. */
+    note: Type.String({ minLength: 1, maxLength: 200 }),
+    sourceUrl: Type.Optional(Type.String({ maxLength: 300 })),
+  },
+  { additionalProperties: false },
+);
+
 /** Command bus registry: one shared entry point for UI gestures and WebMCP tools. */
 export const COMMAND_SCHEMAS = {
   SubmitRequirement: SubmitRequirementInput,
@@ -328,6 +374,7 @@ export const COMMAND_SCHEMAS = {
   SetSearchScope: SetSearchScopeInput,
   ProposeDestination: ProposeDestinationInput,
   PlanArrival: PlanArrivalInput,
+  AttestAttribute: AttestAttributeInput,
   ResolvePrivateRequest: ResolvePrivateRequestInput,
   ConfirmPrivateRequest: ConfirmPrivateRequestInput,
   ConfirmAgreement: ConfirmAgreementInput,

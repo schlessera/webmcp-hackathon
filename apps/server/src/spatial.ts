@@ -15,6 +15,8 @@ import {
 import { computeFacetsBundle } from "./facets.ts";
 import { IMPASSE_TEXT } from "./impasse.ts";
 import { presentIn } from "./presence.ts";
+import type { DataSource } from "./places.ts";
+import { applyAttestations, loadAttestations } from "./attestations.ts";
 
 /**
  * Spatial read paths — SPATIAL-PROTOCOL.md §6 read commands. Reads carry no
@@ -39,7 +41,7 @@ export async function spatialContext(
   return withTransaction(async (client) => {
     const room = (
       await client.query(
-        "SELECT revision, phase, impasse_active FROM rooms WHERE id = $1 FOR SHARE",
+        "SELECT revision, phase, impasse_active, data_source FROM rooms WHERE id = $1 FOR SHARE",
         [actor.roomId],
       )
     ).rows[0];
@@ -212,11 +214,25 @@ export async function spatialContext(
         }
       : undefined;
 
+    const source = room.data_source as DataSource | null;
     return {
       ok: true as const,
       revision: room.revision as number,
       phase: room.phase as string,
       scope,
+      ...(source
+        ? {
+            area: {
+              areaId: source.areaId,
+              label: source.label,
+              kind: source.kind,
+              source: source.source,
+              dataAsOf: source.extractTimestamp,
+              poolSize: source.poolSize,
+              focusVenues: source.focusVenues,
+            },
+          }
+        : {}),
       feasibility: feasibilityOf(rows),
       total: bundle.total,
       matching: bundle.matching,
@@ -266,6 +282,7 @@ export async function inspectCandidates(
         [actor.roomId, candidateIds],
       )
     ).rows;
+    const attestations = await loadAttestations(client, actor.roomId);
     const found = new Set(rows.map((r) => r.id as string));
     const missing = candidateIds.find((id) => !found.has(id));
     if (missing) {
@@ -285,7 +302,7 @@ export async function inspectCandidates(
       category: r.category,
       priceLevel: r.price_level,
       hours: r.hours ?? [],
-      attributes: r.attributes ?? [],
+      attributes: applyAttestations(r.id as string, r.attributes ?? [], attestations),
       mapRevision: r.map_revision,
     }));
     return { ok: true as const, revision: room.revision as number, candidates: dossiers };

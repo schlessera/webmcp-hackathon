@@ -46,6 +46,9 @@ tool discovery on the hosted origin depends on it.
 
 - `migrate` runs once and gates `app`; `seed` runs once (idempotent) and tops
   up `room_demo` with the 31 Berlin Mitte venues and the three participants.
+- The two area snapshots (`packages/contracts/data/areas/`) ship inside the
+  image; the area picker and `POST /api/rooms` need no extra service, volume
+  or environment variable (`docs/DATA-QUALITY.md`, "Engine decision").
 - Get the participant invite links from the `seed` container logs (the
   organizer link carries `?surface=chatgpt` for ChatGPT's built-in browser), or
   regenerate them locally with `node scripts/open-participants.mjs` pointed at

@@ -142,3 +142,64 @@ export function nlSay(text: string, scope: string): Promise<unknown> {
 export function nlCondition(text: string): Promise<unknown> {
   return post("/api/nl/condition", { text });
 }
+
+/**
+ * Before a room exists (components/Start.tsx): the area registry joined with
+ * what was measured, and room creation. Neither carries a participant token;
+ * the created room's invite secrets come back once, in the body.
+ */
+export interface AreaCoverage {
+  venues: number;
+  slots: number;
+  decisive: number;
+  decisivePct: number;
+  tagCounts: Record<string, number>;
+  tags: Record<string, number>;
+}
+export interface AreaSummary {
+  id: string;
+  label: string;
+  city: string;
+  center: { lat: number; lng: number };
+  radii: { narrow: number; wide: number; max: number };
+  available: boolean;
+  kind: "osm-snapshot" | "curated" | null;
+  source: string;
+  dataAsOf: string | null;
+  coverage: { measuredAt: string; city: AreaCoverage; focus: AreaCoverage; pool: AreaCoverage } | null;
+}
+export interface CreatedRoom {
+  roomId: string;
+  areaId: string;
+  invites: Array<{
+    participantId: string;
+    displayName: string;
+    role: "organizer" | "member";
+    inviteSecret: string;
+  }>;
+}
+
+export async function fetchAreas(): Promise<AreaSummary[]> {
+  const response = await fetch("/api/areas");
+  if (!response.ok) throw new Error(`areas ${response.status}`);
+  return ((await response.json()) as { areas: AreaSummary[] }).areas;
+}
+
+export async function createRoom(input: {
+  areaId: string;
+  organizerName: string;
+  memberNames: string[];
+}): Promise<{ ok: true; room: CreatedRoom } | { ok: false; error: string }> {
+  try {
+    const response = await fetch("/api/rooms", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(input),
+    });
+    const body = (await response.json()) as CreatedRoom & { error?: string };
+    if (!response.ok) return { ok: false, error: body.error ?? `Could not open the room (${response.status}).` };
+    return { ok: true, room: body };
+  } catch {
+    return { ok: false, error: "Could not reach the server. Try again in a moment." };
+  }
+}

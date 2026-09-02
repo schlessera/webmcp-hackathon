@@ -1,5 +1,11 @@
 # Project status — Spokes (handoff)
 
+> **2026-09-02, later:** the venue layer moved onto whole-city OpenStreetMap
+> snapshots for Berlin and San Francisco, with an area picker before the
+> room and honest provenance inside it (`docs/DATA-QUALITY.md`, "Engine
+> decision"). `room_demo` and the rehearsed trajectory are unchanged. The
+> rest of this document predates that and the redesign; trust the code.
+
 Last updated: 2026-09-02 (the mapview redesign has LANDED and its open menu
 is closed: tokens, fonts, the FACETS.md server contract, the rebuilt client,
 presence on the wire, the rewritten e2e lane (7 passing), the re-walked demo
@@ -17,7 +23,7 @@ A shared map where a small group and their personal AI agents privately
 negotiate a meeting venue: state requirements (shared / application-private /
 agent-private), see live eligibility, hit and resolve impasses via quantified
 counterfactuals with in-page consent, reach an organizer-committed agreement,
-and hand off to navigation. Built on WebMCP: 15 tools on
+and hand off to navigation. Built on WebMCP: 16 tools on
 `document.modelContext` expose two custom protocols (`negotiation/v1` +
 `spatial-destination/v1`). Concept + protocol design in `docs/` and
 `docs/protocols/`.

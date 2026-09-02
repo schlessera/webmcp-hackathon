@@ -12,6 +12,7 @@
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { BOOLEAN_ATTRS, booleanAttr, parseOpeningHours } from "../packages/contracts/src/dossier.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const RAW_FILE = join(__dirname, "raw-overpass.json");
@@ -77,70 +78,13 @@ const SELECTED = [
   "node/3239758866", // District Một
 ];
 
-const BOOLEAN_ATTRS = [
-  { key: "vegetarian-options", tag: "diet:vegetarian" },
-  { key: "lactose-free-options", tag: "diet:lactose_free" },
-  { key: "wheelchair-accessible", tag: "wheelchair" },
-  { key: "outdoor-seating", tag: "outdoor_seating" },
-  { key: "dog-friendly", tag: "dog" },
-];
-
-const DAY_MAP = { Mo: "mon", Tu: "tue", We: "wed", Th: "thu", Fr: "fri", Sa: "sat", Su: "sun" };
+// The tag → attribute mapping is shared with the server's live path
+// (packages/contracts/src/dossier.ts) so a tag reads the same whichever way
+// it reached a room. What stays here is the curated dataset's own business:
+// the demo overlay, the price heuristic and the default hours, every one of
+// them marked with a curated:* source so provenance is never in doubt.
 const DAY_ORDER = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
 const DEFAULT_HOURS = DAY_ORDER.map((day) => ({ day, open: "09:00", close: "22:00" }));
-
-function clampTime(t) {
-  const [h, m] = t.split(":").map(Number);
-  if (h >= 24) return "23:59";
-  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
-}
-
-function expandDays(spec) {
-  // "Mo-Fr", "Sa,Su", "Mo", "Sa-Su,PH" -> ["mon", ...]; unknown tokens skipped
-  const days = [];
-  for (const part of spec.split(",")) {
-    const range = part.trim().match(/^([A-Z][a-z])-([A-Z][a-z])$/);
-    if (range && DAY_MAP[range[1]] && DAY_MAP[range[2]]) {
-      let i = DAY_ORDER.indexOf(DAY_MAP[range[1]]);
-      const end = DAY_ORDER.indexOf(DAY_MAP[range[2]]);
-      for (; ; i = (i + 1) % 7) {
-        days.push(DAY_ORDER[i]);
-        if (i === end) break;
-      }
-    } else if (DAY_MAP[part.trim()]) {
-      days.push(DAY_MAP[part.trim()]);
-    }
-  }
-  return days;
-}
-
-function parseOpeningHours(oh) {
-  // Best-effort parse of the common subset of the OSM opening_hours syntax.
-  // Returns null when nothing usable could be extracted.
-  if (!oh) return null;
-  if (oh.trim() === "24/7") {
-    return DAY_ORDER.map((day) => ({ day, open: "00:00", close: "23:59" }));
-  }
-  const byDay = new Map();
-  for (const rule of oh.split(";")) {
-    // Split leading day spec from time spec, e.g. "Mo-Fr 08:00-18:00,19:00-22:00"
-    const m = rule
-      .trim()
-      .match(/^([A-Za-z,\- ]*?)\s*((?:\d{1,2}:\d{2}[-+](?:\d{1,2}:\d{2})?)(?:,\d{1,2}:\d{2}[-+](?:\d{1,2}:\d{2})?)*)$/);
-    if (!m) continue; // "Mo off", "Su closed", unparseable -> skip
-    const days = m[1].trim() ? expandDays(m[1]) : DAY_ORDER;
-    const first = m[2].split(",")[0]; // keep the first time range per rule
-    const tm = first.match(/^(\d{1,2}:\d{2})[-+](\d{1,2}:\d{2})?$/);
-    if (!tm || days.length === 0) continue;
-    const open = clampTime(tm[1]);
-    const close = tm[2] ? clampTime(tm[2]) : "23:59"; // "18:00+" -> open end
-    for (const day of days) {
-      if (!byDay.has(day)) byDay.set(day, { day, open, close });
-    }
-  }
-  if (byDay.size === 0) return null;
-  return DAY_ORDER.filter((d) => byDay.has(d)).map((d) => byDay.get(d));
-}
 
 function priceHeuristic(category, tags) {
   const cuisine = tags.cuisine ?? "";
@@ -150,15 +94,6 @@ function priceHeuristic(category, tags) {
   if (/steak_house/.test(cuisine)) return 4;
   if (/french|european|fine_dining/.test(cuisine)) return 3;
   return 2; // restaurant default
-}
-
-function booleanAttr(key, tag, tags, observedAt) {
-  const raw = tags[tag];
-  const base = { key, source: `osm:${tag}`, observedAt };
-  if (raw === "yes") return { ...base, status: "verified_true", confidence: 0.8 };
-  if (raw === "no") return { ...base, status: "verified_false", confidence: 0.8 };
-  if (raw !== undefined) return { ...base, status: "unverified", confidence: 0.6 }; // "limited" etc.
-  return { ...base, status: "unknown", confidence: 0.6 };
 }
 
 const raw = JSON.parse(await readFile(RAW_FILE, "utf8"));

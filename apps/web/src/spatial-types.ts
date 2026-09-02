@@ -94,11 +94,23 @@ export interface SpatialScope {
   category: string;
 }
 
+/** Where the room's places came from (server-authored; see contracts AreaView). */
+export interface AreaView {
+  areaId: string;
+  label: string;
+  kind: "osm-snapshot" | "curated";
+  source: string;
+  dataAsOf: string;
+  poolSize: number;
+  focusVenues: number;
+}
+
 export interface SpatialContext {
   ok: true;
   revision: number;
   phase: string;
   scope: SpatialScope;
+  area?: AreaView;
   feasibility: {
     state: "feasible" | "fragile" | "infeasible" | "uncertain";
     eligible: number;
@@ -132,6 +144,10 @@ export interface DossierAttribute {
   source: string;
   observedAt: string;
   confidence: number;
+  /** Present when someone in the room attested (or disputed) this fact. */
+  attestedBy?: string;
+  note?: string;
+  sourceUrl?: string;
 }
 
 export interface CandidateDossier {

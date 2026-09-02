@@ -15,7 +15,7 @@ named is one the UI draws.
    browser contexts and prints the organizer invite URL.
 3. Keep the organizer URL (it carries `?surface=chatgpt`) ready for ChatGPT's
    built-in browser, but **do not open it yet** — beat 3 is that arrival. The
-   page registers all 16 WebMCP tools at load; ChatGPT then lists them under
+   page registers all 17 WebMCP tools at load; ChatGPT then lists them under
    "Available site tools".
 4. Arrange the three windows side by side: Sarah | Joe | organizer (ChatGPT).
 
@@ -48,6 +48,40 @@ named is one the UI draws.
 | 12 | All three | **Works for me** on The Barn, from the card or the place panel | Each acceptance appears under "Where everyone stands" as a filled mark, and accepting marks that person done adding (the toggle at the foot of the brief fills in by itself). Until the last accept, Alex's card reads "Settle on The Barn?" with a disabled button and says who it waits on; with it, the card turns to "Everyone is in on The Barn" |
 | 13 | Alex | **Stage it**, then **Settle it** on the staged card | The Barn's sticker reads "· staged" in the act colour; peers see "Waiting for the organizer to settle it." After the commit the sticker reads "· settled", the header title becomes "The Barn", the subtitle "agreed by all three", the count block shrinks to `Settled / 11 min from you`, and the brief shows **How it got here** |
 | 14 | All three | The composer is replaced by the arrival bar: pick **Walk** / **Bike** / **Drive**, then **Take me there** | Google Maps opens with The Barn as destination; the `geo:` link and Apple Maps sit beside it |
+
+## Other areas, live places (optional)
+
+`room_demo` runs on the curated Berlin dataset above, unchanged. Opening the
+app **without** an invite link shows the area picker: Berlin Mitte or San
+Francisco SoMa, each card carrying the numbers measured from that city's
+OpenStreetMap extract (places within 1.4 km, facts on record out of the
+facts a need could check, opening hours listed, extract date). Pick one, name
+the people, and the page returns one invite link per person; the organizer
+enters directly.
+
+What to expect, and to say, in such a room:
+
+- The places are real and unedited: every fact reads `from OpenStreetMap`,
+  nothing is guessed. Prices are unknown everywhere, so a budget need marks
+  every place unsure instead of ruling any out.
+- A room starts with the 40 nearest places inside 800 m, 40 more out to
+  1.4 km, 40 more out to 2 km, so widening the area has somewhere to go.
+- San Francisco is where the honest gap shows: most pills never appear
+  (a pill needs at least one place verified for it) and most rows carry a
+  large `unknown` badge. That is the data, drawn as unsure, not a failure,
+  and it is the opening for an agent to look things up.
+- The provenance line at the foot of the brief names the source and the
+  extract date; `{ }` shows the area id, the snapshot timestamp and the pool.
+- An unknown fact is where an agent earns its place: in ChatGPT, *"Find out
+  whether B Restaurant has lactose-free options and record what you find"* —
+  the agent reads the dossier with `inspect_candidates`, looks it up, and
+  calls `attest_attribute` with a note. The place panel then reads "checked
+  by Alex" beside the fact, the feed says who checked what, and the
+  classifier rules on it. Contradicting a verified OpenStreetMap fact marks
+  it disputed rather than overwriting it.
+
+None of the counts in the table above apply to these rooms; they are not
+rehearsed. Record the video on `room_demo`.
 
 ## With an agent in the page (optional)
 

@@ -1,6 +1,6 @@
 {
   "toolContractVersion": "2",
-  "sha256": "db8b0fa3ba5198aec1439f0b8cb55830fe96380bd7c2cee1031e8547b65cb005",
+  "sha256": "07c62ec455382767323470a9f4c04a135ab5ebc23ab222f806d6145bd97f6c2b",
   "manifest": {
     "capabilityManifest": {
       "agreement": {
@@ -68,6 +68,78 @@
       }
     },
     "commands": {
+      "AttestAttribute": {
+        "additionalProperties": false,
+        "properties": {
+          "baseRevision": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "candidateId": {
+            "maxLength": 40,
+            "type": "string"
+          },
+          "confidence": {
+            "maximum": 1,
+            "minimum": 0,
+            "type": "number"
+          },
+          "key": {
+            "anyOf": [
+              {
+                "const": "vegetarian-options",
+                "type": "string"
+              },
+              {
+                "const": "lactose-free-options",
+                "type": "string"
+              },
+              {
+                "const": "wheelchair-accessible",
+                "type": "string"
+              },
+              {
+                "const": "outdoor-seating",
+                "type": "string"
+              },
+              {
+                "const": "dog-friendly",
+                "type": "string"
+              }
+            ]
+          },
+          "note": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "sourceUrl": {
+            "maxLength": 300,
+            "type": "string"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "const": "verified_true",
+                "type": "string"
+              },
+              {
+                "const": "verified_false",
+                "type": "string"
+              }
+            ]
+          }
+        },
+        "required": [
+          "baseRevision",
+          "candidateId",
+          "key",
+          "status",
+          "confidence",
+          "note"
+        ],
+        "type": "object"
+      },
       "CommitAgreement": {
         "additionalProperties": false,
         "properties": {
@@ -735,6 +807,47 @@
                   "lifetime"
                 ],
                 "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "key": {
+                    "const": "cuisine",
+                    "type": "string"
+                  },
+                  "kind": {
+                    "const": "inclusion",
+                    "type": "string"
+                  },
+                  "lifetime": {
+                    "anyOf": [
+                      {
+                        "const": "session",
+                        "type": "string"
+                      },
+                      {
+                        "const": "durable",
+                        "type": "string"
+                      }
+                    ]
+                  },
+                  "values": {
+                    "items": {
+                      "maxLength": 60,
+                      "type": "string"
+                    },
+                    "maxItems": 8,
+                    "minItems": 1,
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "key",
+                  "values",
+                  "lifetime"
+                ],
+                "type": "object"
               }
             ]
           },
@@ -1301,6 +1414,47 @@
                     },
                     "kind": {
                       "const": "exclusion",
+                      "type": "string"
+                    },
+                    "lifetime": {
+                      "anyOf": [
+                        {
+                          "const": "session",
+                          "type": "string"
+                        },
+                        {
+                          "const": "durable",
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "values": {
+                      "items": {
+                        "maxLength": 60,
+                        "type": "string"
+                      },
+                      "maxItems": 8,
+                      "minItems": 1,
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "key",
+                    "values",
+                    "lifetime"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "key": {
+                      "const": "cuisine",
+                      "type": "string"
+                    },
+                    "kind": {
+                      "const": "inclusion",
                       "type": "string"
                     },
                     "lifetime": {
@@ -1903,6 +2057,83 @@
           "type": "object"
         },
         "name": "plan_arrival"
+      },
+      {
+        "annotations": {},
+        "description": "Record what you found out about a place: a fact the record marks unknown or unverified in inspect_candidates. Say what you checked in note and how sure you are. Over an unknown fact your attestation lets the room rule on it, labelled with your name; one that contradicts a verified fact marks it disputed instead. Shared with the whole room.",
+        "inputSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "baseRevision": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "candidateId": {
+              "maxLength": 40,
+              "type": "string"
+            },
+            "confidence": {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            "key": {
+              "anyOf": [
+                {
+                  "const": "vegetarian-options",
+                  "type": "string"
+                },
+                {
+                  "const": "lactose-free-options",
+                  "type": "string"
+                },
+                {
+                  "const": "wheelchair-accessible",
+                  "type": "string"
+                },
+                {
+                  "const": "outdoor-seating",
+                  "type": "string"
+                },
+                {
+                  "const": "dog-friendly",
+                  "type": "string"
+                }
+              ]
+            },
+            "note": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            "sourceUrl": {
+              "maxLength": 300,
+              "type": "string"
+            },
+            "status": {
+              "anyOf": [
+                {
+                  "const": "verified_true",
+                  "type": "string"
+                },
+                {
+                  "const": "verified_false",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "required": [
+            "baseRevision",
+            "candidateId",
+            "key",
+            "status",
+            "confidence",
+            "note"
+          ],
+          "type": "object"
+        },
+        "name": "attest_attribute"
       },
       {
         "annotations": {

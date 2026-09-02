@@ -29,6 +29,8 @@ import { config } from "./config.ts";
 import { authenticateToken, exchangeInviteSecret } from "./auth.ts";
 import { submitCommand } from "./engine.ts";
 import { syncSession } from "./sync.ts";
+import { areaSummaries } from "./places.ts";
+import { createRoom } from "./rooms.ts";
 import { inspectCandidates, prepareNavigation, spatialContext } from "./spatial.ts";
 import { attachWebSocket } from "./ws.ts";
 import { pool } from "./db.ts";
@@ -100,6 +102,61 @@ app.post("/api/session/exchange", async (req, reply) => {
     displayName: exchanged.participant.displayName,
     role: exchanged.participant.role,
     roomId: exchanged.participant.roomId,
+  };
+});
+
+// The area picker (docs/DATA-QUALITY.md): the registry joined with what was
+// measured from each area's extract. Public and static; nothing per-user.
+app.get("/api/areas", async () => ({ areas: areaSummaries() }));
+
+// Room creation is unauthenticated and mints rows (room, participants,
+// invite secrets, a candidate pool): cap it per IP like the exchange route.
+const roomAttempts = new Map<string, { count: number; windowStart: number }>();
+const ROOM_LIMIT = 10;
+const ROOM_WINDOW_MS = 60 * 60_000;
+
+app.post("/api/rooms", async (req, reply) => {
+  const now = Date.now();
+  const entry = roomAttempts.get(req.ip);
+  if (!entry || now - entry.windowStart > ROOM_WINDOW_MS) {
+    roomAttempts.set(req.ip, { count: 1, windowStart: now });
+  } else if (++entry.count > ROOM_LIMIT) {
+    return reply.code(429).send({ error: "too many rooms opened from here; retry later" });
+  }
+  const body = (req.body ?? {}) as {
+    areaId?: unknown;
+    organizerName?: unknown;
+    memberNames?: unknown;
+    center?: unknown;
+  };
+  if (typeof body.areaId !== "string") {
+    return reply.code(400).send({ error: "areaId required" });
+  }
+  const created = await createRoom({
+    areaId: body.areaId,
+    organizerName: typeof body.organizerName === "string" ? body.organizerName : "",
+    memberNames: Array.isArray(body.memberNames) ? (body.memberNames as string[]) : [],
+    ...(body.center !== undefined ? { center: body.center as { lat: number; lng: number } } : {}),
+  });
+  if (!created.ok) {
+    return reply.code(created.status).send({ error: created.error });
+  }
+  req.log.info(
+    {
+      correlationId: correlationId(req),
+      roomId: created.roomId,
+      areaId: created.areaId,
+      places: created.dataSource.poolSize,
+      outcome: "ok",
+    },
+    "room created",
+  );
+  // Secrets ride in the body once, to the creator; they are never logged.
+  return {
+    roomId: created.roomId,
+    areaId: created.areaId,
+    invites: created.invites,
+    dataSource: created.dataSource,
   };
 });
 

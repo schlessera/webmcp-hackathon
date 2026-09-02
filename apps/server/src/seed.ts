@@ -29,6 +29,7 @@ const PARTICIPANTS = [
 
 interface VenueFile {
   manifest: {
+    extractTimestamp: string;
     demoCenter: { lat: number; lng: number };
     demoRadii: { narrow: number; wide: number };
   };
@@ -63,7 +64,7 @@ await withTransaction(async (client) => {
     // Destructive path, explicitly named: clears only the demo room.
     for (const table of [
       "stances", "proposals", "verdicts", "requirements", "adjustments",
-      "arrival_plans", "events", "invite_secrets", "participant_tokens",
+      "arrival_plans", "attestations", "events", "invite_secrets", "participant_tokens",
       "candidates",
     ]) {
       if (table === "participant_tokens") {
@@ -92,15 +93,29 @@ await withTransaction(async (client) => {
     transport: ["walk", "bike", "car"],
     category: "food",
   });
+  // The demo room's provenance: the curated dataset, whose attributes name
+  // their own source (osm:* or curated:*). Rooms opened from the area picker
+  // draw on the area snapshot instead (apps/server/src/rooms.ts).
+  const dataSource = JSON.stringify({
+    kind: "curated",
+    areaId: "berlin-mitte",
+    label: "Berlin Mitte",
+    source: "OpenStreetMap",
+    extractTimestamp: dataset.manifest.extractTimestamp,
+    poolSize: dataset.venues.length,
+    focusVenues: dataset.venues.length,
+  });
   await client.query(
-    `INSERT INTO rooms (id, goal, phase, domain, revision, policy, scope, scope_seq)
-     VALUES ($1, $2, 'gathering', $3, 0, $4, $5, 1)
+    `INSERT INTO rooms (id, goal, phase, domain, revision, policy, scope, scope_seq, area_id, data_source)
+     VALUES ($1, $2, 'gathering', $3, 0, $4, $5, 1, 'berlin-mitte', $6)
      ON CONFLICT (id) DO UPDATE SET
        goal = $2,
        -- Upgrade path for a pre-scope room_demo: backfill the scope exactly
        -- once; a live room's widened scope is never clobbered.
        scope = COALESCE(rooms.scope, EXCLUDED.scope),
-       scope_seq = GREATEST(rooms.scope_seq, 1)`,
+       scope_seq = GREATEST(rooms.scope_seq, 1),
+       area_id = 'berlin-mitte',
+       data_source = $6`,
     [
       ROOM_ID,
       GOAL,
@@ -111,6 +126,7 @@ await withTransaction(async (client) => {
         guestAccess: true,
       }),
       demoScope,
+      dataSource,
     ],
   );
 

@@ -181,7 +181,7 @@ export function generateAdjustments(
             nextBand <= delegation.bound.max,
         });
       }
-    } else if (p.kind === "exclusion") {
+    } else if (p.kind === "exclusion" || p.kind === "inclusion") {
       const gain = eligibleCount(
         classifyAll(
           candidates,
@@ -194,7 +194,7 @@ export function generateAdjustments(
         drafts.push({
           kind: "requirement_relaxation",
           target: { requirementId: req.id },
-          change: { dimension: "exclusion", from: p.values ?? [], to: [] },
+          change: { dimension: p.kind, from: p.values ?? [], to: [] },
           projectedGain: { newCandidates: gain },
           requiresConsentOf: req.owner_id,
           withinDelegatedBound: false,

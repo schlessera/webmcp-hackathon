@@ -5,3 +5,6 @@ playwright-report/
 *.log
 .env
 .rtk/
+
+# Prepared OpenStreetMap extracts and engine scratch (scripts/build-area-snapshot.mjs)
+data/osm/
