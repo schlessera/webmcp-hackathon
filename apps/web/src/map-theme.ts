@@ -12,6 +12,8 @@
  * | #2c6b52                   | --spoke-works     |
  * | #7d6396                   | --spoke-scope     |
  * | #e9e5da                   | --spoke-surface-sunk (map plate) |
+ * | #a8a291                   | --spoke-out       |
+ * | #b05f2c                   | --spoke-unsure    |
  */
 export const MAP_THEME = {
   /** --spoke-ink at 8%: everything outside the scope circle (SPOKES-UI §3). */
@@ -24,6 +26,8 @@ export const MAP_THEME = {
   wash: { color: "#2c6b52", opacity: 0.18 },
   /** --spoke-surface-sunk: what shows when tiles fail to load. */
   plate: "#e9e5da",
+  /** Cheap snapshot places beneath the room's DOM stickers. */
+  exploreDot: { color: "#a8a291", opacity: 0.55, stroke: "#b05f2c" },
 } as const;
 
 export const TILE_STYLE = "https://tiles.openfreemap.org/styles/positron";

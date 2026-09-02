@@ -28,6 +28,7 @@ type Need = {
 
 type Candidate = {
   candidateId: string;
+  ref?: string;
   name: string;
   location: { lat: number; lng: number };
   category: string;
@@ -47,6 +48,7 @@ type MockContext = {
     transport: string[];
     category: string;
   };
+  pool?: { size: number; cap: number; explorable: boolean };
   feasibility: {
     state: "feasible" | "fragile" | "infeasible" | "uncertain";
     eligible: number;
@@ -268,6 +270,13 @@ type MockState = {
   identity?: MockIdentity;
   syncEvents?: Array<Record<string, unknown>>;
   command?: (request: Record<string, unknown>, state: MockState) => Record<string, unknown>;
+  explore?: Array<{
+    ref: string;
+    name: string;
+    category: string;
+    location: { lat: number; lng: number };
+  }>;
+  exploreAtViewportCenter?: boolean;
 };
 
 async function mockApi(page: Page, state: MockState) {
@@ -327,6 +336,25 @@ async function mockApi(page: Page, state: MockState) {
         .map((candidate) => candidate.candidateId),
     );
     return respond(route, preview);
+  });
+  await page.route("**/api/rooms/*/places?*", (route) => {
+    const url = new URL(route.request().url());
+    const parts = (url.searchParams.get("bbox") ?? "").split(",").map(Number);
+    const [south, west, north, east] = parts;
+    let places = (state.explore ?? []).filter(
+      (place) =>
+        place.location.lat >= south &&
+        place.location.lat <= north &&
+        place.location.lng >= west &&
+        place.location.lng <= east,
+    );
+    if (state.exploreAtViewportCenter && parts.length === 4) {
+      places = (state.explore ?? []).map((place) => ({
+        ...place,
+        location: { lat: (south + north) / 2, lng: (west + east) / 2 },
+      }));
+    }
+    return respond(route, { ok: true, places, truncated: false });
   });
   await page.route("**/api/spatial/inspect", (route) => {
     recordRequest(route.request());
@@ -759,6 +787,114 @@ test("candidate batches settle in place across requirements and radius changes, 
   await expect
     .poll(async () => JSON.stringify(await markerTransforms(page, trackedIds)))
     .not.toBe(JSON.stringify(initialTransforms));
+});
+
+test("panning reveals explorable places, bringing one in preserves the viewport, and the area is recoverable", async ({ page }) => {
+  const explored = {
+    ref: "node/explore-east",
+    name: "Eastside Place",
+    category: "community_centre",
+    location: { lat: center.lat, lng: center.lng + 0.02 },
+  };
+  const context = fixture({ eligibleIds: dataset.venues.map((venue) => venue.candidateId) });
+  for (const [candidateId, ref] of [["place_collocated_a", "node/collocated-a"], ["place_collocated_b", "node/collocated-b"]] as const) {
+    context.candidates.push({
+      candidateId,
+      ref,
+      name: candidateId.endsWith("a") ? "Together One" : "Together Two",
+      category: "community_centre",
+      location: { lat: center.lat + 0.001, lng: center.lng + 0.001 },
+      eligibility: "eligible",
+      why: "meets all evaluable requirements",
+      walkMin: 2,
+      priceLevel: null,
+    });
+  }
+  context.pool = { size: context.candidates.length, cap: 400, explorable: true };
+  const state: MockState = {
+    context,
+    outstanding: [],
+    explore: [explored],
+    exploreAtViewportCenter: true,
+    command(request, current) {
+      current.context.revision += 1;
+      if (request.type === "AddCandidates") {
+        current.context.candidates.push({
+          candidateId: "pl_demo_032",
+          ref: explored.ref,
+          name: explored.name,
+          category: explored.category,
+          location: explored.location,
+          eligibility: "excluded",
+          why: "outside the current search area",
+          walkMin: 45,
+          priceLevel: null,
+        });
+        current.context.pool!.size += 1;
+      }
+      return {
+        ok: true,
+        revision: current.context.revision,
+        effect: "Done (mock).",
+        outstanding: current.outstanding,
+      };
+    },
+  };
+  await mockApi(page, state);
+  await page.goto(`${BASE}/#invite=deadbeef`);
+  await expect(page.getByTestId("map-region")).toHaveAttribute("data-loaded", "true", {
+    timeout: 20_000,
+  });
+  await expect
+    .poll(() => page.locator('[data-testid^="pin-"][data-named="true"]').count())
+    .toBeGreaterThanOrEqual(6);
+  const placement = await page.evaluate(() => {
+    const map = document.querySelector('[data-testid="map-region"]')!.getBoundingClientRect();
+    const cards = [...document.querySelectorAll('[data-named="true"] .sticker-box')]
+      .map((card) => card.getBoundingClientRect())
+      .filter((rect) => rect.width > 0 && rect.height > 0);
+    return {
+      count: cards.length,
+      inside: cards.every((rect) => rect.left >= map.left - 1 && rect.right <= map.right + 1),
+    };
+  });
+  expect(placement.count).toBeGreaterThanOrEqual(6);
+  expect(placement.inside).toBe(true);
+  const collocated = await markerTransforms(page, ["place_collocated_a", "place_collocated_b"]);
+  expect(collocated.place_collocated_a).not.toBe(collocated.place_collocated_b);
+  const canvas = page.locator(".maplibregl-canvas");
+  const box = await canvas.boundingBox();
+  expect(box).not.toBeNull();
+  await page.mouse.move(box!.x + box!.width * 0.75, box!.y + box!.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box!.x + 40, box!.y + box!.height / 2, { steps: 12 });
+  await page.mouse.up();
+
+  await expect(page.getByTestId("back-to-area")).toBeVisible();
+  await expect(page.getByTestId("search-here")).toBeVisible();
+  await expect
+    .poll(async () => Number(await page.getByTestId("map-region").getAttribute("data-explore-count")))
+    .toBeGreaterThan(0);
+  const pannedBefore = await stableMarkerTransforms(page, ["place_1", "place_24"]);
+
+  // The GL layer also exposes its visible places through one native keyboard
+  // control, avoiding a parallel DOM marker population.
+  await page.getByLabel("Explore places in view").evaluate(
+    (node, ref) => {
+      const select = node as HTMLSelectElement;
+      select.value = String(ref);
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    },
+    explored.ref,
+  );
+  await expect(page.getByTestId("explore-card")).toContainText("Everyone in the room will see it.");
+  await page.getByRole("button", { name: "Bring into the room" }).click();
+  await expect(page.getByTestId("pin-pl_demo_032")).toBeVisible();
+  expect(await markerTransforms(page, ["place_1", "place_24"])).toEqual(pannedBefore);
+
+  await page.getByTestId("back-to-area").click();
+  await expect(page.getByTestId("back-to-area")).toHaveCount(0);
+  await expect(page.getByTestId("search-here")).toHaveCount(0);
 });
 
 test("deliberation draws unsure and proposed pins and exposes direct stance actions", async ({ page }) => {

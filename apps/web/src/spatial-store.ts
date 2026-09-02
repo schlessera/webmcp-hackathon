@@ -1,7 +1,8 @@
-import { spatialContext } from "./api.ts";
+import { fetchExplorePlaces, spatialContext } from "./api.ts";
 import { diagnostics } from "./diagnostics-store.ts";
 import type {
   CommandEnvelope,
+  ExplorePlace,
   OutstandingItem,
   SpatialContext,
 } from "./spatial-types.ts";
@@ -38,6 +39,12 @@ export interface SpatialState {
   agentReplies: AgentReply[];
   /** A sentence is with the agent right now. */
   agentBusy: boolean;
+  /** Snapshot places accumulated across viewport reads, keyed by stable ref. */
+  explore: Map<string, ExplorePlace>;
+  /** Whether the most recent viewport held more than the endpoint cap. */
+  exploreTruncated: boolean;
+  /** Candidate ids currently being looked up; map dots expose data-busy. */
+  lookupPending: Set<string>;
 }
 
 export interface AgentReply {
@@ -72,6 +79,9 @@ class SpatialStore {
     viewing: {},
     agentReplies: [],
     agentBusy: false,
+    explore: new Map(),
+    exploreTruncated: false,
+    lookupPending: new Set(),
   };
   private listeners = new Set<Listener>();
   private inflight: Promise<SpatialContext | null> | null = null;
@@ -79,6 +89,8 @@ class SpatialStore {
   private previewAbort: AbortController | null = null;
   private confirmations = new Map<string, HeldConfirmation>();
   private confirmationWaiters = new Map<string, Array<() => void>>();
+  private roomId: string | null = null;
+  private exploreAbort: AbortController | null = null;
 
   subscribe(listener: Listener): () => void {
     this.listeners.add(listener);
@@ -112,6 +124,51 @@ class SpatialStore {
   }
   setAgentBusy(agentBusy: boolean): void {
     if (this.state.agentBusy !== agentBusy) this.update({ agentBusy });
+  }
+
+  /** A new room is the only boundary that clears accumulated exploration. */
+  beginRoom(roomId: string): void {
+    if (this.roomId === roomId) return;
+    this.roomId = roomId;
+    this.exploreAbort?.abort();
+    this.exploreAbort = null;
+    this.update({
+      explore: new Map(),
+      exploreTruncated: false,
+      lookupPending: new Set(),
+    });
+  }
+
+  async loadExplore(
+    roomId: string,
+    bbox: [number, number, number, number],
+  ): Promise<void> {
+    if (this.roomId !== roomId) this.beginRoom(roomId);
+    this.exploreAbort?.abort();
+    const controller = new AbortController();
+    this.exploreAbort = controller;
+    const result = await fetchExplorePlaces(roomId, bbox, controller.signal);
+    if (controller.signal.aborted || this.roomId !== roomId || !result.ok) return;
+    const explore = new Map(this.state.explore);
+    for (const place of result.places) explore.set(place.ref, place);
+    this.update({ explore, exploreTruncated: result.truncated });
+  }
+
+  markExploreAdded(refs: string[]): void {
+    if (refs.length === 0) return;
+    const explore = new Map(this.state.explore);
+    let changed = false;
+    for (const ref of refs) {
+      const place = explore.get(ref);
+      if (!place || place.candidateId) continue;
+      explore.set(ref, { ...place, candidateId: "pending" });
+      changed = true;
+    }
+    if (changed) this.update({ explore });
+  }
+
+  setLookupPending(candidateIds: string[]): void {
+    this.update({ lookupPending: new Set(candidateIds) });
   }
 
   /**
@@ -270,5 +327,10 @@ export function runCommand(
       },
     });
   }
-  return runner(type, input);
+  return runner(type, input).then((result) => {
+    if (result.ok && type === "AddCandidates" && Array.isArray(input.refs)) {
+      spatial.markExploreAdded(input.refs.filter((ref): ref is string => typeof ref === "string"));
+    }
+    return result;
+  });
 }

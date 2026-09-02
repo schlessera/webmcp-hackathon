@@ -377,11 +377,19 @@ body { overflow: hidden; }
     transform var(--spoke-dur-settle) var(--spoke-ease),
     opacity var(--spoke-dur-settle) var(--spoke-ease);
 }
+.marker-sticker[data-side="left"] {
+  transform: translate(calc(-100% + 13px), -50%) rotate(var(--tilt, 0deg)) scale(1);
+  transform-origin: calc(100% - 13px) 50%;
+}
 .marker[data-state="out"] .marker-sticker,
 .marker[data-named="false"] .marker-sticker {
   transform: translate(-13px, -50%) rotate(var(--tilt, 0deg)) scale(0.3);
   opacity: 0;
   pointer-events: none;
+}
+.marker[data-state="out"] .marker-sticker[data-side="left"],
+.marker[data-named="false"] .marker-sticker[data-side="left"] {
+  transform: translate(calc(-100% + 13px), -50%) rotate(var(--tilt, 0deg)) scale(0.3);
 }
 
 .sticker-box {
@@ -717,6 +725,84 @@ body { overflow: hidden; }
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Snapshot explore card: one DOM element over the cheap GL dots. */
+.explore-card {
+  width: min(280px, calc(100vw - 32px));
+  padding: var(--spoke-pad-card);
+  border: var(--spoke-border) solid var(--spoke-line);
+  border-radius: var(--spoke-radius-card);
+  background: var(--spoke-surface);
+  box-shadow: var(--spoke-shadow-lift);
+  color: var(--spoke-ink);
+}
+.explore-card-heading {
+  font-family: var(--spoke-font-display);
+  font-size: var(--spoke-size-place);
+  font-weight: var(--spoke-weight-strong);
+  line-height: 1.3;
+}
+.explore-card-category,
+.explore-card-shared,
+.explore-card-truncated {
+  color: var(--spoke-ink-soft);
+  font-size: var(--spoke-size-meta);
+}
+.explore-card-shared { margin-top: 4px; }
+.explore-card-truncated { margin-top: var(--spoke-gap-row); }
+.explore-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spoke-gap-row);
+  margin-top: var(--spoke-gap-group);
+}
+.explore-card-actions button {
+  min-height: var(--spoke-tap-min);
+  padding: 5px 10px;
+  border: var(--spoke-border) solid var(--spoke-works);
+  border-radius: var(--spoke-radius-chip);
+  background: var(--spoke-surface);
+  color: var(--spoke-works-text);
+  font-size: var(--spoke-size-meta);
+  font-weight: var(--spoke-weight-strong);
+  cursor: pointer;
+}
+.explore-card-actions button:first-child {
+  background: var(--spoke-works);
+  color: var(--spoke-surface);
+}
+.explore-card-actions button:disabled { opacity: var(--spoke-out-opacity); }
+
+/* Explicit viewport actions. The outer button supplies a 44px target while
+   the inner chip keeps the compact visual requested by the map spec. */
+.map-nav-actions {
+  position: absolute;
+  left: 14px;
+  bottom: 6px;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+.map-nav-actions[data-has-delta="true"] { bottom: 44px; }
+.map-nav-action {
+  min-height: var(--spoke-tap-min);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.map-nav-chip {
+  display: block;
+  padding: 5px 9px;
+  border: var(--spoke-border) solid var(--spoke-line);
+  border-radius: var(--spoke-radius-chip);
+  background: var(--spoke-surface);
+  box-shadow: var(--spoke-shadow-drop);
+  color: var(--spoke-ink);
+  font-size: var(--spoke-size-meta);
+  font-weight: var(--spoke-weight-strong);
 }
 
 /* ── Brief ─────────────────────────────────────────────────────────────

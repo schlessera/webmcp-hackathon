@@ -171,6 +171,7 @@ export function App() {
       if (!established.token || !established.identity) return;
 
       const roomId = established.identity.roomId;
+      spatial.beginRoom(roomId);
       // Captured BEFORE the first advance overwrites it: this is what makes
       // "while you were away" a fact rather than a guess. The tab's own
       // floor can run ahead of the server's (live events advance it without
@@ -267,6 +268,12 @@ export function App() {
           // The roster is server truth; presence rides on it. Who has which
           // place open is page-local presence and lands in the store as is.
           spatial.setViewing(viewing);
+          void spatial.refetch();
+        },
+        onLookups(pending) {
+          spatial.setLookupPending(pending);
+        },
+        onFacts() {
           void spatial.refetch();
         },
         onStaleBundle() {
@@ -510,6 +517,12 @@ export function App() {
               viewing={spatialState.viewing}
               participants={participants}
               meId={id.participantId}
+              roomId={id.roomId}
+              isOrganizer={isOrganizer}
+              explore={spatialState.explore}
+              exploreTruncated={spatialState.exploreTruncated}
+              lookupPending={spatialState.lookupPending}
+              run={run}
               onSelect={(cid) => spatial.select(cid)}
             />
           ) : (

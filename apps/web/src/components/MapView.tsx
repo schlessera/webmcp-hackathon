@@ -3,8 +3,11 @@ import { Layer, Map, Marker, Source, type MapRef } from "@vis.gl/react-maplibre"
 import "maplibre-gl/dist/maplibre-gl.css";
 import "../map-worker.ts";
 import { MAP_THEME, TILE_STYLE } from "../map-theme.ts";
+import { spatial } from "../spatial-store.ts";
 import type {
   CandidateSummary,
+  CommandEnvelope,
+  ExplorePlace,
   ParticipantSummary,
   SpatialContext,
 } from "../spatial-types.ts";
@@ -76,6 +79,12 @@ interface Props {
   viewing: Record<string, string>;
   participants: ParticipantSummary[];
   meId: string;
+  roomId: string;
+  isOrganizer: boolean;
+  explore: ReadonlyMap<string, ExplorePlace>;
+  exploreTruncated: boolean;
+  lookupPending: ReadonlySet<string>;
+  run(type: string, input: Record<string, unknown>): Promise<CommandEnvelope>;
   onSelect(candidateId: string | null): void;
 }
 
@@ -110,7 +119,8 @@ function circlePolygon(center: { lat: number; lng: number }, radiusM: number) {
  * the map, in its own state's colour, size and border style, and tapping it
  * opens it.
  */
-const NAME_CAP = 14;
+const NAME_CAP = 18;
+const NAME_FLOOR = 6;
 /* The collision box is the drawn card plus the height its ±3° tilt adds, so
    two accepted names can sit shoulder to shoulder but never on top of each
    other. Widths are estimated rather than measured: measuring would need the
@@ -121,10 +131,32 @@ const STICKER_SLACK = 1;
 const DOT_CLEARANCE = 10;
 /* A tap this close to a dot (in px) belongs to that dot, whatever box is on top. */
 const TAP_REACH = 22;
+const COLLOCATED_OFFSET = 6;
 
 /** Rough drawn width of a sticker: dot + name at ~6.6px/char + optional chip. */
 function stickerWidth(name: string, hasChip: boolean): number {
   return 44 + name.length * 6.6 + (hasChip ? 40 : 0);
+}
+
+function stableHash(value: string): number {
+  let hash = 2166136261;
+  for (let i = 0; i < value.length; i += 1) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function distanceMeters(
+  a: { lat: number; lng: number },
+  b: { lat: number; lng: number },
+): number {
+  const y = (a.lat - b.lat) * 111_320;
+  const x =
+    (a.lng - b.lng) *
+    111_320 *
+    Math.cos((((a.lat + b.lat) / 2) * Math.PI) / 180);
+  return Math.hypot(x, y);
 }
 
 export function MapView({
@@ -137,6 +169,12 @@ export function MapView({
   viewing,
   participants,
   meId,
+  roomId,
+  isOrganizer,
+  explore,
+  exploreTruncated,
+  lookupPending,
+  run,
   onSelect,
 }: Props) {
   const mapRef = useRef<MapRef>(null);
@@ -159,6 +197,59 @@ export function MapView({
   /** True once the basemap has loaded and the first fit has run — the moment
    * marker positions stop moving on their own. The e2e specs wait on it. */
   const [loaded, setLoaded] = useState(false);
+  const [scopeOffscreen, setScopeOffscreen] = useState(false);
+  const [panned, setPanned] = useState(false);
+  const [selectedExploreRef, setSelectedExploreRef] = useState<string | null>(null);
+  const [addingExplore, setAddingExplore] = useState(false);
+  const exploreTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastExploreView = useRef<{
+    center: { lat: number; lng: number };
+    width: number;
+    height: number;
+    zoom: number;
+  } | null>(null);
+
+  useEffect(() => {
+    lastExploreView.current = null;
+    setSelectedExploreRef(null);
+  }, [roomId]);
+  useEffect(
+    () => () => {
+      if (exploreTimer.current) clearTimeout(exploreTimer.current);
+    },
+    [],
+  );
+
+  const collisionOffsets = useMemo(() => {
+    const groups = new globalThis.Map<string, CandidateSummary[]>();
+    for (const candidate of candidates) {
+      const key = `${candidate.location.lat},${candidate.location.lng}`;
+      const group = groups.get(key) ?? [];
+      group.push(candidate);
+      groups.set(key, group);
+    }
+    const offsets = new globalThis.Map<string, [number, number]>();
+    for (const group of groups.values()) {
+      if (group.length === 1) {
+        offsets.set(group[0].candidateId, [0, 0]);
+        continue;
+      }
+      group.sort(
+        (a, b) =>
+          stableHash(a.ref ?? a.candidateId) - stableHash(b.ref ?? b.candidateId) ||
+          (a.ref ?? a.candidateId).localeCompare(b.ref ?? b.candidateId),
+      );
+      const start = ((stableHash(group[0].ref ?? group[0].candidateId) % 360) * Math.PI) / 180;
+      group.forEach((candidate, index) => {
+        const angle = start + (index / group.length) * 2 * Math.PI;
+        offsets.set(candidate.candidateId, [
+          Math.cos(angle) * COLLOCATED_OFFSET,
+          Math.sin(angle) * COLLOCATED_OFFSET,
+        ]);
+      });
+    }
+    return offsets;
+  }, [candidates]);
 
   const ring = useMemo(
     () => circlePolygon(center, scope.area.radiusM),
@@ -249,7 +340,8 @@ export function MapView({
       } catch {
         continue;
       }
-      const d = (p.x - x) ** 2 + (p.y - y) ** 2;
+      const offset = collisionOffsets.get(c.candidateId) ?? [0, 0];
+      const d = (p.x + offset[0] - x) ** 2 + (p.y + offset[1] - y) ** 2;
       if (d < bestD) {
         bestD = d;
         best = c.candidateId;
@@ -342,7 +434,7 @@ export function MapView({
 
   const named = useMemo(() => {
     const map = mapRef.current;
-    const set = new Set<string>();
+    const placements = new globalThis.Map<string, "left" | "right">();
     // A place someone acted on always keeps its name, wherever it sits; a
     // place someone is looking at comes next.
     const priority = (c: CandidateSummary) => {
@@ -351,13 +443,20 @@ export function MapView({
       if (viewersOf.has(c.candidateId)) return 2;
       return 3;
     };
-    const ordered = candidates
+    const candidatesByPriority = candidates
       .filter((c) => stateOf(c) !== "out")
-      .sort((a, b) => priority(a) - priority(b) || a.walkMin - b.walkMin);
+      .sort(
+        (a, b) =>
+          priority(a) - priority(b) ||
+          a.walkMin - b.walkMin ||
+          (a.ref ?? a.candidateId).localeCompare(b.ref ?? b.candidateId),
+      );
 
     if (!map) {
-      for (const c of ordered.slice(0, NAME_CAP)) set.add(c.candidateId);
-      return set;
+      for (const c of candidatesByPriority.slice(0, NAME_CAP)) {
+        placements.set(c.candidateId, "right");
+      }
+      return placements;
     }
 
     // Every place's dot, so a card is refused where it would bury a
@@ -366,44 +465,109 @@ export function MapView({
     for (const c of candidates) {
       try {
         const p = map.project([c.location.lng, c.location.lat]);
-        dots.push({ id: c.candidateId, x: p.x, y: p.y });
+        const offset = collisionOffsets.get(c.candidateId) ?? [0, 0];
+        dots.push({ id: c.candidateId, x: p.x + offset[0], y: p.y + offset[1] });
       } catch {
         /* off the projectable world; nothing to protect */
       }
     }
+    // Within each semantic priority, choose the point farthest from names
+    // already considered. This keeps the map readable across the viewport
+    // instead of spending every name on the nearest dense block.
+    const points = new globalThis.Map(dots.map((dot) => [dot.id, dot]));
+    const ordered: CandidateSummary[] = [];
+    for (let rank = 0; rank <= 3; rank += 1) {
+      const remaining = candidatesByPriority.filter((candidate) => priority(candidate) === rank);
+      while (remaining.length > 0) {
+        let bestIndex = 0;
+        let bestDistance = -1;
+        for (let i = 0; i < remaining.length; i += 1) {
+          const point = points.get(remaining[i].candidateId);
+          if (!point) continue;
+          const nearest = ordered.reduce((distance, chosen) => {
+            const other = points.get(chosen.candidateId);
+            return other
+              ? Math.min(distance, (point.x - other.x) ** 2 + (point.y - other.y) ** 2)
+              : distance;
+          }, Number.POSITIVE_INFINITY);
+          if (nearest > bestDistance) {
+            bestDistance = nearest;
+            bestIndex = i;
+          }
+        }
+        ordered.push(remaining.splice(bestIndex, 1)[0]);
+      }
+    }
+
+    const width = map.getContainer().clientWidth;
+    const height = map.getContainer().clientHeight;
     const placed: Array<{ x: number; y: number; w: number }> = [];
-    for (const c of ordered) {
-      if (set.size >= NAME_CAP) break;
+    const tryPlace = (c: CandidateSummary, protectDots: boolean) => {
       const own = dots.find((d) => d.id === c.candidateId);
-      if (!own) continue;
+      if (!own || own.x < 0 || own.x > width || own.y < STICKER_H / 2 || own.y > height - STICKER_H / 2) {
+        return false;
+      }
       const point = own;
       const w = stickerWidth(c.name, true) * STICKER_SLACK;
-      const left = point.x - 13;
-      const collides = placed.some(
-        (p) =>
-          Math.abs(p.y - point.y) < STICKER_H &&
-          left < p.x + p.w &&
-          p.x < left + w,
-      );
-      if (collides) continue;
-      // A place someone acted on (open, settled, on the table) is named even
-      // where its card sits over a neighbour's dot: the act is the thing the
-      // map must show, and every dot stays reachable through nearest-dot
-      // tapping (D5). Everything else yields to the dot.
-      const buries =
-        priority(c) > 1 &&
-        dots.some(
-          (d) =>
-            d.id !== c.candidateId &&
-            Math.abs(d.y - point.y) < STICKER_H / 2 + DOT_CLEARANCE &&
-            d.x > left + DOT_CLEARANCE &&
-            d.x < left + w + DOT_CLEARANCE,
+      const preferred: Array<"left" | "right"> =
+        point.x + w - 13 > width ? ["left", "right"] : ["right", "left"];
+      for (const side of preferred) {
+        const left = side === "right" ? point.x - 13 : point.x + 13 - w;
+        if (left < 4 || left + w > width - 4) continue;
+        const collides = placed.some(
+          (p) =>
+            Math.abs(p.y - point.y) < STICKER_H &&
+            left < p.x + p.w &&
+            p.x < left + w,
         );
-      if (buries) continue;
-      placed.push({ x: left, y: point.y, w });
-      set.add(c.candidateId);
+        if (collides) continue;
+        const buries =
+          protectDots &&
+          priority(c) > 1 &&
+          dots.some(
+            (d) =>
+              d.id !== c.candidateId &&
+              Math.abs(d.y - point.y) < STICKER_H / 2 + DOT_CLEARANCE &&
+              d.x > left + DOT_CLEARANCE &&
+              d.x < left + w + DOT_CLEARANCE,
+          );
+        if (buries) continue;
+        placed.push({ x: left, y: point.y, w });
+        placements.set(c.candidateId, side);
+        return true;
+      }
+      return false;
+    };
+
+    for (const candidate of ordered) {
+      if (placements.size >= NAME_CAP) break;
+      tryPlace(candidate, true);
     }
-    return set;
+    // Preserve dot clearance where possible, but do not repeat W1's zero-name
+    // map when six non-overlapping cards actually fit.
+    if (placements.size < NAME_FLOOR) {
+      for (const candidate of ordered) {
+        if (placements.size >= NAME_FLOOR || placements.size >= NAME_CAP) break;
+        if (!placements.has(candidate.candidateId)) tryPlace(candidate, false);
+      }
+    }
+    // In an exceptionally dense block, dot protection and card collision can
+    // still consume every slot. The farthest-point order is the final safety
+    // net: keep six identities visible when their cards fit inside the band,
+    // accepting a little overlap rather than returning to an anonymous map.
+    if (placements.size < NAME_FLOOR) {
+      for (const candidate of ordered) {
+        if (placements.size >= NAME_FLOOR) break;
+        if (placements.has(candidate.candidateId)) continue;
+        const point = points.get(candidate.candidateId);
+        if (!point || point.y < STICKER_H / 2 || point.y > height - STICKER_H / 2) continue;
+        const w = stickerWidth(candidate.name, true) * STICKER_SLACK;
+        const side = point.x + w - 13 <= width - 4 ? "right" : "left";
+        const left = side === "right" ? point.x - 13 : point.x + 13 - w;
+        if (left >= 4 && left + w <= width - 4) placements.set(candidate.candidateId, side);
+      }
+    }
+    return placements;
   }, [
     candidates,
     viewportWidth,
@@ -413,7 +577,127 @@ export function MapView({
     viewersOf,
     preview,
     viewTick,
+    collisionOffsets,
   ]);
+
+  const explorePlaces = useMemo(() => {
+    const refs = new Set(candidates.flatMap((candidate) => candidate.ref ? [candidate.ref] : []));
+    return [...explore.values()].filter(
+      (place) => !place.candidateId && !refs.has(place.ref),
+    );
+  }, [explore, candidates]);
+  const exploreGeoJson = useMemo(
+    () => ({
+      type: "FeatureCollection" as const,
+      features: [...explore.values()].map((place) => ({
+        type: "Feature" as const,
+        properties: { ref: place.ref, name: place.name, category: place.category },
+        geometry: {
+          type: "Point" as const,
+          coordinates: [place.location.lng, place.location.lat],
+        },
+      })),
+    }),
+    [explore],
+  );
+  useEffect(() => {
+    if (!loaded) return;
+    const map = mapRef.current;
+    if (!map) return;
+    const candidateRefs = new Set(
+      candidates.flatMap((candidate) => candidate.ref ? [candidate.ref] : []),
+    );
+    const apply = () => {
+      for (const place of explore.values()) {
+        map.setFeatureState(
+          { source: "explore", id: place.ref },
+          { hidden: Boolean(place.candidateId) || candidateRefs.has(place.ref) },
+        );
+      }
+    };
+    apply();
+    map.once("idle", apply);
+    return () => {
+      map.off("idle", apply);
+    };
+  }, [loaded, explore, candidates]);
+  const selectedExplore = selectedExploreRef ? explore.get(selectedExploreRef) ?? null : null;
+  const visibleExplore = useMemo(() => {
+    const map = mapRef.current;
+    if (!map) return [];
+    const bounds = map.getBounds();
+    return explorePlaces.filter(
+      (place) =>
+        place.location.lat >= bounds.getSouth() &&
+        place.location.lat <= bounds.getNorth() &&
+        place.location.lng >= bounds.getWest() &&
+        place.location.lng <= bounds.getEast(),
+    );
+  }, [explorePlaces, viewTick]);
+
+  useEffect(() => {
+    if (selectedExploreRef && !explore.has(selectedExploreRef)) setSelectedExploreRef(null);
+  }, [explore, selectedExploreRef]);
+
+  const viewportSettled = () => {
+    const map = mapRef.current;
+    if (!map) return;
+    const bounds = map.getBounds();
+    const mapCenter = map.getCenter();
+    setScopeOffscreen(
+      center.lat < bounds.getSouth() ||
+      center.lat > bounds.getNorth() ||
+      center.lng < bounds.getWest() ||
+      center.lng > bounds.getEast(),
+    );
+    setPanned(distanceMeters(center, { lat: mapCenter.lat, lng: mapCenter.lng }) > 50);
+    setViewTick((tick) => tick + 1);
+    if (!context.pool?.explorable) return;
+    if (exploreTimer.current) clearTimeout(exploreTimer.current);
+    exploreTimer.current = setTimeout(() => {
+      const current = mapRef.current;
+      if (!current) return;
+      const box = current.getBounds();
+      const next = {
+        center: { lat: current.getCenter().lat, lng: current.getCenter().lng },
+        width: box.getEast() - box.getWest(),
+        height: box.getNorth() - box.getSouth(),
+        zoom: current.getZoom(),
+      };
+      const previous = lastExploreView.current;
+      if (
+        previous &&
+        Math.abs(next.zoom - previous.zoom) < 0.01 &&
+        Math.abs(next.center.lng - previous.center.lng) <= previous.width * 0.25 &&
+        Math.abs(next.center.lat - previous.center.lat) <= previous.height * 0.25
+      ) {
+        return;
+      }
+      lastExploreView.current = next;
+      void spatial.loadExplore(roomId, [
+        box.getSouth(),
+        box.getWest(),
+        box.getNorth(),
+        box.getEast(),
+      ]);
+    }, 250);
+  };
+
+  const bringExplore = async (refs: string[]) => {
+    const remaining = context.pool ? context.pool.cap - context.pool.size : refs.length;
+    const selected = refs.slice(0, Math.max(0, Math.min(remaining, 40)));
+    if (selected.length === 0) return;
+    setAddingExplore(true);
+    try {
+      const result = await run("AddCandidates", { refs: selected });
+      if (result.ok) {
+        spatial.markExploreAdded(selected);
+        setSelectedExploreRef(null);
+      }
+    } finally {
+      setAddingExplore(false);
+    }
+  };
 
   const shown = preview ?? context;
   const matching = shown.matching;
@@ -465,6 +749,7 @@ export function MapView({
       data-scope-radius={Math.round(scope.area.radiusM)}
       data-preview={preview ? "true" : undefined}
       data-loaded={loaded ? "true" : undefined}
+      data-explore-count={explorePlaces.length}
     >
       <Map
         ref={mapRef}
@@ -473,12 +758,48 @@ export function MapView({
         attributionControl={{ compact: true }}
         onLoad={() => {
           fitOnce();
-          setViewTick((t) => t + 1);
           setLoaded(true);
+          viewportSettled();
         }}
-        onMoveEnd={() => setViewTick((t) => t + 1)}
-        onClick={() => onSelect(null)}
+        onMoveEnd={viewportSettled}
+        onClick={(event) => {
+          const feature = mapRef.current?.queryRenderedFeatures(event.point, {
+            layers: ["explore-dots"],
+          })[0];
+          const ref = feature?.properties?.ref;
+          if (typeof ref === "string") {
+            onSelect(null);
+            setSelectedExploreRef(ref);
+            return;
+          }
+          setSelectedExploreRef(null);
+          onSelect(null);
+        }}
       >
+        <Source id="explore" type="geojson" data={exploreGeoJson} promoteId="ref">
+          <Layer
+            id="explore-dots"
+            type="circle"
+            paint={{
+              "circle-radius": 4,
+              "circle-color": MAP_THEME.exploreDot.color,
+              "circle-opacity": [
+                "case",
+                ["boolean", ["feature-state", "hidden"], false],
+                0,
+                MAP_THEME.exploreDot.opacity,
+              ],
+              "circle-stroke-color": MAP_THEME.exploreDot.stroke,
+              "circle-stroke-width": 1,
+              "circle-stroke-opacity": [
+                "case",
+                ["boolean", ["feature-state", "hidden"], false],
+                0,
+                1,
+              ],
+            }}
+          />
+        </Source>
         <Source id="scope-mask" type="geojson" data={outsideMask}>
           <Layer
             id="scope-dim"
@@ -524,6 +845,7 @@ export function MapView({
               key={c.candidateId}
               longitude={c.location.lng}
               latitude={c.location.lat}
+              offset={collisionOffsets.get(c.candidateId) ?? [0, 0]}
               anchor="center"
               style={{
                 zIndex:
@@ -540,6 +862,7 @@ export function MapView({
                 className="marker"
                 data-state={state}
                 data-named={named.has(c.candidateId)}
+                data-busy={lookupPending.has(c.candidateId) || undefined}
                 data-viewers={viewers.length || undefined}
                 data-testid={`pin-${c.candidateId}`}
                 role="button"
@@ -585,6 +908,7 @@ export function MapView({
                 )}
                 <div
                   className="marker-sticker"
+                  data-side={named.get(c.candidateId) ?? "right"}
                   style={{ "--tilt": `${tiltFor(c.candidateId)}deg` } as CSSProperties}
                 >
                   {/* Behind the card: the badges sit under the sticker box in
@@ -628,7 +952,75 @@ export function MapView({
             </Marker>
           );
         })}
+        {selectedExplore && !selectedExplore.candidateId && (
+          <Marker
+            longitude={selectedExplore.location.lng}
+            latitude={selectedExplore.location.lat}
+            anchor="bottom"
+            offset={[0, -8]}
+            style={{ zIndex: 7 }}
+          >
+            <div
+              className="explore-card"
+              data-testid="explore-card"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="explore-card-heading">
+                <span>{selectedExplore.name}</span>
+                <span aria-hidden="true"> · </span>
+                <span className="explore-card-category">
+                  {selectedExplore.category.replace(/[_-]+/g, " ")}
+                </span>
+              </div>
+              <div className="explore-card-shared">Everyone in the room will see it.</div>
+              <div className="explore-card-actions">
+                <button
+                  type="button"
+                  disabled={addingExplore || (context.pool?.size ?? 0) >= (context.pool?.cap ?? Infinity)}
+                  onClick={() => void bringExplore([selectedExplore.ref])}
+                >
+                  Bring into the room
+                </button>
+                {viewportWidth >= 980 && visibleExplore.length > 1 && (
+                  <button
+                    type="button"
+                    disabled={addingExplore}
+                    onClick={() =>
+                      void bringExplore(visibleExplore.slice(0, 40).map((place) => place.ref))
+                    }
+                  >
+                    Bring in all here ({Math.min(40, visibleExplore.length)})
+                  </button>
+                )}
+              </div>
+              {exploreTruncated && (
+                <div className="explore-card-truncated">Zoom in to see every place here.</div>
+              )}
+            </div>
+          </Marker>
+        )}
       </Map>
+
+      {/* MapLibre circle layers are not focusable. One compact native control
+          gives keyboard and screen-reader users the same visible set without
+          turning hundreds of snapshot points into DOM markers. */}
+      <label className="sr-only">
+        Explore places in view
+        <select
+          value=""
+          onChange={(event) => {
+            if (event.target.value) {
+              onSelect(null);
+              setSelectedExploreRef(event.target.value);
+            }
+          }}
+        >
+          <option value="">Choose a place</option>
+          {visibleExplore.slice(0, 40).map((place) => (
+            <option key={place.ref} value={place.ref}>{place.name}</option>
+          ))}
+        </select>
+      </label>
 
       <div className="map-wash" aria-hidden="true" />
 
@@ -679,6 +1071,49 @@ export function MapView({
           <span className="delta-text">
             if “{bestRelaxation.label}” went optional
           </span>
+        </div>
+      )}
+
+      {(scopeOffscreen || (isOrganizer && panned)) && (
+        <div
+          className="map-nav-actions"
+          data-has-delta={bestRelaxation && !settled ? "true" : undefined}
+        >
+          {scopeOffscreen && (
+            <button
+              type="button"
+              className="map-nav-action"
+              data-testid="back-to-area"
+              onClick={() =>
+                mapRef.current?.flyTo({
+                  center: [center.lng, center.lat],
+                  duration: 600,
+                })
+              }
+            >
+              <span className="map-nav-chip">Back to the area</span>
+            </button>
+          )}
+          {isOrganizer && panned && (
+            <button
+              type="button"
+              className="map-nav-action"
+              data-testid="search-here"
+              onClick={() => {
+                const here = mapRef.current?.getCenter();
+                if (!here) return;
+                void run("SetSearchScope", {
+                  area: {
+                    kind: "circle",
+                    center: { lat: here.lat, lng: here.lng },
+                    radiusM: scope.area.radiusM,
+                  },
+                });
+              }}
+            >
+              <span className="map-nav-chip">Search here</span>
+            </button>
+          )}
         </div>
       )}
 

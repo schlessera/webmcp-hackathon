@@ -25,6 +25,8 @@ export interface RealtimeCallbacks {
   /** Who holds an open socket in the room right now, and who has which
    * place open. */
   onPresence(present: string[], viewing: Array<{ participantId: string; candidateId: string }>): void;
+  onLookups(pending: string[]): void;
+  onFacts(candidateIds: string[]): void;
 }
 
 export interface RealtimeHandle {
@@ -133,6 +135,10 @@ export function connectRealtime(
       } else if (message.type === "confirmation") {
         // Never logged: the nonce is a credential for one page gesture.
         callbacks.onConfirmation(message);
+      } else if (message.type === "lookups") {
+        callbacks.onLookups(message.pending);
+      } else if (message.type === "facts") {
+        callbacks.onFacts(message.candidateIds);
       } else if (message.type === "error") {
         diagnostics.log(`ws error: ${message.code}`);
       }
