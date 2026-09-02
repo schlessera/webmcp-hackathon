@@ -763,10 +763,31 @@ export function MapView({
         }}
         onMoveEnd={viewportSettled}
         onClick={(event) => {
-          const feature = mapRef.current?.queryRenderedFeatures(event.point, {
-            layers: ["explore-dots"],
-          })[0];
-          const ref = feature?.properties?.ref;
+          const map = mapRef.current;
+          const features = map?.queryRenderedFeatures(
+            [
+              [event.point.x - TAP_REACH, event.point.y - TAP_REACH],
+              [event.point.x + TAP_REACH, event.point.y + TAP_REACH],
+            ],
+            { layers: ["explore-dots"] },
+          ) ?? [];
+          let ref: string | null = null;
+          let nearest = Number.POSITIVE_INFINITY;
+          const available = new Set(explorePlaces.map((place) => place.ref));
+          for (const feature of features) {
+            const candidateRef = feature.properties?.ref;
+            if (typeof candidateRef !== "string" || !available.has(candidateRef)) continue;
+            const geometry = feature.geometry;
+            if (geometry.type !== "Point") continue;
+            const [lng, lat] = geometry.coordinates as [number, number];
+            const point = map?.project([lng, lat]);
+            if (!point) continue;
+            const distance = (point.x - event.point.x) ** 2 + (point.y - event.point.y) ** 2;
+            if (distance < nearest) {
+              nearest = distance;
+              ref = candidateRef;
+            }
+          }
           if (typeof ref === "string") {
             onSelect(null);
             setSelectedExploreRef(ref);
