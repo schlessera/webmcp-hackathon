@@ -19,6 +19,7 @@ describe("new event projections", () => {
       "scope_change_proposed", "scope_change_applied", "proposal_created",
       "requirement_toggled",
       "impasse_detected", "adjustment_resolved", "requirement_relaxed",
+      "adjustment_grant_staged",
       "impasse_resolved", "agreement_staged", "agreement_stage_aborted",
       "agreement_committed", "proposal_withdrawn", "arrival_plan_updated",
     ];
@@ -112,6 +113,21 @@ describe("new event projections", () => {
     expect(forOrganizer!.text).toContain("800 m to 1400 m");
     expect(projectEvent(event, "p_sarah")).toBeNull();
     expect(projectEvent(event, "p_joe")).toBeNull();
+  });
+
+  it("a staged over-bound grant reaches only its addressee", () => {
+    const event = ev({
+      type: "adjustment_grant_staged",
+      visibility: "application-private",
+      payload: {
+        targetParticipantId: "p_org",
+        adjustmentId: "adj_secret",
+      },
+    });
+    const owner = projectEvent(event, "p_org")!;
+    expect(owner.level).toBe("full");
+    expect(owner.payload).toEqual({ adjustmentId: "adj_secret" });
+    expect(projectEvent(event, "p_sarah")).toBeNull();
   });
 
   it("adjustment_resolved is aggregate and ownerless for peers", () => {

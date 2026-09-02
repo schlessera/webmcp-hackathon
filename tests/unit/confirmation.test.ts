@@ -90,4 +90,11 @@ describe("confirmation nonces", () => {
     );
     expect(nonces.size).toBe(50);
   });
+
+  it("restaging one subject invalidates its earlier nonce", () => {
+    const first = mintConfirmation(ROOM, ME, SUBJECT);
+    const second = mintConfirmation(ROOM, ME, SUBJECT);
+    expect(consumeConfirmation(ROOM, ME, SUBJECT, first.nonce)).toBe(false);
+    expect(consumeConfirmation(ROOM, ME, SUBJECT, second.nonce)).toBe(true);
+  });
 });

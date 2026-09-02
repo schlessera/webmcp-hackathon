@@ -383,9 +383,9 @@ describe("revision discipline", () => {
     expect(view.body.ok).toBe(true);
     expect(view.body.delta!.fromRevision).toBe(0);
     expect(view.body.delta!.events.length).toBeGreaterThan(0);
-    // Every event revision in (0, current]; most recent first.
+    // Every event revision in (0, current]; continuation pages are forward.
     const revisions = view.body.delta!.events.map((e) => e.revision);
-    expect([...revisions].sort((x, y) => y - x)).toEqual(revisions);
+    expect([...revisions].sort((x, y) => x - y)).toEqual(revisions);
     // Joe's own agent-private declaration appears at full level (invariant 8).
     const own = view.body.delta!.events.find(
       (e) => e.type === "private_requirement_declared",
