@@ -632,7 +632,10 @@ test("impasse and pending states protect previews, privacy, map stability, and d
   await page.getByLabel("What matters to you?").fill("somewhere calm");
   await page.getByLabel("What matters to you?").press("Enter");
   await expect(page.getByTestId("need-mock-submitted")).toBeVisible();
-  await expect(page.getByTestId("count-block")).toHaveAttribute("data-state", "pending");
+  // The council's declared impasse still stands in this fixture, so the block
+  // keeps reading impasse (a declared impasse wins over pending) while the
+  // subline counts the unknowns the new need produced.
+  await expect(page.getByTestId("count-block")).toHaveAttribute("data-state", "impasse");
   await expect(page.getByTestId("count-block")).toContainText("· 4 unsure");
   await expect(page.locator('[data-testid^="pin-"][data-state="unsure"]')).toHaveCount(4);
   await expect(page.getByTestId("need-mock-submitted")).toHaveAttribute("aria-pressed", "true");
@@ -792,11 +795,16 @@ test("deliberation draws unsure and proposed pins and exposes direct stance acti
   await page.goto(`${BASE}/#invite=deadbeef`);
 
   await expect(page.getByTestId("count-block")).toContainText("· 2 unsure");
-  // The fourth matching pin is the active proposal; proposed has higher
-  // visual-state precedence than works.
-  await expect(page.locator('[data-testid^="pin-"][data-state="works"]')).toHaveCount(3);
+  // Two of the four matching pins carry a proposal: the open one draws
+  // proposed, the one under a standing veto draws vetoed. Both outrank works,
+  // and neither changes the count — a veto blocks agreement, it does not rule
+  // the place out of the set.
+  await expect(page.locator('[data-testid^="pin-"][data-state="works"]')).toHaveCount(2);
   await expect(page.locator('[data-testid^="pin-"][data-state="unsure"]')).toHaveCount(2);
   await expect(page.getByTestId("pin-place_24")).toHaveAttribute("data-state", "proposed");
+  await expect(page.getByTestId("pin-place_30")).toHaveAttribute("data-state", "vetoed");
+  await expect(page.getByTestId("pin-place_30")).toContainText("ruled out");
+  await expect(page.getByTestId("pin-place_30")).toHaveAttribute("aria-label", /veto stands/);
   await expect(page.getByTestId("stance-card")).toContainText("The Barn is on the table");
   await expect(page.getByTestId("stage-card")).toContainText("Settle on The Barn?");
   const normalMotion = await page.evaluate(() => {
@@ -903,7 +911,8 @@ test("arrival appears only for a committed agreement and offers mode and navigat
     "href",
     "https://www.google.com/maps/dir/?api=1&destination=52.52,13.39",
   );
-  await expect(page.getByTestId("pin-place_24")).toHaveAttribute("data-state", "selected");
+  await expect(page.getByTestId("pin-place_24")).toHaveAttribute("data-state", "settled");
+  await expect(page.getByTestId("pin-place_24")).toContainText("· settled");
   await expect(page.getByTestId("count-block")).toHaveAttribute("data-state", "settled");
   await expectDomainNeutralCopy(
     page.locator(".arrival-sub, .arrival-go, .arrival-alt, .seg"),

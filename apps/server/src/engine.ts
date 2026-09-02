@@ -715,23 +715,42 @@ async function respondToProposal(
       [cmd.proposalId],
     );
   }
-  return {
-    events: [
-      {
-        type: "stance_submitted",
-        actorId: actor.id,
-        visibility: cmd.visibility,
-        payload: {
-          actorName: actor.displayName,
-          proposalId: cmd.proposalId,
-          candidateName: proposal.candidate_name,
-          disposition: cmd.disposition,
-          ...(cmd.reason?.note && cmd.visibility === "shared"
-            ? { note: cmd.reason.note }
-            : {}),
-        },
+  const events: AppendedEvent[] = [
+    {
+      type: "stance_submitted",
+      actorId: actor.id,
+      visibility: cmd.visibility,
+      payload: {
+        actorName: actor.displayName,
+        proposalId: cmd.proposalId,
+        candidateName: proposal.candidate_name,
+        disposition: cmd.disposition,
+        ...(cmd.reason?.note && cmd.visibility === "shared"
+          ? { note: cmd.reason.note }
+          : {}),
       },
-    ],
+    },
+  ];
+  // Accepting a place is the strongest "I'm done adding" a person can say:
+  // it marks them ready, so staging (§3.7) does not wait on a separate
+  // toggle nobody was told about. Readiness stays a participant's own status
+  // — set_ready_state can still take it back.
+  if (cmd.disposition === "accept") {
+    const flipped = await client.query(
+      "UPDATE participants SET ready_state = 'ready' WHERE id = $1 AND ready_state <> 'ready'",
+      [actor.id],
+    );
+    if (flipped.rowCount) {
+      events.push({
+        type: "ready_state_changed",
+        actorId: actor.id,
+        visibility: "shared",
+        payload: { actorName: actor.displayName, state: "ready" },
+      });
+    }
+  }
+  return {
+    events,
     effect: `Stance "${cmd.disposition}" recorded on ${proposal.candidate_name ?? cmd.proposalId}.`,
   };
 }

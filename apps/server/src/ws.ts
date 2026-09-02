@@ -11,13 +11,16 @@ import { config } from "./config.ts";
 import { onCommit, type CommitNotification } from "./engine.ts";
 import { mintConfirmation, pendingConfirmations } from "./confirmation.ts";
 import { projectEvent } from "./projection.ts";
-import { markClosed, markOpen, presentIn } from "./presence.ts";
+import { markClosed, markOpen, presentIn, setViewing, viewingIn } from "./presence.ts";
 
 interface Connection {
   socket: WebSocket;
   participantId: string;
   roomId: string;
+  /** Per-socket identity for viewing state (two tabs, two places). */
+  socketId: string;
 }
+let nextSocketId = 0;
 
 const connections = new Set<Connection>();
 
@@ -45,6 +48,23 @@ export function attachWebSocket(server: Server): void {
             code: "invalid_message",
             message: "Messages must be JSON.",
           });
+        }
+        // The one post-auth message: which place this page has open. Presence
+        // only — it changes no room state and is never persisted.
+        if (
+          connection &&
+          message !== null &&
+          typeof message === "object" &&
+          message.type === "viewing"
+        ) {
+          const candidateId =
+            typeof message.candidateId === "string" && message.candidateId.length <= 40
+              ? message.candidateId
+              : null;
+          if (setViewing(connection.roomId, connection.participantId, connection.socketId, candidateId)) {
+            broadcastPresence(connection.roomId);
+          }
+          return;
         }
         // Runtime validation: unauthenticated input must never throw.
         if (
@@ -80,6 +100,7 @@ export function attachWebSocket(server: Server): void {
           socket,
           participantId: participant.id,
           roomId: participant.roomId,
+          socketId: `s${++nextSocketId}`,
         };
         connections.add(connection);
         const becamePresent = markOpen(participant.roomId, participant.id);
@@ -114,10 +135,7 @@ export function attachWebSocket(server: Server): void {
         if (becamePresent) {
           broadcastPresence(participant.roomId);
         } else {
-          send(socket, {
-            type: "presence",
-            present: [...presentIn(participant.roomId)],
-          });
+          send(socket, presenceMessage(participant.roomId));
         }
         // Belt-and-braces: also tell a contract-stale client explicitly.
         if (
@@ -141,7 +159,7 @@ export function attachWebSocket(server: Server): void {
       clearTimeout(authTimer);
       if (connection) {
         connections.delete(connection);
-        if (markClosed(connection.roomId, connection.participantId)) {
+        if (markClosed(connection.roomId, connection.participantId, connection.socketId)) {
           broadcastPresence(connection.roomId);
         }
       }
@@ -200,8 +218,12 @@ async function broadcast(n: CommitNotification): Promise<void> {
   }
 }
 
+function presenceMessage(roomId: string): ServerMessage {
+  return { type: "presence", present: [...presentIn(roomId)], viewing: viewingIn(roomId) };
+}
+
 function broadcastPresence(roomId: string): void {
-  const message: ServerMessage = { type: "presence", present: [...presentIn(roomId)] };
+  const message = presenceMessage(roomId);
   for (const connection of connections) {
     if (connection.roomId !== roomId) continue;
     if (connection.socket.readyState !== WebSocket.OPEN) continue;

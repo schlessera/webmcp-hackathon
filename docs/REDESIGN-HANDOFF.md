@@ -51,7 +51,9 @@ every wire change this session was additive; the manifest hash was regenerated.
   (first sync on any surface, `participants.arrived_at`); `present` is an open
   realtime socket (in-memory `presence.ts`, single-process). The 4a/8c map
   cursor with a name tab is NOT built; the header avatar carries a small ink
-  mark while a person is looking.
+  mark while a person is looking. *Extended 2026-09-02:* the presence frame
+  also carries `viewing` (who has which place open, from the page's `viewing`
+  socket message), drawn as initials peeking from behind that place's sticker.
 - **D5 — dense clusters: every dot stays tappable; no re-fit, no clustering.**
 - **D6 — consent bound is exposed only where one exists** (`delegatedBound`
   on the outstanding request, from the targeted need's own `delegation.bound`).
@@ -131,18 +133,20 @@ every wire change this session was additive; the manifest hash was regenerated.
 2. **Agreed map (7c) draws no route and no origin marker** and does not focus
    the destination; the candidate map simply stays. Needs a route source (the
    navigation links are provider deep links, no geometry).
-3. **Place details (8a)** has no photo band and no "works for all N" pill;
-   the "Also known about it" section renders only when the dossier has
-   non-asked attributes.
+3. **Place details (8a)** has no photo band and no "works for all N" pill.
+   *2026-09-02:* the panel was redrawn — "Does it fit" ledger with the map's
+   dot marks, "Also on record" as pills with unknowns counted, one sources
+   line, peers' private effects as rows, "looking now" on stance rows.
 4. **`{ }` drawer (8b)** is a full-screen takeover without the Wire / Tools /
    Session tabs; the raw candidates dump is long. Deliberately small and
    unstyled per CLAUDE.md §6, but the mockup's slide-over at 232px with the
    dimmed map behind is the better shape.
-5. **Exclusion needs are unreachable from the page.** Pills render boolean
-   facets only, so the enum (`cuisine`) pill never appears and the composer's
-   enum branch is dead; free text that matches no facet becomes a `text`
-   predicate. The runbook uses an agent tool call for the exclusion beat. The
-   contract also pins `exclusion.key` to the literal `"cuisine"`
+5. **Exclusion needs are unreachable from the page without an agent.** Pills
+   render boolean facets only, so the enum (`cuisine`) pill never appears and
+   the composer's enum branch is dead. *2026-09-02:* with `OPENAI_API_KEY`
+   set, the in-page agent (`docs/NL-AGENT.md`) turns "no Italian" into an
+   exclusion; without it, free text still becomes a `text` predicate. The
+   contract still pins `exclusion.key` to the literal `"cuisine"`
    (`packages/contracts/src/commands.ts`) — a domain word on the wire; FACETS.md
    should decide whether exclusions generalise to any enum facet.
 6. **Person colours reuse the semantic hexes** (`--spoke-person-1..5` =

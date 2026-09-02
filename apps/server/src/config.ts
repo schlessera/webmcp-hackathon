@@ -23,4 +23,19 @@ export const config = {
   demoSecretKey: process.env.DEMO_SECRET_KEY ?? "local-dev-only",
   /** Chrome WebMCP origin-trial token, injected as a response header when set. */
   originTrialToken: process.env.ORIGIN_TRIAL_TOKEN ?? "",
+  /**
+   * Natural-language surface (docs/NL-AGENT.md). Absent key: the composer
+   * falls back to its label matching and the page never shows an agent card.
+   * Two tiers, chosen per job — never per request size:
+   *  - fast: bounded, schema-shaped, latency-bound work (routing a sentence,
+   *    turning it into a need payload);
+   *  - smart: anything that acts on the room through tools, judges a person's
+   *    private condition against evidence, or answers a question about state.
+   */
+  openaiApiKey: process.env.OPENAI_API_KEY ?? "",
+  nlFastModel: process.env.NL_FAST_MODEL ?? "gpt-5.6-luna",
+  nlSmartModel: process.env.NL_SMART_MODEL ?? "gpt-5.6-sol",
+  get nlEnabled(): boolean {
+    return this.openaiApiKey.length > 0;
+  },
 };

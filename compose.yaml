@@ -33,6 +33,11 @@ services:
       PORT: "4173"
       ORIGIN_TRIAL_TOKEN: ${ORIGIN_TRIAL_TOKEN:-}
       DEMO_SECRET_KEY: ${DEMO_SECRET_KEY:-local-dev-only}
+      # The natural-language surface (docs/NL-AGENT.md). Absent: the composer
+      # keeps its label matching and no agent card ever appears.
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      NL_FAST_MODEL: ${NL_FAST_MODEL:-gpt-5.6-luna}
+      NL_SMART_MODEL: ${NL_SMART_MODEL:-gpt-5.6-sol}
     ports:
       - "127.0.0.1:4173:4173"
     depends_on:

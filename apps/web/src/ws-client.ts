@@ -22,8 +22,16 @@ export interface RealtimeCallbacks {
     expiresInMs: number;
   }): void;
   onStaleBundle(): void;
-  /** Who holds an open socket in the room right now. */
-  onPresence(present: string[]): void;
+  /** Who holds an open socket in the room right now, and who has which
+   * place open. */
+  onPresence(present: string[], viewing: Array<{ participantId: string; candidateId: string }>): void;
+}
+
+export interface RealtimeHandle {
+  close(): void;
+  /** Tell the room which place this page has open (null: none). Presence
+   * only; dropped silently while the socket is down and re-sent on welcome. */
+  setViewing(candidateId: string | null): void;
 }
 
 let pageBuildId: string | null = null;
@@ -42,7 +50,7 @@ export function fetchPageBuild(): Promise<string> {
       try {
         const meta = await (await fetch("/api/meta")).json();
         pageBuildId = meta.buildId as string;
-        diagnostics.update({ buildId: pageBuildId });
+        diagnostics.update({ buildId: pageBuildId, nlAvailable: meta.nl === true });
         return pageBuildId;
       } catch {
         await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
@@ -57,10 +65,17 @@ export function fetchPageBuild(): Promise<string> {
 export function connectRealtime(
   token: string,
   callbacks: RealtimeCallbacks,
-): () => void {
+): RealtimeHandle {
   let closed = false;
   let socket: WebSocket | null = null;
   let retryMs = 1000;
+  let viewing: string | null = null;
+  let welcomed = false;
+
+  const sendViewing = () => {
+    if (!welcomed || socket?.readyState !== WebSocket.OPEN) return;
+    socket.send(JSON.stringify({ type: "viewing", candidateId: viewing }));
+  };
 
   const connect = () => {
     if (closed) return;
@@ -69,6 +84,7 @@ export function connectRealtime(
     diagnostics.update({ wsState: "connecting" });
 
     socket.onopen = () => {
+      welcomed = false;
       diagnostics.update({ wsState: "open" });
       socket!.send(
         JSON.stringify({
@@ -91,6 +107,9 @@ export function connectRealtime(
         retryMs = 1000; // healthy connection resets the backoff
         diagnostics.update({ serverBuildId: message.buildId });
         callbacks.onWelcome(message);
+        welcomed = true;
+        // A reconnecting page still has its place open; the room should know.
+        if (viewing !== null) sendViewing();
         const stale =
           (pageBuildId !== null && message.buildId !== pageBuildId) ||
           message.toolContractVersion !== TOOL_CONTRACT_VERSION;
@@ -110,7 +129,7 @@ export function connectRealtime(
       } else if (message.type === "event") {
         callbacks.onEvents(message.revision, message.events);
       } else if (message.type === "presence") {
-        callbacks.onPresence(message.present);
+        callbacks.onPresence(message.present, message.viewing ?? []);
       } else if (message.type === "confirmation") {
         // Never logged: the nonce is a credential for one page gesture.
         callbacks.onConfirmation(message);
@@ -132,8 +151,15 @@ export function connectRealtime(
   };
   connect();
 
-  return () => {
-    closed = true;
-    socket?.close();
+  return {
+    close() {
+      closed = true;
+      socket?.close();
+    },
+    setViewing(candidateId) {
+      if (viewing === candidateId) return;
+      viewing = candidateId;
+      sendViewing();
+    },
   };
 }

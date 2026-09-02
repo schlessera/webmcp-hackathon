@@ -13,7 +13,16 @@ export interface AuthMessage {
   clientBuildId: string;
   clientToolContractVersion: string;
 }
-export type ClientMessage = AuthMessage;
+/**
+ * Which place this page has open right now (null: none). Presence only — it
+ * never touches room state, and it is the one message a socket may send
+ * after authenticating. Peers see it as a small mark on that place.
+ */
+export interface ViewingMessage {
+  type: "viewing";
+  candidateId: string | null;
+}
+export type ClientMessage = AuthMessage | ViewingMessage;
 
 export interface WelcomeMessage {
   type: "welcome";
@@ -55,6 +64,9 @@ export interface ConfirmationMessage {
 export interface PresenceMessage {
   type: "presence";
   present: string[];
+  /** Who has which place open right now; one row per participant that does.
+   * Omitted rows mean "nothing open". Presence, never room state. */
+  viewing: Array<{ participantId: string; candidateId: string }>;
 }
 export type ServerMessage =
   | WelcomeMessage

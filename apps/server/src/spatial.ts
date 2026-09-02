@@ -147,6 +147,28 @@ export async function spatialContext(
       const vetoStands = stanceRows.some(
         (s) => s.proposal_id === pr.id && s.disposition === "reject",
       );
+      // The §3.7 precondition, computed over the FULL stance table (private
+      // stances included) so the page can say what staging waits on. Names
+      // only for readiness, which the roster already publishes; the
+      // acceptance gap is a count, so a private accept stays silent.
+      const allStances = new Map(
+        stanceRows
+          .filter((s) => s.proposal_id === pr.id)
+          .map((s) => [s.participant_id, s.disposition]),
+      );
+      const notReady = participants
+        .filter((p) => p.readyState !== "ready")
+        .map((p) => p.participantId);
+      const unaccepted = participants.filter((p) => {
+        const d = allStances.get(p.participantId);
+        return d !== "accept" && d !== "abstain";
+      }).length;
+      const staging = {
+        ready: pr.status === "open" && notReady.length === 0 && unaccepted === 0 && !vetoStands,
+        notReady,
+        unaccepted,
+        vetoStands,
+      };
       return {
         proposalId: pr.id,
         candidateId: pr.candidate_id,
@@ -165,6 +187,7 @@ export async function spatialContext(
         }),
         vetoStands,
         ...(own ? { ownStance: own.disposition } : {}),
+        staging,
       };
     });
 

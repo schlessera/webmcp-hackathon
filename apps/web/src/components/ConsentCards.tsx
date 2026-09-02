@@ -4,8 +4,10 @@ import type {
   CommandEnvelope,
   OutstandingAdjustment,
   OutstandingItem,
+  ProposalView,
   SpatialContext,
 } from "../spatial-types.ts";
+import { joinNames, numberWord } from "../ui/copy.ts";
 
 /**
  * Consent — three rungs of authority, and the ladder must read as authority,
@@ -63,6 +65,31 @@ function gainSentence(item: OutstandingAdjustment): string {
   return ` Brings back ${gain} place${gain === 1 ? "" : "s"}.`;
 }
 
+/**
+ * "Waiting on Sarah and Joe to finish adding · one hasn't said · a veto
+ * stands." Names only for readiness (roster-public); the acceptance gap is a
+ * count, so a private accept reads like silence (D1).
+ */
+function stagingWaitsOn(
+  p: ProposalView,
+  nameOf: (id: string) => string,
+): string {
+  const s = p.staging;
+  if (!s) return "Staging checks that everyone is in and no veto stands.";
+  const parts: string[] = [];
+  if (s.vetoStands) parts.push("a veto stands");
+  if (s.unaccepted > 0) {
+    parts.push(
+      s.unaccepted === 1 ? "one person hasn't said" : `${numberWord(s.unaccepted)} haven't said`,
+    );
+  }
+  if (s.notReady.length > 0) {
+    parts.push(`${joinNames(s.notReady.map(nameOf))} still adding`);
+  }
+  if (parts.length === 0) return "Staging checks that everyone is in and no veto stands.";
+  return `Waiting: ${parts.join(" · ")}.`;
+}
+
 interface Props {
   context: SpatialContext;
   outstanding: OutstandingItem[];
@@ -70,6 +97,7 @@ interface Props {
   candidateName(candidateId: string): string;
   onOpenCandidate(candidateId: string): void;
   run(type: string, input: Record<string, unknown>): Promise<CommandEnvelope>;
+  meId: string;
 }
 
 export function ConsentCards({
@@ -79,6 +107,7 @@ export function ConsentCards({
   candidateName,
   onOpenCandidate,
   run,
+  meId,
 }: Props) {
   const resolve = (requestId: string, decision: "grant" | "deny") =>
     run("ResolvePrivateRequest", { requestId, decision });
@@ -98,10 +127,20 @@ export function ConsentCards({
       confirmationNonce: await spatial.takeConfirmation("agreement", proposalId),
     });
 
+  const nameOf = (id: string) =>
+    id === meId
+      ? "you"
+      : (context.participants.find((p) => p.participantId === id)?.displayName ?? "someone");
+
   const adjustments = outstanding.filter(
     (i): i is OutstandingAdjustment => i.type === "adjustment_request",
   );
-  const evaluations = outstanding.filter((i) => i.type === "evaluation_request");
+  // With the page's own agent holding the condition (server truth on the
+  // item), screening is already happening; the need row's unknown count is
+  // the honest state. An agent elsewhere still gets its card.
+  const evaluations = outstanding.filter(
+    (i) => i.type === "evaluation_request" && !i.heldByPageAgent,
+  );
   const openProposals = context.proposals.filter((p) => p.status === "open");
   const stancesNeeded = openProposals.filter((p) => !p.ownStance);
   const staged = context.proposals.filter((p) => p.status === "staged");
@@ -257,32 +296,47 @@ export function ConsentCards({
         </div>
       ))}
 
+      {/* The organizer's card is a decision only once the §3.7 precondition
+          holds; until then it is status and says, by name where names are
+          public, what staging waits on. */}
       {isOrganizer &&
         deliberating &&
-        openProposals.map((p) => (
-          <div className="card" data-testid="stage-card" key={p.proposalId}>
-            <div className="card-head">
-              <span className="card-title">
-                Settle on {candidateName(p.candidateId)}?
-              </span>
+        openProposals.map((p) => {
+          const ready = p.staging?.ready ?? false;
+          return (
+            <div
+              className="card"
+              data-tone={ready ? "works" : undefined}
+              data-testid="stage-card"
+              data-ready={ready}
+              key={p.proposalId}
+            >
+              <div className="card-head">
+                <span className="card-title">
+                  {ready
+                    ? `Everyone is in on ${candidateName(p.candidateId)}`
+                    : `Settle on ${candidateName(p.candidateId)}?`}
+                </span>
+              </div>
+              <div className="card-body" data-testid="waits-on">
+                {ready
+                  ? "Staging sends it to you for one more confirmation, then it is settled for the whole room."
+                  : stagingWaitsOn(p, nameOf)}
+              </div>
+              <div className="card-actions">
+                <button
+                  className="btn"
+                  data-tone="works"
+                  data-testid={`stage-${p.proposalId}`}
+                  disabled={!ready}
+                  onClick={() => void run("ConfirmAgreement", { proposalId: p.proposalId })}
+                >
+                  Stage it
+                </button>
+              </div>
             </div>
-            <div className="card-body">
-              {p.stances.filter((s) => s.stance === "accept").length} in favour
-              {p.vetoStands ? ", a veto stands" : ""}. Staging checks that everyone is
-              ready and no veto stands.
-            </div>
-            <div className="card-actions">
-              <button
-                className="btn"
-                data-tone="works"
-                data-testid={`stage-${p.proposalId}`}
-                onClick={() => void run("ConfirmAgreement", { proposalId: p.proposalId })}
-              >
-                Stage it
-              </button>
-            </div>
-          </div>
-        ))}
+          );
+        })}
 
       {staged.map((p) => (
         <div className="card" data-tone="act" data-testid="commit-card" key={p.proposalId}>

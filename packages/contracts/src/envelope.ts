@@ -7,6 +7,10 @@ export interface OutstandingEvaluationRequest {
   type: "evaluation_request";
   candidateIds: string[];
   issuedAtRevision: number;
+  /** The page's own agent holds this person's condition and screens for
+   * them (docs/NL-AGENT.md); present only then, so the page can keep the
+   * "places to screen" card for an agent that is elsewhere. */
+  heldByPageAgent?: true;
 }
 export interface OutstandingStanceNeeded {
   type: "stance_needed";
@@ -178,6 +182,13 @@ export interface ProposalView {
   /** A standing veto blocks agreement; reported as a boolean, never a count. */
   vetoStands: boolean;
   ownStance?: string;
+  /**
+   * The §3.7 precondition as it stands, so the page can say who staging
+   * waits on instead of offering a button that fails. `notReady` names people
+   * (readiness is roster-public); `unaccepted` is a count only, because a
+   * private stance must stay indistinguishable from silence.
+   */
+  staging: { ready: boolean; notReady: string[]; unaccepted: number; vetoStands: boolean };
 }
 
 export interface AgreementView {

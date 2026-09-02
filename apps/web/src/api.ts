@@ -127,3 +127,18 @@ export function spatialNavigationRaw(
 ): Promise<unknown> {
   return post("/api/spatial/navigation", input === undefined ? {} : input, signal);
 }
+
+/**
+ * The natural-language surface (docs/NL-AGENT.md), page-only. `nlSay` routes
+ * a composer sentence: a need comes back as payloads the page submits itself
+ * through the ordinary command bus; a question or instruction is answered by
+ * the person's agent and returns a reply. `nlCondition` hands the agent a
+ * condition the room never receives.
+ */
+export function nlSay(text: string, scope: string): Promise<unknown> {
+  return post("/api/nl/say", { text, scope });
+}
+
+export function nlCondition(text: string): Promise<unknown> {
+  return post("/api/nl/condition", { text });
+}

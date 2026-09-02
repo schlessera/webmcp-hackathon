@@ -28,6 +28,7 @@ import { Wordmark } from "./components/Wordmark.tsx";
 import { Header, type HeaderSubtitle } from "./components/Header.tsx";
 import { MapView } from "./components/MapView.tsx";
 import {
+  AgentReplies,
   Digest,
   History,
   NeedsSection,
@@ -123,12 +124,14 @@ export function App() {
 
   const lastSeenRevision = useRef(0);
   const catchUpRef = useRef<(() => Promise<void>) | null>(null);
+  const realtimeRef = useRef<{ setViewing(id: string | null): void } | null>(null);
 
   useEffect(() => {
     // Strict-Mode-safe: the flag cancels the in-flight async init of an
     // already-cleaned-up effect run so it never opens an untracked socket.
     let cancelled = false;
     let cleanup = () => {};
+    let realtime: ReturnType<typeof connectRealtime> | null = null;
     (async () => {
       await fetchPageBuild();
       let established = await establishSession();
@@ -231,7 +234,7 @@ export function App() {
       }
       void spatial.refetch();
 
-      cleanup = connectRealtime(established.token, {
+      realtime = connectRealtime(established.token, {
         onWelcome(welcome) {
           // The server broadcasts only live commits: a welcome ahead of the
           // page means missed events — fetch them, don't skip them.
@@ -258,14 +261,18 @@ export function App() {
             grant.expiresInMs,
           );
         },
-        onPresence() {
-          // The roster is server truth; presence rides on it.
+        onPresence(_present, viewing) {
+          // The roster is server truth; presence rides on it. Who has which
+          // place open is page-local presence and lands in the store as is.
+          spatial.setViewing(viewing);
           void spatial.refetch();
         },
         onStaleBundle() {
           setStaleBanner(true);
         },
       });
+      realtimeRef.current = realtime;
+      cleanup = () => realtime?.close();
       if (cancelled) cleanup();
     })().catch((err) => {
       // Never strand the page on "Connecting…" without a visible cause.
@@ -278,12 +285,23 @@ export function App() {
     });
     return () => {
       cancelled = true;
+      realtimeRef.current = null;
       cleanup();
     };
   }, []);
 
+  // The place this page has open is presence the room may see (D4, extended):
+  // peers draw this person's initials behind that place's name.
+  useEffect(() => {
+    realtimeRef.current?.setViewing(spatialState.selectedId);
+  }, [spatialState.selectedId]);
+
   const run = useCallback(
-    async (type: string, input: Record<string, unknown>): Promise<CommandEnvelope> => {
+    async (
+      type: string,
+      input: Record<string, unknown>,
+      retried = false,
+    ): Promise<CommandEnvelope> => {
       const result = (await submitCommand(type, {
         // The ref, not render-time state: a WS event between paint and click
         // must not send a stale baseRevision. A tool caller's own baseRevision
@@ -291,6 +309,20 @@ export function App() {
         baseRevision: lastSeenRevision.current,
         ...input,
       })) as CommandEnvelope;
+      // A gesture that lost the race to someone else's commit is retried once
+      // against the caught-up room: the person's intent ("works for me") does
+      // not go stale the way an agent's plan does, and asking them to click
+      // again would only teach them the button is flaky. Tool callers bring
+      // their own baseRevision and get the honest sync_required instead.
+      if (
+        !result.ok &&
+        result.error?.code === "sync_required" &&
+        !retried &&
+        !("baseRevision" in input)
+      ) {
+        await catchUpRef.current?.();
+        return run(type, input, true);
+      }
       if (result.ok && result.revision !== undefined) {
         lastSeenRevision.current = Math.max(
           lastSeenRevision.current,
@@ -388,6 +420,7 @@ export function App() {
     (c) => c.candidateId === spatialState.selectedId,
   );
   const participants = context?.participants ?? [];
+  const me = participants.find((p) => p.participantId === id.participantId);
   const activeNeeds = context?.activeNeeds ?? [];
   const settled = committedId !== null;
   const impasse = context?.impasse?.active === true;
@@ -459,6 +492,9 @@ export function App() {
               focusNonce={spatialState.focusNonce}
               committedId={committedId}
               proposedRadiusM={proposedRadiusM}
+              viewing={spatialState.viewing}
+              participants={participants}
+              meId={id.participantId}
               onSelect={(cid) => spatial.select(cid)}
             />
           ) : (
@@ -478,8 +514,14 @@ export function App() {
                 candidateName={candidateName}
                 onOpenCandidate={(cid) => spatial.focus(cid)}
                 run={run}
+                meId={id.participantId}
               />
             )}
+
+            <AgentReplies
+              replies={spatialState.agentReplies}
+              onDismiss={(rid) => spatial.dismissAgentReply(rid)}
+            />
 
             {context && impasse && (
               <WaysOut
@@ -522,7 +564,9 @@ export function App() {
               onHoldEnd={() => spatial.endPreview()}
             />
 
-            <ReadyToggle run={run} />
+            {!settled && (
+              <ReadyToggle ready={me?.readyState === "ready"} run={run} />
+            )}
           </div>
 
           {settled && committedId ? (
@@ -551,9 +595,11 @@ export function App() {
               (p) => p.candidateId === selected.candidateId && p.status !== "withdrawn",
             )}
             activeNeeds={activeNeeds}
+            privateEffects={context.privateEffects}
             participants={participants}
             meId={id.participantId}
             phase={context.phase}
+            viewing={spatialState.viewing}
             onClose={() => spatial.select(null)}
             run={run}
           />

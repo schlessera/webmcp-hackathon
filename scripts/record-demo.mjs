@@ -471,20 +471,18 @@ try {
       "RespondToProposal",
     );
   }
+  // Accepting marks each person ready; the toggle mirrors the roster.
   for (const key of ["org", "sarah", "joe"]) {
-    await clickCommand(
-      pages[key],
-      () => pages[key].getByTestId("toggle-ready").click(),
-      "SetReadyState",
-    );
     await expect(pages[key].getByTestId("toggle-ready")).toHaveAttribute(
       "aria-pressed",
       "true",
+      { timeout: 10_000 },
     );
   }
   const stage = pages.org.getByTestId("stage-card").filter({ hasText: "The Barn" });
   await expect(stage).toBeVisible({ timeout: 15_000 });
-  beat(12, "all three accept The Barn and finish adding");
+  await expect(stage).toHaveAttribute("data-ready", "true", { timeout: 10_000 });
+  beat(12, "all three accept The Barn; everyone is ready");
   await dwell(3_000);
 
   // Beat 13 — the organizer's first click only stages. The peer cards render

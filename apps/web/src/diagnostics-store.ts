@@ -7,6 +7,8 @@ export interface DiagnosticsState {
   wsState: "connecting" | "open" | "closed";
   buildId: string | null;
   serverBuildId: string | null;
+  /** The serving process can hand a sentence to the person's agent. */
+  nlAvailable: boolean;
   lines: string[];
 }
 
@@ -20,6 +22,7 @@ class DiagnosticsStore {
     wsState: "connecting",
     buildId: null,
     serverBuildId: null,
+    nlAvailable: false,
     lines: [],
   };
   private listeners = new Set<Listener>();

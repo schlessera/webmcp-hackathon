@@ -1,5 +1,6 @@
 import type pg from "pg";
 import type { OutstandingItem } from "@webmcp-hackathon/contracts";
+import { isHeld } from "./nl/held-registry.ts";
 
 /** Decisions currently pending for one participant. */
 export async function outstandingFor(
@@ -43,6 +44,9 @@ export async function outstandingFor(
         type: "evaluation_request",
         candidateIds: pending,
         issuedAtRevision: Number(issued),
+        // Server truth, so the page never guesses from a flag it set itself:
+        // after a restart the hold is gone and the request shows again.
+        ...(isHeld(participantId) ? { heldByPageAgent: true } : {}),
       });
     }
   }

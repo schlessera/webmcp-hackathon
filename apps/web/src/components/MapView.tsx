@@ -2,8 +2,12 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react"
 import { Layer, Map, Marker, Source, type MapRef } from "@vis.gl/react-maplibre";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { MAP_THEME, TILE_STYLE } from "../map-theme.ts";
-import type { CandidateSummary, SpatialContext } from "../spatial-types.ts";
-import { numberWord, stillWorkVerb, tiltFor } from "../ui/copy.ts";
+import type {
+  CandidateSummary,
+  ParticipantSummary,
+  SpatialContext,
+} from "../spatial-types.ts";
+import { initials, numberWord, personColor, stillWorkVerb, tiltFor } from "../ui/copy.ts";
 
 /**
  * The shared map.
@@ -20,7 +24,39 @@ import { numberWord, stillWorkVerb, tiltFor } from "../ui/copy.ts";
  * anchor point.
  */
 
-type MarkerState = "works" | "unsure" | "out" | "selected" | "proposed" | "return";
+/**
+ * The marker vocabulary, in precedence order (first match wins):
+ *   selected  — this viewer has it open
+ *   settled   — the committed agreement (works fill: the room's own commit)
+ *   staged    — the organizer staged it (act fill, "· staged")
+ *   vetoed    — someone ruled it out; a veto stands (hollow act, struck name)
+ *   proposed  — on the table (act fill, "· proposed")
+ *   return    — would come back, while a brief row is held
+ *   works / unsure / out — eligibility
+ * Every state differs in fill, border style or size, never in colour alone.
+ */
+type MarkerState =
+  | "works"
+  | "unsure"
+  | "out"
+  | "selected"
+  | "settled"
+  | "staged"
+  | "vetoed"
+  | "proposed"
+  | "return";
+
+const STATE_LABEL: Record<MarkerState, string> = {
+  works: "still works",
+  unsure: "not yet known",
+  out: "ruled out",
+  selected: "open",
+  settled: "settled",
+  staged: "staged",
+  vetoed: "on the table, a veto stands",
+  proposed: "on the table",
+  return: "would come back",
+};
 
 interface Props {
   context: SpatialContext;
@@ -31,6 +67,10 @@ interface Props {
   committedId: string | null;
   /** A wider radius an agent has asked for, drawn as a second faint ring. */
   proposedRadiusM: number | null;
+  /** participantId -> candidateId: who has which place open right now. */
+  viewing: Record<string, string>;
+  participants: ParticipantSummary[];
+  meId: string;
   onSelect(candidateId: string | null): void;
 }
 
@@ -89,6 +129,9 @@ export function MapView({
   focusNonce,
   committedId,
   proposedRadiusM,
+  viewing,
+  participants,
+  meId,
   onSelect,
 }: Props) {
   const mapRef = useRef<MapRef>(null);
@@ -207,13 +250,41 @@ export function MapView({
     return bestD <= TAP_REACH * TAP_REACH ? best : null;
   };
 
+  /* One proposal state per place: staged beats vetoed beats open. A veto is
+     drawn while it stands, whether the proposal row says "vetoed" or an
+     "open" one carries a standing reject. */
   const proposalByCandidate = useMemo(() => {
-    const map = new globalThis.Map<string, string>();
+    const map = new globalThis.Map<string, "staged" | "vetoed" | "open">();
+    const rank = { staged: 3, vetoed: 2, open: 1 } as const;
     for (const p of proposals) {
-      if (p.status === "open" || p.status === "staged") map.set(p.candidateId, "open");
+      const state =
+        p.status === "staged"
+          ? "staged"
+          : p.status === "vetoed" || (p.status === "open" && p.vetoStands)
+            ? "vetoed"
+            : p.status === "open"
+              ? "open"
+              : null;
+      if (!state) continue;
+      const prev = map.get(p.candidateId);
+      if (!prev || rank[state] > rank[prev]) map.set(p.candidateId, state);
     }
     return map;
   }, [proposals]);
+
+  /* Peers with this place open, in roster order, never the viewer. */
+  const viewersOf = useMemo(() => {
+    const map = new globalThis.Map<string, Array<{ p: ParticipantSummary; index: number }>>();
+    participants.forEach((p, index) => {
+      if (p.participantId === meId) return;
+      const cid = viewing[p.participantId];
+      if (!cid) return;
+      const list = map.get(cid) ?? [];
+      list.push({ p, index });
+      map.set(cid, list);
+    });
+    return map;
+  }, [viewing, participants, meId]);
 
   /* While a brief row is held, the drawn set is the previewed one, and the
      places the held need was removing breathe back in as dashed stickers. */
@@ -235,8 +306,12 @@ export function MapView({
   }, [candidates]);
 
   const stateOf = (c: CandidateSummary): MarkerState => {
-    if (c.candidateId === committedId || c.candidateId === selectedId) return "selected";
-    if (proposalByCandidate.get(c.candidateId) === "open") return "proposed";
+    if (c.candidateId === selectedId) return "selected";
+    if (c.candidateId === committedId) return "settled";
+    const proposal = proposalByCandidate.get(c.candidateId);
+    if (proposal === "staged") return "staged";
+    if (proposal === "vetoed") return "vetoed";
+    if (proposal === "open") return "proposed";
     if (preview && previewEligible) {
       if (previewEligible.has(c.candidateId)) {
         return liveEligible.has(c.candidateId) ? "works" : "return";
@@ -252,11 +327,13 @@ export function MapView({
   const named = useMemo(() => {
     const map = mapRef.current;
     const set = new Set<string>();
-    // A place someone acted on always keeps its name, wherever it sits.
+    // A place someone acted on always keeps its name, wherever it sits; a
+    // place someone is looking at comes next.
     const priority = (c: CandidateSummary) => {
       if (c.candidateId === selectedId || c.candidateId === committedId) return 0;
       if (proposalByCandidate.has(c.candidateId)) return 1;
-      return 2;
+      if (viewersOf.has(c.candidateId)) return 2;
+      return 3;
     };
     const ordered = candidates
       .filter((c) => stateOf(c) !== "out")
@@ -293,13 +370,19 @@ export function MapView({
           p.x < left + w,
       );
       if (collides) continue;
-      const buries = dots.some(
-        (d) =>
-          d.id !== c.candidateId &&
-          Math.abs(d.y - point.y) < STICKER_H / 2 + DOT_CLEARANCE &&
-          d.x > left + DOT_CLEARANCE &&
-          d.x < left + w + DOT_CLEARANCE,
-      );
+      // A place someone acted on (open, settled, on the table) is named even
+      // where its card sits over a neighbour's dot: the act is the thing the
+      // map must show, and every dot stays reachable through nearest-dot
+      // tapping (D5). Everything else yields to the dot.
+      const buries =
+        priority(c) > 1 &&
+        dots.some(
+          (d) =>
+            d.id !== c.candidateId &&
+            Math.abs(d.y - point.y) < STICKER_H / 2 + DOT_CLEARANCE &&
+            d.x > left + DOT_CLEARANCE &&
+            d.x < left + w + DOT_CLEARANCE,
+        );
       if (buries) continue;
       placed.push({ x: left, y: point.y, w });
       set.add(c.candidateId);
@@ -311,6 +394,7 @@ export function MapView({
     selectedId,
     committedId,
     proposalByCandidate,
+    viewersOf,
     preview,
     viewTick,
   ]);
@@ -408,7 +492,8 @@ export function MapView({
         )}
         {candidates.map((c) => {
           const state = stateOf(c);
-          const proposed = state === "proposed";
+          const onTable = state === "proposed" || state === "staged" || state === "vetoed";
+          const viewers = viewersOf.get(c.candidateId) ?? [];
           return (
             <Marker
               key={c.candidateId}
@@ -416,22 +501,28 @@ export function MapView({
               latitude={c.location.lat}
               anchor="center"
               style={{
-                zIndex: state === "selected" || proposed ? 5 : state === "out" ? 1 : 3,
+                zIndex:
+                  state === "selected" || state === "settled" || onTable
+                    ? 5
+                    : viewers.length > 0
+                      ? 4
+                      : state === "out"
+                        ? 1
+                        : 3,
               }}
             >
               <div
                 className="marker"
                 data-state={state}
                 data-named={named.has(c.candidateId)}
+                data-viewers={viewers.length || undefined}
                 data-testid={`pin-${c.candidateId}`}
                 role="button"
                 tabIndex={0}
-                aria-label={`${c.name} — ${
-                  state === "out"
-                    ? "ruled out"
-                    : state === "unsure"
-                      ? "not yet known"
-                      : "still works"
+                aria-label={`${c.name} — ${STATE_LABEL[state]}${
+                  viewers.length
+                    ? `, ${viewers.map((v) => v.p.displayName).join(" and ")} looking`
+                    : ""
                 }`}
                 onClick={(e) => {
                   e.stopPropagation();
@@ -451,20 +542,58 @@ export function MapView({
                 }}
               >
                 <i className="marker-dot" aria-hidden="true" />
+                {/* Peers looking: initials peek out from behind the dot when
+                    the place has no name card. Identity colours, never
+                    semantic ones. */}
+                {viewers.length > 0 && (
+                  <span className="dot-viewers" aria-hidden="true">
+                    {viewers.map((v) => (
+                      <span
+                        key={v.p.participantId}
+                        className="viewer-badge"
+                        style={{ background: personColor(v.index) }}
+                      >
+                        {initials(v.p.displayName)}
+                      </span>
+                    ))}
+                  </span>
+                )}
                 <div
                   className="marker-sticker"
                   style={{ "--tilt": `${tiltFor(c.candidateId)}deg` } as CSSProperties}
                 >
+                  {/* Behind the card: the badges sit under the sticker box in
+                      the stacking order and clear its right edge by half. */}
+                  {viewers.length > 0 && (
+                    <span className="sticker-viewers" aria-hidden="true">
+                      {viewers.map((v) => (
+                        <span
+                          key={v.p.participantId}
+                          className="viewer-badge"
+                          style={{ background: personColor(v.index) }}
+                          data-testid={`viewer-${v.p.participantId}`}
+                        >
+                          {initials(v.p.displayName)}
+                        </span>
+                      ))}
+                    </span>
+                  )}
                   <div className="sticker-box">
                     <i className="sticker-dot" aria-hidden="true" />
                     <span className="sticker-name">
                       {c.name}
-                      {proposed && <span className="sticker-suffix"> · proposed</span>}
+                      {state === "proposed" && (
+                        <span className="sticker-suffix"> · proposed</span>
+                      )}
+                      {state === "staged" && <span className="sticker-suffix"> · staged</span>}
+                      {state === "settled" && <span className="sticker-suffix"> · settled</span>}
                     </span>
                     {state === "unsure" ? (
                       <span className="sticker-chip" aria-hidden="true">?</span>
                     ) : state === "return" ? (
                       <span className="sticker-chip">+1</span>
+                    ) : state === "vetoed" ? (
+                      <span className="sticker-chip">ruled out</span>
                     ) : c.walkMin > 0 ? (
                       <span className="sticker-chip">{c.walkMin} min</span>
                     ) : null}

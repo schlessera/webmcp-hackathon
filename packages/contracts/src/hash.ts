@@ -39,6 +39,7 @@ export const RESULT_CONTRACT = {
   ],
   delta: ["fromRevision", "events", "truncated", "cursor"],
   projectedEvent: ["revision", "type", "level", "text", "payload", "actorId"],
+  outstandingEvaluationRequest: ["type", "candidateIds", "issuedAtRevision", "heldByPageAgent"],
   outstandingAdjustmentRequest: [
     "type", "requestId", "issuedAtRevision", "kind", "change",
     "projectedGain", "withinDelegatedBound", "delegatedBound", "staged",
@@ -62,7 +63,10 @@ export const RESULT_CONTRACT = {
     "candidateId", "name", "location", "category", "eligibility", "why",
     "walkMin", "priceLevel",
   ],
-  proposalView: ["proposalId", "candidateId", "status", "stances", "vetoStands", "ownStance"],
+  proposalView: [
+    "proposalId", "candidateId", "status", "stances", "vetoStands", "ownStance",
+    "staging.ready", "staging.notReady", "staging.unaccepted", "staging.vetoStands",
+  ],
   inspectCandidatesResult: ["ok", "revision", "candidates"],
   prepareNavigationResult: ["ok", "target", "links.geo", "links.googleMaps", "links.appleMaps"],
   realtime: {
@@ -74,7 +78,8 @@ export const RESULT_CONTRACT = {
     event: ["type", "revision", "events"],
     error: ["type", "code", "message"],
     confirmation: ["type", "kind", "subjectId", "nonce", "expiresInMs"],
-    presence: ["type", "present"],
+    presence: ["type", "present", "viewing"],
+    viewing: ["type", "candidateId"],
   },
 } as const;
 

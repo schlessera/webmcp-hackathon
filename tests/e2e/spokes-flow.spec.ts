@@ -438,16 +438,21 @@ test("demo trajectory through the product UI", async () => {
     pages.joe.getByTestId("place-details").getByTestId("accept-btn").click(),
   );
 
+  // Accepting a place marks a person ready (D1): no separate "done adding"
+  // gesture stands between three accepts and a stageable proposal, and the
+  // toggle mirrors the roster rather than a local guess.
   for (const key of ["org", "sarah", "joe"] as const) {
-    await clickCommand(pages[key], () => pages[key].getByTestId("toggle-ready").click());
     await expect(pages[key].getByTestId("toggle-ready")).toHaveAttribute(
       "aria-pressed",
       "true",
+      { timeout: 10_000 },
     );
   }
 
   const stage = pages.org.getByTestId("stage-card").filter({ hasText: "The Barn" });
   await expect(stage).toBeVisible({ timeout: 15_000 });
+  await expect(stage).toHaveAttribute("data-ready", "true", { timeout: 10_000 });
+  await expect(stage).toContainText("Everyone is in on The Barn");
   await stage.locator('[data-testid^="stage-"]').click();
   const commit = pages.org.getByTestId("commit-card");
   await expect(commit).toContainText("The Barn is staged", { timeout: 15_000 });

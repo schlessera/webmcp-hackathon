@@ -190,6 +190,17 @@ organizer. Commit is a two-step: `agreement_staged` (organizer initiates,
 in-page confirmation UI appears) then `agreement_committed` (human confirms in
 the page). A high rank is never agreement.
 
+**Readiness follows acceptance (2026-09-02).** An `accept` stance also sets
+its author's `readyState` to `ready` (emitting `ready_state_changed` when it
+changed): accepting a place is the strongest "done contributing" a person can
+say, and the page must never offer a stage button that fails on a toggle
+nobody was told about. Readiness stays the participant's own status —
+`SetReadyState { contributing }` takes it back. Every `ProposalView` carries
+`staging: { ready, notReady[], unaccepted, vetoStands }` so the organizer's
+card can name what staging waits on: readiness by participant id (the roster
+publishes it), the acceptance gap as a count only (a private stance must stay
+indistinguishable from silence).
+
 ## 4. Canonical events
 
 Every accepted command appends events from this vocabulary. The revision after

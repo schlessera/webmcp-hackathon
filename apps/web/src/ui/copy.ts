@@ -121,4 +121,7 @@ export const COPY = {
   verdictClears: "Clears every need the room has stated",
   holdHint: "hold to preview without",
   reassurance: "nothing here is needed to use the app",
+  agentBusy: "your agent is on it",
+  agentUnclear: "Say what would rule a place in or out, or ask about the room.",
+  agentHolds: "Your agent holds it. The room learns only that a condition exists.",
 } as const;

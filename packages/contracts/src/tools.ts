@@ -145,8 +145,9 @@ const negotiationTools: ToolDefinition[] = [
     description:
       "Submit your stance on a proposal: accept, reject (a veto that blocks " +
       "agreement while it stands), abstain, or conditionally_accept. Vetoing " +
-      "a map pin uses this same command. reason is optional and never " +
-      "required; agent-private stances are disposition-only.",
+      "a map pin uses this same command. Accepting also marks you ready. " +
+      "reason is optional and never required; agent-private stances are " +
+      "disposition-only.",
     inputSchema: RespondToProposalInput,
     annotations: { untrustedContentHint: true },
   },

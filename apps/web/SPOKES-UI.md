@@ -78,7 +78,13 @@ fill, no label. Everything protocol-shaped lives behind it.
 | Unsure | as works, but hollow dot (2.5px `--spoke-unsure` ring on surface), name in `--spoke-ink-soft`, `?` badge in unsure tint |
 | Selected | filled `--spoke-works`, cream text, `--spoke-shadow-pop`, `spoke-pop` idle animation |
 | Proposed | filled `--spoke-act`, cream text, label suffix `· proposed` |
+| Vetoed | hollow act: surface plate, 1.5px `--spoke-act` border, act shadow, name in `--spoke-act-text` struck through, `ruled out` chip. The place keeps its eligibility — a veto blocks agreement, it does not rule the place out |
+| Staged | as proposed, suffix `· staged`, no idle breath (the decision is on the page now) |
+| Settled | as selected (works fill, cream), suffix `· settled` |
 | Would come back | dashed 1.5px `--spoke-works` border, dashed dot, `+n` chip, `spoke-breathe` |
+
+Precedence, first match wins: selected → settled → staged → vetoed →
+proposed → would come back → works / unsure / out.
 
 Stickers sit at −3° to +3°. Vary the angle between neighbours; never align
 two adjacent stickers to the same rotation.
@@ -118,8 +124,14 @@ Bottom-left because bottom-right belongs to map attribution.
 
 ### Presence
 
-A 15×19px cursor arrow in the person's colour with their name in a
-`0 7px 7px 7px` tab. Show only for people currently looking.
+No cursors (REDESIGN-HANDOFF D4). A person who has a place **open** is drawn
+on that place: an 18px squircle with their initials in their person colour,
+1.5px `--spoke-surface` ring, `--spoke-shadow-drop`, peeking out from behind
+the sticker's right edge (translated 60% past it, stacked under the card) —
+or from behind the bare dot when the place has no name card. Several
+viewers overlap by −7px like the header avatars. Never the viewer's own
+initials, never a semantic colour. It rides on the presence frame
+(`viewing`), so it is gone the moment the panel closes or the tab does.
 
 ### Attribution
 
@@ -213,23 +225,35 @@ server sends, in server order. There is no restaurant layout, no cinema
 layout — one layout that adapts.
 
 ```
-Name                              [× close]
+Name                              [Close]
 why it's in / why it's out        ← verdict strip
 ─────────────────────────────────
-Against what matters              ← per active need: ✓ / ? / ✗ + evidence
+Does it fit                       ← per need: mark · need · answer in words
 ─────────────────────────────────
-<server attribute groups>         ← label + value pairs, grouped
+Also on record                    ← the facts nobody asked about, as pills
+Facts from OpenStreetMap.         ← one sources line for the whole panel
 ─────────────────────────────────
-Where everyone stands             ← per person: in / out / silent
+Where everyone stands             ← per person: avatar · sentence · mark
 ─────────────────────────────────
 [Put it forward]  [Rule it out]
 ```
 
 - **Verdict strip first.** The user's question is always "why is this here?"
-- Each need shows its evidence and its **source** ("from OpenStreetMap",
-  "the venue says"), because unverified is a first-class state.
-- Unknown renders as `?` in `--spoke-unsure`, never as a failure.
+- **The marks are the map's dots, off the map.** Filled `--spoke-works` =
+  clears it; hollow `--spoke-unsure` ring = nobody could confirm; small grey
+  `--spoke-out` = fails; `--spoke-scope` = a private condition; dashed ghost
+  ring = silent; hollow `--spoke-act` ring = a veto. Size, fill and border
+  differ per mark, so a row reads in greyscale. **No glyphs** — no ✓, ✗ or
+  tick characters anywhere in the panel.
+- Each need row answers in words ("yes", "nobody could confirm", "about €15
+  each", "your agent passed it"); unknown is a state, never a failure.
+- A peer's private need is a row too, reduced to its effect on this place
+  ("ruled it out" / "not yet checked" / "passes") — never its content.
+- Facts already answered under "Does it fit" do not repeat below; unknown
+  facts are a count ("3 not on record"), not a list of question marks.
+- Provenance is one line under the facts, not a column per row.
 - **Don't** invent icons per attribute type; label + value in the type ramp.
+- A peer with this place open reads "· looking now" on their stance row.
 
 ---
 
@@ -275,7 +299,9 @@ it is a bug.
 
 Three columns (`8c`): brief rail left (320px), map centre, details right
 (pushes in, 380px). Chat lives in the user's own client beside the browser —
-the app never renders a chat pane.
+the app never renders a chat pane. The in-page agent (`docs/NL-AGENT.md`)
+keeps that rule: it speaks through the composer and answers as a "Your
+agent" card in the brief, dismissed by the reader.
 
 Agent turns in the transcript name the change they made and its delta, so the
 chat and the map never disagree.

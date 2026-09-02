@@ -1,5 +1,6 @@
-import { useRef, useState } from "react";
+import { useRef } from "react";
 import type { ProjectedEvent } from "@webmcp-hackathon/contracts";
+import type { AgentReply } from "../spatial-store.ts";
 import type {
   ActiveNeed,
   CommandEnvelope,
@@ -471,14 +472,17 @@ export function History({ events, meId }: { events: ProjectedEvent[]; meId: stri
 }
 
 /* ── Ready toggle ────────────────────────────────────────────────────────
-   Small and quiet: the phase machine needs it, the room does not read it. */
+   Small and quiet: the phase machine needs it, the room does not read it.
+   It mirrors the roster (server truth) — accepting a place also marks you
+   ready, and this is where that shows. */
 
 export function ReadyToggle({
+  ready,
   run,
 }: {
+  ready: boolean;
   run(type: string, input: Record<string, unknown>): Promise<CommandEnvelope>;
 }) {
-  const [ready, setReady] = useState(false);
   return (
     <div className="brief-foot">
       <button
@@ -486,14 +490,77 @@ export function ReadyToggle({
         data-testid="toggle-ready"
         data-ready={ready}
         aria-pressed={ready}
-        onClick={() => {
-          const next = !ready;
-          setReady(next);
-          void run("SetReadyState", { state: next ? "ready" : "contributing" });
-        }}
+        onClick={() =>
+          void run("SetReadyState", { state: ready ? "contributing" : "ready" })
+        }
       >
         {ready ? "Done adding" : "I'm done adding"}
       </button>
+      {ready && <span className="brief-foot-note">tap to keep adding</span>}
     </div>
   );
+}
+
+/* ── Your agent's replies ───────────────────────────────────────────────
+   Not a chat pane (SPOKES-UI §9): a card per reply, newest first, dismissed
+   by the reader. Act-toned because the agent moved or spoke for you; the
+   record row under it names what changed (COPY.md agent phrasing). */
+
+export function AgentReplies({
+  replies,
+  onDismiss,
+}: {
+  replies: AgentReply[];
+  onDismiss(id: string): void;
+}) {
+  if (replies.length === 0) return null;
+  return (
+    <section data-testid="agent-replies">
+      {replies.map((r) => (
+        <div
+          className="card"
+          data-tone={r.answer ? "dashed" : "acting"}
+          data-testid="agent-reply"
+          key={r.id}
+        >
+          <div className="card-kicker" data-tone="act">Your agent</div>
+          <div className="card-body" data-testid="agent-reply-text">{r.text}</div>
+          {r.actions.length > 0 && (
+            <div className="record-list" data-testid="agent-actions">
+              {r.actions.map((a, i) => (
+                <div className="record-row" key={`${r.id}-${i}`} data-failed={!a.ok || undefined}>
+                  <span className="record-spacer" aria-hidden="true" />
+                  <span className="record-text">{actionText(a)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="card-actions">
+            <button className="btn-text" data-testid="agent-reply-dismiss" onClick={() => onDismiss(r.id)}>
+              Got it
+            </button>
+          </div>
+        </div>
+      ))}
+    </section>
+  );
+}
+
+/** A tool's effect in the room's words: never the tool name (CLAUDE.md §6). */
+function actionText(a: { tool: string; ok: boolean; effect: string }): string {
+  if (!a.ok) return "One move did not go through.";
+  const verb: Record<string, string> = {
+    submit_requirement: "Stated a need for you",
+    withdraw_requirement: "Withdrew a need for you",
+    set_requirement_active: "Changed which of your needs count",
+    respond_to_proposal: "Took a stance for you",
+    propose_destination: "Put a place forward for you",
+    set_search_scope: "Changed the area",
+    set_ready_state: "Changed whether you're done adding",
+    resolve_private_request: "Answered a request for you",
+    confirm_agreement: "Staged the agreement",
+    plan_arrival: "Recorded how you'll get there",
+    evaluate_candidates: "Screened places for you",
+  };
+  return verb[a.tool] ?? "Made a move for you";
 }

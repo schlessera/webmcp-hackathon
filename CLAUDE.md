@@ -147,6 +147,16 @@ others, never first.
   explains; mono for numerals-in-context and the drawer.
 - When the design and this file disagree, this file wins — then fix the design
   or tell the designer.
+- **Marks, not glyphs (2026-09-02).** Off the map, a state is drawn with the
+  map's own dot vocabulary (`.mark[data-mark]` in `styles.css`): filled works,
+  hollow unsure ring, small grey out, scope dot, dashed ghost, hollow act. No
+  ✓ ✗ ● characters in chrome. Map states: `selected → settled → staged →
+  vetoed → proposed → return → works/unsure/out`.
+- **Your agent in the page (2026-09-02).** `docs/NL-AGENT.md`. Fast tier
+  routes a composer sentence into typed needs; smart tier acts through the
+  tool surface and screens agent-private conditions held in memory. Replies
+  are a card in the brief, never a chat pane. Accepting a proposal marks you
+  ready; the stage card names what staging waits on.
 - **Applied 2026-09-01.** `styles.css` is built on `tokens.css`; the old
   `:root` palette and the legacy `--spoke` token are gone (not aliased). The
   only colour literals outside `tokens.css` are the documented GL-paint pairs

@@ -30,6 +30,23 @@ export interface SpatialState {
    * Never merged into `context`: the live truth must survive the gesture. */
   preview: SpatialContext | null;
   previewNeedId: string | null;
+  /** Who has which place open right now (peers and self), from the presence
+   * frame. Ephemeral: never part of `context`, never persisted. */
+  viewing: Record<string, string>;
+  /** What the person's agent last said, newest first. Dismissed by the
+   * reader; nothing here is room state. */
+  agentReplies: AgentReply[];
+  /** A sentence is with the agent right now. */
+  agentBusy: boolean;
+}
+
+export interface AgentReply {
+  id: string;
+  text: string;
+  /** What the agent changed, for the record row under the reply. */
+  actions: Array<{ tool: string; ok: boolean; effect: string }>;
+  /** true for a question answered, false for a move made. */
+  answer: boolean;
 }
 
 type Listener = () => void;
@@ -52,6 +69,9 @@ class SpatialStore {
     outstanding: [],
     preview: null,
     previewNeedId: null,
+    viewing: {},
+    agentReplies: [],
+    agentBusy: false,
   };
   private listeners = new Set<Listener>();
   private inflight: Promise<SpatialContext | null> | null = null;
@@ -77,6 +97,21 @@ class SpatialStore {
   }
   setOutstanding(outstanding: OutstandingItem[] | undefined): void {
     if (outstanding) this.update({ outstanding });
+  }
+  setViewing(rows: Array<{ participantId: string; candidateId: string }>): void {
+    const viewing: Record<string, string> = {};
+    for (const r of rows) viewing[r.participantId] = r.candidateId;
+    this.update({ viewing });
+  }
+  pushAgentReply(reply: Omit<AgentReply, "id">): void {
+    const id = `r_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+    this.update({ agentReplies: [{ id, ...reply }, ...this.state.agentReplies].slice(0, 3) });
+  }
+  dismissAgentReply(id: string): void {
+    this.update({ agentReplies: this.state.agentReplies.filter((r) => r.id !== id) });
+  }
+  setAgentBusy(agentBusy: boolean): void {
+    if (this.state.agentBusy !== agentBusy) this.update({ agentBusy });
   }
 
   /**

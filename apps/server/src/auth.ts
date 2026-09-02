@@ -64,6 +64,18 @@ export async function authenticateToken(
   return row ? rowToParticipant(row) : null;
 }
 
+/** A participant by id — for server-initiated work on their behalf (their
+ * agent screening a condition they gave it). Never an auth path. */
+export async function participantById(id: string): Promise<Participant | null> {
+  const row = (
+    await pool.query(
+      "SELECT id, room_id, display_name, role, ready_state FROM participants WHERE id = $1",
+      [id],
+    )
+  ).rows[0];
+  return row ? rowToParticipant(row) : null;
+}
+
 function rowToParticipant(row: Record<string, string>): Participant {
   return {
     id: row.id,

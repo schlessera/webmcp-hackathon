@@ -82,6 +82,9 @@ export interface ProposalView {
   stances: Array<{ participantId: string; stance: "accept" | "veto" | "none" }>;
   vetoStands: boolean;
   ownStance?: string;
+  /** What staging waits on (server-computed, so a private accept stays
+   * silent): names for readiness, a count for missing acceptances. */
+  staging?: { ready: boolean; notReady: string[]; unaccepted: number; vetoStands: boolean };
 }
 
 export interface SpatialScope {
@@ -162,7 +165,13 @@ export interface OutstandingAdjustment {
 
 export type OutstandingItem =
   | OutstandingAdjustment
-  | { type: "evaluation_request"; candidateIds: string[]; issuedAtRevision?: number }
+  | {
+      type: "evaluation_request";
+      candidateIds: string[];
+      issuedAtRevision?: number;
+      /** The page's own agent screens for this person; the card is not needed. */
+      heldByPageAgent?: true;
+    }
   | { type: "stance_needed"; proposalId: string };
 
 export interface CommandEnvelope {

@@ -471,6 +471,140 @@ body { overflow: hidden; }
   font-weight: var(--spoke-weight-display);
 }
 
+/* settled — the room's own commit: works fill, cream text, idle breath,
+   "· settled". Same drawing as selected: the commit is the one thing the
+   works colour also means (CLAUDE.md §2). */
+.marker[data-state="settled"] .marker-dot {
+  width: 15px; height: 15px;
+  margin: -7.5px 0 0 -7.5px;
+  background: var(--spoke-works);
+  border: 2.5px solid var(--spoke-surface);
+  opacity: 1;
+}
+.marker[data-state="settled"] .sticker-box {
+  background: var(--spoke-works);
+  border-color: var(--spoke-works);
+  box-shadow: var(--spoke-shadow-pop);
+  padding: 7px 11px 7px 8px;
+  animation: spoke-pop var(--spoke-dur-pop) ease-in-out infinite;
+}
+.marker[data-state="settled"] .sticker-dot {
+  background: var(--spoke-surface);
+  border: none;
+  width: 12px; height: 12px;
+}
+.marker[data-state="settled"] .sticker-name {
+  color: var(--spoke-surface);
+  font-weight: var(--spoke-weight-display);
+}
+.marker[data-state="settled"] .sticker-chip {
+  background: var(--spoke-works-pop);
+  color: var(--spoke-works-text);
+}
+
+/* staged — the organizer moved: act fill like proposed, "· staged", no
+   breath (the decision is now on the page, not on the map). */
+.marker[data-state="staged"] .marker-dot {
+  width: 15px; height: 15px;
+  margin: -7.5px 0 0 -7.5px;
+  background: var(--spoke-act);
+  border: 2.5px solid var(--spoke-surface);
+  opacity: 1;
+}
+.marker[data-state="staged"] .sticker-box {
+  background: var(--spoke-act);
+  border-color: var(--spoke-act);
+  box-shadow: var(--spoke-shadow-pop);
+  padding: 6px 10px 6px 8px;
+}
+.marker[data-state="staged"] .sticker-dot { background: var(--spoke-surface); border: none; }
+.marker[data-state="staged"] .sticker-name {
+  color: var(--spoke-surface);
+  font-weight: var(--spoke-weight-display);
+}
+
+/* vetoed — someone ruled it out and the veto stands. Hollow act: surface
+   plate, act border, the name struck through, "ruled out" chip. The strike
+   and the hollow dot carry the state without colour (§13). The place keeps
+   its eligibility — a veto blocks agreement, it does not rule the place out
+   of the set — so the map dot stays the works size. */
+.marker[data-state="vetoed"] .marker-dot {
+  width: 15px; height: 15px;
+  margin: -7.5px 0 0 -7.5px;
+  background: var(--spoke-surface);
+  border: 2.5px solid var(--spoke-act);
+  opacity: 1;
+}
+.marker[data-state="vetoed"] .sticker-box {
+  border-color: var(--spoke-act);
+  box-shadow: 2px 2px 0 var(--spoke-act-shadow);
+}
+.marker[data-state="vetoed"] .sticker-dot {
+  background: var(--spoke-surface);
+  border: 2px solid var(--spoke-act);
+}
+.marker[data-state="vetoed"] .sticker-name {
+  color: var(--spoke-act-text);
+  text-decoration: line-through;
+  text-decoration-thickness: 1.5px;
+}
+.marker[data-state="vetoed"] .sticker-chip {
+  background: var(--spoke-act-tint);
+  color: var(--spoke-act-text);
+}
+
+/* Who is looking: initials in the person's colour, peeking out from behind
+   the card's right edge (or from behind the bare dot when there is no card).
+   Identity, never a semantic colour; the sticker box stacks above them so
+   they read as tucked behind it. */
+.viewer-badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px; height: 18px;
+  border-radius: var(--spoke-radius-avatar);
+  border: 1.5px solid var(--spoke-surface);
+  font-size: 8px;
+  font-weight: var(--spoke-weight-strong);
+  letter-spacing: 0.01em;
+  color: var(--spoke-surface);
+  background: var(--spoke-person-1);
+  box-shadow: var(--spoke-shadow-drop);
+  flex: none;
+}
+/* A tab sticking up from behind the card's top-left corner — right beside
+   the dot, so it stays in frame whenever the dot does (a card near the map's
+   edge can run off it; its dot never does). */
+.sticker-viewers {
+  position: absolute;
+  left: 12px;
+  top: 0;
+  transform: translateY(-58%);
+  display: flex;
+  z-index: 0;
+  pointer-events: none;
+  transition: opacity var(--spoke-dur-settle) var(--spoke-ease);
+}
+.sticker-viewers .viewer-badge + .viewer-badge { margin-left: -7px; }
+.marker .sticker-box { position: relative; z-index: 1; }
+.marker[data-state="out"] .sticker-viewers,
+.marker[data-named="false"] .sticker-viewers { opacity: 0; }
+
+.dot-viewers {
+  position: absolute;
+  left: 50%; top: 50%;
+  transform: translate(2px, -50%);
+  display: flex;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity var(--spoke-dur-settle) var(--spoke-ease);
+}
+.dot-viewers .viewer-badge + .viewer-badge { margin-left: -7px; }
+.marker[data-state="out"] .dot-viewers,
+.marker[data-named="false"] .dot-viewers { opacity: 1; }
+.marker .marker-dot { z-index: 1; }
+
 /* would come back — dashed, breathing, only while a preview is held */
 .marker[data-state="return"] .sticker-box {
   border-style: dashed;
@@ -789,6 +923,12 @@ body { overflow: hidden; }
   color: var(--spoke-works-text);
 }
 
+.brief-foot-note {
+  font-weight: var(--spoke-weight-quiet);
+  font-size: var(--spoke-size-micro);
+  color: var(--spoke-ink-soft);
+}
+
 /* ── Cards shared by ways-out, consent and digest ──────────────────────── */
 
 .card {
@@ -829,6 +969,20 @@ body { overflow: hidden; }
   color: var(--spoke-act-text);
   margin-bottom: 5px;
 }
+
+/* Your agent's reply: the record under it lists what it did; a move that
+   did not go through stays in the record, in the unsure colour. */
+.card[data-testid="agent-reply"] .card-body { margin-bottom: 6px; color: var(--spoke-ink); font-weight: var(--spoke-weight-body); }
+.card[data-testid="agent-reply"] .record-list { margin-bottom: 4px; }
+.card[data-testid="agent-reply"] .record-row { padding: 5px 0; }
+.card[data-testid="agent-reply"] .record-text { color: var(--spoke-ink-soft); font-size: var(--spoke-size-meta); }
+.record-row[data-failed="true"] .record-text { color: var(--spoke-unsure-text); }
+.card[data-testid="agent-reply"] .card-actions { margin-top: 2px; }
+.card[data-testid="agent-reply"] .btn-text { color: var(--spoke-act-text); }
+
+/* The organizer's stage card is status until the precondition holds; the
+   works tone arrives with the decision. */
+.card[data-testid="stage-card"][data-ready="false"] .card-title { color: var(--spoke-ink-soft); }
 
 .card-badges { display: flex; gap: 7px; margin-bottom: 5px; flex-wrap: wrap; }
 
@@ -1024,7 +1178,13 @@ body { overflow: hidden; }
   letter-spacing: 0.02em;
   color: var(--spoke-ink-soft);
   padding: 0 2px;
+  /* Keeps the composer's height whether a label, a busy line or nothing is
+     above the bar: the bar must not jump while the agent works. */
+  min-height: 15px;
 }
+.composer-suggest-label[data-tone="act"] { color: var(--spoke-act-text); }
+.composer[data-busy="true"] .composer-bar { border-color: var(--spoke-act); }
+.composer[data-busy="true"] .composer-add { background: var(--spoke-act); border-left-color: var(--spoke-act); }
 
 /* One line (mockup 4a/7a): the composer keeps its height whatever the
    server suggests; the rest scrolls sideways under the finger. */
@@ -1349,76 +1509,120 @@ body { overflow: hidden; }
 .verdict[data-state="out"] .verdict-dot { background: var(--spoke-out); }
 .verdict[data-state="out"] .verdict-text { color: var(--spoke-ink-soft); }
 
-.check-list { border-top: var(--spoke-border) solid var(--spoke-line-quiet); }
-.check-row {
-  display: flex;
-  gap: 9px;
-  align-items: baseline;
-  padding: 9px 0;
-  border-bottom: 1px solid var(--spoke-line-ghost);
-}
-.check-row:last-child { border-bottom: none; }
-.check-glyph {
+/* ── The marks ─────────────────────────────────────────────────────────
+   The map's dot vocabulary, off the map: filled works = clears it, hollow
+   unsure ring = nobody could confirm, small grey = fails, scope = a private
+   condition, ghost ring = silent, hollow act = a veto. Size, fill and border
+   differ per state, so the row reads without colour (§13). No glyphs. */
+.mark {
+  display: inline-block;
   flex: none;
-  width: 13px;
-  font-weight: var(--spoke-weight-strong);
-  font-size: 12px;
-  color: var(--spoke-works-text);
+  width: 11px; height: 11px;
+  border-radius: 50%;
+  background: var(--spoke-works);
+  border: 1.5px solid var(--spoke-line);
+  box-sizing: border-box;
 }
-.check-row[data-mark="unknown"] .check-glyph { color: var(--spoke-unsure-text); }
-.check-row[data-mark="out"] .check-glyph { color: var(--spoke-ink-soft); }
-.check-row[data-mark="private"] .check-glyph { color: var(--spoke-scope-text); }
-.check-text {
+.mark[data-mark="unknown"] {
+  background: var(--spoke-surface);
+  border: 2.5px solid var(--spoke-unsure);
+  width: 12px; height: 12px;
+}
+.mark[data-mark="out"] {
+  width: 8px; height: 8px;
+  margin: 0 1.5px;
+  background: var(--spoke-out);
+  border: none;
+  opacity: var(--spoke-out-opacity);
+}
+.mark[data-mark="private"] {
+  background: var(--spoke-scope);
+  border-color: var(--spoke-scope);
+}
+.mark[data-mark="silent"] {
+  background: transparent;
+  border: 1.5px dashed var(--spoke-ink-ghost);
+}
+.mark[data-mark="veto"] {
+  background: var(--spoke-surface);
+  border: 2.5px solid var(--spoke-act);
+  width: 12px; height: 12px;
+}
+
+/* ── Ledger rows (Does it fit · Where everyone stands) ─────────────────── */
+.ledger { border-top: var(--spoke-border) solid var(--spoke-line-quiet); }
+.ledger-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--spoke-line-ghost);
+  min-height: 34px;
+}
+.ledger-row:last-child { border-bottom: none; }
+.ledger-label {
   flex: 1;
   min-width: 0;
-  font-weight: var(--spoke-weight-quiet);
+  font-weight: var(--spoke-weight-body);
   font-size: var(--spoke-size-place);
-  line-height: 1.45;
+  line-height: 1.4;
   color: var(--spoke-ink);
 }
-.check-row[data-mark="private"] .check-text { font-style: italic; color: var(--spoke-scope-text); }
-.check-source {
+.ledger-answer {
   flex: none;
-  max-width: 45%;
+  max-width: 48%;
   text-align: right;
+  font-weight: var(--spoke-weight-quiet);
+  font-size: var(--spoke-size-detail);
+  line-height: 1.4;
+  color: var(--spoke-works-text);
+}
+.ledger-answer[data-mark="unknown"] { color: var(--spoke-unsure-text); }
+.ledger-answer[data-mark="out"]     { color: var(--spoke-ink-soft); }
+.ledger-answer[data-mark="private"] { color: var(--spoke-scope-text); }
+.check-row[data-mark="private"] .ledger-label { color: var(--spoke-scope-text); }
+.check-row[data-mark="out"] .ledger-label { color: var(--spoke-ink-soft); }
+
+/* ── Facts on record: pills, not rows ──────────────────────────────────── */
+.fact-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.fact {
+  display: inline-block;
+  border: var(--spoke-border) solid var(--spoke-line-quiet);
+  border-radius: var(--spoke-radius-chip);
+  background: var(--spoke-surface);
+  padding: 4px 10px;
+  font-weight: var(--spoke-weight-body);
+  font-size: var(--spoke-size-meta);
+  line-height: 1.3;
+  color: var(--spoke-ink);
+}
+.fact[data-status="verified_false"] { color: var(--spoke-ink-soft); }
+.fact[data-status="unverified"] {
+  border-style: dashed;
+  border-color: var(--spoke-unsure);
+  color: var(--spoke-unsure-text);
+}
+.fact-note { font-weight: var(--spoke-weight-quiet); }
+.fact-unknown {
+  font-weight: var(--spoke-weight-quiet);
+  font-size: var(--spoke-size-meta);
+  color: var(--spoke-unsure-text);
+  padding: 4px 2px;
+}
+
+.details-sources {
   font-weight: var(--spoke-weight-quiet);
   font-size: var(--spoke-size-micro);
   line-height: 1.5;
   color: var(--spoke-ink-faint);
+  padding-top: 10px;
 }
-.check-row[data-mark="private"] .check-source { color: var(--spoke-scope-text); }
 
-.attr-row {
-  display: flex;
-  gap: 10px;
-  align-items: baseline;
-  padding: 7px 0;
-  border-bottom: 1px solid var(--spoke-line-ghost);
-}
-.attr-row:last-child { border-bottom: none; }
-.attr-key {
-  flex: 1;
-  font-weight: var(--spoke-weight-body);
-  font-size: var(--spoke-size-detail);
-  color: var(--spoke-ink);
-}
-.attr-value {
-  flex: none;
-  max-width: 58%;
-  text-align: right;
-  font-weight: var(--spoke-weight-quiet);
-  font-size: var(--spoke-size-detail);
-  color: var(--spoke-ink-soft);
-}
-.attr-row[data-status="unknown"] .attr-value,
-.attr-row[data-status="unverified"] .attr-value { color: var(--spoke-unsure-text); }
-
-.stand-row {
-  display: flex;
-  gap: 9px;
-  align-items: center;
-  padding: 6px 0;
-}
 .stand-avatar {
   flex: none;
   width: 20px; height: 20px;
@@ -1431,18 +1635,11 @@ body { overflow: hidden; }
   color: var(--spoke-surface);
   background: var(--spoke-person-1);
 }
-.stand-text {
-  flex: 1;
+.stand-row[data-stance="none"] .ledger-label { color: var(--spoke-ink-faint); }
+.stand-looking {
   font-weight: var(--spoke-weight-quiet);
-  font-size: var(--spoke-size-detail);
-  color: var(--spoke-ink);
-}
-.stand-row[data-stance="none"] .stand-text { color: var(--spoke-ink-faint); }
-.stand-mark {
-  flex: none;
-  font-weight: var(--spoke-weight-strong);
-  font-size: 12px;
-  color: var(--spoke-works-text);
+  font-size: var(--spoke-size-meta);
+  color: var(--spoke-ink-soft);
 }
 
 .details-actions {

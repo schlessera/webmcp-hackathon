@@ -225,6 +225,8 @@ export interface TestRealtime {
   ): Promise<string>;
   /** Every raw frame this participant's socket received. */
   frames(): string[];
+  /** A post-auth client frame (the viewing message). */
+  send(message: Record<string, unknown>): void;
   close(): void;
 }
 
@@ -272,6 +274,7 @@ export async function openRealtime(
 
   return {
     frames: () => [...received],
+    send: (message) => socket.send(JSON.stringify(message)),
     close: () => socket.close(),
     async nonce(kind, subjectId, timeoutMs = 5000) {
       const deadline = Date.now() + timeoutMs;

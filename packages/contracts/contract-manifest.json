@@ -1,6 +1,6 @@
 {
   "toolContractVersion": "2",
-  "sha256": "2adb77b76758757e641b6a416d6dfa2609d96ec569ac3ce43a1b5ceafab09b6c",
+  "sha256": "db8b0fa3ba5198aec1439f0b8cb55830fe96380bd7c2cee1031e8547b65cb005",
   "manifest": {
     "capabilityManifest": {
       "agreement": {
@@ -914,6 +914,12 @@
         "delegatedBound",
         "staged"
       ],
+      "outstandingEvaluationRequest": [
+        "type",
+        "candidateIds",
+        "issuedAtRevision",
+        "heldByPageAgent"
+      ],
       "participantSummary": [
         "participantId",
         "displayName",
@@ -948,7 +954,11 @@
         "status",
         "stances",
         "vetoStands",
-        "ownStance"
+        "ownStance",
+        "staging.ready",
+        "staging.notReady",
+        "staging.unaccepted",
+        "staging.vetoStands"
       ],
       "realtime": {
         "auth": [
@@ -976,7 +986,12 @@
         ],
         "presence": [
           "type",
-          "present"
+          "present",
+          "viewing"
+        ],
+        "viewing": [
+          "type",
+          "candidateId"
         ],
         "welcome": [
           "type",
@@ -1512,7 +1527,7 @@
         "annotations": {
           "untrustedContentHint": true
         },
-        "description": "Submit your stance on a proposal: accept, reject (a veto that blocks agreement while it stands), abstain, or conditionally_accept. Vetoing a map pin uses this same command. reason is optional and never required; agent-private stances are disposition-only.",
+        "description": "Submit your stance on a proposal: accept, reject (a veto that blocks agreement while it stands), abstain, or conditionally_accept. Vetoing a map pin uses this same command. Accepting also marks you ready. reason is optional and never required; agent-private stances are disposition-only.",
         "inputSchema": {
           "additionalProperties": false,
           "properties": {

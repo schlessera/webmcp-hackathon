@@ -31,6 +31,10 @@ import { submitCommand } from "./engine.ts";
 import { syncSession } from "./sync.ts";
 import { inspectCandidates, prepareNavigation, spatialContext } from "./spatial.ts";
 import { attachWebSocket } from "./ws.ts";
+import { pool } from "./db.ts";
+import { say } from "./nl/say.ts";
+import { runAgent } from "./nl/agent.ts";
+import { heldFor, hold, release, screenPending } from "./nl/holder.ts";
 
 /**
  * One Node process serves the production UI, API, and WebSocket endpoint.
@@ -52,6 +56,8 @@ app.addHook("onSend", async (_req, reply, payload) => {
 app.get("/api/meta", async () => ({
   buildId: config.buildId,
   toolContractVersion: TOOL_CONTRACT_VERSION,
+  /** Whether the composer may hand a sentence to the person's agent. */
+  nl: config.nlEnabled,
 }));
 
 // Minimal exchange rate limit: invite secrets are bearer credentials and each
@@ -246,6 +252,139 @@ app.post("/api/commands", async (req) => {
 function correlationId(req: { headers: Record<string, unknown> }): string {
   return String(req.headers["x-correlation-id"] ?? "none");
 }
+
+/**
+ * The natural-language surface (docs/NL-AGENT.md). Page-only routes: an
+ * agent on the WebMCP side has its own language model and needs none of
+ * this. Nothing here bypasses the command bus — a need the fast tier parses
+ * goes back to the page, which submits it like a typed one; a move the smart
+ * tier makes goes through submitCommand as this actor.
+ */
+const agentUnavailable = {
+  ok: false,
+  error: {
+    code: "phase_unavailable",
+    message: "Your agent could not answer just now.",
+    recovery: "Say it again in a moment, or state the need in fewer words.",
+  },
+} as const;
+
+function sentence(body: unknown): string | null {
+  const text = (body as { text?: unknown } | null)?.text;
+  if (typeof text !== "string") return null;
+  const trimmed = text.trim();
+  return trimmed.length >= 1 && trimmed.length <= 300 ? trimmed : null;
+}
+
+app.post("/api/nl/say", async (req) => {
+  const actor = await bearer(req);
+  if (!actor) return notAuthenticated;
+  if (!config.nlEnabled) return agentUnavailable;
+  const text = sentence(req.body);
+  if (!text) return invalidInput("text must be 1-300 characters.", "Say it in a sentence.");
+  const scope = String((req.body as { scope?: unknown })?.scope ?? "shared");
+  const started = Date.now();
+  try {
+    const context = await spatialContext(actor);
+    if (!context.ok) return context;
+    const routed = await say(text, scope, context);
+    let result: Record<string, unknown>;
+    if (routed.intent === "ask" || routed.intent === "act") {
+      const outcome = await runAgent(actor, text, heldFor(actor.id));
+      result = {
+        ok: true,
+        intent: routed.intent,
+        reply: outcome.reply,
+        actions: outcome.actions,
+        meta: { route: routed.meta, agent: outcome.meta },
+      };
+    } else {
+      result = {
+        ok: true,
+        intent: routed.intent,
+        needs: routed.needs,
+        reply: routed.reply,
+        meta: { route: routed.meta },
+      };
+    }
+    req.log.info(
+      {
+        correlationId: correlationId(req),
+        participantId: actor.id,
+        command: "NlSay",
+        intent: routed.intent,
+        ms: Date.now() - started,
+        outcome: "ok",
+      },
+      "command executed",
+    );
+    return result;
+  } catch (err) {
+    req.log.warn(
+      { correlationId: correlationId(req), participantId: actor.id, command: "NlSay", err: String(err) },
+      "agent failed",
+    );
+    return agentUnavailable;
+  }
+});
+
+app.post("/api/nl/condition", async (req) => {
+  const actor = await bearer(req);
+  if (!actor) return notAuthenticated;
+  if (!config.nlEnabled) return agentUnavailable;
+  const text = sentence(req.body);
+  if (!text) return invalidInput("text must be 1-300 characters.", "Say it in a sentence.");
+  try {
+    // The condition goes to the agent; the room gets a content-free
+    // declaration. The fast tier's topic reading is returned to the page but
+    // NOT attached as a scope hint: disclosing a category is the owner's
+    // opt-in (FACETS.md §4), and nobody asked them.
+    const context = await spatialContext(actor);
+    if (!context.ok) return context;
+    const routed = await say(text, "agent-private", context);
+    const topic = routed.needs[0]?.topic;
+    hold(actor.id, actor.roomId, text);
+    const room = (
+      await pool.query("SELECT revision FROM rooms WHERE id = $1", [actor.roomId])
+    ).rows[0];
+    // A restated condition updates the one declaration this person holds
+    // (which also clears the old verdicts, engine.ts) rather than stacking a
+    // second need the room could never tell apart from the first.
+    const existing = (
+      await pool.query(
+        `SELECT id FROM requirements
+          WHERE room_id = $1 AND owner_id = $2 AND visibility = 'agent-private' AND NOT withdrawn
+          ORDER BY created_at_revision DESC LIMIT 1`,
+        [actor.roomId, actor.id],
+      )
+    ).rows[0];
+    const declared = await submitCommand(actor, "SubmitRequirement", {
+      baseRevision: Number(room?.revision ?? 0),
+      ...(existing ? { requirementId: existing.id as string } : {}),
+      visibility: "agent-private",
+      hardness: "hard",
+      delegation: { mode: "approval_required" },
+      scopeHint: { affects: "candidate-eligibility" },
+    });
+    if (!declared.ok) {
+      release(actor.id);
+      return declared;
+    }
+    // Screening runs in the background; the map settles as verdicts land.
+    void screenPending(actor);
+    req.log.info(
+      { correlationId: correlationId(req), participantId: actor.id, command: "NlCondition", outcome: "ok" },
+      "command executed",
+    );
+    return { ok: true, revision: declared.revision, topic: topic ?? null, meta: { route: routed.meta } };
+  } catch (err) {
+    req.log.warn(
+      { correlationId: correlationId(req), participantId: actor.id, command: "NlCondition", err: String(err) },
+      "agent failed",
+    );
+    return agentUnavailable;
+  }
+});
 
 // UI serving: Vite middleware in development (HMR), static dist in production.
 const webRoot = join(

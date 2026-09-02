@@ -43,11 +43,21 @@ named is one the UI draws.
 | 7 | Alex | Type `€15` in the composer (Shared) → **Add**. Then ask ChatGPT *"we're not doing Italian tonight"* — the agent calls `submit_requirement` with an exclusion | Two more rows: "budget €15" `−1` and "avoid italian" `−3`. The subline tightens to `of 21 · 15 unsure`. Peers still learn nothing about Joe's condition |
 | 8 | Alex | On the consent card — "Widen the area from 800 m to 1.2 km? · Brings back 4 places" — press **Accept**, then **Confirm** on the card that replaces it | Peers never see the card. While it stands, Alex's map draws the proposed radius as a second, fainter ring. After the confirm the ring grows in all three windows, outside places settle in, and the count reads `4 still work / of 31 · 21 unsure`. Every subtitle returns to "three in the room · 4 still work"; Alex's digest has already folded away with Alex's first new move in beat 7 |
 | 9 | Organizer's ChatGPT | *"Put Chén Ché forward."* — the agent calls `propose_destination` on **Chén Ché** (`place_30`) | The pin fills in the act colour and reads "· proposed". Every brief gains a card: "Chén Ché is on the table" with **Works for me** / **Look at it**. Alex also gets "Settle on Chén Ché?" with **Stage it** |
-| 10 | Sarah | Tap the Chén Ché sticker — the place panel opens (verdict strip, "Against what the room asked", "Also known about it", "Where everyone stands") → **Rule it out** | Sarah's stance appears under "Where everyone stands" in every window and the proposal stops being stageable. The count does **not** move: a veto blocks the agreement, it does not rule the place out of the set |
+| 10 | Sarah | Tap the Chén Ché sticker — the place panel opens (verdict strip, "Does it fit", "Also on record", "Where everyone stands") → **Rule it out** | While Sarah has the panel open, the other two windows draw her initials peeking out from behind the Chén Ché sticker. Her veto appears under "Where everyone stands" in every window, the sticker turns hollow in the act colour with the name struck through and a "ruled out" chip, and the proposal stops being stageable. The count does **not** move: a veto blocks the agreement, it does not rule the place out of the set |
 | 11 | Organizer's ChatGPT | The agent's next mutation comes back `sync_required` with the delta — narrate this: it is not a realtime subscriber, so it catches up, reads the veto, and proposes **The Barn** (`place_24`) instead | A second proposal card, and the Chén Ché pin drops back to a plain sticker |
-| 12 | All three | **Works for me** on The Barn, from the card or the place panel. Then each person presses **I'm done adding** | Each acceptance appears under "Where everyone stands". Staging needs all three ready and all three accepting, with no veto standing |
-| 13 | Alex | **Stage it** on "Settle on The Barn?", then **Settle it** on the staged card | Peers see "Waiting for the organizer to settle it." After the commit the header title becomes "The Barn", the subtitle "agreed by all three", the count block shrinks to `Settled / 11 min from you`, and the brief shows **How it got here** |
+| 12 | All three | **Works for me** on The Barn, from the card or the place panel | Each acceptance appears under "Where everyone stands" as a filled mark, and accepting marks that person done adding (the toggle at the foot of the brief fills in by itself). Until the last accept, Alex's card reads "Settle on The Barn?" with a disabled button and says who it waits on; with it, the card turns to "Everyone is in on The Barn" |
+| 13 | Alex | **Stage it**, then **Settle it** on the staged card | The Barn's sticker reads "· staged" in the act colour; peers see "Waiting for the organizer to settle it." After the commit the sticker reads "· settled", the header title becomes "The Barn", the subtitle "agreed by all three", the count block shrinks to `Settled / 11 min from you`, and the brief shows **How it got here** |
 | 14 | All three | The composer is replaced by the arrival bar: pick **Walk** / **Bike** / **Drive**, then **Take me there** | Google Maps opens with The Barn as destination; the `geo:` link and Apple Maps sit beside it |
+
+## With an agent in the page (optional)
+
+With `OPENAI_API_KEY` in the environment (`docs/NL-AGENT.md`), beats 4 and 7
+can be spoken instead of typed: Joe sets the scope chip to **Agent only** and
+types "I can't have lactose" — the agent holds it, the room sees only that a
+private condition exists, and the map settles as the agent screens.
+Alex types "we're not doing Italian tonight" in Shared and the exclusion
+arrives without ChatGPT. "What are our options?" comes back as a "Your agent"
+card in the brief. Every routed sentence logs its model and timing in `{ }`.
 
 ## Talking points while beats run
 
@@ -102,5 +112,6 @@ named is one the UI draws.
 - **The pill for a need is missing.** Pills only offer yes/no facets that at
   least one place in the current set is verified for, and never one already
   stated. Type the facet's exact label instead.
-- **`Stage it` refuses.** Every participant must be ready and have accepted;
-  a standing veto blocks it. The error line says which.
+- **`Stage it` is disabled.** The card says what it waits on: who is still
+  adding (by name), how many have not said, whether a veto stands. Accepting
+  marks a person done adding, so three accepts are enough.
