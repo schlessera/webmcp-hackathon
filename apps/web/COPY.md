@@ -56,6 +56,10 @@ still work
 - 1 → "1 still works" (verb agrees).
 - Unknowns are counted separately and never folded into the total:
   "3 unsure" means the data is missing, **not** that the place failed.
+- Guesses are counted apart too: "4 likely" means a guess with a reason
+  (a word on the menu, the kind of place) says these would work. **likely**
+  and **unlikely** are the only words for a guess; never "probably",
+  "maybe", "estimated". A guess is drawn dashed.
 
 ## Deltas
 

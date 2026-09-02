@@ -39,6 +39,8 @@ import { initials, numberWord, personColor, stillWorkVerb, tiltFor } from "../ui
 type MarkerState =
   | "works"
   | "unsure"
+  | "likely"
+  | "unlikely"
   | "out"
   | "selected"
   | "settled"
@@ -49,7 +51,9 @@ type MarkerState =
 
 const STATE_LABEL: Record<MarkerState, string> = {
   works: "still works",
+  likely: "likely works",
   unsure: "not yet known",
+  unlikely: "unlikely to work",
   out: "ruled out",
   selected: "open",
   settled: "settled",
@@ -321,10 +325,18 @@ export function MapView({
         return liveEligible.has(c.candidateId) ? "works" : "return";
       }
       const shadow = preview.candidates.find((p) => p.candidateId === c.candidateId);
-      return shadow?.eligibility === "uncertain" ? "unsure" : "out";
+      return shadow?.eligibility === "uncertain"
+        ? "unsure"
+        : shadow?.eligibility === "likely"
+          ? "likely"
+          : shadow?.eligibility === "unlikely"
+            ? "unlikely"
+            : "out";
     }
     if (c.eligibility === "eligible") return "works";
+    if (c.eligibility === "likely") return "likely";
     if (c.eligibility === "uncertain") return "unsure";
+    if (c.eligibility === "unlikely") return "unlikely";
     return "out";
   };
 
@@ -407,6 +419,13 @@ export function MapView({
   const matching = shown.matching;
   const total = shown.total;
   const unsure = shown.feasibility.uncertain;
+  /* Guesses are counted apart (§8.2): "4 likely" beside "3 unsure", never
+     folded into the big number. */
+  const likely = shown.likely ?? 0;
+  const unlikely = shown.feasibility.unlikely ?? 0;
+  const guessed = `${likely > 0 ? ` · ${likely} likely` : ""}${unsure > 0 ? ` · ${unsure} unsure` : ""}${
+    unlikely > 0 ? ` · ${unlikely} unlikely` : ""
+  }`;
   const statedNeeds = context.activeNeeds.filter((n) => n.active);
   const collisions = statedNeeds.filter((n) => n.ruledOut > 0).length;
   const settled = committedId !== null;
@@ -643,12 +662,12 @@ export function MapView({
             </div>
             <div className="count-sub">
               {countState === "impasse"
-                ? `of ${total}${unsure > 0 ? ` · ${unsure} unsure` : ""} · ${
+                ? `of ${total}${guessed} · ${
                     collisions >= 2
                       ? `${numberWord(collisions)} needs collide`
                       : "one need rules the rest out"
                   }`
-                : `of ${total}${unsure > 0 ? ` · ${unsure} unsure` : ""}`}
+                : `of ${total}${guessed}`}
             </div>
           </>
         )}

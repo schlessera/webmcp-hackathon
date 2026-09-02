@@ -86,6 +86,8 @@ export function sourceLabel(source: string): string {
   if (source.startsWith("disputed:")) return "disputed in the room";
   if (source.startsWith("web:")) return "published by the place";
   if (source.startsWith("wikidata:")) return "from Wikidata";
+  if (source.startsWith("guess:")) return "a guess from the kind of place";
+  if (source.startsWith("menu:")) return "read from the menu";
   if (!source) return "unknown";
   return source;
 }
@@ -111,7 +113,10 @@ export function attributeValue(value: unknown, status: string): string {
         : String(value).replace(/_/g, " ");
   if (status === "verified_true") return written ?? "yes";
   if (status === "verified_false") return written ?? "no";
-  if (status === "unverified") return written ? `${written}, unverified` : "not verified";
+  // A guess says so out loud (CLAUDE.md §4): the word is the honesty.
+  if (status === "likely_true") return written ? `likely (${written})` : "likely";
+  if (status === "likely_false") return written ? `unlikely (${written})` : "unlikely";
+  if (status === "unverified") return written ? `likely (${written})` : "likely";
   return "not known";
 }
 

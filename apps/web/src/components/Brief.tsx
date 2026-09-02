@@ -129,6 +129,16 @@ function NeedRow({
         {need.label}
         {!isOwn && ownerName && <span className="need-author"> · {ownerName}</span>}
       </span>
+      {(need.likely ?? 0) > 0 && (
+        <span className="badge" data-kind="likely">
+          {need.likely} likely
+        </span>
+      )}
+      {(need.unlikely ?? 0) > 0 && (
+        <span className="badge" data-kind="unlikely">
+          {need.unlikely} unlikely
+        </span>
+      )}
       {need.unknown > 0 ? (
         <span className="badge" data-kind="unsure">
           {need.unknown} unknown

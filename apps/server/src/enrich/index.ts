@@ -2,6 +2,7 @@ import type pg from "pg";
 import type { DossierLink } from "@webmcp-hackathon/contracts";
 import { fetchWebsiteFacts, type FetchLike, type WebFacts } from "./website.ts";
 import { fetchWikidataFacts, type WikiFacts } from "./wikidata.ts";
+import { menuReaderEnabled, readMenu } from "./menu-reader.ts";
 
 /**
  * The enrichment layer (docs/ENRICHMENT-SOURCES.md): what the server looks
@@ -92,6 +93,16 @@ async function lookup(pool: pg.Pool, target: LookupTarget): Promise<Enrichment> 
       target.website ? fetchWebsiteFacts(target.website, fetchImpl) : Promise.resolve(none),
       target.wikidata ? fetchWikidataFacts(target.wikidata, fetchImpl) : Promise.resolve(none),
     ]);
+    // A menu that is a picture gets read (menu-reader.ts); the bytes are
+    // never stored, the claims are.
+    if (site.facts && "menuFile" in site && site.menuFile && menuReaderEnabled()) {
+      try {
+        const reading = await readMenu(site.menuFile);
+        if (reading) site.facts.menuReading = reading;
+      } catch {
+        /* an unread menu is still a menu link */
+      }
+    }
     const errors = [site.error, wiki.error].filter(Boolean).join("; ");
     const enrichment: Enrichment = {
       osmRef: target.osmRef,
@@ -187,8 +198,9 @@ export interface AttributeLike {
   confidence?: number;
 }
 
+/** A slot a looked-up fact may fill: nothing, a gap, or a mere guess. */
 const fillable = (a: AttributeLike | undefined) =>
-  !a || a.status === "unknown" || a.status === "unverified";
+  !a || a.status === "unknown" || a.status === "likely_true" || a.status === "likely_false";
 
 /** Attributes with looked-up facts filled into the slots the record left open. */
 export function applyEnrichmentAttributes<T extends AttributeLike>(
@@ -218,10 +230,50 @@ export function applyEnrichmentAttributes<T extends AttributeLike>(
       confidence: 0.7,
     });
   }
-  if (web.hours?.length && at("hours")?.status === "unknown") {
+  // A word on the menu page is evidence, not a verdict (§8.2): a likely fact
+  // at modest confidence, so the room sees there is something to check and
+  // the engine reads the place as likely, never as in.
+  for (const key of web.menuMentions ?? []) {
+    const existing = at(key);
+    if (!existing || existing.status === "unknown") {
+      set(key, { status: "likely_true", value: "mentioned on the menu", confidence: 0.6 });
+    }
+  }
+  // What a model read off a menu picture: a guess with its confidence,
+  // capped below verified (menu-reader.ts), labelled as read, evidence kept.
+  const reading = web.menuReading;
+  if (reading?.legible) {
+    const readSource = `menu:${web.host}`;
+    for (const c of reading.claims) {
+      const existing = at(c.key);
+      if (existing && existing.status !== "unknown" && !existing.source?.startsWith("guess:")) continue;
+      const patch = {
+        status: (c.lean === "yes" ? "likely_true" : "likely_false") as string,
+        value: c.evidence ? `menu: ${c.evidence}` : "read from the menu",
+        confidence: c.confidence,
+        source: readSource,
+        observedAt: reading.readAt,
+      };
+      if (existing) Object.assign(existing, patch);
+      else out.push({ key: c.key, ...patch } as T);
+    }
+    if (reading.cuisine.length && fillable(at("cuisine"))) {
+      const existing = at("cuisine");
+      const patch = { status: "likely_true", value: reading.cuisine.join(";"), confidence: 0.6, source: readSource, observedAt: reading.readAt };
+      if (existing) Object.assign(existing, patch);
+      else out.push({ key: "cuisine", ...patch } as T);
+    }
+    if (reading.priceLevel && fillable(at("price-level"))) {
+      const existing = at("price-level");
+      const patch = { status: "likely_true", value: reading.priceLevel, confidence: 0.5, source: readSource, observedAt: reading.readAt };
+      if (existing) Object.assign(existing, patch);
+      else out.push({ key: "price-level", ...patch } as T);
+    }
+  }
+  if (web.hours?.length && (at("hours")?.status === "unknown" || at("hours")?.status === "likely_true")) {
     // A pill, not a timetable: the first rules, capped, as published.
     const value = web.hours.slice(0, 3).join("; ");
-    set("hours", { status: "unverified", value: value.length > 80 ? `${value.slice(0, 79)}…` : value, confidence: 0.5 });
+    set("hours", { status: "likely_true", value: value.length > 80 ? `${value.slice(0, 79)}…` : value, confidence: 0.6 });
   }
   return out;
 }
@@ -249,6 +301,9 @@ export function enrichmentView(
     if (web.reservationsUrl && !has("reservations")) {
       links.push({ kind: "reservations", label: "reservations", url: web.reservationsUrl, source });
     }
+    if (web.deliveryUrl && !has("delivery")) {
+      links.push({ kind: "delivery", label: "delivery", url: web.deliveryUrl, source });
+    }
     if (web.rating) {
       view.rating = { ...web.rating, source, label: "as published by the place" };
     }
@@ -268,7 +323,7 @@ export function enrichmentView(
     if (awards.length) view.awards = awards;
   }
   // The place's own site first, then the menu, then the rest.
-  const order = ["website", "menu", "hours", "reservations", "wikipedia", "instagram"];
+  const order = ["website", "menu", "hours", "reservations", "delivery", "wikipedia", "instagram"];
   links.sort((a, b) => order.indexOf(a.kind) - order.indexOf(b.kind));
   return view;
 }

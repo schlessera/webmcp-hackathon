@@ -17,8 +17,14 @@ export interface FunctionTool {
   strict?: boolean;
 }
 
+/** A user turn may carry an image or a file beside its text (menu reader). */
+export type ContentPart =
+  | { type: "input_text"; text: string }
+  | { type: "input_image"; image_url: string; detail?: "low" | "high" | "auto" }
+  | { type: "input_file"; filename: string; file_data: string };
+
 export type InputItem =
-  | { role: "user" | "assistant" | "system"; content: string }
+  | { role: "user" | "assistant" | "system"; content: string | ContentPart[] }
   | { type: "function_call"; call_id: string; name: string; arguments: string }
   | { type: "function_call_output"; call_id: string; output: string };
 

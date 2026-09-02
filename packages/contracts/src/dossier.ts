@@ -1,12 +1,15 @@
+import type { AttributeStatus } from "./status.ts";
+
 /**
  * OpenStreetMap tags → dossier attributes. One mapping, shared by the
  * curation script (the shipped demo dataset) and the server's live path, so
  * a tag reads the same whichever way it reached a room.
  *
- * Status vocabulary (SPATIAL-PROTOCOL.md §8): `yes` → verified_true, `no` →
- * verified_false, any other value → unverified, absent → unknown. Only the
- * two verified statuses let the eligibility engine rule; everything else is
- * uncertain, and uncertain is a state the UI draws (CLAUDE.md §4).
+ * Status vocabulary (SPATIAL-PROTOCOL.md §8.2): `yes` → verified_true, `no`
+ * → verified_false, any other value ("limited", "only") → likely_true at
+ * 0.5, absent → unknown. Only the two verified statuses let the eligibility
+ * engine rule; a likely fact reads as likely, and both are states the UI
+ * draws (CLAUDE.md §4).
  *
  * Nothing here invents a value. No default opening hours, no guessed price
  * band: a place with no `opening_hours` tag has no hours on record, and its
@@ -15,7 +18,7 @@
 
 export interface DossierAttribute {
   key: string;
-  status: "verified_true" | "verified_false" | "unverified" | "unknown";
+  status: AttributeStatus;
   value?: string | number;
   source: string;
   observedAt: string;
@@ -45,7 +48,7 @@ export const BOOLEAN_ATTRS: ReadonlyArray<{ key: string; tag: string }> = [
 /** A link the place panel can offer. `label` is server-authored and the
  * client renders it verbatim — link kinds are data, not chrome. */
 export interface DossierLink {
-  kind: "website" | "menu" | "hours" | "instagram" | "wikipedia" | "reservations";
+  kind: "website" | "menu" | "hours" | "instagram" | "wikipedia" | "reservations" | "delivery";
   label: string;
   url: string;
   source: string;
@@ -136,7 +139,8 @@ export function booleanAttr(
   const base = { key, source: `osm:${tag}`, observedAt };
   if (raw === "yes") return { ...base, status: "verified_true", confidence: 0.8 };
   if (raw === "no") return { ...base, status: "verified_false", confidence: 0.8 };
-  if (raw !== undefined) return { ...base, status: "unverified", confidence: 0.6 }; // "limited", "only" …
+  // "limited", "only", "designated" …: a partial or qualified yes.
+  if (raw !== undefined) return { ...base, status: "likely_true", value: raw, confidence: 0.5 };
   return { ...base, status: "unknown", confidence: 0.6 };
 }
 
@@ -264,10 +268,11 @@ export function dossierFromTags(
   attributes.push({
     key: "hours",
     ...(tags.opening_hours ? { value: tags.opening_hours } : {}),
-    status: hours ? "verified_true" : tags.opening_hours ? "unverified" : "unknown",
+    // A tag the parser cannot read is still a claim the place has hours.
+    status: hours ? "verified_true" : tags.opening_hours ? "likely_true" : "unknown",
     source: "osm:opening_hours",
     observedAt,
-    confidence: hours ? 0.8 : 0.6,
+    confidence: hours ? 0.8 : tags.opening_hours ? 0.5 : 0,
   });
   const links = linksFromTags(tags);
   const website = links.find((l) => l.kind === "website")?.url;

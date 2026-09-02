@@ -1,0 +1,27 @@
+{
+  "total": 349,
+  "reachable": 253,
+  "menuUrl": 175,
+  "hours": 56,
+  "cuisine": 35,
+  "priceLevel": 27,
+  "rating": 2,
+  "wheelchair": 0,
+  "description": 38,
+  "reservationsUrl": 18,
+  "deliveryUrl": 22,
+  "menuKind": {
+    "html": 163,
+    "pdf": 9,
+    "other": 2,
+    "none": 175
+  },
+  "menuMentions": {
+    "vegan-options": 32,
+    "vegetarian-options": 38,
+    "gluten-free-options": 25,
+    "lactose-free-options": 3,
+    "halal-options": 4
+  },
+  "anchorCandidateButNoMenu": 6
+}

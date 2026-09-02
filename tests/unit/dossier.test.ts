@@ -16,11 +16,13 @@ import {
 const AT = "2026-08-31T20:21:20Z";
 
 describe("booleanAttr", () => {
-  it("maps yes/no to the two verified statuses and anything else to unverified", () => {
+  it("maps yes/no to the two verified statuses and any other value to a likely yes at 0.5", () => {
     expect(booleanAttr("k", "wheelchair", { wheelchair: "yes" }, AT).status).toBe("verified_true");
     expect(booleanAttr("k", "wheelchair", { wheelchair: "no" }, AT).status).toBe("verified_false");
-    expect(booleanAttr("k", "wheelchair", { wheelchair: "limited" }, AT).status).toBe("unverified");
-    expect(booleanAttr("k", "diet:vegetarian", { "diet:vegetarian": "only" }, AT).status).toBe("unverified");
+    expect(booleanAttr("k", "wheelchair", { wheelchair: "limited" }, AT)).toMatchObject({
+      status: "likely_true", value: "limited", confidence: 0.5,
+    });
+    expect(booleanAttr("k", "diet:vegetarian", { "diet:vegetarian": "only" }, AT).status).toBe("likely_true");
   });
   it("an absent tag is unknown, with an osm:* source and the extract timestamp", () => {
     const a = booleanAttr("dog-friendly", "dog", {}, AT);
@@ -82,7 +84,7 @@ describe("dossierFromTags", () => {
     ]);
     const by = Object.fromEntries(d.attributes.map((a) => [a.key, a]));
     expect(by["vegetarian-options"].status).toBe("verified_true");
-    expect(by["wheelchair-accessible"].status).toBe("unverified");
+    expect(by["wheelchair-accessible"].status).toBe("likely_true");
     expect(by["lactose-free-options"].status).toBe("unknown");
     expect(by.cuisine).toMatchObject({ status: "verified_true", value: "coffee_shop;cake" });
     expect(by.hours).toMatchObject({ status: "verified_true", value: "Mo-Su 09:00-18:00" });
@@ -102,10 +104,10 @@ describe("dossierFromTags", () => {
       expect(a.observedAt).toBe(AT);
     }
   });
-  it("an unparseable opening_hours tag is unverified, not unknown and not defaulted", () => {
+  it("an unparseable opening_hours tag is a likely claim, not unknown and not defaulted", () => {
     const d = dossierFromTags({ amenity: "bar", name: "Z", opening_hours: "sunset-late" }, AT);
     const hours = d.attributes.find((a) => a.key === "hours")!;
-    expect(hours).toMatchObject({ status: "unverified", value: "sunset-late" });
+    expect(hours).toMatchObject({ status: "likely_true", value: "sunset-late", confidence: 0.5 });
     expect(d.hours).toEqual([]);
   });
 });

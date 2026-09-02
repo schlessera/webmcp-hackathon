@@ -51,19 +51,28 @@ describe("applyAttestations", () => {
 
   it("disputes, never overwrites, a verified record fact", () => {
     const [a] = applyAttestations("c1", [osmNo], [row({ status: "verified_true" })]);
-    expect(a.status).toBe("unverified");
+    expect(a.status).toBe("unknown");
     expect(a.source).toMatch(/^disputed:osm:diet:lactose_free\|agent:p_sarah$/);
     expect(a.attestedBy).toBe("p_sarah");
   });
 
-  it("two attesters who disagree over silence read as unverified", () => {
+  it("two attesters who disagree over silence read as unknown, both on record", () => {
     const [a] = applyAttestations(
       "c1",
       [unknown],
       [row({}), row({ participant_id: "p_joe", status: "verified_false", at_revision: 4 })],
     );
-    expect(a.status).toBe("unverified");
+    expect(a.status).toBe("unknown");
     expect(a.source).toBe("disputed:agent:p_sarah|agent:p_joe");
+  });
+
+  it("grades by confidence: a sure attester verifies, a less sure one makes it likely (§8.2)", () => {
+    expect(applyAttestations("c1", [unknown], [row({ confidence: 0.9 })])[0].status).toBe("verified_true");
+    expect(applyAttestations("c1", [unknown], [row({ confidence: 0.6 })])[0]).toMatchObject({ status: "likely_true", confidence: 0.6 });
+    expect(applyAttestations("c1", [unknown], [row({ status: "verified_false", confidence: 0.5 })])[0].status).toBe("likely_false");
+    // A likely fact from a guess yields to a person's word.
+    const guessed = { key: "lactose-free-options", status: "likely_false", source: "guess:cuisine", confidence: 0.55 };
+    expect(applyAttestations("c1", [guessed], [row({ confidence: 0.9 })])[0]).toMatchObject({ status: "verified_true", source: "agent:p_sarah" });
   });
 
   it("creates the fact when the dossier had no row for it", () => {
@@ -72,14 +81,14 @@ describe("applyAttestations", () => {
     expect(out[0]).toMatchObject({ key: "dog-friendly", status: "verified_true", source: "agent:p_sarah" });
   });
 
-  it("only ever emits the four statuses", () => {
+  it("only ever emits the five statuses", () => {
     const cases = [
       applyAttestations("c1", [unknown], [row({})]),
       applyAttestations("c1", [osmNo], [row({})]),
       applyAttestations("c1", [unknown], [row({}), row({ participant_id: "p_joe", status: "verified_false" })]),
     ].flat();
     for (const a of cases) {
-      expect(["verified_true", "verified_false", "unverified", "unknown"]).toContain(a.status);
+      expect(["verified_true", "likely_true", "likely_false", "verified_false", "unknown"]).toContain(a.status);
     }
   });
 });

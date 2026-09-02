@@ -93,7 +93,7 @@ export function snapshot(
     context.participants.find((p) => p.participantId === id)?.displayName ?? "someone";
   // Every place, so a name the person uses always resolves to an id; the
   // why-string only for the ones in the running, to keep the prompt small.
-  const order = { eligible: 0, uncertain: 1, excluded: 2 } as const;
+  const order = { eligible: 0, likely: 1, uncertain: 2, unlikely: 3, excluded: 4 } as const;
   const shown = [...context.candidates]
     .sort((a, b) => order[a.eligibility] - order[b.eligibility] || a.walkMin - b.walkMin)
     .map((c, i) => ({

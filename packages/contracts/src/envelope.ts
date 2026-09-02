@@ -101,7 +101,11 @@ export interface ParticipantSummary {
 export interface Feasibility {
   state: "feasible" | "fragile" | "infeasible" | "uncertain";
   eligible: number;
+  /** Satisfy every need on a likely fact (§8.2): counted, never folded into eligible. */
+  likely: number;
   uncertain: number;
+  /** Fail a need on a likely fact: counted, never folded into excluded. */
+  unlikely: number;
   excluded: number;
 }
 
@@ -149,12 +153,17 @@ export interface ScopeView {
   category: string;
 }
 
+export type Eligibility = "eligible" | "likely" | "uncertain" | "unlikely" | "excluded";
+
 export interface CandidateSummary {
   candidateId: string;
   name: string;
   location: LatLng;
   category: string;
-  eligibility: "eligible" | "uncertain" | "excluded";
+  eligibility: Eligibility;
+  /** For likely / unlikely: the product of the confidences of the likely
+   * facts the classification rests on (§8.2). Absent otherwise. */
+  confidence?: number;
   /** Redacted: cites evidence status and shared requirements only. */
   why: string;
   /** Minutes on foot from the CURRENT scope centre, recomputed per read. */
@@ -221,8 +230,9 @@ export interface Facet {
   /** The only string the UI shows. Server-authored, lowercase, domain-natural. */
   label: string;
   type: "boolean" | "enum" | "numeric" | "temporal" | "text";
-  /** `unknown` is mandatory: unverified is a state the UI draws. */
-  counts: { yes?: number; no?: number; unknown: number };
+  /** `unknown` is mandatory: unverified is a state the UI draws. `likely`
+   * and `unlikely` count graded facts (§8.2); absent means zero. */
+  counts: { yes?: number; likely?: number; unlikely?: number; no?: number; unknown: number };
   /** enum only. */
   values?: FacetValueCount[];
   /** numeric only. */
@@ -248,6 +258,10 @@ export interface ActiveNeed {
   wouldReturn: number;
   /** How many this need alone leaves unverified. */
   unknown: number;
+  /** How many this need alone leaves as a guess FOR it (§8.2). */
+  likely?: number;
+  /** How many this need alone leaves as a guess AGAINST it. */
+  unlikely?: number;
   /** False when the owner has set it aside; the row stays, greyed. */
   active: boolean;
   visibility: Visibility;
@@ -301,6 +315,8 @@ export interface SpatialContextResult {
   total: number;
   /** Places currently satisfying every active need. */
   matching: number;
+  /** Places that likely satisfy every active need (§8.2). */
+  likely: number;
   candidates: CandidateSummary[];
   facets: Facet[];
   activeNeeds: ActiveNeed[];

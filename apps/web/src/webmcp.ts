@@ -112,7 +112,7 @@ const trimWhy = (why: string) => (why.length > 64 ? `${why.slice(0, 61)}…` : w
  * the geometry).
  */
 function trimContext(context: SpatialContext) {
-  const order = { eligible: 0, uncertain: 1, excluded: 2 } as const;
+  const order = { eligible: 0, likely: 1, uncertain: 2, unlikely: 3, excluded: 4 } as const;
   const sorted = [...context.candidates].sort(
     (a, b) => order[a.eligibility] - order[b.eligibility] || a.walkMin - b.walkMin,
   );

@@ -1,4 +1,5 @@
 import type pg from "pg";
+import { graded, isVerified as isVerifiedStatus } from "@webmcp-hackathon/contracts";
 
 /**
  * Attestations (SPATIAL-PROTOCOL.md §8, amendment of 2026-09-02): what a
@@ -57,7 +58,9 @@ export async function loadAttestations(
   ).rows as AttestationRow[];
 }
 
-const isVerified = (s: string) => s === "verified_true" || s === "verified_false";
+const isVerified = (s: string) => isVerifiedStatus(s);
+/** An attestation's own status: verified when the attester is sure enough (§8.2). */
+const statusOf = (r: AttestationRow) => graded(r.status === "verified_true", r.confidence);
 
 /** The dossier attributes of one candidate with its attestations applied. */
 export function applyAttestations<T extends MergedAttribute>(
@@ -92,14 +95,16 @@ function merge<T extends MergedAttribute>(attr: T, rows: AttestationRow[]): T {
   const agentSource = `agent:${latest.participant_id}`;
   if (isVerified(attr.status)) {
     // Source data is verified: an agreeing attestation changes nothing; a
-    // contradicting one disputes it.
+    // contradicting one disputes it. Disputed reads as unknown with both
+    // sides on record (§8.2: the vocabulary has no fifth "disputed" status).
     if (statuses.size === 1 && statuses.has(attr.status as AttestationRow["status"])) {
       return attr;
     }
     const contradicting = rows.find((r) => r.status !== attr.status)!;
     return {
       ...attr,
-      status: "unverified",
+      status: "unknown",
+      confidence: 0,
       source: `disputed:${attr.source ?? "record"}|agent:${contradicting.participant_id}`,
       attestedBy: contradicting.participant_id,
       note: contradicting.note,
@@ -110,15 +115,17 @@ function merge<T extends MergedAttribute>(attr: T, rows: AttestationRow[]): T {
     // Two attesters disagree and the source data cannot arbitrate.
     return {
       ...attr,
-      status: "unverified",
+      status: "unknown",
+      confidence: 0,
       source: `disputed:${rows.map((r) => `agent:${r.participant_id}`).join("|")}`,
       attestedBy: latest.participant_id,
       note: latest.note,
     };
   }
+  // Over a gap or a guess, the attester's word stands — graded by how sure they were.
   return {
     ...attr,
-    status: latest.status,
+    status: statusOf(latest),
     source: agentSource,
     confidence: latest.confidence,
     attestedBy: latest.participant_id,

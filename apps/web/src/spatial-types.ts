@@ -4,7 +4,7 @@
  * web client only consumes the JSON shapes).
  */
 
-export type Eligibility = "eligible" | "uncertain" | "excluded";
+export type Eligibility = "eligible" | "likely" | "uncertain" | "unlikely" | "excluded";
 
 export type Visibility = "shared" | "application-private" | "agent-private";
 
@@ -44,7 +44,7 @@ export interface Facet {
   key: string;
   label: string;
   type: "boolean" | "enum" | "numeric" | "temporal" | "text";
-  counts: { yes?: number; no?: number; unknown: number };
+  counts: { yes?: number; likely?: number; unlikely?: number; no?: number; unknown: number };
   values?: FacetValueCount[];
   unit?: string;
   range?: { min: number; max: number };
@@ -59,6 +59,10 @@ export interface ActiveNeed {
   ruledOut: number;
   wouldReturn: number;
   unknown: number;
+  /** How many this need alone leaves as a guess for it (§8.2). */
+  likely?: number;
+  /** How many this need alone leaves as a guess against it. */
+  unlikely?: number;
   active: boolean;
   visibility: Visibility;
   hardness: "hard" | "soft";
@@ -114,13 +118,17 @@ export interface SpatialContext {
   feasibility: {
     state: "feasible" | "fragile" | "infeasible" | "uncertain";
     eligible: number;
+    likely: number;
     uncertain: number;
+    unlikely: number;
     excluded: number;
   };
   /** In-scope places: the denominator of "N of TOTAL". */
   total: number;
   /** In-scope places satisfying every active need. */
   matching: number;
+  /** In-scope places that likely satisfy every active need. */
+  likely: number;
   candidates: CandidateSummary[];
   facets: Facet[];
   activeNeeds: ActiveNeed[];
@@ -140,7 +148,7 @@ export interface SpatialContext {
 export interface DossierAttribute {
   key: string;
   value?: unknown;
-  status: "verified_true" | "verified_false" | "unverified" | "unknown";
+  status: "verified_true" | "likely_true" | "likely_false" | "verified_false" | "unknown";
   source: string;
   observedAt: string;
   confidence: number;

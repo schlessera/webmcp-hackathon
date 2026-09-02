@@ -85,6 +85,10 @@ attributes present across the current results.
   The client has one renderer per type and no domain branches.
 - `counts.unknown` — **mandatory**. Unverified is a first-class state in this
   UI; a facet without an unknown count cannot render its `?` badge.
+- `counts.likely` / `counts.unlikely` — graded facts (SPATIAL-PROTOCOL §8.2):
+  places where the answer is a guess with a confidence. Absent means zero.
+  Pills count `yes + likely`; the brief row shows "n likely" beside
+  "n unknown"; the count block shows "· n likely" apart from the big number.
 - `salience` — optional 0–1 hint for ordering. Absent → order by
   `counts.yes` descending.
 

@@ -1,0 +1,85 @@
+{
+  "total": 377,
+  "robotsDisallowed": 12,
+  "homepageStatus": {
+    "200": 296,
+    "401": 1,
+    "403": 17,
+    "404": 19,
+    "423": 1,
+    "429": 4,
+    "500": 3,
+    "503": 2,
+    "520": 1
+  },
+  "homepage2xx": 296,
+  "homepageHtml": 296,
+  "over2MB": 3,
+  "errors": 38,
+  "builders": {
+    "wix": 21,
+    "squarespace": 13,
+    "wordpress": 130,
+    "shopify": 17,
+    "webflow": 9,
+    "jimdo": 5,
+    "weebly": 1,
+    "typo3": 11,
+    "drupal": 5,
+    "joomla": 3,
+    "sitejet": 0,
+    "duda": 0,
+    "gastronovi": 9
+  },
+  "parseWebsite": {
+    "anyJsonLd": 152,
+    "brokenJsonLd": 2,
+    "factsCuisine": 18,
+    "factsPrice": 19,
+    "factsHours": 10,
+    "factsRating": 6,
+    "factsWheelchair": 2,
+    "factsMenuUrl": 181,
+    "factsReservationsUrl": 2,
+    "factsDescription": 22
+  },
+  "discovered": {
+    "menuLinks": 233,
+    "reservationLinks": 32,
+    "deliveryLinks": 21,
+    "instagram": 201,
+    "facebook": 166
+  },
+  "menuFetches": {
+    "attempted": 233,
+    "withStatus": 228,
+    "status": {
+      "200": 221,
+      "404": 6,
+      "429": 1
+    },
+    "classification": {
+      "pdf": 40,
+      "same-host-html": 179,
+      "third-party": 9
+    },
+    "dietaryAny": 95
+  },
+  "reservationPlatforms": {
+    "opentable": 18,
+    "resy": 0,
+    "quandoo": 8,
+    "thefork": 3,
+    "sevenrooms": 3,
+    "exploretock": 0,
+    "tock": 1
+  },
+  "deliveryPlatforms": {
+    "lieferando": 7,
+    "wolt": 14,
+    "ubereats": 6,
+    "doordash": 0,
+    "deliveroo": 1,
+    "grubhub": 0
+  }
+}

@@ -236,10 +236,51 @@ source fact unknown / unverified
     attesters disagree                     → unverified, source "disputed:…"
 ```
 
-The status vocabulary is unchanged (`verified_true`, `verified_false`,
-`unverified`, `unknown`); "disputed" is a source prefix. An attested fact
-is decisive for eligibility exactly like a verified record fact, and the
-ledger names the attester and their note. Attestations never cross rooms.
+"Disputed" is a source prefix on an `unknown` fact with both sides on
+record. An attestation at confidence ≥ 0.7 is a verified fact for
+eligibility exactly like a record fact; below that it is a likely fact
+(§8.2). The ledger names the attester and their note. Attestations never
+cross rooms.
+
+### 8.2 Graded evidence (amendment, 2026-09-02)
+
+A fact is one of five things, and every fact carries the confidence of
+whoever said it:
+
+| status | reads as | who says it |
+| --- | --- | --- |
+| `verified_true` | yes | the record, the venue's own markup, a person who checked (≥ 0.7) |
+| `likely_true` | likely | a word on the menu (0.6), the kind of place (0.4–0.9), a partial value ("limited", 0.5), a reading of a menu photo, a person less sure (< 0.7) |
+| `likely_false` | unlikely | the same, leaning the other way |
+| `verified_false` | no | as for yes |
+| `unknown` | — | nobody said anything; also a disputed fact |
+
+`unverified` is retired: old data carrying it is read as `likely_true` at
+no more than 0.5.
+
+Only the two verified statuses rule a place in or out. A likely fact yields
+two further classifications:
+
+```text
+per candidate, over every active hard need:
+    a verified fact contradicting a need   → excluded
+    a likely fact leaning against a need   → unlikely   (confidence = product of such facts)
+    an unknown fact                        → uncertain
+    a likely fact leaning with a need      → likely     (confidence = product of such facts)
+    everything verified and satisfied      → eligible
+precedence: excluded > unlikely > uncertain > likely > eligible
+```
+
+`likely` and `unlikely` are drawn (dashed mark), counted ("6 still work ·
+4 likely · 3 unsure") and explained ("vegan options likely") apart from
+eligible and excluded, never folded in. `matching` and the impasse
+arithmetic count `eligible` only: a guess never makes a room feasible and
+never rules a place out. The candidate's `confidence` travels on the wire.
+
+Precedence of sources when a dossier is read: the record (`osm:*`,
+`curated:*`), then looked-up facts (`web:*`, `wikidata:*`) into open slots,
+then guesses (`guess:*`) into slots still unknown, then attestations
+(`agent:*`), which may dispute any of the above.
 
 ## 9. Navigation handoff
 

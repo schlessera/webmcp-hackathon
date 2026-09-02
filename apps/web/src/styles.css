@@ -2048,3 +2048,66 @@ body { overflow: hidden; }
   white-space: nowrap;
 }
 .details-link::after { content: " ↗"; color: var(--spoke-ink-ghost); }
+
+/* ── Graded evidence (SPATIAL-PROTOCOL §8.2): likely / unlikely ───────────
+   A guess is drawn as the mark it leans towards, with a dashed edge: filled
+   works dot with a dashed ring for likely, hollow unsure ring dashed for
+   unlikely. Never colour alone — the dash is the signal. */
+.mark[data-mark="likely"] {
+  background: var(--spoke-works);
+  border: 1.5px dashed var(--spoke-surface);
+  box-shadow: 0 0 0 1.5px var(--spoke-works);
+  width: 11px; height: 11px;
+}
+.mark[data-mark="unlikely"] {
+  background: var(--spoke-surface);
+  border: 2px dashed var(--spoke-unsure);
+  width: 12px; height: 12px;
+}
+.fact[data-status="likely_true"],
+.fact[data-status="likely_false"] {
+  border-style: dashed;
+}
+.fact[data-status="likely_false"] { color: var(--spoke-ink-soft); }
+
+/* Map: a likely place is a works sticker with a dashed dot; an unlikely one
+   an unsure sticker with a dashed ring. Positions never change (§8). */
+.marker[data-state="likely"] .marker-dot,
+.marker[data-state="likely"] .sticker-dot {
+  background: var(--spoke-works);
+  border: 1.5px dashed var(--spoke-surface);
+  box-shadow: 0 0 0 1.5px var(--spoke-works);
+}
+.marker[data-state="unlikely"] .marker-dot,
+.marker[data-state="unlikely"] .sticker-dot {
+  background: var(--spoke-surface);
+  border: 2px dashed var(--spoke-unsure);
+}
+.marker[data-state="unlikely"] .sticker-name { color: var(--spoke-ink-soft); }
+.marker[data-state="unlikely"] .sticker-chip {
+  background: var(--spoke-unsure-tint);
+  color: var(--spoke-unsure-text);
+}
+
+.badge[data-kind="likely"] {
+  border: 1.5px dashed var(--spoke-works);
+  background: var(--spoke-works-tint);
+  color: var(--spoke-works-text);
+}
+.verdict[data-state="likely"] { border-style: dashed; }
+.verdict[data-state="unlikely"] {
+  border-style: dashed;
+  border-color: var(--spoke-unsure);
+  background: var(--spoke-unsure-tint);
+}
+.verdict[data-state="unlikely"] .verdict-dot {
+  background: var(--spoke-surface);
+  border: 2px dashed var(--spoke-unsure);
+}
+.ledger-row[data-mark="likely"] .ledger-answer,
+.ledger-row[data-mark="unlikely"] .ledger-answer { font-style: italic; }
+.badge[data-kind="unlikely"] {
+  border: 1.5px dashed var(--spoke-unsure);
+  background: var(--spoke-surface);
+  color: var(--spoke-unsure-text);
+}

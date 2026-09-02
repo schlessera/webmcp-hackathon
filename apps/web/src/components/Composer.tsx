@@ -152,7 +152,7 @@ export function Composer({ facets, activeNeeds, disabled, run }: Props) {
         .filter(
           (f) =>
             f.type === "boolean" &&
-            (f.counts.yes ?? 0) > 0 &&
+            (f.counts.yes ?? 0) + (f.counts.likely ?? 0) > 0 &&
             !stated.has(f.label.toLowerCase()),
         )
         .slice(0, 3),
@@ -278,7 +278,7 @@ export function Composer({ facets, activeNeeds, disabled, run }: Props) {
                   onClick={() => submitPlain(payloadFromFacet(f))}
                 >
                   {f.label}
-                  <span className="pill-count">{f.counts.yes}</span>
+                  <span className="pill-count">{(f.counts.yes ?? 0) + (f.counts.likely ?? 0)}</span>
                 </button>
               ))}
             </div>

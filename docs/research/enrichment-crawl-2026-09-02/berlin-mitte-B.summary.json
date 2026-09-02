@@ -1,0 +1,57 @@
+{
+  "venues": 377,
+  "robotsDisallowed": 6,
+  "httpResponses": 338,
+  "http200": 309,
+  "htmlParsed": 337,
+  "jsonLdAny": 147,
+  "structured": {
+    "cuisine": 32,
+    "priceLevel": 23,
+    "hours": 21,
+    "rating": 6,
+    "wheelchair": 0,
+    "menuUrl": 177,
+    "reservationsUrl": 3,
+    "description": 32
+  },
+  "menuLinks": 234,
+  "menuFetchesAttempted": 234,
+  "menuFetchResponses": 233,
+  "menuCategories": {
+    "sameHostHtml": 194,
+    "pdf": 29,
+    "imageOnly": 0,
+    "thirdParty": 10,
+    "other": 0
+  },
+  "menuDietaryAny": 104,
+  "builderHints": {
+    "wix": 15,
+    "squarespace": 8,
+    "wordpress": 134,
+    "shopify": 17,
+    "webflow": 16,
+    "jimdo": 7,
+    "typo3": 11,
+    "drupal": 2,
+    "joomla": 3,
+    "weebly": 1
+  },
+  "reservationPlatforms": {
+    "opentable": 27,
+    "quandoo": 2,
+    "sevenrooms": 10,
+    "thefork": 6,
+    "tock": 4
+  },
+  "deliveryPlatforms": {
+    "lieferando": 16,
+    "ubereats": 8,
+    "wolt": 34
+  },
+  "socialPlatforms": {
+    "facebook": 278,
+    "instagram": 526
+  }
+}

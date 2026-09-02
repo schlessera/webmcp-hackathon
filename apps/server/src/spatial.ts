@@ -10,19 +10,15 @@ import {
   classifyAll,
   feasibilityOf,
   loadEligibilityInputs,
+  mergedAttributes,
   whyFor,
 } from "./eligibility.ts";
 import { computeFacetsBundle } from "./facets.ts";
 import { IMPASSE_TEXT } from "./impasse.ts";
 import { presentIn } from "./presence.ts";
 import type { DataSource } from "./places.ts";
-import { applyAttestations, loadAttestations } from "./attestations.ts";
-import {
-  applyEnrichmentAttributes,
-  enrichmentView,
-  ensureEnrichments,
-  lookupTargetOf,
-} from "./enrich/index.ts";
+import { loadAttestations } from "./attestations.ts";
+import { enrichmentView, ensureEnrichments, lookupTargetOf } from "./enrich/index.ts";
 import { pool } from "./db.ts";
 
 /** How long a place panel waits for a fresh lookup before opening with what
@@ -247,6 +243,7 @@ export async function spatialContext(
       feasibility: feasibilityOf(rows),
       total: bundle.total,
       matching: bundle.matching,
+      likely: bundle.likely,
       facets: bundle.facets,
       activeNeeds: bundle.activeNeeds,
       privateEffects: bundle.privateEffects,
@@ -257,6 +254,7 @@ export async function spatialContext(
         location: r.location,
         category: r.category,
         eligibility: r.eligibility,
+        ...(r.confidence !== undefined ? { confidence: r.confidence } : {}),
         // Per-viewer redaction: private contributions collapse to fixed
         // tokens for everyone but their owner.
         why: whyFor(r, actor.id),
@@ -323,11 +321,11 @@ export async function inspectCandidates(
         // line, the same way it fills the price-level attribute.
         priceLevel: r.price_level ?? (webPrice ?? null),
         hours: r.hours ?? [],
-        attributes: applyAttestations(
-          r.id as string,
-          applyEnrichmentAttributes(r.attributes ?? [], enrichment),
+        attributes: mergedAttributes(
+          { id: r.id as string, category: r.category as string, attributes: r.attributes ?? [] },
+          enrichment,
           attestations,
-        ),
+        ) as CandidateDossier["attributes"],
         mapRevision: r.map_revision,
         ...(view.links.length ? { links: view.links } : {}),
         ...(view.description ? { description: view.description } : {}),

@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   clip,
+  extractAnchors,
+  hoursFromSpecification,
   parseWebsite,
+  pickMenuLink,
   priceRangeToLevel,
   robotsAllows,
+  scanMenuMentions,
 } from "../../apps/server/src/enrich/website.ts";
 import { parseEntity } from "../../apps/server/src/enrich/wikidata.ts";
 import {
@@ -101,6 +105,112 @@ describe("parseWebsite", () => {
   });
 });
 
+describe("what the crawl of 1,400 sites taught the parser", () => {
+  const page = (ld: unknown, extra = "") =>
+    `<html><head><script type="application/ld+json">${JSON.stringify(ld)}</script></head><body>${extra}</body></html>`;
+
+  it("folds openingHoursSpecification into hours strings, arrays and schema URLs included", () => {
+    expect(
+      hoursFromSpecification([
+        { "@type": "OpeningHoursSpecification", dayOfWeek: "https://schema.org/Tuesday", opens: "11:00", closes: "23:59:59" },
+        { "@type": "OpeningHoursSpecification", dayOfWeek: ["Monday", "Wednesday"], opens: "12:30", closes: "23:00" },
+        { "@type": "OpeningHoursSpecification", opens: "10:00", closes: "18:00" },
+        { "@type": "OpeningHoursSpecification", dayOfWeek: "Friday" },
+      ]),
+    ).toEqual(["Tu 11:00-23:59", "Mo,We 12:30-23:00", "Mo-Su 10:00-18:00"]);
+  });
+
+  it("merges facts across nodes: an Organization first, a LocalBusiness with hours after it", () => {
+    const f = parseWebsite(
+      page({
+        "@graph": [
+          { "@type": "Organization", name: "Group", description: "A group." },
+          { "@type": "LocalBusiness", openingHoursSpecification: [{ dayOfWeek: "Monday", opens: "11:30", closes: "01:00" }] },
+        ],
+      }),
+      "https://example.org/",
+      AT,
+    );
+    expect(f.hours).toEqual(["Mo 11:30-01:00"]);
+    expect(f.description).toBe("A group.");
+  });
+
+  it("dereferences an @id-linked Menu and prefers a concrete URL over a fragment", () => {
+    const f = parseWebsite(
+      page({
+        "@graph": [
+          { "@type": "Restaurant", hasMenu: { "@id": "https://example.org/#menu" }, menu: "/assets/week.pdf" },
+          { "@type": "Menu", "@id": "https://example.org/#menu", name: "Speisekarte" },
+        ],
+      }),
+      "https://example.org/",
+      AT,
+    );
+    expect(f.menuUrl).toBe("https://example.org/assets/week.pdf");
+    const g = parseWebsite(
+      page({
+        "@graph": [
+          { "@type": "Restaurant", hasMenu: { "@id": "https://example.org/#menu" } },
+          { "@type": "Menu", "@id": "https://example.org/#menu", url: "https://example.org/karte" },
+        ],
+      }),
+      "https://example.org/",
+      AT,
+    );
+    expect(g.menuUrl).toBe("https://example.org/karte");
+  });
+
+  it("falls back to the WebPage description when no venue node carries one", () => {
+    const f = parseWebsite(page({ "@type": "WebPage", description: "Das Steakhaus in Berlin." }), "https://example.org/", AT);
+    expect(f.description).toBe("Das Steakhaus in Berlin.");
+  });
+
+  it("reads navigation: anchor text counts, strong words beat weak, legal pages never match", () => {
+    const anchors = extractAnchors(
+      `<a href="/impressum">Impressum</a><a href="/food"><span>Food</span></a>` +
+        `<a href="https://drive.google.com/file/d/x/view">Menü - Regulär</a>` +
+        `<a href="/de/speisen-und-getraenke/">Speisen &#038; Getr&auml;nke</a>`,
+    );
+    expect(anchors.map((a) => a.text)).toEqual(["Impressum", "Food", "Menü - Regulär", "Speisen & Getränke"]);
+    // Strong word in the text on the same host wins over a strong word on a third-party host.
+    expect(pickMenuLink(anchors, "https://example.org/")).toBe("https://example.org/de/speisen-und-getraenke/");
+    // With only a weak word, the site's own /food link is taken.
+    expect(pickMenuLink(anchors.slice(0, 2), "https://example.org/")).toBe("https://example.org/food");
+    // An opaque third-party URL is fine when the text says what it is.
+    expect(pickMenuLink(anchors.slice(2, 3), "https://example.org/")).toBe("https://drive.google.com/file/d/x/view");
+    // A bare PDF with no menu-like text is not a menu; one with text is.
+    expect(pickMenuLink(extractAnchors(`<a href="/files/agb.pdf">AGB</a>`), "https://example.org/")).toBeUndefined();
+    expect(pickMenuLink(extractAnchors(`<a href="/s/LUNCH.pdf">LUNCH</a>`), "https://example.org/")).toBe("https://example.org/s/LUNCH.pdf");
+    // Booking and delivery hosts are never the menu.
+    expect(pickMenuLink(extractAnchors(`<a href="https://www.opentable.de/r/x">Menu & Tisch</a>`), "https://example.org/")).toBeUndefined();
+  });
+
+  it("finds booking and delivery platforms in the navigation", () => {
+    const f = parseWebsite(
+      "",
+      "https://example.org/",
+      AT,
+    );
+    expect(f.reservationsUrl).toBeUndefined();
+    const g = parseWebsite(
+      `<a href="https://www.opentable.com/r/place">Book</a><a href="https://wolt.com/de/deu/berlin/restaurant/place">Order</a>`,
+      "https://example.org/",
+      AT,
+    );
+    expect(g.reservationsUrl).toBe("https://www.opentable.com/r/place");
+    expect(g.deliveryUrl).toBe("https://wolt.com/de/deu/berlin/restaurant/place");
+  });
+
+  it("scans a menu page for dietary words in English and German, ignoring scripts", () => {
+    expect(scanMenuMentions(`<script>var vegan = 1;</script><p>Unsere vegetarischen Gerichte, glutenfreie Pasta.</p>`)).toEqual([
+      "vegetarian-options",
+      "gluten-free-options",
+    ]);
+    expect(scanMenuMentions(`<li>Vegan bowl (dairy-free)</li>`)).toEqual(["vegan-options", "lactose-free-options"]);
+    expect(scanMenuMentions(`<p>nothing here</p>`)).toEqual([]);
+  });
+});
+
 describe("clip", () => {
   it("cuts at a sentence, else a word, never mid-word", () => {
     expect(clip("Short.", 20)).toBe("Short.");
@@ -159,9 +269,19 @@ describe("merge rules", () => {
     expect(by.hours.status).toBe("unknown");
   });
 
-  it("published hours only ever reach unverified", () => {
+  it("a word on the menu lifts an unknown to likely, never to verified, and never touches a known fact", () => {
+    const out = applyEnrichmentAttributes(
+      dossierFromTags({ amenity: "cafe", name: "X", "diet:vegan": "no" }, AT).attributes,
+      enrichment({ menuMentions: ["vegan-options", "gluten-free-options"] }),
+    );
+    const by = Object.fromEntries(out.map((a) => [a.key, a]));
+    expect(by["vegan-options"]).toMatchObject({ status: "verified_false", source: "osm:diet:vegan" });
+    expect(by["gluten-free-options"]).toMatchObject({ status: "likely_true", value: "mentioned on the menu", source: "web:example.org", confidence: 0.6 });
+  });
+
+  it("published hours only ever reach likely", () => {
     const out = applyEnrichmentAttributes(attrs(), enrichment({ hours: ["Mo-Su 10:00-20:00"] }));
-    expect(out.find((a) => a.key === "hours")).toMatchObject({ status: "unverified", value: "Mo-Su 10:00-20:00" });
+    expect(out.find((a) => a.key === "hours")).toMatchObject({ status: "likely_true", value: "Mo-Su 10:00-20:00" });
   });
 
   it("leaves the input untouched without a website result", () => {
@@ -177,7 +297,7 @@ describe("merge rules", () => {
     const view = enrichmentView(extras, {
       osmRef: "node/1",
       fetchedAt: AT,
-      website: { url: "https://example.org/", host: "example.org", fetchedAt: AT, types: [], menuUrl: "https://example.org/other", rating: { value: 4.2, best: 5 }, reservationsUrl: "https://book.example.org" },
+      website: { url: "https://example.org/", host: "example.org", fetchedAt: AT, types: [], menuUrl: "https://example.org/other", rating: { value: 4.2, best: 5 }, reservationsUrl: "https://book.example.org", deliveryUrl: "https://wolt.com/x" },
       wikidata: { id: "Q1", fetchedAt: AT, description: "a café", wikipedia: "https://en.wikipedia.org/wiki/X", awards: [{ item: "Q20824563", label: "Michelin star" }], cuisineItems: [] },
       error: null,
     });
@@ -185,6 +305,7 @@ describe("merge rules", () => {
       ["website", "osm:website"],
       ["menu", "osm:website:menu"],
       ["reservations", "web:example.org"],
+      ["delivery", "web:example.org"],
       ["wikipedia", "wikidata:Q1"],
       ["instagram", "osm:contact:instagram"],
     ]);

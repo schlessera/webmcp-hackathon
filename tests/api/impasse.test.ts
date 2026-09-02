@@ -490,7 +490,7 @@ describe("proposal, veto, agreement, arrival", () => {
     }
   });
 
-  it("dossier inspection returns four-state attributes; unknown ids are not_found", async () => {
+  it("dossier inspection returns five-state attributes; unknown ids are not_found", async () => {
     const inspect = await apiPost<{
       ok: boolean;
       candidates: Array<{ candidateId: string; attributes: Array<{ key: string; status: string }> }>;
@@ -502,7 +502,7 @@ describe("proposal, veto, agreement, arrival", () => {
       inspect.body.candidates[0].attributes.map((a) => a.status),
     );
     for (const s of statuses) {
-      expect(["verified_true", "verified_false", "unverified", "unknown"]).toContain(s);
+      expect(["verified_true", "likely_true", "likely_false", "verified_false", "unknown"]).toContain(s);
     }
 
     const missing = await apiPost<Envelope>(

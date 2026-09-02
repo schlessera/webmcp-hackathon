@@ -52,7 +52,7 @@ function eurBand(level: number | null): string | null {
 /** The mark vocabulary shared with the map: in = filled works dot, unknown =
  * hollow unsure ring, out = small grey dot, private = scope dot, silent =
  * ghost ring, veto = hollow act ring. */
-type Mark = "in" | "unknown" | "out" | "private" | "silent" | "veto";
+type Mark = "in" | "likely" | "unknown" | "unlikely" | "out" | "private" | "silent" | "veto";
 
 interface Check {
   id: string;
@@ -166,9 +166,13 @@ export function PlaceDetails({
   const verdictState =
     candidate.eligibility === "eligible"
       ? "works"
-      : candidate.eligibility === "uncertain"
-        ? "unsure"
-        : "out";
+      : candidate.eligibility === "likely"
+        ? "likely"
+        : candidate.eligibility === "uncertain"
+          ? "unsure"
+          : candidate.eligibility === "unlikely"
+            ? "unlikely"
+            : "out";
   /* One row per stated need. Unknown is drawn, never treated as a failure
      and never silently dropped (CLAUDE.md §4). A need with dossier evidence
      answers from the evidence; one without answers from the verdict. */
@@ -194,8 +198,15 @@ export function PlaceDetails({
         askedKeys.add(key);
         const wantsAbsence = n.label.startsWith("no ");
         const verified = attr.status === "verified_true" || attr.status === "verified_false";
-        const satisfied = verified && (attr.status === "verified_true") !== wantsAbsence;
-        const mark: Mark = !verified ? "unknown" : satisfied ? "in" : "out";
+        const guessed = attr.status === "likely_true" || attr.status === "likely_false";
+        const leansYes = attr.status === "verified_true" || attr.status === "likely_true";
+        const satisfied = leansYes !== wantsAbsence;
+        // A guess is drawn as a guess (§8.2): dashed, and named as such.
+        const mark: Mark = verified
+          ? satisfied ? "in" : "out"
+          : guessed
+            ? satisfied ? "likely" : "unlikely"
+            : "unknown";
         return {
           id: n.id,
           mark: isPrivate && mark === "in" ? "private" : mark,
@@ -339,7 +350,15 @@ export function PlaceDetails({
                   <span className="ledger-label check-text">{c.label}</span>
                   <span className="ledger-answer" data-mark={c.mark}>
                     <span className="sr-only">
-                      {c.mark === "in" || c.mark === "private" ? "yes: " : c.mark === "out" ? "no: " : "unknown: "}
+                      {c.mark === "in" || c.mark === "private"
+                        ? "yes: "
+                        : c.mark === "out"
+                          ? "no: "
+                          : c.mark === "likely"
+                            ? "likely: "
+                            : c.mark === "unlikely"
+                              ? "unlikely: "
+                              : "unknown: "}
                     </span>
                     {c.answer}
                   </span>
@@ -399,7 +418,8 @@ export function PlaceDetails({
               {known.map((a) => (
                 <span className="fact attr-row" data-status={a.status} key={a.key}>
                   {factLabel(a)}
-                  {a.status === "unverified" && <span className="fact-note"> · unverified</span>}
+                  {a.status === "likely_true" && <span className="fact-note"> · likely</span>}
+                  {a.status === "likely_false" && <span className="fact-note"> · unlikely</span>}
                 </span>
               ))}
               {unknownCount > 0 && (

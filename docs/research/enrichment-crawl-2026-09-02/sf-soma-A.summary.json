@@ -1,0 +1,53 @@
+{
+  "venues": 323,
+  "robotsDisallowed": 0,
+  "http2xx": 247,
+  "parseablePages": 297,
+  "anyJsonLd": 157,
+  "structuredFacts": 177,
+  "discoveredMenuLinks": 195,
+  "menuFetches": 195,
+  "menuClassifications": {
+    "html-same-host": 163,
+    "pdf": 6,
+    "image-only": 0,
+    "third-party": 26,
+    "other": 0
+  },
+  "menuWithDietaryMarkers": 68,
+  "reservationPlatforms": {
+    "sevenrooms": 6,
+    "opentable": 80,
+    "resy": 8,
+    "exploretock": 11
+  },
+  "deliveryPlatforms": {
+    "doordash": 35,
+    "grubhub": 14,
+    "ubereats": 16
+  },
+  "builders": {
+    "wix": 21,
+    "squarespace": 53,
+    "wordpress": 66,
+    "shopify": 16,
+    "webflow": 3,
+    "jimdo": 1,
+    "toast": 33,
+    "bentobox": 0,
+    "weebly": 14,
+    "godaddy": 5,
+    "clover": 0,
+    "popmenu": 0
+  },
+  "statuses": {
+    "200": 247,
+    "403": 28,
+    "404": 10,
+    "429": 13,
+    "521": 1,
+    "TypeError: fetch failed": 21,
+    "TimeoutError: The operation was aborted due to timeout": 3
+  },
+  "generatedAt": "2026-09-02T20:39:03.771Z"
+}

@@ -124,7 +124,7 @@ describe("AttestAttribute", () => {
     rev = done.body.revision!;
     const after = await inspect(room.tokens.org, grill());
     const w = attr(after.body, "wheelchair-accessible");
-    expect(w.status).toBe("unverified");
+    expect(w.status).toBe("unknown");
     expect(w.source).toMatch(/^disputed:osm:wheelchair\|agent:/);
     expect(w.attestedBy).toBe(room.participantIds.joe);
   });

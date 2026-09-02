@@ -64,5 +64,10 @@ parsed result for seven days in the `enrichments` table:
   official site, awards. CC0 — <https://creativecommons.org/publicdomain/zero/1.0/>.
   Source `wikidata:<id>`.
 
+- **Menus that are pictures** (a PDF or image the venue links): read once
+  by a vision model; only the resulting claims are cached, each capped at
+  "likely" with its confidence and labelled `menu:<host>`. The bytes and the
+  text are not stored.
+
 No review platform is used: none permits redistribution or caching on terms
 this project can meet.

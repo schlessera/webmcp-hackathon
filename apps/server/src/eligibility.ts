@@ -1,8 +1,9 @@
 import type pg from "pg";
 import type { Feasibility } from "@webmcp-hackathon/contracts";
-import { PRICE_LEVEL_EUR } from "@webmcp-hackathon/contracts";
+import { PRICE_LEVEL_EUR, leans, isVerified, normalizeStatus } from "@webmcp-hackathon/contracts";
 import { applyAttestations, loadAttestations } from "./attestations.ts";
 import { applyEnrichmentAttributes, loadCached } from "./enrich/index.ts";
+import { applyGuesses } from "./guess.ts";
 
 /**
  * Deterministic eligibility per SPATIAL-PROTOCOL.md §8:
@@ -10,7 +11,9 @@ import { applyEnrichmentAttributes, loadCached } from "./enrich/index.ts";
  *   scope circle are excluded ("outside the current search area");
  * - hard shared/application-private requirements evaluate against dossier
  *   attributes; only verified evidence contradicting the expectation
- *   hard-excludes; unknown/unverified yields uncertain (attribute honesty);
+ *   hard-excludes; unknown yields uncertain (attribute honesty); a likely
+ *   fact (§8.2) yields "likely" or "unlikely" with the product of the
+ *   confidences it rests on — counted and drawn apart, never folded in;
  * - budget compares perPersonMax against the PRICE_LEVEL_EUR band for the
  *   candidate's price level;
  * - cuisine exclusions match the candidate's cuisine attribute value
@@ -35,7 +38,7 @@ import { applyEnrichmentAttributes, loadCached } from "./enrich/index.ts";
  * private constraints involved (audit: private-requirement fingerprinting).
  */
 
-export type Eligibility = "eligible" | "uncertain" | "excluded";
+export type Eligibility = "eligible" | "likely" | "uncertain" | "unlikely" | "excluded";
 
 export interface CandidateRow {
   id: string;
@@ -50,6 +53,7 @@ export interface CandidateRow {
     status: string;
     value?: string | number;
     source?: string;
+    confidence?: number;
     attestedBy?: string;
   }>;
 }
@@ -108,6 +112,10 @@ export interface CandidateEligibility {
   exclusion?: EligibilityReason;
   /** Present when uncertain: every pending-evidence contribution. */
   uncertainReasons?: EligibilityReason[];
+  /** Present when likely / unlikely: the guesses it rests on (§8.2). */
+  likelyReasons?: EligibilityReason[];
+  /** Present when likely / unlikely: product of the confidences of those guesses. */
+  confidence?: number;
   walkMin: number;
   priceLevel: number | null;
 }
@@ -132,6 +140,17 @@ export function whyFor(row: CandidateEligibility, viewerId: string): string {
       .filter((r) => r.shared || r.ownerId === viewerId)
       .map((r) => r.text);
     const hasHiddenPrivate = (row.uncertainReasons ?? []).some(
+      (r) => !r.shared && r.ownerId !== viewerId,
+    );
+    const parts = [...new Set(visible)];
+    if (hasHiddenPrivate) parts.push(PRIVATE_PENDING);
+    return parts.join("; ").slice(0, 120);
+  }
+  if (row.eligibility === "likely" || row.eligibility === "unlikely") {
+    const visible = (row.likelyReasons ?? [])
+      .filter((r) => r.shared || r.ownerId === viewerId)
+      .map((r) => r.text);
+    const hasHiddenPrivate = (row.likelyReasons ?? []).some(
       (r) => !r.shared && r.ownerId !== viewerId,
     );
     const parts = [...new Set(visible)];
@@ -206,9 +225,6 @@ export async function loadEligibilityInputs(
     loadAttestations(q, roomId),
   ]);
   const center = scope?.area?.center;
-  // Looked-up facts (cached only — the classifier never waits on the
-  // network) fill what the record left open; attestations come last so a
-  // person's word can dispute a looked-up fact like any other.
   const refs = (candidates.rows as CandidateRow[]).map((c) => c.osm_ref).filter((r): r is string => Boolean(r));
   const enrichments = await loadCached(q, refs);
   return {
@@ -216,17 +232,35 @@ export async function loadEligibilityInputs(
     // previews) sees the same dossier the ledger shows.
     candidates: (candidates.rows as CandidateRow[]).map((c) => ({
       ...c,
-      attributes: applyAttestations(
-        c.id,
-        applyEnrichmentAttributes(c.attributes, c.osm_ref ? enrichments.get(c.osm_ref) : undefined),
-        attestations,
-      ),
+      attributes: mergedAttributes(c, enrichments.get(c.osm_ref ?? ""), attestations),
       walk_min: walkMinutesFrom(center, c.location, c.walk_min),
     })),
     requirements: requirements.rows as RequirementRow[],
     verdicts: verdicts.rows as VerdictRow[],
     scope,
   };
+}
+
+/**
+ * One place's attributes as the room reads them, in precedence order
+ * (SPATIAL-PROTOCOL.md §8.1–8.2): the record, normalised to the graded
+ * vocabulary; looked-up facts (cached only — the classifier never waits on
+ * the network) into slots the record left open; guesses from the kind of
+ * place into slots still unknown; attestations last, so a person's word can
+ * dispute any of the above.
+ */
+export function mergedAttributes(
+  c: Pick<CandidateRow, "id" | "category" | "attributes">,
+  enrichment: Parameters<typeof applyEnrichmentAttributes>[1],
+  attestations: Parameters<typeof applyAttestations>[2],
+): CandidateRow["attributes"] {
+  const observedAt = new Date().toISOString();
+  const normalised = (c.attributes ?? []).map((a) => normalizeStatus(a));
+  return applyAttestations(
+    c.id,
+    applyGuesses(c.category, applyEnrichmentAttributes(normalised, enrichment), observedAt),
+    attestations,
+  );
 }
 
 export async function computeEligibility(
@@ -254,6 +288,8 @@ function classify(
   scope: ScopeState | null,
 ): CandidateEligibility {
   const pending: EligibilityReason[] = [];
+  // Guesses this place rests on (§8.2): each with its lean and confidence.
+  const likely: Array<EligibilityReason & { lean: boolean; confidence: number }> = [];
 
   // Implicit hard constraint: the shared search scope.
   if (scope?.area?.kind === "circle") {
@@ -305,16 +341,25 @@ function classify(
         const attr = candidate.attributes.find((a) => a.key === p.key);
         const status = attr?.status ?? "unknown";
         const expect = p.expect ?? "verified_true";
-        if (status === "unknown" || status === "unverified") {
+        const wanted = expect === "verified_true";
+        const lean = leans(status);
+        if (lean === null) {
           pending.push({ ...owner, text: `${p.key} unverified` });
-        } else if (status !== expect) {
-          // A verified status contradicting the expectation hard-excludes.
-          return excluded(candidate, {
+        } else if (isVerified(status)) {
+          if (lean !== wanted) {
+            // A verified status contradicting the expectation hard-excludes.
+            return excluded(candidate, {
+              ...owner,
+              text: wanted ? `no verified ${p.key}` : `verified ${p.key}`,
+            });
+          }
+        } else {
+          // A likely fact: the place leans one way, at the fact's confidence.
+          likely.push({
             ...owner,
-            text:
-              expect === "verified_true"
-                ? `no verified ${p.key}`
-                : `verified ${p.key}`,
+            lean: lean === wanted,
+            confidence: attr?.confidence ?? 0.5,
+            text: lean === wanted ? `${p.key} likely` : `${p.key} unlikely`,
           });
         }
         break;
@@ -365,17 +410,21 @@ function classify(
       case "inclusion": {
         if (p.key === "cuisine") {
           const attr = candidate.attributes.find((a) => a.key === "cuisine");
+          const known = attr?.status === "verified_true" || attr?.status === "likely_true";
           const tokens =
-            attr?.status === "verified_true" && typeof attr.value === "string"
+            known && typeof attr?.value === "string"
               ? attr.value.split(";").map((t) => t.trim()).filter(Boolean)
               : [];
           if (tokens.length === 0) {
             pending.push({ ...owner, text: "cuisine unverified" });
           } else if (!tokens.some((t) => p.values?.includes(t))) {
-            return excluded(candidate, {
-              ...owner,
-              text: `not ${(p.values ?? []).join(" or ")}`,
-            });
+            if (attr?.status === "likely_true") {
+              likely.push({ ...owner, lean: false, confidence: attr.confidence ?? 0.5, text: `probably not ${(p.values ?? []).join(" or ")}` });
+            } else {
+              return excluded(candidate, { ...owner, text: `not ${(p.values ?? []).join(" or ")}` });
+            }
+          } else if (attr?.status === "likely_true") {
+            likely.push({ ...owner, lean: true, confidence: attr.confidence ?? 0.5, text: `probably ${(p.values ?? []).join(" or ")}` });
           }
         } else {
           pending.push({ ...owner, text: "inclusion evidence pending" });
@@ -393,7 +442,11 @@ function classify(
               : [candidate.category];
           const hit = tokens.find((t) => p.values?.includes(t));
           if (hit) {
-            return excluded(candidate, { ...owner, text: `excluded ${hit}` });
+            if (attr?.status === "likely_true") {
+              likely.push({ ...owner, lean: false, confidence: attr.confidence ?? 0.5, text: `probably ${hit}` });
+            } else {
+              return excluded(candidate, { ...owner, text: `excluded ${hit}` });
+            }
           }
         } else {
           pending.push({ ...owner, text: "exclusion evidence pending" });
@@ -406,6 +459,18 @@ function classify(
     }
   }
 
+  // Precedence: excluded > unlikely > uncertain > likely > eligible. A guess
+  // against the place is more informative than a gap; a gap is more honest
+  // than a guess for it.
+  const against = likely.filter((l) => !l.lean);
+  if (against.length > 0) {
+    return {
+      ...base(candidate),
+      eligibility: "unlikely",
+      likelyReasons: against.map(strip),
+      confidence: product(against),
+    };
+  }
   if (pending.length > 0) {
     return {
       ...base(candidate),
@@ -413,8 +478,26 @@ function classify(
       uncertainReasons: pending,
     };
   }
+  if (likely.length > 0) {
+    return {
+      ...base(candidate),
+      eligibility: "likely",
+      likelyReasons: likely.map(strip),
+      confidence: product(likely),
+    };
+  }
   return { ...base(candidate), eligibility: "eligible" };
 }
+
+const strip = (l: EligibilityReason & { lean: boolean; confidence: number }): EligibilityReason => ({
+  requirementId: l.requirementId,
+  ownerId: l.ownerId,
+  shared: l.shared,
+  text: l.text,
+});
+/** Independent guesses compound: the confidence that ALL of them hold. */
+const product = (ls: Array<{ confidence: number }>) =>
+  Math.round(ls.reduce((acc, l) => acc * Math.min(1, Math.max(0, l.confidence)), 1) * 100) / 100;
 
 function excluded(
   c: CandidateRow,
@@ -435,16 +518,20 @@ function base(c: CandidateRow) {
 }
 
 export function feasibilityOf(rows: CandidateEligibility[]): Feasibility {
-  const eligible = rows.filter((r) => r.eligibility === "eligible").length;
-  const uncertain = rows.filter((r) => r.eligibility === "uncertain").length;
-  const excluded = rows.filter((r) => r.eligibility === "excluded").length;
+  const count = (e: Eligibility) => rows.filter((r) => r.eligibility === e).length;
+  const eligible = count("eligible");
+  const likely = count("likely");
+  const uncertain = count("uncertain");
+  const unlikely = count("unlikely");
+  const excluded = count("excluded");
+  // A guess never makes a room feasible; it keeps it from reading infeasible.
   const state =
     eligible >= 3
       ? "feasible"
       : eligible >= 1
         ? "fragile"
-        : uncertain > 0
+        : uncertain + likely + unlikely > 0
           ? "uncertain"
           : "infeasible";
-  return { state, eligible, uncertain, excluded };
+  return { state, eligible, likely, uncertain, unlikely, excluded };
 }

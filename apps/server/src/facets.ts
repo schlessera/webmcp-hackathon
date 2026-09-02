@@ -43,6 +43,8 @@ export interface FacetsBundle {
   total: number;
   /** In-scope places satisfying every active need. */
   matching: number;
+  /** In-scope places that likely satisfy every active need (§8.2). */
+  likely: number;
   facets: Facet[];
   activeNeeds: ActiveNeed[];
   privateEffects: PrivateEffect[];
@@ -90,6 +92,9 @@ export function computeFacetsBundle(
   );
   const active = effective.filter(isActive);
   const matching = eligibleCount(candidates, active, inputs);
+  const likely = classifyAll(candidates, active, inputs.verdicts, inputs.scope).filter(
+    (r) => r.eligibility === "likely",
+  ).length;
 
   const activeNeeds: ActiveNeed[] = [];
   const privateEffects: PrivateEffect[] = [];
@@ -122,6 +127,12 @@ export function computeFacetsBundle(
             r.eligibility === "uncertain" &&
             (r.uncertainReasons ?? []).some((x) => x.requirementId === req.id),
         ).length,
+        likely: alone.filter(
+          (r) => r.eligibility === "likely" && (r.likelyReasons ?? []).some((x) => x.requirementId === req.id),
+        ).length,
+        unlikely: alone.filter(
+          (r) => r.eligibility === "unlikely" && (r.likelyReasons ?? []).some((x) => x.requirementId === req.id),
+        ).length,
         wouldReturn: stillActive
           ? eligibleCount(
               candidates,
@@ -150,6 +161,7 @@ export function computeFacetsBundle(
   return {
     total: candidates.length,
     matching,
+    likely,
     facets: computeFacets(candidates, inputs.scope),
     activeNeeds,
     privateEffects,
@@ -171,22 +183,28 @@ export function computeFacets(
     );
     if (!present) continue;
     let yes = 0;
+    let likely = 0;
+    let unlikely = 0;
     let no = 0;
     let unknown = 0;
     for (const c of candidates) {
       const status = c.attributes?.find((a) => a.key === key)?.status;
       if (status === "verified_true") yes += 1;
+      else if (status === "likely_true") likely += 1;
+      else if (status === "likely_false") unlikely += 1;
       else if (status === "verified_false") no += 1;
-      else unknown += 1; // unverified, unknown, or no claim at all
+      else unknown += 1; // unknown, or no claim at all
     }
     booleans.push({
       key,
       label: labelForKey(key),
       type: "boolean",
-      counts: { yes, no, unknown },
+      counts: { yes, ...(likely ? { likely } : {}), ...(unlikely ? { unlikely } : {}), no, unknown },
     });
   }
-  booleans.sort((a, b) => (b.counts.yes ?? 0) - (a.counts.yes ?? 0));
+  booleans.sort(
+    (a, b) => (b.counts.yes ?? 0) + (b.counts.likely ?? 0) - (a.counts.yes ?? 0) - (a.counts.likely ?? 0),
+  );
 
   const facets = [...booleans];
   const cuisine = cuisineFacet(candidates);

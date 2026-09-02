@@ -24,10 +24,15 @@ named is one the UI draws.
 | Moment | Count block reads |
 |---|---|
 | Before any need | `21 places · nothing ruled out yet` |
-| After Sarah's need | `12 still work · of 21 · 9 unsure` |
-| After Joe's private need | `0 still work · of 21 · 19 unsure` |
-| After Alex's two needs | `0 still work · of 21 · 15 unsure` |
-| After the area widens to 1.2 km | `4 still work · of 31 · 21 unsure` |
+| After Sarah's need | `12 still work · of 21 · 2 likely · 5 unsure · 2 unlikely` |
+| After Joe's private need | `0 still work · of 21 · 17 unsure · 2 unlikely` |
+| After Alex's two needs | `0 still work · of 21 · 14 unsure · 1 unlikely` |
+| After the area widens to 1.2 km | `4 still work · of 31 · 20 unsure · 1 unlikely` |
+
+"Likely" and "unlikely" are guesses from the kind of place (an Indian
+kitchen likely has a vegetarian dish, a steak house likely does not), drawn
+dashed and counted apart (SPATIAL-PROTOCOL §8.2). They never move the big
+number: the impasse still reads 0 at 800 m and 4 at 1.2 km.
 | After the room settles | `Settled · 11 min from you` |
 
 ## Beats
@@ -35,7 +40,7 @@ named is one the UI draws.
 | # | Window | Action | What the windows show |
 |---|--------|--------|------------------------|
 | 1 | Sarah, Joe | Both open their links | Edge-to-edge map: 31 places, the 21 inside the dashed ring drawn as stickers, the rest as grey dots. Count block top-left reads `21 places`. Alex's avatar is idle and the brief carries an "Alex hasn't arrived" card: they will see the map exactly as it stands when they open the link |
-| 2 | Sarah | Tap the **vegetarian options** pill above the composer (scope chip stays **Shared**) | A row joins "What matters" with a `9 unknown` badge; the map settles in place and never re-centres. Count drops to 12. Press and hold the row to preview the set without it — 21 come back, release restores. Every pill and every row's text is a server label |
+| 2 | Sarah | Tap the **vegetarian options** pill above the composer (scope chip stays **Shared**) | A row joins "What matters" with `2 likely · 2 unlikely · 5 unknown` badges; the map settles in place and never re-centres. Count drops to 12. Press and hold the row to preview the set without it — 21 come back, release restores. Every pill and every row's text is a server label |
 | 3 | Organizer | Open the organizer URL in ChatGPT's browser, look around, then close it again — Alex steps out for a while | Alex's avatar fills in, ChatGPT lists the site tools, and the other two windows show Alex as arrived |
 | 4 | Joe | Set the composer scope chip to **Private**, type `lactose-free options`, press **Add** | Joe sees the need as a row, bordered in the scope colour. Sarah sees only "A private condition" with `−2` and a `private` badge — no label, no toggle. Count falls to 0; the header subtitle turns "nothing works for all three". Joe alone gets **One way out**: "Let 'lactose-free options' be nice-to-have `+12`" with **Make it optional**, and the offer chip on that map |
 | 5 | Organizer | Open the organizer URL again (a fresh tab, so the page knows what it missed) | The brief opens on **While you were away**: Joe's missed move is a `?` row with no author and no content; Sarah's already-seen need remains named in **What matters** below. A consent card is already waiting, badged **only you see this** |
@@ -98,8 +103,10 @@ card in the brief. Every routed sentence logs its model and timing in `{ }`.
 - Nothing in the chrome names a domain. Every pill, need row and attribute row
   is a server-supplied label rendered in server order, so the same screens
   serve a park, an exhibition or a screening.
-- Beat 2: unverified is a state we draw, not a failure. `9 unknown` means the
-  data is missing; those places stay on the map as hollow stickers.
+- Beat 2: unverified is a state we draw, not a failure. `5 unknown` means the
+  data is missing; those places stay on the map as hollow stickers. `2 likely`
+  and `2 unlikely` are guesses with a reason, drawn dashed — open one and the
+  ledger says "a guess from the kind of place".
 - Beats 2–8: press and hold any need row to see the set without it, live on
   the map. There is a keyboard equivalent (focus the row, hold Space) and the
   new count is announced. The map never re-centres — places settle in place.

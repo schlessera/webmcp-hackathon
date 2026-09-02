@@ -166,7 +166,7 @@ try {
     timeout: 15_000,
   });
   await expect(ownNeed(pages.sarah, "vegetarian options")).toContainText(
-    "9 unknown",
+    "5 unknown",
   );
 
   const vegetarianRow = ownNeed(pages.sarah, "vegetarian options");
@@ -225,7 +225,7 @@ try {
   await expect(pages.joe.getByTestId("count-number")).toHaveText("0", {
     timeout: 15_000,
   });
-  await expect(pages.joe.getByTestId("count-block")).toContainText("19 unsure");
+  await expect(pages.joe.getByTestId("count-block")).toContainText("17 unsure");
   await expect(pages.joe.getByTestId("ways-out")).toContainText(
     "Let “lactose-free options” be nice-to-have",
   );
@@ -335,7 +335,7 @@ try {
   }
   await expect(ownNeed(pages.org, "avoid italian")).toBeVisible({ timeout: 15_000 });
   await expect(pages.org.getByTestId("count-number")).toHaveText("0");
-  await expect(pages.org.getByTestId("count-block")).toContainText("15 unsure");
+  await expect(pages.org.getByTestId("count-block")).toContainText("14 unsure");
   await expect(pages.sarah.getByTestId("brief")).not.toContainText(
     "lactose-free options",
   );
@@ -367,7 +367,7 @@ try {
       { timeout: 15_000 },
     );
     await expect(pages[key].getByTestId("count-number")).toHaveText("4");
-    await expect(pages[key].getByTestId("count-block")).toContainText("21 unsure");
+    await expect(pages[key].getByTestId("count-block")).toContainText("20 unsure");
   }
   beat(8, "Alex accepts and confirms the 1.2 km widening; four places now work");
   await dwell(4_000);

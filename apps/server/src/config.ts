@@ -35,6 +35,8 @@ export const config = {
   openaiApiKey: process.env.OPENAI_API_KEY ?? "",
   nlFastModel: process.env.NL_FAST_MODEL ?? "gpt-5.6-luna",
   nlSmartModel: process.env.NL_SMART_MODEL ?? "gpt-5.6-sol",
+  /** Reads menu photos and PDFs (enrich/menu-reader.ts); vision-capable. */
+  menuReaderModel: process.env.MENU_READER_MODEL ?? process.env.NL_SMART_MODEL ?? "gpt-5.6-sol",
   get nlEnabled(): boolean {
     return this.openaiApiKey.length > 0;
   },

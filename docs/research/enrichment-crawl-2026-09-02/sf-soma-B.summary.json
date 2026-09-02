@@ -1,0 +1,50 @@
+{
+  "total": 323,
+  "homepage2xx": 266,
+  "homepageParsedHtml": 296,
+  "robotsDisallowed": 2,
+  "bodyTooLarge": 0,
+  "anyJsonLd": 163,
+  "withCuisine": 25,
+  "withPriceLevel": 17,
+  "withHours": 7,
+  "withRating": 4,
+  "withWheelchair": 0,
+  "withMenuUrlByExtractor": 150,
+  "withDiscoveredMenuLinks": 174,
+  "menuFetch2xx": 164,
+  "menuKinds": {
+    "html-same-host": 146,
+    "pdf": 9,
+    "image-only": 0,
+    "third-party-platform": 9,
+    "other": 0
+  },
+  "menuWithDietaryMarker": 104,
+  "reservationPlatforms": {
+    "opentable": 16,
+    "resy": 7,
+    "sevenrooms": 3,
+    "tock": 2
+  },
+  "deliveryPlatforms": {
+    "ubereats": 11,
+    "doordash": 14,
+    "grubhub": 10
+  },
+  "socialPlatforms": {
+    "instagram": 159,
+    "facebook": 136
+  },
+  "builders": {
+    "wix": 27,
+    "squarespace": 52,
+    "wordpress": 45,
+    "shopify": 13,
+    "webflow": 6,
+    "weebly": 13,
+    "godaddy": 11,
+    "toast": 31,
+    "bentobox": 25
+  }
+}

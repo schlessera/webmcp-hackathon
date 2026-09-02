@@ -197,8 +197,9 @@ const spatialTools: ToolDefinition[] = [
   {
     name: "inspect_candidates",
     description:
-      "Fetch full dossiers for 1-3 candidates: attributes with verification " +
-      "status (verified_true / verified_false / unverified / unknown), " +
+      "Fetch full dossiers for 1-3 candidates: attributes with graded status " +
+      "(verified_true / likely_true / likely_false / verified_false / unknown) " +
+      "and confidence, " +
       "sources, freshness, hours, price level, plus links the place " +
       "publishes (website, menu, reservations), a description and any " +
       "self-published rating or award. Two or three IDs compare. Read-only.",
@@ -246,9 +247,10 @@ const spatialTools: ToolDefinition[] = [
     name: "attest_attribute",
     description:
       "Record what you found out about a place: a fact the record marks " +
-      "unknown or unverified in inspect_candidates. Say what you checked in " +
-      "note and how sure you are. Over an unknown fact your attestation lets " +
-      "the room rule on it, labelled with your name; one that contradicts a " +
+      "unknown or likely in inspect_candidates. Say what you checked in note " +
+      "and how sure you are (confidence 0-1; below 0.7 it is recorded as " +
+      "likely, not verified). Over an unknown fact your attestation lets the " +
+      "room rule on it, labelled with your name; one that contradicts a " +
       "verified fact marks it disputed instead. Shared with the whole room.",
     inputSchema: AttestAttributeInput,
     annotations: {},

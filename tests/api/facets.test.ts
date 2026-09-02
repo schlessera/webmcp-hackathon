@@ -179,7 +179,11 @@ describe("needs and private effects across viewers", () => {
     expect(veg.ownerId).toBe(room.participantIds.sarah);
     expect(veg.visibility).toBe("shared");
     expect(veg.active).toBe(true);
-    expect(veg.unknown).toBe(9);
+    // Four of the nine unknowns are now guesses from the kind of place
+    // (§8.2): two leaning for, two against. Counted apart, never folded in.
+    expect(veg.unknown).toBe(5);
+    expect(veg.likely).toBe(2);
+    expect(veg.unlikely).toBe(2);
   });
 });
 

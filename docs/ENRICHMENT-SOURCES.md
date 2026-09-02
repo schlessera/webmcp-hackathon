@@ -76,6 +76,73 @@ is found on 56 %** of sites, and the facts that do exist are the venue's
 own word, published for machines. So the menu link is the reliable win,
 the facts a bonus, and both carry a `web:<host>` source.
 
+### S2, second pass — 1,400 sites through four parallel crawlers
+
+Four Codex runs (`gpt-5.6-sol`, low effort), one per half-slice of each
+city's venues within 2 km that carry a website tag, each crawling the
+homepage and the first discovered menu link. Reports and the crawlers they
+wrote: `docs/research/enrichment-crawl-2026-09-02/`.
+
+| | Berlin A (377) | Berlin B (377) | SF A (323) | SF B (323) |
+|---|---|---|---|---|
+| homepage 2xx | 296 | 309 | 247 | 266 |
+| any JSON-LD | 152 | 147 | 151 | 163 |
+| menu URL, extractor as it was | 181 | 177 | 161 | 150 |
+| menu link, anchor-based discovery | 233 | 234 | 189 | 174 |
+| `openingHoursSpecification` seen / hours extracted | 30 / 10 | ≥3 / 21 | 31 / — | many / 7 |
+| reservation platform linked from the homepage | 32 | 24 | 33 | 27 |
+| delivery platform linked | 21 | 34 | 23 | 23 |
+| menu pages carrying a dietary word (of HTML menus) | 95 / 188 | 104 / 196 | 68 / 189 | 104 / 154 |
+| menu targets: same-host HTML / PDF / third party | 179 / 40 / 9 | 194 / 29 / 10 | 162 / 6 / 21 | 146 / 9 / 9 |
+
+All four reached the same three conclusions, in the same order: parse
+navigation anchors (text as well as href, English and German, scored, same
+host preferred, legal pages excluded), fold `openingHoursSpecification`
+into hours, and merge facts across JSON-LD nodes with `@id` dereferencing
+instead of reading the first node. Two suspected gaps were checked and
+cleared by every run: `@type` arrays and nested `@graph` were already
+handled.
+
+Folded into `website.ts` the same day: all three, plus reservation and
+delivery platform links found in the navigation (OpenTable, Resy, Quandoo,
+TheFork, SevenRooms, Tock, Lieferando, Wolt, Uber Eats, DoorDash,
+Deliveroo, Grubhub), a `WebPage` description fallback, and a second
+request per venue that follows the menu link and records what it mentions
+by word (vegan, vegetarian, gluten-free, lactose-free, halal, in English
+and German). A word on a menu is evidence, not a verdict: it lifts an
+`unknown` to `unverified` ("mentioned on the menu") so the room sees there
+is something to check, and never touches a known fact. Numeric price
+ranges ("15€–25€") were left alone: mapping them to bands needs a currency
+policy the contract does not have.
+
+### S2, reading menus that are pictures
+
+Across the 5,331 sites, 5–17 % of the menus a slice found were PDFs, a few
+more were images, and an unknown share of HTML menu pages carried the
+menu only as a picture. None of those could say anything about a diet by
+word search.
+
+They are read by a vision model (`apps/server/src/enrich/menu-reader.ts`):
+one Responses API call with the PDF or image attached, a fixed schema back
+— legible?, rough dish count, cuisine words, a price band, and for each of
+the five dietary facts a lean with a confidence and a few words of
+evidence. Chosen over Tesseract because one call handles a scanned PDF, a
+photo taken at an angle and a page image, reads German and English, and
+answers the questions directly instead of returning text to regex through.
+
+What a reading may do: fill an unknown or guessed slot as `likely_true` /
+`likely_false` at **no more than 0.69** confidence (SPATIAL-PROTOCOL §8.2)
+with the source `menu:<host>` and the evidence kept as the value ("menu:
+vegan bowl (vg)"). What it may never do: verify anything, or overwrite the
+record. The bytes are read once and dropped; only the claims are cached.
+Bounded to menus that are files (PDF, image) or image-only pages, at most
+one file per venue, 4 MB, off without `OPENAI_API_KEY` or with
+`MENU_READER=0`. Model: `MENU_READER_MODEL`, defaulting to the smart tier.
+
+Not folded in: text extraction from text-layer PDFs without the model,
+JavaScript-rendered navigation, RFC 9309 robots semantics (the parser
+reads the `*` group's `Disallow` lines only).
+
 ### S3 — Wikidata
 
 13 places per focus disc carry a `wikidata` tag; those are the notable ones
