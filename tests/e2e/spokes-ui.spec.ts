@@ -374,16 +374,29 @@ async function markerTransforms(page: Page, ids: string[]) {
   }, ids);
 }
 
+/**
+ * A baseline that has actually settled. The self-hosted display font lands
+ * after first paint and can resize the map region, which moves every marker
+ * once; two samples 100 ms apart were passing inside that window. Wait for
+ * fonts, then require the positions to hold for three samples 200 ms apart.
+ */
 async function stableMarkerTransforms(page: Page, ids: string[]) {
+  await page.evaluate(() => document.fonts.ready);
   let previous = "";
   let stable = "";
-  await expect.poll(async () => {
-    const current = JSON.stringify(await markerTransforms(page, ids));
-    stable = current;
-    const unchanged = current === previous;
-    previous = current;
-    return unchanged;
-  }).toBe(true);
+  let streak = 0;
+  await expect
+    .poll(
+      async () => {
+        const current = JSON.stringify(await markerTransforms(page, ids));
+        stable = current;
+        streak = current === previous ? streak + 1 : 0;
+        previous = current;
+        return streak >= 2;
+      },
+      { intervals: [200], timeout: 10_000 },
+    )
+    .toBe(true);
   return JSON.parse(stable) as Record<string, string>;
 }
 
@@ -703,6 +716,11 @@ test("candidate batches settle in place across requirements and radius changes, 
 
   await expectDomainNeutralCopy(page.getByTestId("brief-empty"));
   await expect(page.locator('[data-testid^="pin-"][data-state="works"]')).toHaveCount(4);
+  // The baseline is only meaningful once the basemap has loaded and the
+  // on-load fit has run; before that a stability poll can pass between the
+  // first paint and the fit (the bundled worker made the map load in
+  // production builds, which is what this suite serves).
+  await expect(page.getByTestId("map-region")).toHaveAttribute("data-loaded", "true", { timeout: 20_000 });
   const initialTransforms = await stableMarkerTransforms(page, trackedIds);
 
   await page.getByLabel("What matters to you?").fill("somewhere calm");

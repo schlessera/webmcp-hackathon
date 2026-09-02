@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Layer, Map, Marker, Source, type MapRef } from "@vis.gl/react-maplibre";
 import "maplibre-gl/dist/maplibre-gl.css";
+import "../map-worker.ts";
 import { MAP_THEME, TILE_STYLE } from "../map-theme.ts";
 import type {
   CandidateSummary,
@@ -151,6 +152,9 @@ export function MapView({
      finished moving the map — never mid-gesture, and never as a result of a
      set change moving the viewport, because a set change never does (§8). */
   const [viewTick, setViewTick] = useState(0);
+  /** True once the basemap has loaded and the first fit has run — the moment
+   * marker positions stop moving on their own. The e2e specs wait on it. */
+  const [loaded, setLoaded] = useState(false);
 
   const ring = useMemo(
     () => circlePolygon(center, scope.area.radiusM),
@@ -441,6 +445,7 @@ export function MapView({
       data-testid="map-region"
       data-scope-radius={Math.round(scope.area.radiusM)}
       data-preview={preview ? "true" : undefined}
+      data-loaded={loaded ? "true" : undefined}
     >
       <Map
         ref={mapRef}
@@ -450,6 +455,7 @@ export function MapView({
         onLoad={() => {
           fitOnce();
           setViewTick((t) => t + 1);
+          setLoaded(true);
         }}
         onMoveEnd={() => setViewTick((t) => t + 1)}
         onClick={() => onSelect(null)}
