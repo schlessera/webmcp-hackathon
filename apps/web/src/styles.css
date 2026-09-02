@@ -2226,3 +2226,23 @@ body { overflow: hidden; }
 }
 .details-lookup[data-state="busy"] { color: var(--spoke-works-text); }
 .details-lookup .line-busy { border-color: currentColor; }
+
+/* ── Place details, rebuilt (2026-09-03) ───────────────────────────────── */
+.details-nav-spacer { flex: 1; }
+/* Text buttons in the nav reach the 44px floor sideways too (W9). */
+.tap-wide { min-width: var(--spoke-tap-min); }
+.btn-text:disabled { text-decoration: none; color: var(--spoke-ink-soft); cursor: default; }
+.ledger-note {
+  font-weight: var(--spoke-weight-quiet);
+  font-size: var(--spoke-size-detail);
+  color: var(--spoke-ink-soft);
+}
+.mark-busy { width: 12px; height: 12px; margin: 0; }
+.check-row[data-mark="busy"] .ledger-answer { color: var(--spoke-ink-soft); font-style: italic; }
+.details-phone { color: var(--spoke-act-text); text-decoration: none; }
+.hours-times {
+  font-family: var(--spoke-font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--spoke-ink);
+  max-width: 60%;
+}

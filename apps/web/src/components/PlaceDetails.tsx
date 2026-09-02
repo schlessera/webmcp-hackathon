@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { ATTRIBUTE_LABELS, PRICE_LEVEL_EUR } from "@webmcp-hackathon/contracts";
-import { spatialInspectRaw } from "../api.ts";
+import { spatialInspectRaw, spatialLookupRaw } from "../api.ts";
 import type {
   ActiveNeed,
   CandidateDossier,
+  CandidateNeedVerdict,
   CandidateSummary,
   CommandEnvelope,
   DossierAttribute,
@@ -14,9 +15,12 @@ import type {
 import {
   COPY,
   attributeValue,
+  confidenceWord,
+  hoursLines,
   initials,
   numberWord,
   personColor,
+  readableWhy,
   sourceLabel,
   UNKNOWN_SOURCE,
 } from "../ui/copy.ts";
@@ -38,12 +42,6 @@ import {
  * per-domain layout, no invented icon per attribute type.
  */
 
-/** Need label → attribute key. The mapping is the contract manifest's own
- * (ATTRIBUTE_LABELS), so it is protocol, not a domain branch in the client. */
-const LABEL_TO_KEY = new Map<string, string>(
-  Object.entries(ATTRIBUTE_LABELS).map(([key, label]) => [label.toLowerCase(), key]),
-);
-
 function eurBand(level: number | null): string | null {
   const eur = level === null ? undefined : PRICE_LEVEL_EUR[level as 1 | 2 | 3 | 4];
   return eur === undefined ? null : `about €${eur} each`;
@@ -51,64 +49,72 @@ function eurBand(level: number | null): string | null {
 
 /** The mark vocabulary shared with the map: in = filled works dot, unknown =
  * hollow unsure ring, out = small grey dot, private = scope dot, silent =
- * ghost ring, veto = hollow act ring. */
-type Mark = "in" | "likely" | "unknown" | "unlikely" | "out" | "private" | "silent" | "veto";
+ * ghost ring, veto = hollow act ring, busy = the turning ring. */
+type Mark = "in" | "likely" | "unlikely" | "unknown" | "out" | "private" | "silent" | "veto" | "busy";
 
 interface Check {
   id: string;
   mark: Mark;
   label: string;
   answer: string;
+  /** Under the answer: the evidence, in the reader's words. */
+  note?: string;
   source?: string;
 }
 
-/**
- * A need's own answer for one place, from the measure its label names:
- * true / false when the record can say, null when it cannot. Mirrors the
- * server's classifier (eligibility.ts) for the typed kinds the dossier has
- * no attribute for; free text is unverifiable by construction.
- */
-function ownMeasure(
-  label: string,
-  candidate: CandidateSummary,
-  dossier: CandidateDossier | null,
-): boolean | null {
-  const budget = /^budget €(\d+)$/.exec(label);
-  if (budget) {
-    const band =
-      candidate.priceLevel === null
-        ? undefined
-        : PRICE_LEVEL_EUR[candidate.priceLevel as 1 | 2 | 3 | 4];
-    return band === undefined ? null : band <= Number(budget[1]);
-  }
-  const walk = /^within (\d+) min walk$/.exec(label);
-  if (walk) return candidate.walkMin <= Number(walk[1]);
-  const avoid = /^avoid (.+)$/.exec(label);
-  if (avoid) {
-    if (!dossier) return null;
-    const attr = dossier.attributes.find((a) => a.key === "cuisine");
-    const tokens =
-      typeof attr?.value === "string"
-        ? attr.value.split(";").map((t) => t.trim()).filter(Boolean)
-        : [candidate.category];
-    const avoided = avoid[1].split(",").map((t) => t.trim());
-    return !tokens.some((t) => avoided.includes(t));
-  }
-  const only = /^only (.+)$/.exec(label);
-  if (only) {
-    // Mirrors the classifier: no cuisine on record is unknown, not a no.
-    const attr = dossier?.attributes.find((a) => a.key === "cuisine");
-    if (attr?.status !== "verified_true" || typeof attr.value !== "string") return null;
-    const tokens = attr.value.split(";").map((t) => t.trim()).filter(Boolean);
-    const wanted = only[1].split(",").map((t) => t.trim());
-    return tokens.some((t) => wanted.includes(t));
-  }
-  return null;
+/** A server verdict → the mark it is drawn with. A private need that passes
+ * is drawn scope-coloured: visibility, never a second meaning for works. */
+function markOf(v: CandidateNeedVerdict): Mark {
+  if (v.verdict === "yes") return v.private ? "private" : "in";
+  if (v.verdict === "no") return "out";
+  if (v.verdict === "likely") return "likely";
+  if (v.verdict === "unlikely") return "unlikely";
+  return "unknown";
 }
 
-/** The fixed, viewer-safe tokens eligibility.ts emits for a peer's private need. */
-const PRIVATE_EXCLUDED = "excluded by a private requirement";
-const PRIVATE_PENDING = "private evidence pending";
+/** The answer in words. The server's `why` when it wrote one; otherwise the
+ * verdict word, with a guess saying how sure (COPY.md confidence). */
+function answerOf(v: CandidateNeedVerdict): string {
+  if (v.why) return v.why;
+  if (v.verdict === "yes") return "yes";
+  if (v.verdict === "no") return "no";
+  if (v.verdict === "likely" || v.verdict === "unlikely") {
+    const word = v.verdict;
+    return v.confidence !== undefined ? `${word} · ${confidenceWord(v.confidence)}` : word;
+  }
+  return UNKNOWN_SOURCE;
+}
+
+/**
+ * The verdict strip from the per-need verdicts, so the main UI never shows
+ * the classifier's wire phrasing (CLAUDE.md §6). Falls back to the server's
+ * `why`, made readable, when a dossier has no verdicts.
+ */
+function verdictText(
+  candidate: CandidateSummary,
+  needs: CandidateNeedVerdict[] | undefined,
+): string {
+  if (candidate.eligibility === "eligible") return COPY.verdictClears;
+  if (!needs || needs.length === 0) return readableWhy(candidate.why);
+  const name = (v: CandidateNeedVerdict) => (v.private ? "a private condition" : `“${v.label}”`);
+  const nos = needs.filter((v) => v.verdict === "no");
+  const unknowns = needs.filter((v) => v.verdict === "unknown");
+  const unlikely = needs.filter((v) => v.verdict === "unlikely");
+  if (candidate.eligibility === "excluded") {
+    if (nos.length === 0) return readableWhy(candidate.why);
+    if (nos.every((v) => v.private)) {
+      return nos.length === 1 ? "Ruled out by a private condition" : "Ruled out by private conditions";
+    }
+    return `Ruled out by ${nos.map(name).join(", ")}`;
+  }
+  if (candidate.eligibility === "unlikely" && unlikely.length > 0) {
+    return `Unlikely to clear ${unlikely.map(name).join(", ")}`;
+  }
+  if (candidate.eligibility === "likely") return "Likely clears every need, on a guess";
+  if (unknowns.length === 1) return `${unknowns[0].private ? "A private condition" : name(unknowns[0])} still to check`;
+  if (unknowns.length > 1) return `${numberWord(unknowns.length)} needs still to check`;
+  return readableWhy(candidate.why);
+}
 
 interface Props {
   candidate: CandidateSummary;
@@ -200,107 +206,74 @@ export function PlaceDetails({
     return sourceLabel(a.source);
   };
   const askedKeys = new Set<string>();
-  const checks: Check[] = activeNeeds
-    .filter((n) => n.active)
-    .map((n): Check => {
-      const own = n.ownerId === meId;
-      const isPrivate = n.visibility !== "shared";
-      const key = LABEL_TO_KEY.get(n.label.replace(/^no /, "").toLowerCase());
-      const attr = key ? dossier?.attributes.find((a) => a.key === key) : undefined;
-      if (attr && key) {
-        askedKeys.add(key);
-        const wantsAbsence = n.label.startsWith("no ");
-        const verified = attr.status === "verified_true" || attr.status === "verified_false";
-        const guessed = attr.status === "likely_true" || attr.status === "likely_false";
-        const leansYes = attr.status === "verified_true" || attr.status === "likely_true";
-        const satisfied = leansYes !== wantsAbsence;
-        // A guess is drawn as a guess (§8.2): dashed, and named as such.
-        const mark: Mark = verified
-          ? satisfied ? "in" : "out"
-          : guessed
-            ? satisfied ? "likely" : "unlikely"
-            : "unknown";
-        return {
-          id: n.id,
-          mark: isPrivate && mark === "in" ? "private" : mark,
-          label: n.label,
-          answer: mark === "unknown" ? UNKNOWN_SOURCE : attributeValue(attr.value, attr.status),
-          source: mark === "unknown" ? undefined : sourceOf(attr),
-        };
-      }
-      if (n.visibility === "agent-private") {
-        const why = candidate.why;
-        return {
-          id: n.id,
-          mark: why.includes("unacceptable") ? "out" : eligible ? "private" : "unknown",
-          label: n.label,
-          answer: why.includes("unacceptable")
-            ? "your agent ruled it out"
-            : eligible
-              ? "your agent passed it"
-              : "your agent hasn't said",
-        };
-      }
-      // Needs without a dossier field answer from their own measure, never
-      // from the place's aggregate verdict: another need's exclusion must not
-      // read as this one's. The server-composed label is the contract here
-      // (labelForRequirement): "budget €15", "within 10 min walk", "avoid x",
-      // "only x".
-      const verdict = ownMeasure(n.label, candidate, dossier);
-      const mark: Mark =
-        verdict === null ? "unknown" : verdict ? (isPrivate ? "private" : "in") : "out";
-      return {
+  /* One row per need, from the server's own verdicts on this dossier
+     (needs[]): the page never parses a label or guesses which fact a need
+     reads. A peer's private need arrives as a row with no content (§5). A
+     verdict on an attribute need lifts that fact out of "Also on record". */
+  const verdicts = dossier?.needs;
+  const checks: Check[] = (verdicts ?? []).map((v): Check => {
+    const mark = markOf(v);
+    const own = activeNeeds.find((n) => n.id === v.requirementId);
+    // The attribute this need reads, so its pill does not repeat below. The
+    // key is protocol (ATTRIBUTE_LABELS is the manifest's own table).
+    const key = own
+      ? Object.entries(ATTRIBUTE_LABELS).find(
+          ([, label]) => own.label.replace(/^no /, "").toLowerCase() === label.toLowerCase(),
+        )?.[0]
+      : undefined;
+    const attr = key ? dossier?.attributes.find((a) => a.key === key) : undefined;
+    if (key && attr && attr.status !== "unknown") askedKeys.add(key);
+    return {
+      id: v.requirementId,
+      mark,
+      label: v.private ? "A private condition" : (v.label ?? own?.label ?? "a need"),
+      answer: answerOf(v),
+      note: attr?.note,
+      source: attr && attr.status !== "unknown" ? sourceOf(attr) : undefined,
+    };
+  });
+  /* No verdicts yet (the dossier is still loading): every stated need is a
+     row being checked, so the panel's shape holds from the first paint. */
+  if (!verdicts && checks.length === 0) {
+    for (const n of activeNeeds.filter((n) => n.active)) {
+      checks.push({
         id: n.id,
-        mark,
-        label: own || !isPrivate ? n.label : "a private condition",
-        answer: verdict === null ? UNKNOWN_SOURCE : verdict ? "yes" : "no",
-      };
-    });
-
-  /* Peers' private needs: their effect on THIS place, never their content.
-     The why-string carries two fixed tokens and nothing else about them (§5)
-     — one token for however many private needs touch the place, so with
-     several the row is one row too: the room cannot tell which one spoke,
-     and must not pretend to. The owner is not named (COPY.md privacy
-     phrasing), the topic only when they opted into one. */
-  if (privateEffects.length > 0) {
-    const ruledOut = candidate.why === PRIVATE_EXCLUDED;
-    const pending = candidate.why.includes(PRIVATE_PENDING);
-    // A place ruled out by something else never got as far as these needs:
-    // the honest answer is that nothing is known here, not "passes".
-    const unreached = candidate.eligibility === "excluded" && !ruledOut;
-    const several = privateEffects.length > 1;
-    const topic = !several && privateEffects[0].topic ? ` about ${privateEffects[0].topic}` : "";
-    checks.push({
-      id: "private-effects",
-      mark: ruledOut ? "out" : pending || unreached ? "unknown" : "private",
-      label: several
-        ? `${numberWord(privateEffects.length)} private conditions`
-        : `A private condition${topic}`,
-      answer: ruledOut
-        ? several
-          ? "one of them ruled it out"
-          : "ruled it out"
-        : pending
-          ? "not yet checked"
-          : unreached
-            ? "not checked here"
-            : several
-              ? "all pass"
-              : "passes",
-    });
+        mark: "busy",
+        label: n.ownerId === meId || n.visibility === "shared" ? n.label : "A private condition",
+        answer: dossier ? UNKNOWN_SOURCE : "checking…",
+      });
+    }
+    if (privateEffects.length > 0) {
+      checks.push({
+        id: "private-effects",
+        mark: "busy",
+        label: privateEffects.length > 1 ? `${numberWord(privateEffects.length)} private conditions` : "A private condition",
+        answer: dossier ? UNKNOWN_SOURCE : "checking…",
+      });
+    }
   }
 
   /* The facts nobody asked about. Verified ones become pills; unknowns are a
      count, not a list — the reader's question is "what else is true", and a
      wall of question marks answers nothing. */
-  const facts = (dossier?.attributes ?? []).filter((a) => !askedKeys.has(a.key));
+  const inVocabulary = (key: string) => key in ATTRIBUTE_LABELS;
+  const facts = (dossier?.attributes ?? []).filter(
+    (a) =>
+      !askedKeys.has(a.key) &&
+      // A fact with neither a value nor a place in the vocabulary has no
+      // words to render ("hours · likely" said nothing, W8).
+      (inVocabulary(a.key) || (a.value !== undefined && a.value !== null)),
+  );
   const known = facts.filter((a) => a.status !== "unknown");
   const unknownCount = facts.length - known.length;
   const factLabel = (a: DossierAttribute) => {
     const label =
       ATTRIBUTE_LABELS[a.key as keyof typeof ATTRIBUTE_LABELS] ?? a.key.replace(/-/g, " ");
-    if (a.key === "price-level") return eurBand(Number(a.value)) ?? `${label}: ${attributeValue(a.value, a.status)}`;
+    if (a.key === "price-level") {
+      const band = eurBand(Number(a.value));
+      // A guessed band says so once, in front, never twice (W8).
+      return band ? (a.status === "likely_true" ? `likely ${band}` : band) : `${label}: ${attributeValue(a.value, a.status)}`;
+    }
     if (typeof a.value === "boolean" || a.value === undefined || a.value === null) {
       return a.status === "verified_false" ? `no ${label}` : label;
     }
@@ -320,24 +293,55 @@ export function PlaceDetails({
     proposal?.stances.find((s) => s.participantId === participantId)?.stance ?? "none";
 
   const negotiable = phase === "gathering" || phase === "deliberation";
+  // `priceLevel` is a 1–4 band, not an amount. PRICE_LEVEL_EUR is the
+  // manifest's own band → per-person cap mapping, the same one the server
+  // measures a budget need against, so both read the same number. A band
+  // the record only guessed is said as a guess, once, here — and not again
+  // as a pill (W8).
+  const priceAttr = dossier?.attributes.find((a) => a.key === "price-level");
+  const priceGuessed = priceAttr?.status === "likely_true" || priceAttr?.status === "likely_false";
+  const priceText =
+    candidate.priceLevel === null
+      ? null
+      : priceGuessed
+        ? `likely ${eurBand(candidate.priceLevel)}`
+        : eurBand(candidate.priceLevel);
+  if (priceAttr) askedKeys.add("price-level");
   const meta = [
-    candidate.category,
+    candidate.category.replace(/_/g, " "),
     candidate.walkMin > 0 ? `${candidate.walkMin} min away` : null,
-    // `priceLevel` is a 1–4 band, not an amount. PRICE_LEVEL_EUR is the
-    // manifest's own band → per-person cap mapping, the same one the server
-    // measures a budget need against, so both read the same number.
-    eurBand(candidate.priceLevel),
+    priceText,
   ]
     .filter(Boolean)
     .join(" · ");
+  const hours = hoursLines(dossier?.hours ?? []);
+  const whereWhen = dossier && (dossier.address || dossier.phone || hours.length > 0);
+  const [lookupAsked, setLookupAsked] = useState(false);
+  useEffect(() => setLookupAsked(false), [candidate.candidateId]);
+  const askLookup = () => {
+    setLookupAsked(true);
+    void spatialLookupRaw({ candidateIds: [candidate.candidateId] });
+  };
 
   return (
     <aside className="details" data-testid="place-details" aria-label={candidate.name}>
       <div className="details-nav">
-        <button className="btn-text" data-testid="details-close" onClick={onClose}>
+        <button className="btn-text tap-wide" data-testid="details-close" onClick={onClose}>
           Close
         </button>
-        <span className="details-nav-title">{candidate.name}</span>
+        <span className="details-nav-spacer" aria-hidden="true" />
+        {/* Ask the room's server to look this place up now; what lands
+            arrives on the facts frame and updates the rows in place. */}
+        {negotiable && (
+          <button
+            className="btn-text tap-wide"
+            data-testid="details-lookup-btn"
+            disabled={lookingUp || lookupAsked}
+            onClick={askLookup}
+          >
+            {lookingUp ? "Looking it up" : lookupAsked ? "Asked" : "Look it up"}
+          </button>
+        )}
       </div>
 
       <div className="details-body">
@@ -347,9 +351,7 @@ export function PlaceDetails({
           {/* Verdict first: the reader's question is always "why is this here?" */}
           <div className="verdict" data-state={verdictState} data-testid="verdict">
             <span className="verdict-dot" aria-hidden="true" />
-            <span className="verdict-text">
-              {eligible ? COPY.verdictClears : candidate.why}
-            </span>
+            <span className="verdict-text">{verdictText(candidate, dossier?.needs)}</span>
           </div>
           {/* Reserved from the first paint (SPOKES-UI §6): the panel never
               looks final before the facts have landed. */}
@@ -377,8 +379,15 @@ export function PlaceDetails({
             <div className="ledger" data-testid="fit-ledger">
               {checks.map((c) => (
                 <div className="ledger-row check-row" data-mark={c.mark} key={c.id}>
-                  <i className="mark" data-mark={c.mark} aria-hidden="true" />
-                  <span className="ledger-label check-text">{c.label}</span>
+                  {c.mark === "busy" ? (
+                    <i className="busy-ring mark-busy" aria-hidden="true" />
+                  ) : (
+                    <i className="mark" data-mark={c.mark} aria-hidden="true" />
+                  )}
+                  <span className="ledger-label check-text">
+                    {c.label}
+                    {c.note && <span className="ledger-note"> · {c.note}</span>}
+                  </span>
                   <span className="ledger-answer" data-mark={c.mark}>
                     <span className="sr-only">
                       {c.mark === "in" || c.mark === "private"
@@ -389,10 +398,38 @@ export function PlaceDetails({
                             ? "likely: "
                             : c.mark === "unlikely"
                               ? "unlikely: "
-                              : "unknown: "}
+                              : c.mark === "busy"
+                                ? ""
+                                : "unknown: "}
                     </span>
                     {c.answer}
                   </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {whereWhen && (
+          <div className="details-group" data-testid="where-when">
+            <div className="group-heading">Where and when</div>
+            <div className="ledger">
+              {dossier.address && (
+                <div className="ledger-row">
+                  <span className="ledger-label">{dossier.address}</span>
+                </div>
+              )}
+              {dossier.phone && (
+                <div className="ledger-row">
+                  <a className="ledger-label details-phone" href={`tel:${dossier.phone.replace(/\s+/g, "")}`}>
+                    {dossier.phone}
+                  </a>
+                </div>
+              )}
+              {hours.map((h) => (
+                <div className="ledger-row hours-row" key={h.days}>
+                  <span className="ledger-label">{h.days}</span>
+                  <span className="ledger-answer hours-times">{h.times}</span>
                 </div>
               ))}
             </div>
@@ -447,9 +484,16 @@ export function PlaceDetails({
             {/* Server order, verbatim. No invented icons, no reordering. */}
             <div className="fact-row" data-testid="facts">
               {known.map((a) => (
-                <span className="fact attr-row" data-status={a.status} key={a.key}>
+                <span
+                  className="fact attr-row"
+                  data-status={a.status}
+                  key={a.key}
+                  title={a.note ? `${sourceOf(a)}: ${a.note}` : sourceOf(a)}
+                >
                   {factLabel(a)}
-                  {a.status === "likely_true" && <span className="fact-note"> · likely</span>}
+                  {a.status === "likely_true" && a.key !== "price-level" && (
+                    <span className="fact-note"> · likely</span>
+                  )}
                   {a.status === "likely_false" && <span className="fact-note"> · unlikely</span>}
                 </span>
               ))}

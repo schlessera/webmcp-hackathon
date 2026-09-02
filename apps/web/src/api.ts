@@ -121,6 +121,15 @@ export function spatialInspectRaw(
   return post("/api/spatial/inspect", input === undefined ? {} : input, signal);
 }
 
+/** Ask the server to look places up now (look_up_places). The answer is the
+ * dossiers as they stand; what lands later arrives on the facts frame. */
+export function spatialLookupRaw(
+  input: unknown,
+  signal?: AbortSignal,
+): Promise<unknown> {
+  return post("/api/spatial/lookup", input === undefined ? {} : input, signal);
+}
+
 export function spatialNavigationRaw(
   input: unknown,
   signal?: AbortSignal,
