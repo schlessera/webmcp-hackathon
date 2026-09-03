@@ -160,8 +160,9 @@ ten-minute grace period after it empties. The client can rely on question
 statuses moving only from validated place-site or cited search evidence,
 abstention remaining `unknown`, and `sourceUrl` being present for every
 search-derived fact. `SpatialContextResult.refine` reports whether the loop is
-active, how many places remain queued, how many places were checked since UTC
-midnight, and the remaining per-room model-call and search budgets.
+active, how many places remain queued, the tier-one count for active needs, how
+many places were checked since UTC midnight, and the remaining per-room
+model-call and search budgets.
 
 ### Temporal needs
 

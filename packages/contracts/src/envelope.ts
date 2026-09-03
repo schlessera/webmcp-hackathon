@@ -366,6 +366,8 @@ export interface SpatialContextResult {
   refine?: {
     active: boolean;
     queued: number;
+    /** Places pending for active needs, excluding background vocabulary work. */
+    tier1Queued: number;
     checkedToday: number;
     budgetLeft: { calls: number; searches: number };
   };

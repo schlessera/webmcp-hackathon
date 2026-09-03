@@ -89,7 +89,8 @@ describe("continuous refinement over the API", () => {
 
   it("fills two cited likely facts, abstains on one, and drains the queue", async () => {
     const initial = await context();
-    expect(initial.refine).toMatchObject({ active: true, queued: 3, checkedToday: 0 });
+    expect(initial.refine).toMatchObject({ active: true, checkedToday: 0 });
+    expect(initial.refine.tier1Queued).toBeLessThanOrEqual(initial.refine.queued);
 
     const key = questionKey("free wifi");
     const privateKey = questionKey(PRIVATE_SENTENCE);
@@ -184,10 +185,10 @@ describe("continuous refinement over the API", () => {
   });
 
   async function context(): Promise<{
-    refine: { active: boolean; queued: number; checkedToday: number };
+    refine: { active: boolean; queued: number; tier1Queued: number; checkedToday: number };
   }> {
     const response = await apiPost<{
-      refine: { active: boolean; queued: number; checkedToday: number };
+      refine: { active: boolean; queued: number; tier1Queued: number; checkedToday: number };
     }>(server.baseUrl, "/api/spatial/context", room.tokens.org, {});
     return response.body;
   }

@@ -8,6 +8,7 @@ import {
   refinementActive,
   refinementBudgetSleepForTest,
   refinementLookupReason,
+  refinementQueueCounts,
   refineQueryShaping,
   refinementTickDelay,
   REFINE_IDLE_TICK_MS,
@@ -59,6 +60,7 @@ describe("continuous refinement queue", () => {
       ["stale", 2],
       ["vocabulary", 3],
     ]);
+    expect(refinementQueueCounts(queue)).toEqual({ total: 4, tier1: 2 });
   });
 
   it("dedupes a place already evaluated for the same criterion set", () => {

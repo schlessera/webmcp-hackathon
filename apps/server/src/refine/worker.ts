@@ -114,6 +114,7 @@ interface RoomState {
   stopped: boolean;
   budgetLogged: boolean;
   queued: number;
+  tier1Queued: number;
   criteriaKey: string;
   evaluated: Map<string, Set<string>>;
   providerChecked: Set<string>;
@@ -127,6 +128,16 @@ export interface RefinementQueueItem {
   candidate: CandidateRow;
   tier: 1 | 2 | 3;
   criteria: Criterion[];
+}
+
+export function refinementQueueCounts(queue: RefinementQueueItem[]): {
+  total: number;
+  tier1: number;
+} {
+  return {
+    total: queue.length,
+    tier1: queue.filter((item) => item.tier === 1).length,
+  };
 }
 
 interface ActiveCriterion {
@@ -157,6 +168,7 @@ function stateFor(roomId: string): RoomState {
       stopped: false,
       budgetLogged: false,
       queued: 0,
+      tier1Queued: 0,
       criteriaKey: "",
       evaluated: new Map(),
       providerChecked: new Set(),
@@ -624,7 +636,9 @@ export async function runRefinementTick(
       return item ? [item] : [];
     });
   }
-  state.queued = queue.length;
+  const queueCounts = refinementQueueCounts(queue);
+  state.queued = queueCounts.total;
+  state.tier1Queued = queueCounts.tier1;
   if (queue.length === 0) return refinementTickDelay(0);
 
   const searchLeft = searchBudget.remaining(roomId, now);
@@ -807,7 +821,12 @@ export async function runRefinementTick(
       state.providerChecked.add(item.candidate.id);
       if (item.criteria.length > 0) state.checked.add(item.candidate.id);
     }
-    state.queued = Math.max(0, queue.length - batch.length);
+    const batchCounts = refinementQueueCounts(batch);
+    state.queued = Math.max(0, queueCounts.total - batchCounts.total);
+    state.tier1Queued = Math.max(
+      0,
+      queueCounts.tier1 - batchCounts.tier1,
+    );
 
     const refreshed = await loadEligibilityInputs(pool, roomId);
     const before = new Map(batch.map((item) => [
@@ -830,14 +849,14 @@ export async function runRefinementTick(
 
 export function refinementView(
   roomId: string,
-  inputs?: EligibilityInputs,
+  _inputs?: EligibilityInputs,
   now = Date.now(),
 ): NonNullable<SpatialContextResult["refine"]> {
   const state = rooms.get(roomId);
-  const queued = inputs && state ? buildRefinementQueue(inputs, state, roomId, now).length : state?.queued ?? 0;
   return {
     active: Boolean(state && !state.stopped),
-    queued,
+    queued: state?.queued ?? 0,
+    tier1Queued: state?.tier1Queued ?? 0,
     checkedToday: state?.checkedDay === utcDay(now) ? state.checked.size : 0,
     budgetLeft: {
       calls: modelBudget.remaining(roomId, now),

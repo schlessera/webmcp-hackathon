@@ -1,6 +1,6 @@
 {
   "toolContractVersion": "3",
-  "sha256": "a0728689ff4c0754cfe28a0c294831089a12b2cac6d36342ada00aebb702ac6d",
+  "sha256": "8abb4389f5cee9053f427f12ca47c826ad3a5007fd83bb7794f64b4a0b08a94f",
   "manifest": {
     "capabilityManifest": {
       "agreement": {
@@ -3226,13 +3226,17 @@
                   },
                   "queued": {
                     "type": "number"
+                  },
+                  "tier1Queued": {
+                    "type": "number"
                   }
                 },
                 "required": [
                   "active",
                   "budgetLeft",
                   "checkedToday",
-                  "queued"
+                  "queued",
+                  "tier1Queued"
                 ],
                 "type": "object"
               },
