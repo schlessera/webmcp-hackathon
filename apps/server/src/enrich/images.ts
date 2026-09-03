@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type pg from "pg";
 import sharp from "sharp";
 import {
@@ -6,6 +7,13 @@ import {
   fetchPublic,
   type FetchLike,
 } from "./website.ts";
+import {
+  classifyPlaceImages,
+  keepPlaceImageVerdict,
+  placeImageClassifierEnabled,
+  type PlaceImageKind,
+  type PlaceImageVerdict,
+} from "./image-classifier.ts";
 
 export interface ImageCandidate {
   url: string;
@@ -38,18 +46,24 @@ export interface StoredPlaceImage extends ProcessedImage {
 }
 
 export const MAX_IMAGE_CANDIDATES = 3;
-export const MAX_IMAGE_ATTEMPTS = 6;
+export const MAX_IMAGE_ATTEMPTS = 8;
 export const MAX_IMAGE_DOWNLOAD_BYTES = 6 * 1024 * 1024;
 export const MAX_STORED_IMAGE_BYTES = 200 * 1024;
 export const IMAGE_TIMEOUT_MS = 10_000;
 export const IMAGE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const IMAGE_FAILURE_TTL_MS = 60 * 60 * 1000;
+export const IMAGE_VERDICT_TTL_DAYS = 30;
 /** A source that asks for a shorter life gets a shorter life, but re-fetching
  * every hour for thousands of places is its own kind of rudeness. */
 const MIN_IMAGE_TTL_MS = 24 * 60 * 60 * 1000;
 const DECODED_FORMATS = new Set([
-  "jpeg", "png", "webp", "gif", "avif", "heif", "tiff", "svg",
+  "jpeg", "png", "webp", "avif", "heif", "tiff",
 ]);
+const NON_PHOTO_EXTENSION = /\.(?:svg|ico|gif)$/i;
+
+export function imageUrlHash(url: string): string {
+  return createHash("sha256").update(url).digest("hex");
+}
 
 /** Read a response without ever retaining more than the six-megabyte input
  * ceiling. Content-Length is only an early rejection; the streamed count is
@@ -97,6 +111,17 @@ export async function resizePlaceImage(input: Uint8Array): Promise<ProcessedImag
   if (!metadata.format || !DECODED_FORMATS.has(metadata.format)) {
     throw new Error("decoded content is not an image");
   }
+  let decodedWidth = metadata.width;
+  let decodedHeight = metadata.height;
+  if ((metadata.orientation ?? 0) >= 5) {
+    [decodedWidth, decodedHeight] = [decodedHeight, decodedWidth];
+  }
+  if (!decodedWidth || !decodedHeight) throw new Error("image has no dimensions");
+  if (decodedWidth < 480 || decodedHeight < 320) {
+    throw new Error("image dimensions are too small");
+  }
+  const aspect = decodedWidth / decodedHeight;
+  if (aspect < 0.5 || aspect > 3) throw new Error("image aspect ratio is unsuitable");
   const { data, info } = await decoder
     .rotate()
     .resize({ width: 960, withoutEnlargement: true })
@@ -127,6 +152,9 @@ export async function downloadPlaceImage(
   const target = new URL(candidate.url);
   if (target.protocol !== "http:" && target.protocol !== "https:") {
     throw new Error("not a fetchable image URL");
+  }
+  if (NON_PHOTO_EXTENSION.test(target.pathname)) {
+    throw new Error("image file type is unsuitable");
   }
   if (!(await fetchAllowed(target, fetchImpl, IMAGE_TIMEOUT_MS))) {
     throw new Error("robots.txt disallows image");
@@ -201,12 +229,72 @@ export async function imagesRefreshDue(
   return new Set(rows.filter((row) => row.due).map((row) => row.osm_ref));
 }
 
-/** One place at a time is already bounded by the enrichment semaphore. Walk
- * precedence order sequentially until three images work, with a six-attempt
- * ceiling so broken site candidates cannot multiply the global network load. */
+interface VerdictRow {
+  url_hash: string;
+  kind: PlaceImageKind;
+  confidence: number;
+  model: string;
+  decided_at: Date;
+}
+
+async function loadImageVerdicts(
+  db: Pick<pg.Pool, "query">,
+  candidates: ImageCandidate[],
+): Promise<Map<string, VerdictRow>> {
+  if (candidates.length === 0) return new Map();
+  const hashes = candidates.map((candidate) => imageUrlHash(candidate.url));
+  const rows = (await db.query(
+    `SELECT url_hash, kind, confidence, model, decided_at
+       FROM place_image_verdicts
+      WHERE url_hash = ANY($1)
+        AND decided_at > now() - ($2 || ' days')::interval`,
+    [hashes, String(IMAGE_VERDICT_TTL_DAYS)],
+  )).rows as VerdictRow[];
+  return new Map(rows.map((row) => [row.url_hash, row]));
+}
+
+async function saveImageVerdicts(
+  db: Pick<pg.Pool, "query">,
+  rows: Array<{ candidate: ImageCandidate; verdict: PlaceImageVerdict }>,
+  model: string,
+): Promise<void> {
+  if (rows.length === 0) return;
+  await db.query(
+    `INSERT INTO place_image_verdicts
+       (url_hash, kind, confidence, model, decided_at)
+     SELECT batch.url_hash, batch.kind, batch.confidence, $4, now()
+       FROM unnest($1::text[], $2::text[], $3::real[])
+            AS batch(url_hash, kind, confidence)
+     ON CONFLICT (url_hash) DO UPDATE SET
+       kind = EXCLUDED.kind,
+       confidence = EXCLUDED.confidence,
+       model = EXCLUDED.model,
+       decided_at = EXCLUDED.decided_at`,
+    [
+      rows.map(({ candidate }) => imageUrlHash(candidate.url)),
+      rows.map(({ verdict }) => verdict.kind),
+      rows.map(({ verdict }) => verdict.confidence),
+      model,
+    ],
+  );
+}
+
+interface ExistingImage {
+  source_url: string;
+  mime: "image/webp";
+  width: number;
+  height: number;
+  bytes: Buffer;
+  expires_at: Date;
+}
+
+/** One place at a time is already bounded by the enrichment semaphore.
+ * Curated candidates are tried first. Site candidates are cache-gated before
+ * download, transformed once, then classified together in one vision call. */
 export async function refreshPlaceImages(
   db: pg.Pool,
   osmRef: string,
+  placeName: string,
   candidates: ImageCandidate[],
   fetchImpl: FetchLike = fetch,
 ): Promise<number> {
@@ -215,7 +303,9 @@ export async function refreshPlaceImages(
   ].slice(0, MAX_IMAGE_ATTEMPTS);
   const stored: Array<{ candidate: ImageCandidate; image: ProcessedImage }> = [];
   let failures = 0;
-  for (const candidate of unique) {
+  const curated = unique.filter((candidate) => !candidate.source.startsWith("web:"));
+  const website = unique.filter((candidate) => candidate.source.startsWith("web:"));
+  for (const candidate of curated) {
     if (stored.length >= MAX_IMAGE_CANDIDATES) break;
     try {
       stored.push({ candidate, image: await downloadPlaceImage(candidate, fetchImpl) });
@@ -224,11 +314,103 @@ export async function refreshPlaceImages(
     }
   }
 
+  if (stored.length < MAX_IMAGE_CANDIDATES && website.length > 0 && placeImageClassifierEnabled()) {
+    const verdicts = await loadImageVerdicts(db, website);
+    const existingRows = (await db.query(
+      `SELECT source_url, mime, width, height, bytes, expires_at
+         FROM place_images WHERE osm_ref = $1 AND expires_at > now()`,
+      [osmRef],
+    )).rows as ExistingImage[];
+    const existing = new Map(existingRows.map((row) => [row.source_url, row]));
+    const approved = new Map<string, ProcessedImage>();
+    const pending: Array<{ candidate: ImageCandidate; image: ProcessedImage }> = [];
+
+    for (const candidate of website) {
+      const cached = verdicts.get(imageUrlHash(candidate.url));
+      if (cached && !keepPlaceImageVerdict(cached)) continue;
+      if (cached) {
+        const prior = existing.get(candidate.url);
+        if (prior) {
+          approved.set(candidate.url, {
+            mime: prior.mime,
+            width: prior.width,
+            height: prior.height,
+            bytes: prior.bytes,
+            ttlMs: Math.max(1, prior.expires_at.getTime() - Date.now()),
+          });
+          continue;
+        }
+      }
+      try {
+        const image = await downloadPlaceImage(candidate, fetchImpl);
+        if (cached) approved.set(candidate.url, image);
+        else pending.push({ candidate, image });
+      } catch {
+        failures += 1;
+      }
+    }
+
+    if (pending.length > 0) {
+      const rejectedByKind: Record<string, number> = {};
+      let kept = 0;
+      let model = "unknown";
+      let durationMs = 0;
+      let inputTokens = 0;
+      let outputTokens = 0;
+      try {
+        const classified = await classifyPlaceImages(placeName, pending.map(({ image }) => image));
+        model = classified.model;
+        durationMs = classified.durationMs;
+        inputTokens = classified.inputTokens;
+        outputTokens = classified.outputTokens;
+        if (classified.verdicts) {
+          const decided = pending.map((entry, index) => ({
+            candidate: entry.candidate,
+            verdict: classified.verdicts![index],
+          }));
+          await saveImageVerdicts(db, decided, classified.model);
+          for (const [index, entry] of pending.entries()) {
+            const verdict = classified.verdicts[index];
+            if (keepPlaceImageVerdict(verdict)) {
+              approved.set(entry.candidate.url, entry.image);
+              kept += 1;
+            } else {
+              rejectedByKind[verdict.kind] = (rejectedByKind[verdict.kind] ?? 0) + 1;
+            }
+          }
+        } else {
+          rejectedByKind.invalid_answer = pending.length;
+          failures += pending.length;
+        }
+      } catch {
+        rejectedByKind.classifier_error = pending.length;
+        failures += pending.length;
+      }
+      console.info(JSON.stringify({
+        msg: "place image vision batch",
+        place: placeName,
+        imagesIn: pending.length,
+        kept,
+        rejectedByKind,
+        model,
+        durationMs,
+        inputTokens,
+        outputTokens,
+      }));
+    }
+
+    for (const candidate of website) {
+      if (stored.length >= MAX_IMAGE_CANDIDATES) break;
+      const image = approved.get(candidate.url);
+      if (image) stored.push({ candidate, image });
+    }
+  }
+
   const client = await db.connect();
   try {
     await client.query("BEGIN");
+    await client.query("DELETE FROM place_images WHERE osm_ref = $1", [osmRef]);
     if (stored.length > 0) {
-      await client.query("DELETE FROM place_images WHERE osm_ref = $1", [osmRef]);
       for (const [idx, entry] of stored.entries()) {
         await client.query(
           `INSERT INTO place_images
@@ -253,7 +435,7 @@ export async function refreshPlaceImages(
         );
       }
     }
-    const completed = unique.length === 0 || stored.length > 0;
+    const completed = stored.length > 0 || failures === 0;
     await client.query(
       `UPDATE enrichments SET
          image_fetched_at = now(),

@@ -194,6 +194,9 @@ function PlacePhoto({ image, alt }: { image: DossierImage; alt: string }) {
 
 function photoCredit(image: DossierImage): string {
   if (image.source.startsWith("web:")) return COPY.photoFromPlaceSite;
+  if (image.source === "commons:geosearch") {
+    return COPY.photoNearPlace(image.credit ?? "Wikimedia Commons");
+  }
   if (image.license) {
     return COPY.photoCredit(image.credit ?? "Wikimedia Commons", image.license);
   }

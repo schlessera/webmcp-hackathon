@@ -20,6 +20,7 @@ import {
 } from "./website.ts";
 import {
   fetchWikidataFacts,
+  geosearchCommonsImages,
   resolveCommonsImage,
   type WikiFacts,
 } from "./wikidata.ts";
@@ -110,6 +111,8 @@ export interface ProviderFetchState {
 
 export interface LookupTarget {
   osmRef: string;
+  placeName?: string;
+  location?: { lat: number; lng: number };
   website?: string;
   wikidata?: string;
   image?: string;
@@ -412,7 +415,8 @@ function dueProviders(target: LookupTarget, cached: Enrichment | undefined, forc
 
 const hasLookupSource = (target: LookupTarget): boolean =>
   Boolean(
-    target.website || target.wikidata || target.image || target.wikimediaCommons,
+    target.website || target.wikidata || target.image || target.wikimediaCommons ||
+      (target.placeName && target.location),
   );
 
 function commonsFilename(raw: string | undefined): string | undefined {
@@ -468,6 +472,9 @@ async function imageCandidatesFor(
       fetchImpl,
     );
     if (image) out.push(image);
+  }
+  if (target.placeName && target.location) {
+    out.push(...await geosearchCommonsImages(target.placeName, target.location, fetchImpl));
   }
   out.push(...websiteCandidates);
   return [...new Map(out.map((candidate) => [candidate.url, candidate])).values()];
@@ -649,6 +656,7 @@ async function lookup(db: pg.Pool, target: LookupTarget, force = false): Promise
         await refreshPlaceImages(
           db,
           target.osmRef,
+          target.placeName ?? target.osmRef,
           await imageCandidatesFor(
             target,
             refreshed,
@@ -1157,7 +1165,7 @@ async function runLookupNow(
 
         // Provider freshness is independent: lookup retries only the due leg,
         // retains last-known-good facts, and preserves a failed leg's TTL.
-        if (target.website || target.wikidata) {
+        if (hasLookupSource(target)) {
           const pass = await lookup(pool, target, options.force === true);
           current = pass.enrichment ?? undefined;
           transientText = pass.pageText;
@@ -1580,6 +1588,8 @@ export function enrichmentView(
 /** What to look up for a candidate row: its site and its Wikidata id. */
 export function lookupTargetOf(row: {
   osm_ref?: string | null;
+  name?: string;
+  location?: { lat?: unknown; lng?: unknown } | null;
   extras?: {
     website?: string;
     wikidata?: string;
@@ -1590,6 +1600,10 @@ export function lookupTargetOf(row: {
   if (!row.osm_ref) return null;
   return {
     osmRef: row.osm_ref,
+    ...(row.name ? { placeName: row.name } : {}),
+    ...(typeof row.location?.lat === "number" && typeof row.location.lng === "number"
+      ? { location: { lat: row.location.lat, lng: row.location.lng } }
+      : {}),
     ...(row.extras?.website ? { website: row.extras.website } : {}),
     ...(row.extras?.wikidata ? { wikidata: row.extras.wikidata } : {}),
     ...(row.extras?.image ? { image: row.extras.image } : {}),

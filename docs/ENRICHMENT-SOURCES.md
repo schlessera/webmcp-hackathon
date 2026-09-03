@@ -153,14 +153,47 @@ redistributable, no attribution obligation (we attribute anyway).
 
 ## Images
 
-Place photos use the following precedence. Candidates are tried one at a time
-until three images are stored or six downloads have been attempted:
+Place photos use the following precedence. At most three are stored and no
+more than eight candidates are considered:
 
 1. `image` and `wikimedia_commons` on the OpenStreetMap record;
 2. Wikidata P18, for a place whose OSM record carries a `wikidata` id;
-3. the place's own homepage: `og:image`, `twitter:image`, schema.org `image`
-   in JSON-LD or microdata, `<link rel="image_src">`, then the largest
-   dimensioned `<img>` in a bounded approximation of the page's first fold.
+3. Wikimedia Commons file geosearch (`list=geosearch`, namespace 6) within
+   40 m of the POI;
+4. vision-approved declarations from the place's own homepage.
+
+The first three sources are curated: a person associated the image with the
+record/place, or Commons metadata locates and names it. A nearby Commons file
+is accepted only when its **file title** carries the place name after case,
+punctuation and diacritics are normalised. A random nearby file is therefore
+rejected, and so are three narrower mistakes a live Berlin run produced:
+
+- **A category cannot carry a match.** A category is where a photographer
+  filed a picture, not what it shows. A file named `(20250217) Berlin 04.jpg`
+  filed under a category mentioning "Grimm" was served as the photo of a place
+  called Grimm Café. Categories may corroborate a title match, never replace it.
+- **The name words must be contiguous.** Scattered word hits let a long title
+  borrow a name it does not carry.
+- **A hyphenated compound is a different name.** "Grimm" inside
+  `Jacob-und Wilhelm-Grimm-Zentrum` is a university library, not the café next
+  door. A compound carrying one of the name's words plus a word the name does
+  not have is rejected.
+
+Generic words such as `cafe`, `restaurant`, `bar` and `hotel` never count
+towards a match on their own.
+Accepted geosearch images retain the existing Commons Creative Commons
+licence and artist checks and read `photo near this place · <credit>`.
+
+The homepage contributes only explicit representative-image declarations:
+`og:image`, `twitter:image`, schema.org `image` in JSON-LD or microdata, and
+`<link rel="image_src">`. Ordinary `<img>` elements are never candidates;
+there is no largest/first-fold fallback. A declared site candidate is rejected
+before download when its extension or declared type is SVG, ICO or GIF, or
+when its URL path, alt text or class has a word-like match for `flag`, `icon`,
+`logo`, `sprite`, `lang`/`language`, `avatar`, `badge`, `banner`,
+`placeholder`, `pixel` or `tracking`. Matching is boundary-aware and examines
+the path rather than the host, so `flagship-hotel.jpg` and a photo hosted at
+`bannerman.de` remain eligible.
 
 When website facts are fetched in the same pass, homepage candidates travel
 only on that in-memory result and are stripped before the `website` JSON is
@@ -179,12 +212,42 @@ source did not supply.
 Every image fetch is server-side and passes through the website reader's same
 DNS/IP SSRF guard, manual redirect checks and robots.txt policy, with the
 project's identifying User-Agent. Inputs are capped at 6 MB and ten seconds.
-Decoded images are resized to at most 960 px wide and encoded as WebP quality
-72; results above 200 KB are rejected. A response that forbids shared caching
-or grants less than the seven-day TTL is rejected. The database stores only those WebP
+The decoder rejects SVG, ICO and GIF content, dimensions below 480 × 320, and
+aspect ratios outside 1:2 through 3:1. Remaining images are resized to at most
+960 px wide and encoded as WebP quality 72; results above 200 KB are rejected.
+A response that forbids shared caching is rejected; a shorter usable freshness
+hint shortens the stored copy. The database stores only those WebP
 bytes, dimensions, MIME, source and source URL, source page, credit, licence,
 and fetch/expiry timestamps. Rows expire after seven days and are re-fetched;
 expired bytes are never served.
+
+Every non-curated (site) image is classified before storage by
+`config.nlFastModel` (default `gpt-5.6-luna`). One strict-schema Responses call
+carries all of a place's downloaded/resized candidates (up to eight) as WebP
+data URIs at `detail: low`; there is never one model call per image. Its one
+entry per input image is `{ kind, confidence }`, where `kind` is one of
+`venue_exterior`, `venue_interior`, `food_or_drink`, `people`, `logo`,
+`flag_or_icon`, `map_or_screenshot`, `text_or_graphic`, or `other`. Exterior,
+interior and food/drink are kept at confidence ≥ 0.6. The prompt assigns people
+inside or directly in front of a visible place to the corresponding venue
+kind; `people` is reserved for portraits/stock/crowd shots with no place
+visible and is rejected. A short, malformed or failed answer rejects the whole
+batch rather than storing an unclassified image.
+
+`place_image_verdicts` caches kind, confidence, model and decision time for 30
+days under the SHA-256 of the candidate URL (the URL itself is not stored in
+that table). The cache is consulted before downloads: a cached rejection is
+not fetched, while a cached acceptance reuses a still-live local copy when one
+exists. The filter is off without `OPENAI_API_KEY` or with
+`PLACE_IMAGE_CLASSIFIER=0`; while off, no site image is stored at all and the
+band is curated-only. One structured log line per fresh place batch records
+the place name, input/kept counts, rejected kinds, model, duration and token
+usage, without candidate URLs.
+
+Migration 017 deletes every `place_images` row whose source starts `web:` and
+clears the affected enrichment image clocks. Those pre-classifier bytes are
+then eligible for a fresh harvest under these rules; curated rows are left
+alone.
 
 The participant receives only an authenticated, same-origin `/api/places/…`
 URL. No participant IP ever reaches the place, Wikimedia Commons, or another
@@ -539,8 +602,9 @@ annotated span itself is a bare link and is never evidence.
   finishing behind it. On-demand lookups share one global four-place
   semaphore. Inspection discovers targets before taking a room lock, waits
   without a checked-out database client, then opens one short transaction to
-  read the revision and build the dossier. The classifier reads the cache
-  only; it never waits on the network.
+  read the revision and build the dossier. Image download and the batched
+  vision call remain inside that same background lookup promise: the existing
+  3.5-second race was not extended, so slow images land for the next read.
 - **Precedence**: a verified record fact (`osm:*`, `curated:*`) is never
   overwritten. A looked-up fact fills `unknown` / `unverified` slots:
   cuisine, price band, wheelchair (verified, `web:<host>`), hours

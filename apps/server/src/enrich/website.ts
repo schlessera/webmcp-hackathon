@@ -393,32 +393,111 @@ function imageUrl(base: string, raw: unknown): string | undefined {
   return undefined;
 }
 
+const NON_PHOTO_IMAGE_WORD =
+  /(?<![\p{L}\p{N}])(?:flag|icon|logo|sprite|lang(?:uage)?|avatar|badge|banner|placeholder|pixel|tracking)(?![\p{L}\p{N}])/iu;
+const NON_PHOTO_IMAGE_TYPE = /^(?:image\/)?(?:svg\+xml|svg|x-icon|vnd\.microsoft\.icon|ico|gif)(?:\s*;|$)/i;
+const NON_PHOTO_IMAGE_EXTENSION = /\.(?:svg|ico|gif)$/i;
+
+/** A structured site declaration can still point at chrome. Match only the
+ * URL path (never its host) and use Unicode letter/number boundaries so a
+ * real `flagship-hotel.jpg` or a host such as bannerman.de survives. */
+export function websiteImageCandidateAllowed(input: {
+  url: string;
+  alt?: string;
+  className?: string;
+  declaredType?: string;
+}): boolean {
+  let path: string;
+  try {
+    const url = new URL(input.url);
+    try {
+      path = decodeURIComponent(url.pathname);
+    } catch {
+      path = url.pathname;
+    }
+  } catch {
+    return false;
+  }
+  if (NON_PHOTO_IMAGE_EXTENSION.test(path)) return false;
+  if (input.declaredType && NON_PHOTO_IMAGE_TYPE.test(input.declaredType.trim())) return false;
+  return ![path, input.alt ?? "", input.className ?? ""].some((value) =>
+    NON_PHOTO_IMAGE_WORD.test(value)
+  );
+}
+
 /**
  * Candidate images from one already-fetched homepage, in product precedence:
- * Open Graph, Twitter, schema.org (JSON-LD then microdata), image_src, then
- * the largest dimensioned image in the first bounded portion of the page.
+ * Open Graph, Twitter, schema.org (JSON-LD then microdata), and image_src.
+ * These are the site's explicit representative-image declarations; arbitrary
+ * `<img>` elements are deliberately not candidates.
  */
 export function extractImageCandidates(html: string, pageUrl: string): WebsiteImageCandidate[] {
   const candidates: string[] = [];
-  const add = (raw: unknown) => {
+  const add = (
+    raw: unknown,
+    metadata: { alt?: string; className?: string; declaredType?: string } = {},
+  ) => {
     const url = imageUrl(pageUrl, raw);
-    if (url && !candidates.includes(url)) candidates.push(url);
+    if (
+      url &&
+      websiteImageCandidateAllowed({ url, ...metadata }) &&
+      !candidates.includes(url)
+    ) candidates.push(url);
   };
+
+  const ogType = [...html.matchAll(/<meta\b([^>]*)>/gi)]
+    .find((meta) =>
+      (attributeOf(meta[1], "property") ?? attributeOf(meta[1], "name") ?? "").toLowerCase() ===
+        "og:image:type"
+    );
+  const ogDeclaredType = ogType ? attributeOf(ogType[1], "content") : undefined;
+  const companionMeta = (wanted: string): string | undefined => {
+    for (const meta of html.matchAll(/<meta\b([^>]*)>/gi)) {
+      const key = (attributeOf(meta[1], "property") ?? attributeOf(meta[1], "name") ?? "")
+        .toLowerCase();
+      if (key === wanted) return attributeOf(meta[1], "content");
+    }
+    return undefined;
+  };
+  const ogAlt = companionMeta("og:image:alt");
+  const twitterAlt = companionMeta("twitter:image:alt");
 
   for (const meta of html.matchAll(/<meta\b([^>]*)>/gi)) {
     const attrs = meta[1];
     const key = (attributeOf(attrs, "property") ?? attributeOf(attrs, "name") ?? "").toLowerCase();
-    if (key === "og:image" || key === "og:image:url") add(attributeOf(attrs, "content"));
+    if (key === "og:image" || key === "og:image:url") {
+      add(attributeOf(attrs, "content"), {
+        alt: attributeOf(attrs, "alt") ?? ogAlt,
+        className: attributeOf(attrs, "class"),
+        declaredType: ogDeclaredType,
+      });
+    }
   }
   for (const meta of html.matchAll(/<meta\b([^>]*)>/gi)) {
     const attrs = meta[1];
     const key = (attributeOf(attrs, "name") ?? attributeOf(attrs, "property") ?? "").toLowerCase();
-    if (key === "twitter:image" || key === "twitter:image:src") add(attributeOf(attrs, "content"));
+    if (key === "twitter:image" || key === "twitter:image:src") {
+      add(attributeOf(attrs, "content"), {
+        alt: attributeOf(attrs, "alt") ?? twitterAlt,
+        className: attributeOf(attrs, "class"),
+      });
+    }
   }
 
   for (const script of html.matchAll(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)) {
     try {
-      for (const node of collectNodes(JSON.parse(script[1].trim()))) add(node.image);
+      for (const node of collectNodes(JSON.parse(script[1].trim()))) {
+        const image = node.image;
+        const typed = image && typeof image === "object" && !Array.isArray(image)
+          ? image as Record<string, unknown>
+          : undefined;
+        add(image, {
+          alt: typeof typed?.caption === "string" ? typed.caption : undefined,
+          declaredType: typeof typed?.encodingFormat === "string"
+            ? typed.encodingFormat
+            : undefined,
+        });
+      }
     } catch {
       /* broken JSON-LD contributes no candidate */
     }
@@ -428,27 +507,22 @@ export function extractImageCandidates(html: string, pageUrl: string): WebsiteIm
       attributeOf(element[1], "content") ??
       attributeOf(element[1], "href") ??
       attributeOf(element[1], "src"),
+      {
+        alt: attributeOf(element[1], "alt"),
+        className: attributeOf(element[1], "class"),
+        declaredType: attributeOf(element[1], "type"),
+      },
     );
   }
   for (const link of html.matchAll(/<link\b([^>]*)>/gi)) {
     const rel = (attributeOf(link[1], "rel") ?? "").toLowerCase().split(/\s+/);
-    if (rel.includes("image_src")) add(attributeOf(link[1], "href"));
+    if (rel.includes("image_src")) {
+      add(attributeOf(link[1], "href"), {
+        className: attributeOf(link[1], "class"),
+        declaredType: attributeOf(link[1], "type"),
+      });
+    }
   }
-
-  // "Above the fold" cannot be measured without running venue JavaScript.
-  // Bound the approximation to the first 256 KiB and first 40 image tags.
-  let largest: { raw: string; area: number } | undefined;
-  let seen = 0;
-  for (const img of html.slice(0, 256_000).matchAll(/<img\b([^>]*)>/gi)) {
-    if (++seen > 40) break;
-    const raw = attributeOf(img[1], "src");
-    if (!raw) continue;
-    const width = Number.parseInt(attributeOf(img[1], "width") ?? "0", 10);
-    const height = Number.parseInt(attributeOf(img[1], "height") ?? "0", 10);
-    const area = Math.max(1, width) * Math.max(1, height);
-    if (!largest || area > largest.area) largest = { raw, area };
-  }
-  if (largest) add(largest.raw);
 
   const source: `web:${string}` = `web:${new URL(pageUrl).host}`;
   return candidates.slice(0, 12).map((url) => ({ url, source, pageUrl }));
