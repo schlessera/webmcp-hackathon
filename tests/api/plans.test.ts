@@ -188,9 +188,12 @@ describe("POST /api/rooms with a goal and a step", () => {
     const token = await exchange(offlineServer, room.invites[0].inviteSecret);
     const context = await apiPost<{
       ok: boolean;
+      goal?: string;
       activeNeeds: Array<{ id: string; label: string; ownerId: string; visibility: string }>;
     }>(offlineServer.baseUrl, "/api/spatial/context", token, {});
     expect(context.body.ok).toBe(true);
+    // The page titles the room with the goal it reads from the context.
+    expect(context.body.goal).toBe("catch the new film tonight");
     expect(context.body.activeNeeds).toHaveLength(1);
     expect(context.body.activeNeeds[0]).toMatchObject({
       ownerId: room.invites[0].participantId,
