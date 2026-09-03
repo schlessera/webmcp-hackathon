@@ -1,5 +1,6 @@
 import { setEnrichFetch } from "../../../apps/server/src/enrich/index.ts";
 import { setTransport } from "../../../apps/server/src/nl/openai.ts";
+import { setParallelFetch } from "../../../apps/server/src/refine/search.ts";
 
 const TRANSIENT = "REFINE-TRANSIENT-PAGE-MARKER";
 const PRIVATE_SENTENCE = "private-zebra-741 needs a quiet courtyard";
@@ -10,6 +11,35 @@ setEnrichFetch(async (url) => {
   return new Response(
     `<html><body><p>${TRANSIENT} General information about this place. ${PRIVATE_EVIDENCE}.</p></body></html>`,
     { status: 200, headers: { "content-type": "text/html" } },
+  );
+});
+
+setParallelFetch(async (url, init) => {
+  if (url === "https://api.parallel.ai/v1/search") {
+    const body = JSON.parse(String(init?.body ?? "{}")) as {
+      objective?: string;
+      mode?: string;
+    };
+    console.info(`parallel-search-request ${JSON.stringify(body)}`);
+    const name = body.objective?.startsWith("Alpha")
+      ? "alpha"
+      : body.objective?.startsWith("Beta")
+        ? "beta"
+        : "gamma";
+    return Response.json({
+      search_id: `search_${name}`,
+      results: name === "gamma" ? [] : [{
+        url: `https://${name}.evidence.example/connectivity`,
+        title: `${name} connectivity`,
+        excerpts: [
+          "Section Title: Amenities\n Content:\n Free wireless internet is available throughout the dining room.\n\n... (content truncated)",
+        ],
+      }],
+    });
+  }
+  return new Response(
+    "<html><body><p>Free wireless internet is available throughout the dining room.</p></body></html>",
+    { headers: { "content-type": "text/html" } },
   );
 });
 

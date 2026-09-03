@@ -29,8 +29,12 @@ outbound proxy variables passed through to the app service.
 | `REFINE_MODEL_CALLS_PER_HOUR` | optional | Per-room model-call budget; defaults to `200`. |
 | `REFINE_SEARCHES_PER_HOUR` | optional | Per-room search budget; defaults to `150`. |
 | `REFINE_SEARCH_MODE` | optional | `split` searches then evaluates snippets; `combined` uses one OpenAI web-search response per place. Defaults to `split`. |
-| `SEARCH_PROVIDER` | optional | Split-search provider: `openai` by default, or `tavily`. |
+| `SEARCH_PROVIDER` | optional | Split-search provider: `parallel`, `openai`, or `tavily`. Default order by available key: Parallel, OpenAI, Tavily. |
+| `PARALLEL_API_KEY` | when using Parallel | Parallel Search credential. Results are cached per room under its End Customer restriction. |
 | `TAVILY_API_KEY` | when `SEARCH_PROVIDER=tavily` | Tavily credential for the optional fallback search provider. |
+| `DATAFORSEO_LOGIN` | when listings are enabled | DataForSEO API login for one structured business-listings batch per room pool. |
+| `DATAFORSEO_PASSWORD` | when listings are enabled | DataForSEO API password. Treat it as a secret; it is never logged. |
+| `LISTINGS` | optional | Set to `0` to disable DataForSEO listings. Enabled when both DataForSEO credentials exist. |
 | `PROXY_URL` | optional | Authenticated outbound proxy URL for venue pages, robots, and non-Commons image hosts. Treat it as a secret; it is never logged. |
 | `PROXY` | optional | Set to `0` to force all proxy-eligible traffic direct; defaults to enabled when `PROXY_URL` is present. |
 | `POSTGRES_PASSWORD` | optional | Defaults to `webmcp`. Set a real one for a public deployment. |

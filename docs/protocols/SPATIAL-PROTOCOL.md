@@ -404,8 +404,8 @@ whoever said it:
 | status | reads as | who says it |
 | --- | --- | --- |
 | `verified_true` | yes | the record, the venue's own markup or explicit own-site prose, a person who checked (≥ 0.7) |
-| `likely_true` | likely | a word on the menu (0.6), the kind of place (0.4–0.9), a partial value ("limited", 0.5), a reading of a menu photo, a person less sure (< 0.7) |
-| `likely_false` | unlikely | the same, leaning the other way |
+| `likely_true` | likely | a Google business listing (`listing:google`, 0.65), a word on the menu (0.6), the kind of place (0.4–0.9), a partial value ("limited", 0.5), a reading of a menu photo, a person less sure (< 0.7) |
+| `likely_false` | unlikely | the same, leaning the other way; an unavailable Google listing attribute is 0.65 rather than unknown |
 | `verified_false` | no | as for yes |
 | `unknown` | — | nobody said anything; also a disputed fact |
 
@@ -433,6 +433,8 @@ never rules a place out. The candidate's `confidence` travels on the wire.
 
 Precedence of sources when a dossier is read: the record (`osm:*`,
 `curated:*`), then looked-up facts (`web:*`, `wikidata:*`) into open slots,
+then structured Google listing evidence (`listing:google`) below an explicit
+venue statement and always below the verified floor,
 then guesses (`guess:*`) into slots still unknown, then attestations
 (`agent:*`), which may dispute any of the above, then permanent confirmed
 facts (`person:confirmed`) under the dispute rule in §8.1.

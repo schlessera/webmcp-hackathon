@@ -36,6 +36,7 @@ import {
 } from "../enrich/evaluate.ts";
 import { INFERABLE_KEYS, inferenceEnabled } from "../enrich/infer.ts";
 import { loadSearchCache, storeSearchCache } from "../enrich/cache.ts";
+import { takeListingSpendUsd } from "../enrich/listings.ts";
 import { beginLookups, lookupPending } from "../enrich/progress.ts";
 import { onPresenceChange, presentIn } from "../presence.ts";
 import { createTokenBucket } from "../token-bucket.ts";
@@ -44,8 +45,10 @@ import { adjudicateLikelyForRoom } from "../enrich/adjudication-runner.ts";
 import {
   combinedSearch,
   search,
+  SEARCH_PROVIDER_COST_USD,
   searchProviderId,
   type SearchResult,
+  type SearchProviderId,
 } from "./search.ts";
 
 export const REFINE_BATCH_SIZE = MAX_MATRIX_PLACES;
@@ -548,7 +551,9 @@ export interface RefinementAreaContext {
 export interface RefinementSearchPolicy {
   domainRule?: RefineDomainRule;
   cacheDb?: Pick<pg.Pool, "query"> | Pick<pg.PoolClient, "query">;
-  providerName?: "tavily" | "openai";
+  providerName?: SearchProviderId;
+  /** Parallel output is licensed to one room, so its cache key requires this. */
+  roomId?: string;
 }
 
 export interface RefinementTickOptions extends RefinementSearchPolicy {
@@ -622,6 +627,7 @@ export async function searchRefinementPlaces(
         query,
         providerName,
         domains,
+        policy.roomId,
       ).catch(() => null);
       if (cached?.snippets || cached?.claims || cached?.answeredIds) {
         return {
@@ -649,11 +655,12 @@ export async function searchRefinementPlaces(
     } catch {
       results = [];
     }
-    if (policy.cacheDb && providerName === "tavily") {
+    if (policy.cacheDb && (providerName === "tavily" || providerName === "parallel")) {
       await storeSearchCache(policy.cacheDb, {
         osmRef: request.osmRef,
         query,
-        provider: "tavily",
+        provider: providerName,
+        ...(policy.roomId ? { roomId: policy.roomId } : {}),
         ...(domains ? { domains } : {}),
         snippets: results,
       }).catch(() => undefined);
@@ -835,6 +842,9 @@ export async function runRefinementTick(
   state.budgetLogged = false;
   state.paused = null;
   const spendBefore = responseMetrics();
+  // Combined mode is the OpenAI Responses web-search path regardless of the
+  // separately configured split-mode provider.
+  const providerName = searchMode === "combined" ? "openai" : searchProviderId();
 
   const endProgress = beginLookups(
     roomId,
@@ -901,7 +911,7 @@ export async function runRefinementTick(
     const searchRequests = wanted.slice(0, searchSlots);
     searchBudget.consume(roomId, searchRequests.length, now);
     let searchClaims: EvaluatedInference[] = [];
-    const providerName = searchProviderId();
+    let paidSearches = 0;
     if (searchMode === "combined") {
       for (const request of searchRequests) {
         for (const criterion of request.searchCriteria) {
@@ -924,6 +934,7 @@ export async function runRefinementTick(
           candidateId: request.candidateId,
           osmRef: request.osmRef,
         }));
+        paidSearches += 1;
         try {
           const claims = await refinementSearchLimiter.use(() => combinedSearch({
             candidateId: request.candidateId,
@@ -956,11 +967,12 @@ export async function runRefinementTick(
         searchRequests,
         placeInfo,
         search,
-        { ...options, cacheDb: pool, providerName },
+        { ...options, cacheDb: pool, providerName, roomId },
       )).map((entry) => ({
         ...entry,
         prepared: preparedById.get(entry.candidateId)!,
       }));
+      paidSearches = searched.filter((entry) => !entry.cacheHit).length;
       for (const entry of searched) {
         // searchAttempts measures paid outbound legs. Replaying snippets or
         // derived claims must not consume another attempt merely because a
@@ -1101,11 +1113,12 @@ export async function runRefinementTick(
     logTick(roomId, {
       places: batch.length,
       criteria: criteria.length,
-      searches: searchRequests.length,
+      searches: paidSearches,
       claims: claims.length,
       changed: changed.length,
       queued: state.queued,
       spend: spendBefore,
+      providerName,
     });
     // A tick that did work always re-ticks at the working cadence: finishing
     // a tier can open the next one, and only an empty queue may back off.
@@ -1117,7 +1130,6 @@ export async function runRefinementTick(
 
 /** Per-search fee charged by the built-in web-search tool, and the fast-tier
  * token rates, both in dollars. Only used to print an estimate. */
-const SEARCH_FEE_USD = 0.01;
 const INPUT_USD_PER_TOKEN = 0.00000015;
 const OUTPUT_USD_PER_TOKEN = 0.0000006;
 
@@ -1136,13 +1148,16 @@ function logTick(
     changed: number;
     queued: number;
     spend: ReturnType<typeof responseMetrics>;
+    providerName: SearchProviderId;
   },
 ): void {
   const now = responseMetrics();
   const calls = now.calls - tick.spend.calls;
   const inputTokens = now.inputTokens - tick.spend.inputTokens;
   const outputTokens = now.outputTokens - tick.spend.outputTokens;
-  const cost = tick.searches * SEARCH_FEE_USD +
+  const listingCost = takeListingSpendUsd(roomId);
+  const cost = tick.searches * SEARCH_PROVIDER_COST_USD[tick.providerName] +
+    listingCost +
     inputTokens * INPUT_USD_PER_TOKEN +
     outputTokens * OUTPUT_USD_PER_TOKEN;
   console.info(JSON.stringify({
@@ -1152,6 +1167,8 @@ function logTick(
     criteria: tick.criteria,
     calls,
     searches: tick.searches,
+    searchProvider: tick.providerName,
+    listingCostUsd: Number(listingCost.toFixed(4)),
     claims: tick.claims,
     changed: tick.changed,
     queued: tick.queued,

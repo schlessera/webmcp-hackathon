@@ -1,6 +1,6 @@
 {
   "toolContractVersion": "3",
-  "sha256": "1d9bf38c10c1dc794fcb14bea2b87cc8ea58595ac7d3a7ca620b9b190083b59a",
+  "sha256": "24edfac7fd9b8afb5d1fd5850b63f7b38dcb4e56f2543f5e301542da27e1e4ce",
   "manifest": {
     "capabilityManifest": {
       "agreement": {
@@ -18,7 +18,8 @@
         "takeaway": "takeaway",
         "vegan-options": "vegan options",
         "vegetarian-options": "vegetarian options",
-        "wheelchair-accessible": "step-free access"
+        "wheelchair-accessible": "step-free access",
+        "wifi": "wi-fi"
       },
       "attributeVocabulary": [
         "vegetarian-options",
@@ -29,6 +30,7 @@
         "wheelchair-accessible",
         "outdoor-seating",
         "dog-friendly",
+        "wifi",
         "takeaway",
         "delivery",
         "price-level",
@@ -152,6 +154,10 @@
               },
               {
                 "const": "dog-friendly",
+                "type": "string"
+              },
+              {
+                "const": "wifi",
                 "type": "string"
               },
               {
@@ -289,6 +295,10 @@
               },
               {
                 "const": "dog-friendly",
+                "type": "string"
+              },
+              {
+                "const": "wifi",
                 "type": "string"
               },
               {
@@ -949,6 +959,10 @@
                         "type": "string"
                       },
                       {
+                        "const": "wifi",
+                        "type": "string"
+                      },
+                      {
                         "const": "takeaway",
                         "type": "string"
                       },
@@ -1457,6 +1471,10 @@
               },
               {
                 "const": "dog-friendly",
+                "type": "string"
+              },
+              {
+                "const": "wifi",
                 "type": "string"
               },
               {
@@ -5341,6 +5359,10 @@
                           "type": "string"
                         },
                         {
+                          "const": "wifi",
+                          "type": "string"
+                        },
+                        {
                           "const": "takeaway",
                           "type": "string"
                         },
@@ -6541,6 +6563,10 @@
                   "type": "string"
                 },
                 {
+                  "const": "wifi",
+                  "type": "string"
+                },
+                {
                   "const": "takeaway",
                   "type": "string"
                 },
@@ -6639,6 +6665,10 @@
                 },
                 {
                   "const": "dog-friendly",
+                  "type": "string"
+                },
+                {
+                  "const": "wifi",
                   "type": "string"
                 },
                 {

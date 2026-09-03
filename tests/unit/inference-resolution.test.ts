@@ -164,8 +164,9 @@ describe("monotonic inference resolution", () => {
       open_web: 1,
       domain_search: 2,
       own_site_inferred: 3,
-      own_site_explicit: 4,
-      record: 5,
+      listing: 4,
+      own_site_explicit: 5,
+      record: 6,
     });
   });
 });

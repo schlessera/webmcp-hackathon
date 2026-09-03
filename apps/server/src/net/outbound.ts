@@ -21,6 +21,8 @@ export type OutboundPurpose =
   | "commons"
   | "geofabrik"
   | "tavily"
+  | "parallel"
+  | "dataforseo"
   | "openai";
 
 export type OutboundRoute = "direct" | "proxy";
@@ -64,6 +66,11 @@ export interface OutboundDiagRow {
   lastAt: string;
 }
 
+export interface OutboundProviderCount {
+  attempts: number;
+  successes: number;
+}
+
 interface ProxyConfig {
   endpoint: string;
   fallbackEndpoint?: string;
@@ -75,6 +82,7 @@ interface ProxyConfig {
 interface AttemptEvent {
   at: number;
   host: string;
+  purpose: OutboundPurpose;
   route: OutboundRoute;
   country: string | null;
   latencyMs: number;
@@ -429,6 +437,19 @@ export function outboundDiagnostics(): { generatedAt: string; rows: OutboundDiag
   return { generatedAt: new Date().toISOString(), rows };
 }
 
+/** Content-free API-provider totals over the same rolling 24-hour ring. */
+export function outboundProviderCounts(): Record<"openai" | "tavily" | "parallel" | "dataforseo", OutboundProviderCount> {
+  prune();
+  const purposes = ["openai", "tavily", "parallel", "dataforseo"] as const;
+  return Object.fromEntries(purposes.map((purpose) => {
+    const providerEvents = events.filter((event) => event.purpose === purpose);
+    return [purpose, {
+      attempts: providerEvents.length,
+      successes: providerEvents.filter((event) => event.success).length,
+    }];
+  })) as Record<(typeof purposes)[number], OutboundProviderCount>;
+}
+
 function log(fields: Record<string, unknown>, message: string): void {
   if (diagnosticLogger) diagnosticLogger(fields, message);
   else console.info(JSON.stringify({ msg: message, ...fields }));
@@ -611,6 +632,7 @@ async function oneAttempt(
   let event: AttemptEvent = {
     at: started,
     host: target.hostname.toLowerCase(),
+    purpose: options.purpose,
     route,
     country: route === "proxy" ? options.country?.toUpperCase() ?? null : null,
     latencyMs: 0,
