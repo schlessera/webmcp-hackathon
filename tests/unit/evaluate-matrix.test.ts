@@ -26,6 +26,7 @@ import {
 import { applyInferredAttributes } from "../../apps/server/src/enrich/infer.ts";
 import { classifyAll, type CandidateRow, type RequirementRow } from "../../apps/server/src/eligibility.ts";
 import { setTransport } from "../../apps/server/src/nl/openai.ts";
+import { extractVisibleText } from "../../apps/server/src/enrich/website.ts";
 
 /** U5/E8: one strict matrix call fills only verbatim, same-place evidence cells and source caps every guess. */
 
@@ -96,6 +97,34 @@ afterEach(() => {
 });
 
 describe("batched matrix evaluation", () => {
+  it("keeps an evidence span valid after entity-laden HTML is cleaned", () => {
+    const text = extractVisibleText(
+      "<p>Dogs &amp; their people<br>are welcome throughout the dining room.</p>",
+    );
+    const input: EvaluateMatrixInput = {
+      places: [{
+        candidateId: "entity-place",
+        osmRef: "node/entity-place",
+        name: "Entity Place",
+        category: "restaurant",
+        texts: [{ source: "web", text }],
+      }],
+      criteria: [dog],
+    };
+    const claims = matrixClaimsFromAnswer({ claims: [{
+      candidateId: "entity-place",
+      criterionId: dog.id,
+      lean: "yes",
+      confidence: 0.6,
+      evidence: "Dogs &amp; their people are welcome",
+      sourceIndex: 0,
+      explicit: false,
+    }] }, input, "model-test");
+    expect(claims).toEqual([
+      expect.objectContaining({ evidence: "Dogs & their people are welcome" }),
+    ]);
+  });
+
   it("keys a cell by place, criterion, and bounded evidence text", () => {
     const sample = input();
     const key = matrixCacheKey(sample.places[0], wifi);

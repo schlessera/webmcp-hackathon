@@ -15,6 +15,14 @@ import {
   sanitizeInferenceNote,
   type InferenceTextSource,
 } from "./infer.ts";
+import {
+  cleanEvidenceText,
+  cleanInlineText,
+  cleanTitle,
+  hasWholeTextSpan,
+  truncateText,
+} from "./text.ts";
+import { cleanEvaluatedInference } from "./stored-text.ts";
 
 /**
  * One fast-tier call evaluates a rectangular place × criterion matrix. Model
@@ -168,32 +176,20 @@ interface DraftClaim {
   explicit?: unknown;
 }
 
-const WORD_CHARACTER = /[\p{L}\p{N}]/u;
 const WORDS = /[\p{L}\p{N}]+/gu;
 
 export function hasWholeSpan(text: string, evidence: string): boolean {
-  const haystack = text.toLocaleLowerCase();
-  const needle = evidence.toLocaleLowerCase();
-  let from = 0;
-  for (;;) {
-    const at = haystack.indexOf(needle, from);
-    if (at < 0) return false;
-    const before = haystack.slice(0, at);
-    const after = haystack.slice(at + needle.length);
-    const leftIsWord = WORD_CHARACTER.test([...before].at(-1) ?? "");
-    const rightIsWord = WORD_CHARACTER.test([...after][0] ?? "");
-    if (!leftIsWord && !rightIsWord) return true;
-    from = at + 1;
-  }
+  return hasWholeTextSpan(text, evidence);
 }
 
 /** A bounded, normalized window around the exact validated evidence span. */
 export function evidenceContext(text: string, evidence: string): string | undefined {
-  const source = normalizeEvidence(text);
-  const at = source.toLocaleLowerCase().indexOf(evidence.toLocaleLowerCase());
+  const source = cleanEvidenceText(text);
+  const needle = cleanEvidenceText(evidence);
+  const at = source.toLocaleLowerCase().indexOf(needle.toLocaleLowerCase());
   if (at < 0) return undefined;
   const start = Math.max(0, at - 400);
-  const end = Math.min(source.length, at + evidence.length + 400);
+  const end = Math.min(source.length, at + needle.length + 400);
   const window = sanitizeInferenceNote(source.slice(start, end));
   return window ? window.slice(0, MAX_EVIDENCE_CONTEXT_CHARS) : undefined;
 }
@@ -250,7 +246,11 @@ export function trimMatrixPlace(
   const ordered = place.texts
     .map((item, index) => ({
       ...item,
-      text: normalizeEvidence(item.text),
+      text: cleanInlineText(item.text),
+      ...(item.title ? { title: truncateText(cleanTitle(item.title), 160) } : {}),
+      ...(item.publisherNames?.length
+        ? { publisherNames: item.publisherNames.map(cleanInlineText).filter(Boolean).slice(0, 6) }
+        : {}),
       index,
     }))
     .filter((item) => item.text.length > 0)
@@ -263,7 +263,13 @@ export function trimMatrixPlace(
     if (text) texts.push({ ...item, text });
     remaining -= text.length;
   }
-  return { ...place, texts };
+  return {
+    ...place,
+    name: cleanInlineText(place.name),
+    category: cleanInlineText(place.category),
+    ...(place.cuisine ? { cuisine: place.cuisine.map(cleanInlineText).filter(Boolean) } : {}),
+    texts,
+  };
 }
 
 function uniqueInput(input: EvaluateMatrixInput): EvaluateMatrixInput {
@@ -383,7 +389,7 @@ export function matrixBatchFromAnswer(
     const sourceText = sourceIndex >= 0 ? place.texts[sourceIndex] : undefined;
     const context = sourceText ? evidenceContext(sourceText.text, evidence) : undefined;
     const pageTitle = sourceText?.title
-      ? sanitizeInferenceNote(sourceText.title).slice(0, 160)
+      ? truncateText(cleanTitle(sourceText.title), 160)
       : undefined;
     const publisherNames = sourceText?.publisherNames
       ?.map((name) => sanitizeInferenceNote(name).slice(0, 120))
@@ -470,7 +476,7 @@ async function loadMatrixCache(
   )).rows as MatrixCacheRow[];
   return new Map(rows.map((row) => [
     `${row.osm_ref}\u0000${row.criterion_id}\u0000${row.evidence_hash}`,
-    row,
+    { ...row, ...(row.claim ? { claim: cleanEvaluatedInference(row.claim) } : {}) },
   ]));
 }
 
@@ -487,7 +493,9 @@ async function storeMatrixBatch(q: MatrixCacheQuery, batch: EvaluatedMatrixBatch
       osm_ref: place.osmRef,
       criterion_id: cell.criterionId,
       evidence_hash: matrixEvidenceHash(place),
-      claim: claims.get(`${cell.candidateId}\u0000${cell.criterionId}`) ?? null,
+      claim: claims.get(`${cell.candidateId}\u0000${cell.criterionId}`)
+        ? cleanEvaluatedInference(claims.get(`${cell.candidateId}\u0000${cell.criterionId}`)!)
+        : null,
       answered: true,
     }];
   });

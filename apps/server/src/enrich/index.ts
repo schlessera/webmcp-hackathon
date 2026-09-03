@@ -65,6 +65,13 @@ import {
   proxyEnabled,
   type OutboundPurpose,
 } from "../net/outbound.ts";
+import { cleanInlineText, cleanSummary, cleanTitle } from "./text.ts";
+import {
+  cleanEvaluatedInference,
+  cleanStoredInferences,
+  cleanWebFacts,
+  cleanWikiFacts,
+} from "./stored-text.ts";
 
 /**
  * The enrichment layer (docs/ENRICHMENT-SOURCES.md): what the server looks
@@ -459,9 +466,9 @@ const rowToEnrichment = (r: Row): Enrichment => {
   return {
     osmRef: r.osm_ref,
     fetchedAt: r.fetched_at.toISOString(),
-    website: r.website,
-    wikidata: r.wikidata,
-    inferred,
+    website: cleanWebFacts(r.website),
+    wikidata: cleanWikiFacts(r.wikidata),
+    inferred: cleanStoredInferences(inferred),
     inferredAt: r.inferred_at?.toISOString() ?? null,
     error: r.error,
     imageExpiresAt: r.image_expires_at?.toISOString() ?? null,
@@ -662,8 +669,9 @@ async function persistProviderResults(
 ): Promise<void> {
   // Image URLs are deliberately pass-local. Strip them at the only website
   // JSON serialization boundary so stale URLs can never enter `website`.
-  const persistedSiteFacts: PersistedWebFacts | null = site.facts
-    ? (({ imageCandidates: _imageCandidates, ...facts }) => facts)(site.facts)
+  const cleanedSiteFacts = cleanWebFacts(site.facts);
+  const persistedSiteFacts: PersistedWebFacts | null = cleanedSiteFacts
+    ? (({ imageCandidates: _imageCandidates, ...facts }) => facts)(cleanedSiteFacts)
     : null;
   const client = await db.connect();
   try {
@@ -698,7 +706,7 @@ async function persistProviderResults(
          WHERE osm_ref = $1 AND lease_owner = $6`,
         [
           target.osmRef,
-          wiki.facts ? JSON.stringify(wiki.facts) : null,
+          wiki.facts ? JSON.stringify(cleanWikiFacts(wiki.facts)) : null,
           !wiki.error,
           String(wiki.error ? TTL_FAIL_MS : TTL_WIKIDATA_OK_MS),
           wiki.error ?? null,
@@ -1044,7 +1052,14 @@ export function inferenceTexts(
       ...(enrichment.wikidata.wikipedia ? { url: enrichment.wikidata.wikipedia } : {}),
     });
   }
-  return texts;
+  return texts.map((text) => ({
+    ...text,
+    text: cleanInlineText(text.text),
+    ...(text.title ? { title: cleanTitle(text.title) } : {}),
+    ...(text.publisherNames?.length
+      ? { publisherNames: text.publisherNames.map((name) => cleanInlineText(name)).filter(Boolean) }
+      : {}),
+  })).filter((text) => Boolean(text.text));
 }
 
 function cuisineTokens(attributes: AttributeLike[]): string[] {
@@ -1082,7 +1097,7 @@ export async function saveInferences(
   const incomingByRef = new Map<string, Record<string, StoredCriterionInference>>();
   const ttlByRef = new Map<string, number>();
   for (const write of rows) {
-    const claimed = new Map(write.claims.map((claim) => [claim.criterionId, claim]));
+    const claimed = new Map(write.claims.map(cleanEvaluatedInference).map((claim) => [claim.criterionId, claim]));
     const answered = new Set(write.answeredCriterionIds);
     const searched = new Set(write.searchedCriterionIds ?? []);
     const inferred: Record<string, StoredCriterionInference> = {};
@@ -1786,11 +1801,19 @@ export function enrichmentView(
   extras: { links?: DossierLink[]; description?: { text: string; source: string } } | null | undefined,
   enrichment: Enrichment | undefined,
 ): EnrichmentView {
-  const links: DossierLink[] = [...(extras?.links ?? [])];
+  const links: DossierLink[] = (extras?.links ?? []).map((link) => ({
+    ...link,
+    label: cleanInlineText(link.label),
+  }));
   const has = (kind: string) => links.some((l) => l.kind === kind);
   const view: EnrichmentView = { links };
-  if (extras?.description) view.description = extras.description;
-  const web = enrichment?.website;
+  if (extras?.description) {
+    view.description = {
+      ...extras.description,
+      text: cleanSummary(extras.description.text, 300),
+    };
+  }
+  const web = cleanWebFacts(enrichment?.website ?? null);
   if (web) {
     const source = `web:${web.host}`;
     if (web.menuUrl && !has("menu")) links.push({ kind: "menu", label: "menu", url: web.menuUrl, source });
@@ -1805,7 +1828,7 @@ export function enrichmentView(
     }
     if (!view.description && web.description) view.description = { text: web.description, source };
   }
-  const wiki = enrichment?.wikidata;
+  const wiki = cleanWikiFacts(enrichment?.wikidata ?? null);
   if (wiki) {
     const source = `wikidata:${wiki.id}`;
     if (wiki.wikipedia && !has("wikipedia")) {
@@ -1815,7 +1838,7 @@ export function enrichmentView(
       links.push({ kind: "website", label: "website", url: wiki.website, source });
     }
     if (!view.description && wiki.description) view.description = { text: wiki.description, source };
-    const awards = wiki.awards.filter((a) => a.label).map((a) => ({ label: a.label!, source }));
+    const awards = wiki.awards.filter((a) => a.label).map((a) => ({ label: cleanInlineText(a.label), source }));
     if (awards.length) view.awards = awards;
   }
   // The place's own site first, then the menu, then the rest.

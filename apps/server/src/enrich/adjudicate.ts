@@ -8,6 +8,8 @@ import {
   sanitizeInferenceNote,
   type StoredInference,
 } from "./infer.ts";
+import { cleanInlineText, cleanSummary, cleanTitle, truncateText } from "./text.ts";
+import { cleanEvaluatedInference } from "./stored-text.ts";
 
 export const ADJUDICATION_CONFIDENCE = 0.75;
 export const THIRD_PARTY_ADJUDICATION_CONFIDENCE = 0.69;
@@ -163,6 +165,8 @@ export function adjudicationCached(
 }
 
 function boundedContext(context: string, evidence: string, max: number): string {
+  context = cleanInlineText(context);
+  evidence = cleanInlineText(evidence);
   if (context.length <= max) return context;
   const at = context.toLocaleLowerCase().indexOf(evidence.toLocaleLowerCase());
   if (at < 0) return context.slice(0, max);
@@ -234,9 +238,9 @@ function outcomeInference(
     ...(cell.claim.publisherNames?.length ? { publisherNames: cell.claim.publisherNames } : {}),
     adjudication,
   };
-  if (draft.verdict === "unclear") return base;
+  if (draft.verdict === "unclear") return cleanEvaluatedInference(base);
   if (publisher === "third_party") {
-    return {
+    return cleanEvaluatedInference({
       ...base,
       lean: draft.verdict,
       status: draft.verdict === "yes" ? "likely_true" : "likely_false",
@@ -245,11 +249,11 @@ function outcomeInference(
       observedAt,
       explicit: draft.explicit,
       adjudication,
-    };
+    });
   }
   if (draft.explicit && (publisher === "venue" || publisher === "chain")) {
     const host = new URL(cell.url).hostname.toLocaleLowerCase().replace(/^www\./, "");
-    return {
+    return cleanEvaluatedInference({
       ...base,
       lean: draft.verdict,
       status: draft.verdict === "yes" ? "verified_true" : "verified_false",
@@ -259,9 +263,9 @@ function outcomeInference(
       observedAt,
       explicit: true,
       adjudication,
-    };
+    });
   }
-  return base;
+  return cleanEvaluatedInference(base);
 }
 
 export function adjudicationOutcomesFromAnswer(
@@ -337,7 +341,10 @@ export function contextFromCache(
   if (!context) return null;
   return {
     context,
-    pageTitle: (cached?.title ?? claim.pageTitle ?? "").slice(0, 160),
-    publisherNames: (cached?.publisherNames ?? claim.publisherNames ?? []).slice(0, 6),
+    pageTitle: truncateText(cleanTitle(cached?.title ?? claim.pageTitle ?? ""), 160),
+    publisherNames: (cached?.publisherNames ?? claim.publisherNames ?? [])
+      .map((name) => cleanSummary(name, 120))
+      .filter(Boolean)
+      .slice(0, 6),
   };
 }

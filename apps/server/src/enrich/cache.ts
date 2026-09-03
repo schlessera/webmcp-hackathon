@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 import type pg from "pg";
 import type { EvaluatedInference } from "./evaluate.ts";
 import type { WebsiteImageCandidate, WebsiteTransientText } from "./website.ts";
+import { cleanText } from "./text.ts";
+import { cleanEvaluatedInference, cleanSearchResults } from "./stored-text.ts";
 
 export const PAGE_CACHE_TTL_MS = 7 * 24 * 60 * 60_000;
 export const ROBOTS_CACHE_TTL_MS = 24 * 60 * 60_000;
@@ -71,7 +73,7 @@ function pageEntry(row: PageCacheRow): PageCacheEntry {
     ...(row.etag ? { etag: row.etag } : {}),
     ...(row.last_modified ? { lastModified: row.last_modified } : {}),
     status: row.status,
-    ...(row.text ? { text: row.text } : {}),
+    ...(row.text ? { text: cleanText(row.text).slice(0, MAX_CACHED_PAGE_TEXT) } : {}),
     ...(Array.isArray(row.image_candidates) ? { imageCandidates: row.image_candidates } : {}),
     robots: row.robots,
     fresh: row.fresh,
@@ -101,7 +103,9 @@ export interface StorePageInput {
  * database CHECK and is never exposed through an API or dossier. */
 export async function storePageCache(q: CacheQuery, input: StorePageInput): Promise<void> {
   const url = new URL(input.url).toString();
-  const text = input.text == null ? null : input.text.slice(0, MAX_CACHED_PAGE_TEXT);
+  const text = input.text == null
+    ? null
+    : cleanText(input.text).slice(0, MAX_CACHED_PAGE_TEXT);
   await q.query(
     `INSERT INTO page_cache
        (url_hash, url, host, fetched_at, expires_at, etag, last_modified,
@@ -162,8 +166,8 @@ export async function loadSearchCache(
     [osmRef, cacheQueryHash(query, domains), provider],
   )).rows[0] as { snippets: SearchCacheEntry["snippets"] | null; claims: EvaluatedInference[] | null; answered_ids: string[] | null } | undefined;
   return row ? {
-    ...(Array.isArray(row.snippets) ? { snippets: row.snippets } : {}),
-    ...(Array.isArray(row.claims) ? { claims: row.claims } : {}),
+    ...(Array.isArray(row.snippets) ? { snippets: cleanSearchResults(row.snippets) } : {}),
+    ...(Array.isArray(row.claims) ? { claims: row.claims.map(cleanEvaluatedInference) } : {}),
     ...(Array.isArray(row.answered_ids) ? { answeredIds: row.answered_ids } : {}),
   } : null;
 }
@@ -182,7 +186,8 @@ export async function storeSearchCache(
 ): Promise<void> {
   // Provider policy is enforced at the write boundary: OpenAI web-search raw
   // snippets never enter durable storage, only validated application claims.
-  const snippets = input.provider === "tavily" ? input.snippets : undefined;
+  const snippets = input.provider === "tavily" ? cleanSearchResults(input.snippets) : undefined;
+  const claims = input.claims?.map(cleanEvaluatedInference);
   await q.query(
     `INSERT INTO search_cache
        (osm_ref, query_hash, provider, fetched_at, expires_at, snippets, claims, answered_ids)
@@ -200,7 +205,7 @@ export async function storeSearchCache(
       input.provider,
       String(SEARCH_CACHE_TTL_MS),
       snippets ? JSON.stringify(snippets) : null,
-      input.claims ? JSON.stringify(input.claims) : null,
+      claims ? JSON.stringify(claims) : null,
       input.answeredIds ? JSON.stringify(input.answeredIds) : null,
     ],
   );

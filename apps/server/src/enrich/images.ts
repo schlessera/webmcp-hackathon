@@ -16,6 +16,7 @@ import {
   type PlaceImageKind,
   type PlaceImageVerdict,
 } from "./image-classifier.ts";
+import { cleanInlineText, truncateText } from "./text.ts";
 
 export interface ImageCandidate {
   url: string;
@@ -451,8 +452,12 @@ export async function refreshPlaceImages(
             entry.candidate.source,
             entry.candidate.url,
             entry.candidate.pageUrl,
-            entry.candidate.license ?? null,
-            entry.candidate.credit ?? null,
+            entry.candidate.license
+              ? truncateText(cleanInlineText(entry.candidate.license), 80)
+              : null,
+            entry.candidate.credit
+              ? truncateText(cleanInlineText(entry.candidate.credit), 180)
+              : null,
             String(entry.image.ttlMs ?? IMAGE_TTL_MS),
           ],
         );
@@ -522,8 +527,8 @@ function storedImage(row: ImageRow): StoredPlaceImage {
     source: row.source,
     sourceUrl: row.source_url,
     pageUrl: row.page_url,
-    ...(row.license ? { license: row.license } : {}),
-    ...(row.credit ? { credit: row.credit } : {}),
+    ...(row.license ? { license: truncateText(cleanInlineText(row.license), 80) } : {}),
+    ...(row.credit ? { credit: truncateText(cleanInlineText(row.credit), 180) } : {}),
     fetchedAt: row.fetched_at.toISOString(),
     expiresAt: row.expires_at.toISOString(),
   };

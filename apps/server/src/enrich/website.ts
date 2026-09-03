@@ -6,6 +6,14 @@ import {
   type PageCacheEntry,
   type StorePageInput,
 } from "./cache.ts";
+import {
+  cleanInlineText,
+  cleanSelectedPageText,
+  cleanSummary,
+  cleanText,
+  cleanTitle,
+  truncateText,
+} from "./text.ts";
 
 /**
  * A place's own website as a source (docs/ENRICHMENT-SOURCES.md, S2).
@@ -198,14 +206,7 @@ export function priceRangeToLevel(raw: unknown): number | undefined {
 }
 
 /** At most `max` characters, cut at a sentence or word boundary, never mid-word. */
-export function clip(text: string, max: number): string {
-  if (text.length <= max) return text;
-  const head = text.slice(0, max);
-  const sentence = head.lastIndexOf(". ");
-  if (sentence > max * 0.5) return head.slice(0, sentence + 1);
-  const word = head.lastIndexOf(" ");
-  return `${head.slice(0, word > 0 ? word : max)}…`;
-}
+export const clip = truncateText;
 
 // --- JSON-LD -----------------------------------------------------------------
 
@@ -231,9 +232,14 @@ function collectNodes(json: unknown, out: Node[] = [], depth = 0): Node[] {
 }
 
 const typesOf = (n: Node): string[] =>
-  ([] as unknown[]).concat(n["@type"] ?? []).map((t) => String(t).replace(/^.*[/#]/, ""));
+  ([] as unknown[]).concat(n["@type"] ?? [])
+    .map((type) => cleanInlineText(type).replace(/^.*[/#]/, ""))
+    .filter(Boolean);
 const asList = (v: unknown): unknown[] => ([] as unknown[]).concat(v ?? []);
-const str = (v: unknown): string | undefined => (typeof v === "string" && v.trim() ? v.trim() : undefined);
+const str = (v: unknown): string | undefined => {
+  const value = cleanInlineText(v);
+  return value || undefined;
+};
 
 /** A URL out of a string, an object with url/@id (dereferenced through the
  * document's @id index), or a list of those. */
@@ -285,23 +291,15 @@ export interface Anchor {
   text: string;
 }
 
-function decodeEntities(s: string): string {
-  return s
-    .replace(/&amp;/g, "&").replace(/&#0?38;/g, "&").replace(/&nbsp;/g, " ")
-    .replace(/&uuml;/g, "ü").replace(/&Uuml;/g, "Ü").replace(/&auml;/g, "ä").replace(/&ouml;/g, "ö")
-    .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#x27;|&apos;/g, "'")
-    .replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCodePoint(Number.parseInt(n, 16)))
-    .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n)));
-}
-
 function attributeOf(attributes: string, name: string): string | undefined {
   const match = new RegExp(`(?:^|\\s)${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s>]+))`, "i")
     .exec(attributes);
-  return match?.[1] ?? match?.[2] ?? match?.[3];
+  const value = cleanInlineText(match?.[1] ?? match?.[2] ?? match?.[3]);
+  return value || undefined;
 }
 
 function visibleFragment(fragment: string): string {
-  return decodeEntities(fragment.replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ").trim();
+  return cleanInlineText(fragment);
 }
 
 /** Metadata that can establish whether a page speaks for a place or chain. */
@@ -309,10 +307,9 @@ export function extractPageIdentity(html: string): {
   title?: string;
   publisherNames: string[];
 } {
-  const title = visibleFragment(
-    /<title\b[^>]*>([\s\S]*?)<\/title>/i.exec(html)?.[1] ?? "",
-  ).slice(0, MAX_PAGE_TITLE);
+  const rawTitle = /<title\b[^>]*>([\s\S]*?)<\/title>/i.exec(html)?.[1] ?? "";
   const names: string[] = [];
+  let siteName: string | undefined;
   const add = (raw: unknown) => {
     if (typeof raw !== "string") return;
     const value = visibleFragment(raw).slice(0, MAX_PUBLISHER_NAME);
@@ -324,7 +321,10 @@ export function extractPageIdentity(html: string): {
     const attrs = meta[1];
     const key = (attributeOf(attrs, "property") ?? attributeOf(attrs, "name") ?? "")
       .toLocaleLowerCase();
-    if (key === "og:site_name") add(attributeOf(attrs, "content"));
+    if (key === "og:site_name") {
+      siteName = attributeOf(attrs, "content");
+      add(siteName);
+    }
   }
   for (const script of html.matchAll(
     /<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi,
@@ -339,6 +339,7 @@ export function extractPageIdentity(html: string): {
       /* broken JSON-LD contributes no publisher identity */
     }
   }
+  const title = truncateText(cleanTitle(rawTitle, siteName), MAX_PAGE_TITLE);
   return {
     ...(title ? { title } : {}),
     publisherNames: names.slice(0, MAX_PUBLISHER_NAMES),
@@ -353,52 +354,7 @@ export function extractPageIdentity(html: string): {
  * content removed first.
  */
 export function extractVisibleText(html: string, max = MAX_PAGE_TEXT): string {
-  const stripped = html
-    .replace(/<!--[\s\S]*?-->/g, " ")
-    .replace(/<(script|style|nav|footer)\b[^>]*>[\s\S]*?<\/\1>/gi, " ");
-  const pieces: string[] = [];
-  const seen = new Set<string>();
-  const add = (raw: string | undefined) => {
-    if (!raw) return;
-    const text = visibleFragment(raw);
-    if (!text || seen.has(text)) return;
-    seen.add(text);
-    pieces.push(text);
-  };
-
-  add(/<title\b[^>]*>([\s\S]*?)<\/title>/i.exec(stripped)?.[1]);
-  for (const meta of stripped.matchAll(/<meta\b([^>]*)>/gi)) {
-    const kind = (attributeOf(meta[1], "name") ?? attributeOf(meta[1], "property") ?? "")
-      .toLocaleLowerCase();
-    if (kind === "description" || kind === "og:description") {
-      add(attributeOf(meta[1], "content"));
-    }
-  }
-  for (const element of stripped.matchAll(/<(h[1-6]|p|li)\b([^>]*)>([\s\S]*?)<\/\1>/gi)) {
-    if (hiddenAttributes(element[2])) continue;
-    add(element[3]);
-  }
-  // Plenty of venue sites write their one descriptive sentence straight into a
-  // layout container rather than a paragraph, and the pass above cannot see it.
-  // Take only a container's DIRECT text — the run before its first child tag —
-  // so a wrapper around real paragraphs contributes nothing and cannot
-  // duplicate them. Require a whole clause, which also keeps timestamps,
-  // opening times and one-word chrome out.
-  for (const element of stripped.matchAll(
-    /<(div|section|article|td|dd|blockquote|figcaption)\b([^>]*)>([^<]+)/gi,
-  )) {
-    if (hiddenAttributes(element[2])) continue;
-    const direct = visibleFragment(element[3]);
-    if (direct.length < 12 || !/\s/.test(direct)) continue;
-    add(element[3]);
-  }
-  return clip(pieces.join("\n"), Math.max(0, max));
-}
-
-function hiddenAttributes(attributes: string): boolean {
-  return (
-    /\bhidden(?:\s|=|$)/i.test(attributes) || /aria-hidden\s*=\s*["']?true/i.test(attributes)
-  );
+  return cleanSelectedPageText(html, max);
 }
 
 /** Every `<a href>` with its visible text, entities decoded, tags stripped. */
@@ -408,14 +364,14 @@ export function extractAnchors(html: string): Anchor[] {
     const href = /href\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i.exec(m[1]);
     const raw = href?.[1] ?? href?.[2] ?? href?.[3];
     if (!raw) continue;
-    const href_ = decodeEntities(raw.trim());
+    const href_ = cleanInlineText(raw);
     // Template residue and escaped JSON never resolve to a page.
     if (/["'\\{}]|%22|\/\/\//.test(href_)) continue;
-    let text = decodeEntities(m[2].replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ").trim();
+    let text = cleanInlineText(m[2]);
     if (!text) {
       // An image or icon link: its label lives in aria-label, title or alt.
       const label = /(?:aria-label|title)\s*=\s*"([^"]*)"/i.exec(m[1])?.[1] ?? /alt\s*=\s*"([^"]*)"/i.exec(m[2])?.[1];
-      if (label) text = decodeEntities(label).trim();
+      if (label) text = cleanInlineText(label);
     }
     out.push({ href: href_, text });
     if (out.length >= 600) break;
@@ -433,7 +389,7 @@ function resolve(base: string, href: string): string | undefined {
 }
 
 function imageUrl(base: string, raw: unknown): string | undefined {
-  if (typeof raw === "string") return resolve(base, decodeEntities(raw.trim()));
+  if (typeof raw === "string") return resolve(base, cleanInlineText(raw));
   if (Array.isArray(raw)) {
     for (const value of raw) {
       const found = imageUrl(base, value);
@@ -492,9 +448,14 @@ export function extractImageCandidates(html: string, pageUrl: string): WebsiteIm
     metadata: { alt?: string; className?: string; declaredType?: string } = {},
   ) => {
     const url = imageUrl(pageUrl, raw);
+    const cleanMetadata = {
+      ...(metadata.alt ? { alt: cleanInlineText(metadata.alt) } : {}),
+      ...(metadata.className ? { className: cleanInlineText(metadata.className) } : {}),
+      ...(metadata.declaredType ? { declaredType: cleanInlineText(metadata.declaredType) } : {}),
+    };
     if (
       url &&
-      websiteImageCandidateAllowed({ url, ...metadata }) &&
+      websiteImageCandidateAllowed({ url, ...cleanMetadata }) &&
       !candidates.includes(url)
     ) candidates.push(url);
   };
@@ -761,10 +722,7 @@ const MENTIONS: ReadonlyArray<{ key: string; re: RegExp }> = [
 
 /** Dossier keys a menu page mentions by word. Evidence, not a verdict. */
 export function scanMenuMentions(html: string): string[] {
-  const text = html
-    .replace(/<script[\s\S]*?<\/script>/gi, " ")
-    .replace(/<style[\s\S]*?<\/style>/gi, " ")
-    .replace(/<[^>]+>/g, " ");
+  const text = cleanText(html);
   return MENTIONS.filter((m) => m.re.test(text)).map((m) => m.key);
 }
 
@@ -807,14 +765,14 @@ export function parseWebsite(html: string, url: string, fetchedAt: string): WebF
   };
 
   const cuisine = first((n) => {
-    const c = asList(n.servesCuisine).map(String).map((s) => s.trim().toLowerCase()).filter(Boolean);
+    const c = asList(n.servesCuisine).map(cleanInlineText).map((s) => s.toLowerCase()).filter(Boolean);
     return c.length ? c : undefined;
   });
   if (cuisine) facts.cuisine = cuisine.slice(0, 6);
   const level = first((n) => priceRangeToLevel(n.priceRange));
   if (level) facts.priceLevel = level;
   const hours = first((n) => {
-    const plain = asList(n.openingHours).map(String).filter(Boolean);
+    const plain = asList(n.openingHours).map(cleanInlineText).filter(Boolean);
     const spec = hoursFromSpecification(n.openingHoursSpecification);
     const all = [...plain, ...spec];
     return all.length ? all : undefined;
@@ -832,7 +790,7 @@ export function parseWebsite(html: string, url: string, fetchedAt: string): WebF
   if (rating) facts.rating = rating;
   const wheelchair = first((n) => {
     for (const f of asList(n.amenityFeature) as Node[]) {
-      if (f && typeof f === "object" && /wheelchair|barrierefrei|accessib/i.test(String(f.name ?? ""))) {
+      if (f && typeof f === "object" && /wheelchair|barrierefrei|accessib/i.test(cleanInlineText(f.name))) {
         const v = f.value;
         if (v === true || v === "True" || v === "true") return true;
         if (v === false || v === "False" || v === "false") return false;
@@ -857,7 +815,7 @@ export function parseWebsite(html: string, url: string, fetchedAt: string): WebF
     first((n) => str(n.description)) ??
     nodes.find((n) => typesOf(n).some((t) => PAGE_TYPES.test(t)) && str(n.description))?.description;
   if (typeof description === "string") {
-    facts.description = clip(description.replace(/\s+/g, " ").trim(), 220);
+    facts.description = cleanSummary(description, 220);
   }
 
   // Navigation: what the page links to, for the things markup rarely declares.
@@ -1273,12 +1231,7 @@ async function fileOf(kind: MenuFile["kind"], url: string, contentType: string, 
 
 /** On a menu page that is mostly a picture, the picture's URL; else undefined. */
 export function menuImageOf(html: string, pageUrl: string): string | undefined {
-  const text = html
-    .replace(/<script[\s\S]*?<\/script>/gi, " ")
-    .replace(/<style[\s\S]*?<\/style>/gi, " ")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+  const text = cleanText(html);
   if (text.length > 600) return undefined;
   const imgs = [...html.matchAll(/<img\b([^>]*)>/gi)].map((m) => m[1]);
   const pick = (re: RegExp) =>
