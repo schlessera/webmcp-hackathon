@@ -48,7 +48,13 @@ type MockContext = {
     transport: string[];
     category: string;
   };
-  pool?: { size: number; cap: number; explorable: boolean };
+  pool?: {
+    size: number;
+    cap: number;
+    explorable: boolean;
+    filling: boolean;
+    target: number;
+  };
   feasibility: {
     state: "feasible" | "fragile" | "infeasible" | "uncertain";
     eligible: number;
@@ -261,6 +267,43 @@ function applyEligibility(
         : context.feasibility.uncertain > 0
           ? "uncertain"
           : "infeasible";
+}
+
+function setWholeAreaPool(context: MockContext, size: number, target = 90) {
+  context.candidates = Array.from({ length: size }, (_, index): Candidate => {
+    const distance = 80 + index * 5;
+    const angle = index * 2.399963229728653;
+    const lat = center.lat + (Math.sin(angle) * distance) / 111_320;
+    const lng =
+      center.lng +
+      (Math.cos(angle) * distance) /
+        (111_320 * Math.cos((center.lat * Math.PI) / 180));
+    return {
+      candidateId: `pool-place-${String(index).padStart(3, "0")}`,
+      name: `Place ${String(index + 1).padStart(3, "0")}`,
+      location: { lat, lng },
+      category: "place",
+      eligibility: "eligible",
+      why: "",
+      walkMin: Math.max(1, Math.round(distance / 75)),
+      priceLevel: null,
+    };
+  });
+  context.total = size;
+  context.matching = size;
+  context.feasibility = {
+    state: "feasible",
+    eligible: size,
+    uncertain: 0,
+    excluded: 0,
+  };
+  context.pool = {
+    size,
+    cap: 2_500,
+    explorable: true,
+    filling: size < target,
+    target,
+  };
 }
 
 type MockState = {
@@ -578,7 +621,9 @@ test("impasse and pending states protect previews, privacy, map stability, and d
 
   await expect(page.getByTestId("count-block")).toHaveAttribute("data-state", "impasse");
   await expect(page.getByTestId("ways-out")).toContainText("One way out");
-  await expect(page.locator('[data-testid^="pin-"]')).toHaveCount(31);
+  await expect
+    .poll(() => page.evaluate(() => window.__spokesMapStats?.()))
+    .toMatchObject({ candidates: 31, domMarkers: 31, glFeatures: 31 });
   await expect(page.locator('[data-testid^="pin-"][data-state="out"]')).toHaveCount(31);
   await expect(page.getByTestId("private-effect")).toContainText("A private condition");
   await expect(page.getByTestId("private-effect")).toContainText(
@@ -1231,6 +1276,115 @@ async function scriptedSocket(page: Page, revision: number) {
   };
 }
 
+test("a fresh whole-area pool stays fixed, caps DOM stickers, and leaves every GL place reachable", async ({ browser }) => {
+  const browserContext = await browser.newContext({
+    viewport: { width: 1180, height: 900 },
+    reducedMotion: "reduce",
+  });
+  const page = await browserContext.newPage();
+  const context = fixture({ matching: 0, revision: 1 });
+  setWholeAreaPool(context, 60);
+  const state: MockState = { context, outstanding: [] };
+  await mockApi(page, state);
+  const socket = await scriptedSocket(page, 1);
+  await page.goto(`${BASE}/#invite=feedface`);
+  await socket.welcomed;
+  await expect(page.getByTestId("map-region")).toHaveAttribute("data-loaded", "true", {
+    timeout: 20_000,
+  });
+  await expect(page.getByTestId("count-fill")).toHaveText("adding places · 60 of 90");
+
+  await expect
+    .poll(() => page.evaluate(() => window.__spokesMapStats?.()))
+    .toMatchObject({
+      candidates: 60,
+      domMarkers: 60,
+      glFeatures: 60,
+      busyAnimating: false,
+      settleDuration: 0,
+      transitionDuration: 0,
+    });
+  const initialStats = await page.evaluate(() => window.__spokesMapStats!());
+
+  setWholeAreaPool(state.context, 75);
+  state.context.revision = 2;
+  socket.send({
+    type: "event",
+    revision: 2,
+    fromRevision: 1,
+    events: [{
+      revision: 2,
+      type: "candidates_added",
+      level: "existence",
+      text: "15 more places on the map.",
+    }],
+  });
+  await expect(page.getByTestId("count-fill")).toHaveText("adding places · 75 of 90");
+  await expect.poll(() => page.evaluate(() => window.__spokesMapStats?.().glFeatures)).toBe(75);
+  const midway = await page.evaluate(() => window.__spokesMapStats!());
+  expect(midway.domMarkers).toBe(60);
+  expect(midway.center[0]).toBeCloseTo(initialStats.center[0], 8);
+  expect(midway.center[1]).toBeCloseTo(initialStats.center[1], 8);
+  expect(midway.zoom).toBeCloseTo(initialStats.zoom, 8);
+
+  const glOnly = midway.glOnly;
+  if (!glOnly) throw new Error("the filled room has no GL-only place");
+  expect(page.getByTestId(`pin-${glOnly.candidateId}`)).toHaveCount(0);
+
+  socket.send({
+    type: "lookups",
+    pending: [glOnly.candidateId],
+    reason: { kind: "pool" },
+  });
+  await expect(page.getByTestId("map-region")).toHaveAttribute("aria-busy", "true");
+  await expect
+    .poll(() => page.evaluate(() => window.__spokesMapStats?.().busyAnimating))
+    .toBe(false);
+  socket.send({ type: "lookups", pending: [] });
+
+  const mapBox = await page.getByTestId("map-region").boundingBox();
+  if (!mapBox) throw new Error("map has no pointer target");
+  await page.mouse.click(mapBox.x + glOnly.point[0], mapBox.y + glOnly.point[1]);
+  await expect
+    .poll(() => page.evaluate(() => window.__spokesMapStats?.().selected))
+    .toBe(glOnly.candidateId);
+
+  const firstKeyboard = page.getByTestId("keyboard-place-pool-place-000");
+  await firstKeyboard.focus();
+  await page.keyboard.press("End");
+  const lastKeyboard = page.getByTestId("keyboard-place-pool-place-074");
+  await expect(lastKeyboard).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect
+    .poll(() => page.evaluate(() => window.__spokesMapStats?.().selected))
+    .toBe("pool-place-074");
+
+  setWholeAreaPool(state.context, 90);
+  state.context.revision = 3;
+  socket.send({
+    type: "event",
+    revision: 3,
+    fromRevision: 2,
+    events: [{
+      revision: 3,
+      type: "candidates_added",
+      level: "existence",
+      text: "15 more places on the map.",
+    }],
+  });
+  await expect(page.getByTestId("count-fill")).toHaveCount(0);
+  await expect.poll(() => page.evaluate(() => window.__spokesMapStats?.().glFeatures)).toBe(90);
+  const complete = await page.evaluate(() => window.__spokesMapStats!());
+  expect(complete.domMarkers).toBe(60);
+  expect(complete.center[0]).toBeCloseTo(initialStats.center[0], 8);
+  expect(complete.center[1]).toBeCloseTo(initialStats.center[1], 8);
+  expect(complete.zoom).toBeCloseTo(initialStats.zoom, 8);
+  expect(complete.busyAnimating).toBe(false);
+  expect(complete.settleDuration).toBe(0);
+  expect(complete.transitionDuration).toBe(0);
+  await browserContext.close();
+});
+
 test("a need said is pending until the room settles it, and busy rings mark places being looked up", async ({ page }) => {
   const audit: string[] = [];
   const state: MockState = {
@@ -1309,6 +1463,11 @@ test("a need said is pending until the room settles it, and busy rings mark plac
       }),
     )
     .toEqual({ name: "spoke-busy", opacity: "1", border: "dashed" });
+  // At full motion the GL busy ring turns on its own image, one loop for
+  // however many places are busy.
+  await expect
+    .poll(() => page.evaluate(() => window.__spokesMapStats?.().busyAnimating))
+    .toBe(true);
 
   // Committed: the real row takes over, still pending while the room looks.
   const row = page.getByTestId("need-mock-pill");
@@ -1322,6 +1481,9 @@ test("a need said is pending until the room settles it, and busy rings mark plac
   const contextCallsBefore = audit.filter((line) => line.includes('"revision":31')).length;
   socket.send({ type: "lookups", pending: [] });
   await expect(page.getByTestId("pin-place_1")).not.toHaveAttribute("data-busy", "true");
+  await expect
+    .poll(() => page.evaluate(() => window.__spokesMapStats?.().busyAnimating))
+    .toBe(false);
   await expect(page.getByTestId("count-busy")).toHaveCount(0);
   await expect(row).not.toHaveAttribute("data-pending", "true");
   await expect(row).toContainText("−2");

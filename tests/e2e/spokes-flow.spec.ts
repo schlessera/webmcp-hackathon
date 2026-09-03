@@ -430,7 +430,11 @@ test("demo trajectory through the product UI", async () => {
   });
 
   // A fresh proposal is created through the details panel, not the tool.
-  const barnPin = pages.org.getByRole("button", { name: /^The Barn —/ });
+  // The same accessible name also exists in the visually-hidden all-place
+  // keyboard list; this gesture is specifically exercising the DOM marker.
+  const barnPin = pages.org.locator(
+    '[data-testid^="pin-"][aria-label^="The Barn —"]',
+  );
   await barnPin.click({ force: true });
   const barnDetails = pages.org.getByTestId("place-details");
   await expect(barnDetails).toHaveAttribute("aria-label", "The Barn");
