@@ -34,6 +34,26 @@ const wifi: Criterion = {
 };
 const dog: Criterion = { id: "dog-friendly", kind: "key", key: "dog-friendly", label: "dogs welcome" };
 
+function inferenceDb() {
+  const calls: Array<{ sql: string; values: unknown[] }> = [];
+  const client = {
+    query: async (sql: string, values: unknown[] = []) => {
+      calls.push({ sql, values });
+      if (sql.includes("SELECT osm_ref, inferred")) {
+        return {
+          rows: [...(values[0] as string[])]
+            .sort()
+            .map((osm_ref) => ({ osm_ref, inferred: {} })),
+          rowCount: (values[0] as string[]).length,
+        };
+      }
+      return { rows: [], rowCount: 0 };
+    },
+    release: () => undefined,
+  };
+  return { db: { connect: async () => client }, calls };
+}
+
 const input = (): EvaluateMatrixInput => ({
   places: [
     {
@@ -351,11 +371,7 @@ describe("batched matrix evaluation", () => {
       { candidateId: "alpha", criterionId: wifi.id, lean: "yes", confidence: 0.8, evidence: "free wireless internet throughout", sourceIndex: 0 },
       { candidateId: "alpha", criterionId: dog.id, lean: "abstain", confidence: 0, evidence: "", sourceIndex: null },
     ] }, sample, "test", "2026-09-03T00:00:00.000Z");
-    const calls: Array<{ values: unknown[] }> = [];
-    const db = { query: async (_sql: string, values: unknown[]) => {
-      calls.push({ values });
-      return { rows: [], rowCount: 1 };
-    } };
+    const { db, calls } = inferenceDb();
     await saveInferences(db as never, sample.places.map((place) => ({
       osmRef: place.osmRef,
       criteria: sample.criteria,
@@ -365,8 +381,14 @@ describe("batched matrix evaluation", () => {
         .map((cell) => cell.criterionId),
       observedAt: "2026-09-03T00:00:00.000Z",
     })));
-    expect(calls).toHaveLength(1);
-    const payloads = calls[0].values[2] as string[];
+    expect(calls.map((call) => call.sql.trim().split(/\s+/)[0])).toEqual([
+      "BEGIN",
+      "INSERT",
+      "SELECT",
+      "WITH",
+      "COMMIT",
+    ]);
+    const payloads = calls[3].values[1] as string[];
     expect(payloads).toHaveLength(1);
     expect(JSON.parse(payloads[0])).toMatchObject({
       [wifi.id]: { lean: "yes" },
@@ -465,14 +487,8 @@ describe("bulk inference persistence", () => {
     expect(attributes[0]).not.toHaveProperty("label");
   });
 
-  it("issues one upsert for a whole batch without persisting question copy", async () => {
-    const calls: Array<{ sql: string; values: unknown[] }> = [];
-    const db = {
-      query: async (sql: string, values: unknown[]) => {
-        calls.push({ sql, values });
-        return { rows: [], rowCount: 2 };
-      },
-    };
+  it("locks and updates a whole batch without persisting question copy", async () => {
+    const { db, calls } = inferenceDb();
     const claim: EvaluatedInference = {
       candidateId: "alpha",
       osmRef: "node/1",
@@ -489,13 +505,15 @@ describe("bulk inference persistence", () => {
       explicit: false,
     };
     await saveInferences(db as never, [
-      { osmRef: "node/1", criteria: [wifi], claims: [claim], answeredCriterionIds: [wifi.id], observedAt: claim.observedAt },
       { osmRef: "node/2", criteria: [dog], claims: [], answeredCriterionIds: [dog.id], observedAt: claim.observedAt },
+      { osmRef: "node/1", criteria: [wifi], claims: [claim], answeredCriterionIds: [wifi.id], observedAt: claim.observedAt },
     ]);
-    expect(calls).toHaveLength(1);
-    expect(calls[0].sql).toContain("FROM unnest");
-    expect(calls[0].sql).toContain("ON CONFLICT");
-    const payloads = calls[0].values[2] as string[];
+    expect(calls).toHaveLength(5);
+    expect(calls[1].sql).toContain("ON CONFLICT (osm_ref) DO NOTHING");
+    expect(calls[2].sql).toContain("FOR UPDATE");
+    expect(calls[3].sql).toContain("UPDATE enrichments");
+    expect(calls[3].values[0]).toEqual(["node/1", "node/2"]);
+    const payloads = calls[3].values[1] as string[];
     expect(JSON.parse(payloads[0])[wifi.id]).toMatchObject({
       key: wifi.id,
       lean: "yes",
