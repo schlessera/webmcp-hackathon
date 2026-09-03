@@ -3573,3 +3573,44 @@ test("a busy place beyond the DOM marker cap still gets a marker and a card", as
   await expect(page.getByTestId("pin-late-lookup")).toHaveCount(0);
   await browserContext.close();
 });
+
+test("a declared impasse with likely places left counts them and still offers the way out", async ({ page }) => {
+  const context = fixture({ eligibleIds: [], revision: 44, impasse: true });
+  const guessed = context.candidates
+    .filter(
+      (candidate) => haversineMeters(center, candidate.location) <= context.scope.area.radiusM,
+    )
+    .slice(0, 2);
+  for (const candidate of guessed) candidate.eligibility = "likely";
+  context.likely = guessed.length;
+  context.feasibility.likely = guessed.length;
+  context.feasibility.excluded -= guessed.length;
+  context.activeNeeds = [
+    {
+      id: "need-veg",
+      label: "vegetarian options",
+      ruledOut: 19,
+      wouldReturn: 4,
+      unknown: 0,
+      active: true,
+      visibility: "shared",
+      hardness: "hard",
+      ownerId: "p_org",
+    },
+  ];
+  await mockApi(page, { context, outstanding: [] });
+  const socket = await scriptedSocket(page, 44);
+  await page.goto(`${BASE}/#invite=deadbeef`);
+  await socket.welcomed;
+
+  // The council said impasse, but two guesses still stand: the room is told
+  // what it has rather than that it has nothing.
+  await expect(page.getByTestId("count-number")).toHaveText("2");
+  await expect(page.getByTestId("count-block")).toHaveAttribute("data-state", "works");
+  await expect(page.getByTestId("count-block")).toContainText("2 of them likely");
+  await expect(page.getByTestId("room-subtitle")).toContainText("2 still work");
+  await expect(page.getByTestId("room-subtitle")).not.toContainText(/nothing/i);
+  // The server's recovery offers stay on the brief, as offers.
+  await expect(page.getByTestId("ways-out")).toBeVisible();
+  await expect(page.getByTestId("way-out-need-veg")).toContainText("+4");
+});

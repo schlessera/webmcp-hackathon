@@ -1780,15 +1780,18 @@ export function MapView({
   }, [refineLine, pipelineLine]);
   const preNeed = statedNeeds.length === 0 && context.privateEffects.length === 0;
 
-  /* Zero eligible with unknowns outstanding is NOT an impasse (§4) unless the
+  /* Zero survivors with unknowns outstanding is NOT an impasse (§4) unless the
      council has actually declared one — then the room and the count block
-     must say the same thing, and the unknowns stay counted in the subline. */
-  const declared = context.impasse?.active === true && !preview;
+     must say the same thing, and the unknowns stay counted in the subline.
+     A declared impasse is only *shown* while nothing works: with guesses left
+     standing the room still has options, so the block keeps its works colour
+     and the recovery offers stay on the brief as offers. */
+  const showImpasse = context.impasse?.active === true && !preview && works === 0;
   const countState = settled
     ? "settled"
     : preNeed
       ? "pre"
-      : works === 0 && (unsure === 0 || declared)
+      : works === 0 && (unsure === 0 || showImpasse)
         ? "impasse"
         : works === 0
           ? "pending"

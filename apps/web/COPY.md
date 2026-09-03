@@ -63,6 +63,9 @@ still work
   "3 unsure" means the data is missing, **not** that the place failed.
 - Unlikely places are counted apart as well: "2 unlikely" reads beside the
   total, and a guess leaning against a need never rules a place out.
+- A declared impasse is only *said* while nothing works: with likely places
+  still standing, the block and the header count them instead of announcing a
+  dead end, and the ways out stay on the brief as offers.
 
 ## Deltas
 

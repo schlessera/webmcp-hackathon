@@ -793,12 +793,16 @@ export function App() {
   const me = participants.find((p) => p.participantId === id.participantId);
   const activeNeeds = context?.activeNeeds ?? [];
   const settled = committedId !== null;
-  const impasse = context?.impasse?.active === true;
+  const impasseDeclared = context?.impasse?.active === true;
   const shown = spatialState.preview ?? context;
   /* The header, the brief's live count and the map's big number all say the
      same thing: confirmed plus likely (user decision, 2026-09-03). The wire's
      `matching` stays eligible-only. */
   const works = (shown?.matching ?? 0) + (shown?.likely ?? 0);
+  /* A declared impasse is only *said* while nothing works. With guesses left
+     standing the room still has options, so the subtitle counts them and the
+     ways out below stay on the brief as offers rather than a verdict. */
+  const showImpasse = impasseDeclared && works === 0;
   const busySet = new Set(spatialState.busy);
   const pendingNeeds = spatialState.pendingNeeds;
 
@@ -825,7 +829,7 @@ export function App() {
   const unchecked = context?.feasibility?.uncertain ?? 0;
   const subtitle: HeaderSubtitle = settled
     ? { text: `agreed by all ${numberWord(people)}`, tone: "works" }
-    : impasse
+    : showImpasse
       ? unchecked > 0
         ? { text: `nothing confirmed yet · ${unchecked} still to check`, tone: "unsure" }
         : { text: `nothing works for all ${numberWord(people)}`, tone: "unsure" }
@@ -954,7 +958,7 @@ export function App() {
               }}
             />
 
-            {context && impasse && (
+            {context && impasseDeclared && (
               <WaysOut
                 needs={activeNeeds}
                 participants={participants}
