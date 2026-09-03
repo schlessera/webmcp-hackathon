@@ -129,7 +129,8 @@ describe("listing provider over API projections", () => {
     expect(calls).toBe(1);
     expect(bodies[0]).toEqual([expect.objectContaining({
       location_coordinate: "52.5000000,13.4000000,1",
-      limit: 1_000,
+      // Sized to this batch's category count, not to the provider maximum.
+      limit: 600,
     })]);
 
     const inspected = await apiPost<{
@@ -294,8 +295,106 @@ describe("listing matching over a real-shaped fixture", () => {
     expect(matched).not.toContain(byName.get("Kopenhagen"));
     expect(result!.diagnostics).toEqual({
       matched: 5,
-      unmatchedByReason: { distance: 0, name: 0, domain: 1 },
+      unmatchedByReason: { distance: 0, name: 0, domain: 1, category: 0 },
     });
+  });
+});
+
+describe("a real ref-bearing Berlin pool", () => {
+  let server: TestServer;
+  let room: TestRoom;
+  let sent: Array<Record<string, unknown>> = [];
+
+  beforeAll(async () => {
+    server = await startServer();
+    room = await createTestRoom(server.baseUrl, { berlin: true, withOsmRefs: true });
+    process.env.ENRICH_NETWORK = "1";
+    process.env.DATAFORSEO_LOGIN = "scripted-login";
+    process.env.DATAFORSEO_PASSWORD = "scripted-password";
+    delete process.env.LISTINGS;
+    setListingFetch(async (_url, init) => {
+      const body = (JSON.parse(String(init?.body)) as Array<Record<string, unknown>>)[0];
+      sent.push(body);
+      const categories = (body.categories ?? []) as string[];
+      // Answer only the batch that asks for restaurants, and only for two of
+      // the pool's real places, so the miss reasons are all exercised at once.
+      const items = categories.includes("restaurant")
+        ? [
+            {
+              type: "business_listing", title: "Grill Royal",
+              latitude: 52.5225633, longitude: 13.3884395,
+              check_url: "https://www.google.com/maps?cid=201",
+              attributes: { available_attributes: { crowd: ["welcomes_dogs"] } },
+            },
+            {
+              type: "business_listing", title: "Peter Pane Friedrichstrasse",
+              latitude: 52.5208138, longitude: 13.3884622,
+              url: "https://peterpane.example/", domain: "peterpane.example",
+              check_url: "https://www.google.com/maps?cid=202",
+              attributes: { unavailable_attributes: { amenities: ["has_wi_fi"] } },
+            },
+          ]
+        : [];
+      return Response.json({ tasks: [{ status_code: 20_000, cost: 0.012 + 0.00036 * items.length, result: [{ items }] }] });
+    });
+  });
+
+  afterAll(async () => {
+    setListingFetch(null);
+    for (const [key, value] of Object.entries(oldEnv)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    await room?.pool.query(
+      `DELETE FROM enrichments WHERE osm_ref IN (
+         SELECT osm_ref FROM candidates WHERE room_id = $1 AND osm_ref IS NOT NULL)`,
+      [room.roomId],
+    );
+    await room?.cleanup();
+    await server?.stop();
+  });
+
+  it("joins on the pool's real osm_refs and reports every miss reason", async () => {
+    const refs = (await room.pool.query(
+      "SELECT count(*)::int AS n FROM candidates WHERE room_id = $1 AND osm_ref IS NOT NULL",
+      [room.roomId],
+    )).rows[0] as { n: number };
+    // The opt-in is what makes this pool joinable at all.
+    expect(refs.n).toBe(31);
+
+    const result = await refreshRoomListings(room.pool, room.roomId);
+    expect(result).not.toBeNull();
+
+    // Every class this pool holds fits inside the request cap, so nothing is
+    // missed for want of asking.
+    expect(result!.diagnostics.unmatchedByReason.category).toBe(0);
+    expect(result!.diagnostics.matched).toBe(2);
+    const total = result!.diagnostics.matched +
+      Object.values(result!.diagnostics.unmatchedByReason).reduce((sum, n) => sum + n, 0);
+    expect(total).toBe(refs.n);
+
+    // The claims landed against the fixture's own OSM refs, not synthetic ones.
+    const stored = (await room.pool.query(
+      `SELECT c.name, e.listing->>'sourceUrl' AS source_url
+         FROM enrichments e JOIN candidates c ON c.osm_ref = e.osm_ref
+        WHERE c.room_id = $1 ORDER BY c.name`,
+      [room.roomId],
+    )).rows as Array<{ name: string; source_url: string }>;
+    expect(stored.map((row) => row.name)).toEqual(["Grill Royal", "Peter Pane"]);
+    expect(stored[0].source_url).toBe("https://www.google.com/maps?cid=201");
+    // A branch suffix on the listing side still joins to the map's short name.
+    expect(stored[1].source_url).toBe("https://www.google.com/maps?cid=202");
+  });
+
+  it("sizes each request's limit to its category batch, never above the maximum", () => {
+    expect(sent.length).toBeGreaterThan(1);
+    for (const body of sent) {
+      const categories = (body.categories ?? []) as string[];
+      expect(body.limit).toBe(Math.max(31, categories.length * 100));
+      expect(body.limit as number).toBeLessThanOrEqual(1_000);
+      // The scope radius is 800 m, below the provider's one-kilometre floor.
+      expect(body.location_coordinate).toBe("52.5219000,13.3899000,1");
+    }
   });
 });
 
@@ -366,7 +465,9 @@ describe("Parallel provider switch over the refinement API", () => {
           WHERE osm_ref LIKE $1 AND inferred->$2->>'lean' = 'yes'`,
         [`parallel/${room.roomId}/%`, key],
       )).rows[0].count);
-      if (count === 2) break;
+      // The tick line is written after the tick finishes, so waiting only for
+      // the rows leaves the assertions racing it.
+      if (count === 2 && server.logs().includes('"searchProvider":"parallel"')) break;
       if (Date.now() >= deadline) throw new Error(`Parallel refinement did not settle:\n${server.logs()}`);
       await new Promise((resolve) => setTimeout(resolve, 100));
     }

@@ -124,6 +124,11 @@ export interface TestRoomOptions {
   /** Load the real Berlin Mitte dataset + demo scope instead of the three
    * synthetic candidates (and seed no proposal). */
   berlin?: boolean;
+  /** Carry the Berlin fixture's own `osmRef` onto each candidate row, the way
+   * a production pool boot does. Off by default so existing suites keep the
+   * ref-free rows they were written against; opt in when the code under test
+   * joins on `candidates.osm_ref`, as the enrichment and listing paths do. */
+  withOsmRefs?: boolean;
 }
 
 /** Create one fresh room and three exchanged tokens straight against the DB. */
@@ -149,7 +154,7 @@ export async function createTestRoom(
       ) as {
         manifest: { demoCenter: { lat: number; lng: number }; demoRadii: { narrow: number } };
         venues: Array<{
-          candidateId: string; name: string; category: string;
+          candidateId: string; name: string; category: string; osmRef?: string;
           priceLevel: number | null; location: { lat: number; lng: number };
           attributes: unknown[]; hours: unknown[];
         }>;
@@ -194,12 +199,13 @@ export async function createTestRoom(
       // candidates.id is a global PK: suffix per room so parallel test rooms
       // (and a seeded room_demo) never collide.
       await pool.query(
-        `INSERT INTO candidates (id, room_id, name, category, price_level, walk_min, location, attributes, hours)
-         VALUES ($1, $2, $3, $4, $5, 5, $6, $7, $8)`,
+        `INSERT INTO candidates (id, room_id, name, category, price_level, walk_min, location, attributes, hours, osm_ref)
+         VALUES ($1, $2, $3, $4, $5, 5, $6, $7, $8, $9)`,
         [
           `${v.candidateId}_${suffix}`, roomId, v.name, v.category, v.priceLevel,
           JSON.stringify(v.location), JSON.stringify(v.attributes),
           JSON.stringify(v.hours ?? []),
+          options.withOsmRefs ? v.osmRef ?? null : null,
         ],
       );
     }
