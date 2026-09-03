@@ -1502,3 +1502,23 @@ test("two places a few metres apart are both reachable by tapping their own dot"
     await expect(page.getByTestId("place-details")).toHaveCount(0);
   }
 });
+
+test("the page says what the map is as of once the browser goes offline, and drops the line when the link is back", async ({ page, context }) => {
+  const state: MockState = { context: fixture({ matching: 4, revision: 12 }), outstanding: [] };
+  await mockApi(page, state);
+  const socket = await scriptedSocket(page, 12);
+  await page.goto(`${BASE}/#invite=deadbeef`);
+  await socket.welcomed;
+  await expect(page.getByTestId("count-number")).toHaveText("21");
+  await expect(page.getByTestId("offline-line")).toHaveCount(0);
+
+  // The browser knows first: the line appears at once, not after a wait.
+  await context.setOffline(true);
+  await expect(page.getByTestId("offline-line")).toBeVisible({ timeout: 2_000 });
+  await expect(page.getByTestId("offline-line")).toContainText(/You're seeing the map as of .*Changes will sync\./);
+
+  // Back online with a live socket (the next frame arrives): the line goes.
+  await context.setOffline(false);
+  socket.send({ type: "ping", at: new Date().toISOString() });
+  await expect(page.getByTestId("offline-line")).toHaveCount(0);
+});

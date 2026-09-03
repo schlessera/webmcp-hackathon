@@ -104,6 +104,16 @@ export function connectRealtime(
   let retryAttempt = 0;
   let viewing: string | null = null;
   let welcomed = false;
+  /* A half-open socket never closes on its own. The server sends a visible
+     keepalive every few seconds; ten seconds without any frame on an open
+     socket is a dropped link as far as the page is concerned. */
+  const STALE_MS = 10_000;
+  let lastFrameAt = Date.now();
+  const staleTimer = setInterval(() => {
+    const stale =
+      socket?.readyState === WebSocket.OPEN && Date.now() - lastFrameAt > STALE_MS;
+    if (diagnostics.state.wsStale !== stale) diagnostics.update({ wsStale: stale });
+  }, 1_000);
 
   const sendViewing = () => {
     if (!welcomed || socket?.readyState !== WebSocket.OPEN) return;
@@ -118,7 +128,8 @@ export function connectRealtime(
 
     socket.onopen = () => {
       welcomed = false;
-      diagnostics.update({ wsState: "open" });
+      lastFrameAt = Date.now();
+      diagnostics.update({ wsState: "open", wsStale: false });
       socket!.send(
         JSON.stringify({
           type: "auth",
@@ -129,6 +140,8 @@ export function connectRealtime(
       );
     };
     socket.onmessage = (raw) => {
+      lastFrameAt = Date.now();
+      if (diagnostics.state.wsStale) diagnostics.update({ wsStale: false });
       let message: ServerMessage;
       try {
         message = JSON.parse(String(raw.data)) as ServerMessage;
@@ -196,6 +209,7 @@ export function connectRealtime(
   return {
     close() {
       closed = true;
+      clearInterval(staleTimer);
       socket?.close();
     },
     setViewing(candidateId) {

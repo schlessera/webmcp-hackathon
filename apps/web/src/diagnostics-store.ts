@@ -5,6 +5,11 @@ export interface DiagnosticsState {
   registration: "pending" | "registered" | "failed" | "unsupported";
   registrationError: string | null;
   wsState: "connecting" | "open" | "closed";
+  /** navigator.onLine as the browser last reported it. */
+  online: boolean;
+  /** The socket claims open but nothing (not even a keepalive) has arrived
+   * for ten seconds: a half-open link, treated as dropped. */
+  wsStale: boolean;
   buildId: string | null;
   serverBuildId: string | null;
   /** The serving process can hand a sentence to the person's agent. */
@@ -23,6 +28,8 @@ class DiagnosticsStore {
     registration: "pending",
     registrationError: null,
     wsState: "connecting",
+    online: typeof navigator === "undefined" ? true : navigator.onLine,
+    wsStale: false,
     buildId: null,
     serverBuildId: null,
     nlAvailable: false,
