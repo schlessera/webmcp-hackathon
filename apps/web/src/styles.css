@@ -98,6 +98,11 @@ body { overflow: hidden; }
   white-space: nowrap; border: 0;
 }
 
+/* A folded block leaves the flow entirely. Without this a class-level
+   `display` outranks the browser's own [hidden] rule and the block stays
+   on screen with only its accessibility gone — the worst of both. */
+[hidden] { display: none !important; }
+
 /* A visual box smaller than 44px extends its target with a pseudo-element
    rather than growing the drawn element (CLAUDE.md §13). */
 .tap-44 { position: relative; }
@@ -1607,18 +1612,6 @@ body { overflow: hidden; }
   gap: 10px;
   padding: 12px 14px 10px;
 }
-.details-nav-title {
-  flex: 1;
-  text-align: center;
-  font-family: var(--spoke-font-display);
-  font-weight: var(--spoke-weight-strong);
-  font-size: var(--spoke-size-body);
-  color: var(--spoke-ink);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .details-body {
   flex: 1;
   min-height: 0;
@@ -1672,20 +1665,6 @@ body { overflow: hidden; }
 .details-photo-band[data-count="1"] .details-photo-frame img {
   transition: opacity var(--spoke-dur-settle) var(--spoke-ease);
 }
-/* Being looked up and no photo known yet: a fixed-height quiet line, never a
-   box that appears later and pushes the facts down. */
-.details-photo-looking {
-  display: flex;
-  align-items: center;
-  gap: var(--spoke-gap-group);
-  height: 28px;
-  padding: 0 var(--spoke-pad-screen);
-  border-bottom: var(--spoke-border) solid var(--spoke-line-quiet);
-  color: var(--spoke-ink-soft);
-  font-size: var(--spoke-size-micro);
-  font-weight: var(--spoke-weight-quiet);
-}
-
 /* Hover card (SPOKES-UI "Hover card"): the name and first image of the dot
    under a fine pointer or keyboard focus. Position on the wrapper; nothing
    animates but the opacity on the settle token. pointer-events: none is the
@@ -2025,6 +2004,25 @@ body { overflow: hidden; }
   padding: 4px 2px;
 }
 
+/* A fold's own line: an absolute count, never an instruction. The negative
+   margins keep the 44px target from stretching the group's rhythm, the same
+   trick .fact-confirm-action uses. */
+.record-summary {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--spoke-tap-min);
+  margin: -10px 0;
+  padding: 0 2px;
+  border: none;
+  background: none;
+  font-weight: var(--spoke-weight-quiet);
+  font-size: var(--spoke-size-meta);
+  color: var(--spoke-unsure-text);
+  cursor: pointer;
+}
+/* Following a ledger there is no heading gap to claw back. */
+.ledger + .record-summary { margin-top: 0; }
+
 .details-sources {
   font-weight: var(--spoke-weight-quiet);
   font-size: var(--spoke-size-micro);
@@ -2033,23 +2031,44 @@ body { overflow: hidden; }
   padding-top: 10px;
 }
 
-.stand-avatar {
+/* Where everyone stands: one line of people, not a row each. The badge is
+   the header's own 26px geometry so a person looks the same everywhere; the
+   marks ride the corners the way presence does on the header avatar. */
+.stands {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+.stand {
+  position: relative;
+  display: inline-flex;
   flex: none;
-  width: 20px; height: 20px;
-  border-radius: var(--spoke-radius-badge);
+}
+.stand-badge {
+  width: 26px; height: 26px;
+  border-radius: var(--spoke-radius-avatar);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 9px;
+  font-size: var(--spoke-size-micro);
   font-weight: var(--spoke-weight-strong);
   color: var(--spoke-surface);
   background: var(--spoke-person-1);
+  flex: none;
 }
-.stand-row[data-stance="none"] .ledger-label { color: var(--spoke-ink-faint); }
-.stand-looking {
-  font-weight: var(--spoke-weight-quiet);
-  font-size: var(--spoke-size-meta);
-  color: var(--spoke-ink-soft);
+/* Stance in one corner, presence in another: two meanings, two marks (§2). */
+.stand-mark {
+  position: absolute;
+  right: -3px; bottom: -3px;
+}
+.stand-looking-mark {
+  position: absolute;
+  left: -2px; top: -2px;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--spoke-ink);
+  border: 2px solid var(--spoke-surface);
 }
 
 .details-actions {
@@ -2518,7 +2537,6 @@ body { overflow: hidden; }
     border-left: var(--spoke-border) solid var(--spoke-line-quiet);
     background: var(--spoke-surface);
   }
-  .details-nav-title { text-align: left; }
 }
 
 /* ── Before a room: the area picker (components/Start.tsx) ─────────────────
@@ -3070,29 +3088,47 @@ body { overflow: hidden; }
 /* The composer's status line carries the ring in act colour. */
 .composer-suggest-label[data-tone="act"] .row-busy { border-color: var(--spoke-act); }
 
-/* The panel's lookup line, reserved under the verdict. */
-.details-lookup {
-  display: flex;
+/* ── Place details, rebuilt (2026-09-03) ───────────────────────────────── */
+.details-nav-spacer { flex: 1; }
+/* One control top-left with two faces. Busy is a ring and the step in
+   words; idle is the refresh affordance. Both reach 44px without the
+   drawn shape growing (§13). */
+.details-work {
+  flex: none;
+  display: inline-flex;
   align-items: center;
-  min-height: 20px;
-  margin-top: 8px;
+  gap: 6px;
+  min-height: var(--spoke-tap-min);
+  border: none;
+  background: none;
+  padding: 0 4px;
   font-weight: var(--spoke-weight-quiet);
   font-size: var(--spoke-size-detail);
   color: var(--spoke-ink-faint);
+  cursor: default;
 }
-.details-lookup[data-state="busy"] { color: var(--spoke-works-text); }
-.details-lookup .line-busy { border-color: currentColor; }
-
-/* ── Place details, rebuilt (2026-09-03) ───────────────────────────────── */
-.details-nav-spacer { flex: 1; }
-.details-lookup-ago {
-  font-size: var(--spoke-size-meta);
-  color: var(--spoke-ink-soft);
+.details-work[data-state="busy"] { color: var(--spoke-works-text); }
+.details-work[data-state="idle"] { color: var(--spoke-ink-soft); cursor: pointer; }
+.details-work[data-state="idle"]:hover { color: var(--spoke-works-text); }
+.details-work .busy-ring { border-color: currentColor; }
+.details-work-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* Text buttons in the nav reach the 44px floor sideways too (W9). */
-.tap-wide { min-width: var(--spoke-tap-min); }
-.btn-text:disabled { text-decoration: none; color: var(--spoke-ink-soft); cursor: default; }
+.details-close-btn {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--spoke-ink-soft);
+  cursor: pointer;
+}
+.details-close-btn:hover { color: var(--spoke-ink); }
 .ledger-note {
   font-weight: var(--spoke-weight-quiet);
   font-size: var(--spoke-size-detail);

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   citationLabel,
+  hoursDays,
+  hoursLines,
   isCombinedClaim,
   sourceLabel,
 } from "../../apps/web/src/ui/copy.ts";
@@ -40,5 +42,49 @@ describe("evidence wording", () => {
     expect(citationLabel("https://www.example.com/menu")).toBe("from example.com");
     expect(citationLabel("https://www.example.com/menu", false)).toBe("a page at example.com");
     expect(citationLabel("not a url", false)).toBe("a page the room did not read");
+  });
+});
+
+// The panel folds the week behind a count of days. A schedule row is not a
+// day: a split shift and an overnight range give one day several rows, and
+// counting rows would claim a ten-day week.
+describe("how much of the week the record carries", () => {
+  const week = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"].map((day) => ({
+    day,
+    open: "09:00",
+    close: "17:00",
+  }));
+
+  it("counts days, not schedule rows", () => {
+    expect(hoursDays(week)).toBe(7);
+    const split = [
+      { day: "mon", open: "09:00", close: "12:00" },
+      { day: "mon", open: "13:00", close: "18:00" },
+      { day: "mon", open: "22:00", close: "02:00" },
+    ];
+    expect(split).toHaveLength(3);
+    expect(hoursDays(split)).toBe(1);
+  });
+
+  it("never claims more than a week, however the record is shaped", () => {
+    const doubled = [...week, ...week];
+    expect(doubled).toHaveLength(14);
+    expect(hoursDays(doubled)).toBe(7);
+  });
+
+  it("counts exactly the days the lines can draw", () => {
+    const mixed = [
+      { day: "Monday", open: "09:00", close: "17:00" },
+      { day: "TUE", open: "09:00", close: "17:00" },
+      { day: "holiday", open: "12:00", close: "16:00" },
+      { day: "", open: "12:00", close: "16:00" },
+    ];
+    // The same normalisation both sides: what is drawn is what is counted.
+    expect(hoursLines(mixed).map((line) => line.days)).toEqual(["Mon–Tue"]);
+    expect(hoursDays(mixed)).toBe(2);
+  });
+
+  it("counts nothing when the record carries nothing", () => {
+    expect(hoursDays([])).toBe(0);
   });
 });

@@ -139,6 +139,10 @@ every wire change this session was additive; the manifest hash was regenerated.
    *2026-09-02:* the panel was redrawn — "Does it fit" ledger with the map's
    dot marks, "Also on record" as pills with unknowns counted, one sources
    line, peers' private effects as rows, "looking now" on stance rows.
+   *2026-09-03:* the panel was cut down to fit without scrolling — one nav
+   control with a busy face and a refresh face, close as a glyph on the
+   right, "Where everyone stands" as one line of badges above "Where and
+   when", and the record and the week folded behind their counts.
 4. **`{ }` drawer (8b)** is a full-screen takeover without the Wire / Tools /
    Session tabs; the raw candidates dump is long. Deliberately small and
    unstyled per CLAUDE.md §6, but the mockup's slide-over at 232px with the

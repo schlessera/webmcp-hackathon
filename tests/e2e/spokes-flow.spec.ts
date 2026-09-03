@@ -470,6 +470,8 @@ test("demo trajectory through the product UI", async () => {
   const barnDetails = pages.org.getByTestId("place-details");
   await expect(barnDetails).toHaveAttribute("aria-label", "The Barn");
   await expect(barnDetails.getByTestId("verdict")).toBeVisible();
+  // The record's pills are folded behind their count until asked for.
+  await barnDetails.getByTestId("facts-summary").click({ timeout: 10_000 });
   await expect(barnDetails.locator(".attr-row").first()).toBeVisible({ timeout: 10_000 });
   await clickCommand(pages.org, () => barnDetails.getByTestId("propose-btn").click());
   await expect(barnDetails.getByTestId("accept-btn")).toBeVisible({ timeout: 10_000 });

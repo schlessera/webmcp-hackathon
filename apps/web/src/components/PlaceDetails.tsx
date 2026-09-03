@@ -21,6 +21,7 @@ import {
   COPY,
   attributeValue,
   confidenceWord,
+  hoursDays,
   hoursLines,
   initials,
   numberWord,
@@ -286,6 +287,43 @@ function safeHttpUrl(value: string | null | undefined): string | null {
   }
 }
 
+/* The panel's two affordances, drawn as strokes rather than characters.
+   A character icon inherits the display face's metrics and can wrap; a
+   stroke inherits colour, scales cleanly and stays a shape, not a glyph
+   pretending to be a state (CLAUDE.md "marks, not glyphs"). */
+function CloseGlyph() {
+  return (
+    <svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true" focusable="false">
+      <path
+        d="M4 4l8 8M12 4l-8 8"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function RefreshGlyph() {
+  return (
+    <svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true" focusable="false">
+      <path
+        d="M13 8a5 5 0 1 1-2.5-4.33"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
+      <path
+        d="M9.2 1.4 10.5 3.7 7.9 3.7"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 export function PlaceDetails({
   candidate,
   proposal,
@@ -309,6 +347,10 @@ export function PlaceDetails({
   const handledFactsNonce = useRef(0);
   const settleTimer = useRef<number | null>(null);
   const [activePhoto, setActivePhoto] = useState(0);
+  /* The two folds. Both start closed: the count answers "is there more"
+     without spending the height, and opening one is the reader's call. */
+  const [recordOpen, setRecordOpen] = useState(false);
+  const [hoursOpen, setHoursOpen] = useState(false);
   /* A facts frame naming this place re-reads the dossier in place — the
      rows update, the panel does not blank. */
   const factsNonce = factsFrame.ids.includes(candidate.candidateId) ? factsFrame.nonce : 0;
@@ -413,6 +455,8 @@ export function PlaceDetails({
   useEffect(() => {
     setDossier(null);
     setActivePhoto(0);
+    setRecordOpen(false);
+    setHoursOpen(false);
     setLookupPhase("idle");
     setLookupChanged(0);
     setFactsSettlingCandidate(null);
@@ -654,8 +698,30 @@ export function PlaceDetails({
   const minutesSinceLookup = dossier?.lookedUpAt
     ? Math.floor((Date.now() - new Date(dossier.lookedUpAt).getTime()) / 60_000)
     : null;
-  const recentlyLookedUp =
-    lookupPhase === "done" || (minutesSinceLookup !== null && minutesSinceLookup < 10);
+  /* One "something is happening here" signal for the nav: the room's
+     pipeline, the open fast track, a read this page asked for, or the very
+     first dossier read. */
+  const working = lookingUp || openStage !== null || lookupPhase === "asked" || !dossier;
+  /* The busy face carries words as well as the ring: reduced motion stands
+     the ring still, and the words are then the whole signal (§9). */
+  const workLabel =
+    openStage !== null
+      ? COPY.openStageLine(openStage)
+      : lookingUp
+        ? stage
+          ? COPY.stageLine(stage)
+          : COPY.lookingUp
+        : lookupPhase === "asked"
+          ? COPY.lookingUp
+          : COPY.readingRecord;
+  /* What the last read left behind. It costs no line of its own: the idle
+     control carries it on hover and announces it once. */
+  const idleTitle =
+    lookupPhase === "done"
+      ? COPY.lookedUpJustNow(lookupChanged)
+      : minutesSinceLookup !== null
+        ? COPY.lookedUpAgo(minutesSinceLookup)
+        : COPY.recordRead;
   const safeLinks = (dossier?.links ?? []).flatMap((link) => {
     const href = safeHttpUrl(link.url);
     return href ? [{ ...link, href }] : [];
@@ -670,44 +736,63 @@ export function PlaceDetails({
       data-testid="place-details"
       aria-label={candidate.name}
     >
+      {/* One element top-left with two faces, never both. Busy names the
+          step the panel is on; idle is the way to ask for a fresh read.
+          Close sits alone on the right. */}
       <div className="details-nav">
-        <button className="btn-text tap-wide" data-testid="details-close" onClick={onClose}>
-          Close
-        </button>
-        <span className="details-nav-spacer" aria-hidden="true" />
-        {/* Ask the room's server to look this place up now; what lands
-            arrives on the facts frame and updates the rows in place. */}
-        {negotiable && (
-          <>
-            {recentlyLookedUp && lookupPhase !== "done" && minutesSinceLookup !== null && (
-              <span className="details-lookup-ago" data-testid="details-lookup-ago">
-                {COPY.lookedUpAgo(minutesSinceLookup)}
+        {working ? (
+          <span
+            className="details-work"
+            data-state="busy"
+            data-testid="details-lookup"
+            role="status"
+            aria-live="polite"
+          >
+            <i className="busy-ring line-busy" aria-hidden="true" />
+            <span className="details-work-label">{workLabel}</span>
+          </span>
+        ) : (
+          /* Ask the room's server to look this place up now; what lands
+             arrives on the facts frame and updates the rows in place. */
+          negotiable && (
+            <>
+              <button
+                className="details-work tap-44"
+                data-state="idle"
+                data-testid="details-lookup-btn"
+                aria-label="Look it up again"
+                title={idleTitle}
+                onClick={askLookup}
+              >
+                <RefreshGlyph />
+              </button>
+              <span className="sr-only" role="status" aria-live="polite">
+                {idleTitle}
               </span>
-            )}
-            <button
-              className="btn-text tap-wide"
-              data-testid="details-lookup-btn"
-              disabled={lookingUp || lookupPhase === "asked"}
-              onClick={askLookup}
-            >
-              {lookingUp
-                ? "Looking it up"
-                : lookupPhase === "asked"
-                  ? "Asked"
-                  : recentlyLookedUp
-                    ? COPY.lookAgain
-                    : "Look it up"}
-            </button>
-          </>
+            </>
+          )
         )}
+        <span className="details-nav-spacer" aria-hidden="true" />
+        <button
+          className="details-close-btn tap-44"
+          data-testid="details-close"
+          aria-label="Close"
+          onClick={onClose}
+        >
+          <CloseGlyph />
+        </button>
       </div>
 
-      <div className="details-body">
+      {/* The incomplete region is the body, not the panel. aria-busy on the
+          root would enclose the nav's live status, and a status inside a busy
+          subtree can be held back until busy clears — the stage lines would
+          then arrive all at once, after they stopped being true. */}
+      <div className="details-body" aria-busy={working || undefined}>
         {/* Before the dossier lands the summary already says whether a
             photo exists: the band's box is reserved from first paint with
             the blurhash painted, so nothing below shifts when the bytes
-            arrive. Unknown but being looked up: a thin quiet band that only
-            collapses once the lookup ends without a photo. */}
+            arrive. No photo promised: no box and no line — the nav already
+            says a lookup is running. */}
         {photos.length === 0 && !dossier && candidate.image && (
           <div className="details-photo" data-testid="photo-band" data-reserved="true">
             <div
@@ -724,12 +809,6 @@ export function PlaceDetails({
                 }
               />
             </div>
-          </div>
-        )}
-        {photos.length === 0 && dossier && !candidate.image && lookingUp && (
-          <div className="details-photo-looking" data-testid="photo-looking" role="status">
-            <i className="busy-ring row-busy" aria-hidden="true" />
-            {COPY.lookingForPhoto}
           </div>
         )}
         {photos.length > 0 && (
@@ -777,31 +856,6 @@ export function PlaceDetails({
           <div className="verdict" data-state={verdictState} data-testid="verdict">
             <span className="verdict-dot" aria-hidden="true" />
             <span className="verdict-text">{verdictText(candidate, dossier?.needs)}</span>
-          </div>
-          {/* Reserved from the first paint (SPOKES-UI §6): the panel never
-              looks final before the facts have landed. */}
-          <div
-            className="details-lookup"
-            data-state={openStage !== null || lookingUp ? "busy" : dossier ? "done" : "loading"}
-            data-testid="details-lookup"
-            role="status"
-            aria-busy={lookingUp || !dossier || undefined}
-          >
-            {openStage !== null ? (
-              <>
-                <i className="busy-ring line-busy" aria-hidden="true" />
-                {COPY.openStageLine(openStage)}
-              </>
-            ) : lookingUp || !dossier ? (
-              <>
-                <i className="busy-ring line-busy" aria-hidden="true" />
-                {lookingUp ? (stage ? COPY.stageLine(stage) : COPY.lookingUp) : COPY.readingRecord}
-              </>
-            ) : lookupPhase === "done" ? (
-              COPY.lookedUpJustNow(lookupChanged)
-            ) : (
-              COPY.recordRead
-            )}
           </div>
         </div>
 
@@ -890,34 +944,102 @@ export function PlaceDetails({
           </div>
         )}
 
+        {/* Who has moved, on one line. The badge is the header's own
+            avatar geometry, so a person looks the same everywhere; the
+            corner mark is the map's dot vocabulary, so stance survives
+            greyscale. Silence is the dashed ghost ring, never a greyed
+            badge — nobody having said anything is a state, not absence
+            (§4). Looking now is a second mark, because a person can be
+            looking and silent at once (§2). */}
+        <div className="details-group">
+          <div className="group-heading">Where everyone stands</div>
+          <div className="stands" data-testid="stands">
+            {participants.map((p, i) => {
+              const stance = stanceOf(p.participantId);
+              const you = p.participantId === meId;
+              const looking = !you && viewing[p.participantId] === candidate.candidateId;
+              const mark: Mark = stance === "accept" ? "in" : stance === "veto" ? "veto" : "silent";
+              const sentence =
+                (stance === "accept"
+                  ? `${you ? "You are" : `${p.displayName} is`} in`
+                  : stance === "veto"
+                    ? `${you ? "You" : p.displayName} ruled it out`
+                    : `${you ? "You haven't" : `${p.displayName} hasn't`} said`) +
+                (looking ? " · looking now" : "");
+              return (
+                <span className="stand" data-stance={stance} title={sentence} key={p.participantId}>
+                  <span
+                    className="stand-badge"
+                    style={{ background: personColor(i) }}
+                    aria-hidden="true"
+                  >
+                    {initials(p.displayName)}
+                  </span>
+                  <i className="mark stand-mark" data-mark={mark} aria-hidden="true" />
+                  {looking && (
+                    <i
+                      className="stand-looking-mark"
+                      data-testid={`looking-${p.participantId}`}
+                      aria-hidden="true"
+                    />
+                  )}
+                  <span className="sr-only">{sentence}</span>
+                </span>
+              );
+            })}
+          </div>
+        </div>
+
         {whereWhen && (
           <div className="details-group" data-testid="where-when">
             <div className="group-heading">Where and when</div>
-            <div className="ledger">
-              {hoursStatus && (
-                <div className="ledger-row hours-status">
-                  <span className="ledger-label">{hoursStatus}</span>
+            {/* An empty ledger still draws its rule, and a rule with nothing
+                under it reads as a section that failed to load. */}
+            {(hoursStatus || dossier.address || dossier.phone) && (
+              <div className="ledger">
+                {hoursStatus && (
+                  <div className="ledger-row hours-status">
+                    <span className="ledger-label">{hoursStatus}</span>
+                  </div>
+                )}
+                {dossier.address && (
+                  <div className="ledger-row">
+                    <span className="ledger-label">{dossier.address}</span>
+                  </div>
+                )}
+                {dossier.phone && (
+                  <div className="ledger-row">
+                    <a className="ledger-label details-phone" href={`tel:${dossier.phone.replace(/\s+/g, "")}`}>
+                      {dossier.phone}
+                    </a>
+                  </div>
+                )}
+              </div>
+            )}
+            {/* Open now, the address and the phone answer the reader's
+                question; the week rarely does. It stays one tap away, as a
+                count of what the record carries (§10). */}
+            {hours.length > 0 && (
+              <>
+                <button
+                  className="record-summary"
+                  data-testid="hours-summary"
+                  aria-expanded={hoursOpen}
+                  aria-controls="details-hours"
+                  onClick={() => setHoursOpen((open) => !open)}
+                >
+                  {COPY.hoursOnRecord(hoursDays(dossier.hours ?? []))}
+                </button>
+                <div className="ledger" id="details-hours" hidden={!hoursOpen}>
+                  {hours.map((h) => (
+                    <div className="ledger-row hours-row" key={h.days}>
+                      <span className="ledger-label">{h.days}</span>
+                      <span className="ledger-answer hours-times">{h.times}</span>
+                    </div>
+                  ))}
                 </div>
-              )}
-              {dossier.address && (
-                <div className="ledger-row">
-                  <span className="ledger-label">{dossier.address}</span>
-                </div>
-              )}
-              {dossier.phone && (
-                <div className="ledger-row">
-                  <a className="ledger-label details-phone" href={`tel:${dossier.phone.replace(/\s+/g, "")}`}>
-                    {dossier.phone}
-                  </a>
-                </div>
-              )}
-              {hours.map((h) => (
-                <div className="ledger-row hours-row" key={h.days}>
-                  <span className="ledger-label">{h.days}</span>
-                  <span className="ledger-answer hours-times">{h.times}</span>
-                </div>
-              ))}
-            </div>
+              </>
+            )}
           </div>
         )}
 
@@ -966,8 +1088,20 @@ export function PlaceDetails({
         {dossier && (known.length > 0 || unknownCount > 0) && (
           <div className="details-group">
             <div className="group-heading">Also on record</div>
+            {/* The count is always visible, the pills are not: the record's
+                height grows with every question the room asks, and a reader
+                who wants the list asks for it (§4, §10). */}
+            <button
+              className="record-summary"
+              data-testid="facts-summary"
+              aria-expanded={recordOpen}
+              aria-controls="details-facts"
+              onClick={() => setRecordOpen((open) => !open)}
+            >
+              {COPY.onRecord(known.length, unknownCount)}
+            </button>
             {/* Server order, verbatim. No invented icons, no reordering. */}
-            <div className="fact-row" data-testid="facts">
+            <div className="fact-row" id="details-facts" data-testid="facts" hidden={!recordOpen}>
               {known.map((a) => {
                 const sourceUrl = safeHttpUrl(a.sourceUrl);
                 return (
@@ -1017,41 +1151,6 @@ export function PlaceDetails({
           </div>
         )}
 
-        <div className="details-group">
-          <div className="group-heading">Where everyone stands</div>
-          <div className="ledger">
-            {participants.map((p, i) => {
-              const stance = stanceOf(p.participantId);
-              const you = p.participantId === meId;
-              const looking = !you && viewing[p.participantId] === candidate.candidateId;
-              const mark: Mark = stance === "accept" ? "in" : stance === "veto" ? "veto" : "silent";
-              return (
-                <div className="ledger-row stand-row" data-stance={stance} key={p.participantId}>
-                  <span
-                    className="stand-avatar"
-                    style={{ background: personColor(i) }}
-                    aria-hidden="true"
-                  >
-                    {initials(p.displayName)}
-                  </span>
-                  <span className="ledger-label stand-text">
-                    {stance === "accept"
-                      ? `${you ? "You are" : `${p.displayName} is`} in`
-                      : stance === "veto"
-                        ? `${you ? "You" : p.displayName} ruled it out`
-                        : `${you ? "You haven't" : `${p.displayName} hasn't`} said`}
-                    {looking && (
-                      <span className="stand-looking" data-testid={`looking-${p.participantId}`}>
-                        {" "}· looking now
-                      </span>
-                    )}
-                  </span>
-                  <i className="mark" data-mark={mark} aria-hidden="true" />
-                </div>
-              );
-            })}
-          </div>
-        </div>
       </div>
 
       <div className="details-actions">

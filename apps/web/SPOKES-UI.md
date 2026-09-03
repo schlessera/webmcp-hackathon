@@ -379,9 +379,9 @@ without a DOM marker get the card through the nearest-dot rule on mousemove.
 The details panel reserves the photo band's box from first paint whenever
 the summary says a photo exists — the band's fixed 3:2 crop — with the
 blurhash as background, so the facts below never move when the bytes land.
-When no photo is known and a lookup is running, a fixed-height line says
-"looking for a photo…" and collapses only when the lookup ends without one.
-No photo and nothing running: no box at all.
+When the summary promises no photo there is no box and no copy: the panel's
+nav control already says a lookup is running, and a second place saying it
+only cost a row that appeared and vanished under the reader.
 
 ## 6. Place details
 
@@ -393,15 +393,19 @@ server sends, in server order. There is no restaurant layout, no cinema
 layout — one layout that adapts.
 
 ```
-Name                              [Close]
+[refresh | ring + "reading the site…"]   [close]
+Name
 why it's in / why it's out        ← verdict strip
 ─────────────────────────────────
 Does it fit                       ← per need: mark · need · answer in words
 ─────────────────────────────────
-Also on record                    ← the facts nobody asked about, as pills
-Facts from OpenStreetMap.         ← one sources line for the whole panel
+Where everyone stands             ← one line of badges, marks in the corners
 ─────────────────────────────────
-Where everyone stands             ← per person: avatar · sentence · mark
+Where and when                    ← open now · address · phone
+hours for 7 days on record        ← the week folds behind its count
+─────────────────────────────────
+Also on record                    ← 12 on record · 3 not on record
+Facts from OpenStreetMap.         ← one sources line for the whole panel
 ─────────────────────────────────
 [Put it forward]  [Rule it out]
 ```
@@ -421,18 +425,40 @@ Where everyone stands             ← per person: avatar · sentence · mark
   facts are a count ("3 not on record"), not a list of question marks.
 - Provenance is one line under the facts, not a column per row.
 - **Don't** invent icons per attribute type; label + value in the type ramp.
-- A peer with this place open reads "· looking now" on their stance row.
-- **Looking it up.** The panel reserves one line under the verdict from the
-  first paint: `looking it up…` with the busy ring while a lookup runs for
-  this place, `what the record says` once it has landed. Facts that arrive
-  update their rows in place; the first render never looks final.
+- **Where everyone stands is one line.** Each person is a 26px badge in
+  their own colour with the header's avatar geometry, carrying two corner
+  marks: their stance (filled works = in, hollow act ring = ruled it out,
+  dashed ghost ring = nothing said) and, separately, a round ink dot when
+  they have this place open. Two meanings never share a mark, so somebody
+  can be silent and looking at once. The sentence — "Sarah is in",
+  "You haven't said", "· looking now" — is the badge's title and its
+  screen-reader text.
+- **One nav control, two faces.** Top-left is a single element. While
+  anything is running it is the busy ring plus the step in words —
+  `reading the site…`, `checking it against your needs…`,
+  `reading the record…` — announced politely. When nothing is running it is
+  a refresh affordance labelled "Look it up again", whose title carries what
+  the last read left: `looked up just now · 3 facts changed`,
+  `looked up 4 min ago`, or `what the record says`. Only the refresh face
+  waits on the phase; the busy face speaks in any phase. Close is a stroke
+  glyph alone top-right. Both are drawn at 16–18px and reach 44px through
+  `tap-44`. Facts that arrive update their rows in place; the first render
+  never looks final.
+- **The two folds.** "Where and when" keeps the open-now line, the address
+  and the phone; the per-day rows sit behind `hours for 7 days on record`,
+  which counts weekdays the lines can draw, never schedule rows — a split
+  shift or an overnight range is one day, and seven is the ceiling.
+  "Also on record" shows only `12 on record · 3 not on record` until it is
+  asked to open. Both start closed, both are absolute counts and never an
+  instruction, and neither hides that the facts exist.
 - The "Does it fit" rows come from the server's per-need verdicts on the
   dossier (`needs[]`); the client never parses a need label. A guess names
   its evidence under the answer in the reader's words ("the menu mentions a
   vegan bowl") and its confidence as a word — "likely", "fairly sure",
   "a guess" — never as a number.
 - Address, phone and opening hours sit in a "Where and when" group when the
-  record carries them; hours group consecutive days with the same times.
+  record carries them; hours group consecutive days with the same times and
+  stay folded behind their count.
 - **Photo band.** When the dossier carries images, the band sits at the top
   of the scrolling panel, before the name. One image fills the width at a 3:2
   crop (`object-fit: cover`). Two or three images form a horizontal

@@ -1181,6 +1181,7 @@ test("deliberation draws unsure and proposed pins and exposes direct stance acti
   await expect(details).toHaveAttribute("aria-label", "The Barn");
   await expect(details.getByTestId("verdict")).toHaveAttribute("data-state", "works");
   await expect(details.getByTestId("verdict")).toContainText("Clears every need the room has stated");
+  await details.getByTestId("facts-summary").click();
   await expect(details.locator('.attr-row[data-status="verified_true"]').first()).toBeVisible();
   await expect(details.getByTestId("accept-btn")).toBeVisible();
   await expect(details.getByTestId("veto-btn")).toHaveText("Rule it out");
@@ -2046,7 +2047,11 @@ test("place details read the server's verdicts, address and hours, and say when 
             hours: [
               { day: "mon", open: "09:00", close: "18:00" },
               { day: "tue", open: "09:00", close: "18:00" },
+              // A split Saturday and a day the lines cannot draw: five
+              // schedule rows over three weekdays.
               { day: "sat", open: "10:00", close: "14:00" },
+              { day: "sat", open: "18:00", close: "22:00" },
+              { day: "holiday", open: "12:00", close: "16:00" },
             ],
             address: "Schiffbauerdamm 12, 10117 Berlin",
             phone: "+49 30 123456",
@@ -2074,7 +2079,30 @@ test("place details read the server's verdicts, address and hours, and say when 
   await page.getByTestId("pin-place_24").click();
   const details = page.getByTestId("place-details");
   await expect(details).toBeVisible();
-  await expect(details.getByTestId("details-lookup")).toHaveText("what the record says");
+  // Nothing running: the busy face is gone and the refresh control carries
+  // what the last read left behind.
+  await expect(details.getByTestId("details-lookup")).toHaveCount(0);
+  await expect(details.getByTestId("details-lookup-btn")).toHaveAttribute(
+    "title",
+    "what the record says",
+  );
+  await expect(details.getByTestId("details-lookup-btn")).toHaveAttribute(
+    "aria-label",
+    "Look it up again",
+  );
+  // Close is the top-right control, the busy/refresh element the top-left one.
+  const closeBox = await details.getByTestId("details-close").boundingBox();
+  const workBox = await details.getByTestId("details-lookup-btn").boundingBox();
+  expect(closeBox && workBox && closeBox.x).toBeGreaterThan(workBox!.x);
+  // 18px drawn, 44px to press: the target is the pseudo-element, the glyph
+  // never grows to reach it (CLAUDE.md §13).
+  const closeTarget = await details.getByTestId("details-close").evaluate((el) => {
+    const before = getComputedStyle(el, "::before");
+    return { width: Number.parseFloat(before.width), height: Number.parseFloat(before.height) };
+  });
+  expect(closeBox && closeBox.height).toBeLessThan(44);
+  expect(closeTarget.width).toBeGreaterThanOrEqual(44);
+  expect(closeTarget.height).toBeGreaterThanOrEqual(44);
   await expect(details.locator(".details-nav-title")).toHaveCount(0);
   await expect(details.locator(".details-title")).toHaveText("The Barn");
   await expect(details.locator(".details-meta")).toContainText("likely about €");
@@ -2096,6 +2124,12 @@ test("place details read the server's verdicts, address and hours, and say when 
   const whereWhen = details.getByTestId("where-when");
   await expect(whereWhen).toContainText("Schiffbauerdamm 12");
   await expect(whereWhen.locator(".details-phone")).toHaveAttribute("href", "tel:+4930123456");
+  // The week is folded behind its count until asked for.
+  await expect(whereWhen.locator(".hours-row").first()).toBeHidden();
+  // Five schedule rows, three weekdays: a split shift is not an extra day,
+  // and a day the lines cannot draw is neither drawn nor counted.
+  await expect(whereWhen.getByTestId("hours-summary")).toHaveText("hours for 3 days on record");
+  await whereWhen.getByTestId("hours-summary").click();
   await expect(whereWhen.locator(".hours-row")).toHaveCount(2);
   await expect(whereWhen.locator(".hours-row").nth(0)).toContainText("Mon–Tue");
   await expect(whereWhen.locator(".hours-row").nth(0)).toContainText("09:00–18:00");
@@ -2104,6 +2138,10 @@ test("place details read the server's verdicts, address and hours, and say when 
   // Facts nobody asked about: the verified one is a pill; the valueless
   // "hours" fact and the guessed price (said once, above) are not.
   const facts = details.getByTestId("facts");
+  await expect(facts).toBeHidden();
+  await expect(details.getByTestId("facts-summary")).toHaveText("1 on record");
+  await details.getByTestId("facts-summary").click();
+  await expect(facts).toBeVisible();
   await expect(facts).toContainText("outdoor seating");
   await expect(facts).not.toContainText("hours");
   await expect(facts).not.toContainText("€");
@@ -2112,10 +2150,21 @@ test("place details read the server's verdicts, address and hours, and say when 
   socket.send({ type: "lookups", pending: ["place_24"], reason: { kind: "place" } });
   await expect(details.getByTestId("details-lookup")).toHaveAttribute("data-state", "busy");
   await expect(details.getByTestId("details-lookup")).toHaveText("looking it up…");
-  await expect(details.getByTestId("details-lookup-btn")).toBeDisabled();
+  // The live status sits outside every aria-busy region, or assistive tech
+  // may hold each stage line back until the lookup ends.
+  const statusInsideBusy = await details
+    .getByTestId("details-lookup")
+    .evaluate((el) => el.closest('[aria-busy="true"]') !== null);
+  expect(statusInsideBusy).toBe(false);
+  await expect(details.locator('.details-body[aria-busy="true"]')).toHaveCount(1);
+  // One element, two faces: while it is busy there is nothing to press.
+  await expect(details.getByTestId("details-lookup-btn")).toHaveCount(0);
   socket.send({ type: "lookups", pending: [] });
-  await expect(details.getByTestId("details-lookup")).toHaveText("what the record says");
-  await expect(details.getByTestId("details-lookup-btn")).toHaveText("Look it up");
+  await expect(details.getByTestId("details-lookup")).toHaveCount(0);
+  await expect(details.getByTestId("details-lookup-btn")).toHaveAttribute(
+    "title",
+    "what the record says",
+  );
 
   // Pressing the button forces a fresh lookup: the dot wears the busy ring
   // while the server says so, and afterwards the line says what changed.
@@ -2126,8 +2175,11 @@ test("place details read the server's verdicts, address and hours, and say when 
   await expect(details.getByTestId("details-lookup")).toHaveAttribute("data-state", "busy");
   socket.send({ type: "lookups", pending: [] });
   await expect(page.getByTestId("pin-place_24")).not.toHaveAttribute("data-busy", "true");
-  await expect(details.getByTestId("details-lookup")).toHaveText("looked up just now · nothing new");
-  await expect(details.getByTestId("details-lookup-btn")).toHaveText("Look again");
+  await expect(details.getByTestId("details-lookup")).toHaveCount(0);
+  await expect(details.getByTestId("details-lookup-btn")).toHaveAttribute(
+    "title",
+    "looked up just now · nothing new",
+  );
 
   // The roster opens on tap and names everyone with their presence.
   await details.getByTestId("details-close").click();
@@ -2450,6 +2502,8 @@ test("the room says what it is refining, a question need shows it was looked up,
   // A question nobody in this view may see (no label) stays out of the record
   // and does not inflate the unknown count, even when it carries an answer.
   const facts = details.getByTestId("facts");
+  await details.getByTestId("facts-summary").click();
+  await expect(facts).toBeVisible();
   await expect(facts.getByTestId("facts-unknown")).toHaveCount(0);
   await expect(details).not.toContainText(/q:|infer:|open_web/);
   await expect(
@@ -3027,6 +3081,10 @@ test("opening a place fills the panel step by step on the fast track, and hoveri
   // Three interactive frames land in order, each with its own line.
   socket.send({ type: "facts", candidateIds: ["place_1"], reason: "interactive", stage: "site" });
   await expect(details.getByTestId("details-lookup")).toHaveText("reading the site…");
+  // The busy face is the top-left control; close stays top-right of it.
+  const busyBox = await details.getByTestId("details-lookup").boundingBox();
+  const closeNavBox = await details.getByTestId("details-close").boundingBox();
+  expect(busyBox && closeNavBox && closeNavBox.x).toBeGreaterThan(busyBox!.x);
   await expect(details).toContainText("dogs welcome");
   socket.send({ type: "facts", candidateIds: ["place_1"], reason: "interactive", stage: "needs" });
   await expect(details.getByTestId("details-lookup")).toHaveText("checking against your needs…");
@@ -3039,13 +3097,18 @@ test("opening a place fills the panel step by step on the fast track, and hoveri
 
   // Done: the line steps back to the record's own words.
   socket.send({ type: "facts", candidateIds: ["place_1"], reason: "interactive", done: true, steps: [{ stage: "site", ms: 420 }, { stage: "needs", ms: 900 }], costUsd: 0.0012 });
-  await expect(details.getByTestId("details-lookup")).not.toHaveText(/reading|checking|looking/);
+  await expect(details.getByTestId("details-lookup")).toHaveCount(0);
+  await expect(details.getByTestId("details-lookup-btn")).toBeVisible();
   await expect.poll(() => inspectBodies.length).toBeGreaterThanOrEqual(5);
   expect(inspectBodies.slice(1).every((body) => body.intent === undefined)).toBe(true);
-  const terminalLine = await details.getByTestId("details-lookup").textContent();
+  const terminalTitle = await details.getByTestId("details-lookup-btn").getAttribute("title");
   const readsAtDone = inspectBodies.length;
   await page.waitForTimeout(10_000);
-  await expect(details.getByTestId("details-lookup")).toHaveText(terminalLine ?? "");
+  await expect(details.getByTestId("details-lookup")).toHaveCount(0);
+  await expect(details.getByTestId("details-lookup-btn")).toHaveAttribute(
+    "title",
+    terminalTitle ?? "",
+  );
   expect(inspectBodies).toHaveLength(readsAtDone);
 
   // The drawer keeps the plan.

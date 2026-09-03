@@ -123,7 +123,6 @@ Work the room is doing is stated as what it is doing, never as a bare
 - The whole area still arriving: `adding places · 120 of 343` in the count
   block, absolute both sides. Not "loading", and never a percentage.
 - A place being looked up: `looking it up…` in the panel; a ring on the map.
-- No photo known yet while a place is being looked up: `looking for a photo…` on a fixed-height line under the panel's top; it collapses only when the lookup ends without one.
 - The hover card on the map carries the place's name and first photo, nothing else — no verdict, no numbers.
 - The agent: `reading what you said…` then `updating 40 places…`. Never
   "thinking", never "processing".
@@ -279,11 +278,27 @@ going against your needs. Out of budget reads "paused for now". Drained: the
 ring and the line disappear; nothing lingers. "Fetching", "processing",
 "pipeline", "queue" and "stage" are wire words and stay behind `{ }`.
 
-The place panel says which stage a place is in: "waiting its turn…",
-"reading what the place publishes…", "checking it against your needs…".
+The place panel says which stage a place is in, in one control at the top
+left: "reading the record…" while the first read runs, then "waiting its
+turn…", "reading what the place publishes…", "checking it against your
+needs…". One ring beside the words, no spinner. The words are not
+decoration — reduced motion stands the ring still, and they are then the
+whole signal.
 
 Opening a place fills the panel progressively: what is cached shows at once,
-then each step of the fast track lands in place with a line naming it —
+then each step of the fast track lands in place and renames the control —
 "waiting its turn…", "reading the site…", "checking against your needs…", "looking at the
 photos…", "asking the web…" — and, after three seconds without the plan
-closing, "still reading the site…". One ring beside the line, no spinner.
+closing, "still reading the site…".
+
+When nothing is running the same control becomes the way to ask for a fresh
+read. It is labelled "Look it up again" and says what the last read left
+behind: "looked up just now · 3 facts changed", "looked up just now ·
+nothing new", "looked up 4 min ago", or "what the record says" when the
+record has no time on it. No photo is ever announced separately; a place
+being looked up is said once, here.
+
+Two groups in the panel lead with a count and fold the rest: "hours for 7
+days on record" for the week, and "12 on record · 3 not on record" for the
+facts nobody asked about. Absolute counts, a middot between them, never a
+percentage and never "show more".
