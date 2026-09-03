@@ -321,6 +321,12 @@ is re-issued for each active agent-private owner, and a page-held condition is
 woken to screen the changed place again. This applies equally to attestations
 and provider-fact refreshes; fact-producing handlers do not choose whether
 private screening becomes stale.
+The screening command carries this value back as additive
+`screenedMapRevision`. The verdict writer never substitutes a newer database
+read: missing or older values remain non-authoritative, and values ahead of the
+candidate are invalid. The in-page screening loop also submits the room
+revision of its dossier read, so a lookup or attestation between inspection and
+write produces `sync_required` rather than rebasing the old judgment.
 
 ## 9. Navigation handoff
 

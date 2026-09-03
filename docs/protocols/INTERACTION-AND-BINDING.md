@@ -87,7 +87,9 @@ instruction to the model — kept short because it rides in a tool result.
 ### 2.3 The tool surface (19 tools)
 
 Names ≤30 chars, descriptions ≤500 chars, parameter descriptions ≤150 chars,
-results ≤1.5K chars (Chrome budget guidance). All schemas use
+results ≤1.5K chars (Chrome budget guidance), except `sync_session`, whose
+additive 8K allowance carries an intact first-connection manifest and complete
+lossless delta pages. All schemas use
 `additionalProperties: false`, `enum` over free strings, and stable IDs.
 **No free-text catch-all parameters** — the one deliberate exception is
 `note` fields, capped and documented as optional.
@@ -180,7 +182,7 @@ Error codes (closed enum):
 | `phase_unavailable` | Command not applicable in current phase | States current phase and applicable actions |
 | `consent_required` | Action exceeds delegated authority | States that the human must confirm on the page |
 | `bound_exceeded` | Adjustment outside a delegation envelope | Returns the bound's dimension and limit (owner only) |
-| `temporarily_unavailable` | Cancellation, transport/parse failure, or unexpected server failure | Retry with the same idempotency key when a mutation outcome may be ambiguous |
+| `temporarily_unavailable` | Cancellation, transport/parse failure, or unexpected server failure | Sync the room to check an ambiguous outcome before deciding whether to try again |
 
 Design intents:
 
@@ -190,7 +192,10 @@ Design intents:
   is pull-based via `inspect_candidates`. Every registered tool crosses one
   structural encoder: its final text block is valid JSON at ≤1,500 characters,
   retains the shared error shape, and reports counts of omitted array items,
-  object fields, and string characters.
+  object fields, and string characters. `sync_session` uses its declared 8K
+  allowance instead: the manifest is never compacted, and an oversized delta
+  becomes a smaller forward page with a continuation cursor before encoding.
+  Its events are never deleted after `throughRevision` has been chosen.
 - **Cancellation**: read tools pass the invocation's abort signal through to
   their fetch. Mutation cancellation is an ambiguous outcome and is safe to
   retry only with the pass-1 idempotency key.
@@ -201,8 +206,9 @@ Design intents:
 
 ### 3.1 Reliable mutation and event delivery
 
-HTTP mutation requests MAY carry `Idempotency-Key`. The browser uses the
-invocation's existing correlation ID as that key. For ten minutes the server
+HTTP mutation requests MAY carry `Idempotency-Key`. The browser generates one
+key for the logical mutation, separate from per-attempt correlation IDs, and
+reuses it after `sync_required` catch-up and any transport retry. For ten minutes the server
 binds `(participant, key)` to the canonical request hash and completed
 response. A success is stored in the command transaction; a failure is stored
 after its transaction has rolled back. An identical repeat returns that
@@ -210,6 +216,11 @@ response without a second mutation, event sequence, broadcast, or confirmation
 nonce; the same key with a different body returns `invalid_input`. This header
 is additive and clients that omit it retain the existing
 at-most-once-per-request behavior.
+
+`POST /api/nl/say` uses the same participant-scoped header for the complete
+natural-language turn. Duplicate turns serialize before model work and replay
+the completed response, so retrying an ambiguous request cannot run the agent's
+mutations twice.
 
 The browser maintains two revision values. `knownRoomRevision` is advanced by
 sync, welcome, event, and HTTP success and is safe as the base for a new page
@@ -231,6 +242,9 @@ advances across viewer-omitted events. Callers continue until `truncated` is
 false before advancing to the room head. `resyncRequired:
 "backlog_too_large"` explicitly requires replacement from a full state read;
 the server never silently advances past an unreplayed backlog.
+Cursor targets above the current room revision are clamped to the room head;
+a cursor whose consumed revision is already ahead is rejected as
+`invalid_input`, matching the non-cursor `sinceRevision` guard.
 
 The single serving process sends WebSocket ping control frames every 30
 seconds and terminates a connection that has not ponged within 45 seconds.
@@ -348,9 +362,10 @@ Beyond the per-protocol invariants:
    as a `confirmation` frame on that participant's realtime channel — never in
    the command result, so it never reaches the agent surface — and the
    applying command must carry it back or the server answers
-   `consent_required`. A dropped socket loses the only copy, so the channel
-   re-issues nonces for anything still staged on `welcome`. Nonces live in the
-   server process, never on disk.
+   `consent_required`. A dropped socket loses that tab's copy, so the channel
+   re-issues the existing live nonce for anything still staged on `welcome`;
+   another tab authenticating does not revoke it. Only an actual restage
+   replaces the credential. Nonces live in the server process, never on disk.
 
    **What this does and does not buy.** It closes the blind replay: a caller
    holding a participant's bearer token can no longer POST `CommitAgreement`

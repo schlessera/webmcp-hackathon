@@ -84,8 +84,9 @@ bounded, honest threat model. We list them rather than hide them.
 
 - Realtime sockets receive 30-second pings and expire after 45 seconds without
   a pong; client reconnect uses jittered exponential backoff.
-- Every WebMCP result is structurally encoded as valid JSON within the declared
-  1,500-character budget, with omission counts and preserved error shapes.
+- Every non-sync WebMCP result is structurally encoded as valid JSON within the
+  declared 1,500-character budget, with omission counts and preserved error
+  shapes. `sync_session` now has the additive 8K exception described below.
   Read cancellation reaches fetch; mutation cancellation remains coupled to
   the pass-1 idempotency key.
 - WebSocket versions, viewing IDs, verdict cross-fields and uniqueness,
@@ -96,6 +97,27 @@ bounded, honest threat model. We list them rather than hide them.
   documentation and deferred spatial sections match implementation. Contract
   hashing is generated from the live response/message types, including all
   optional fields.
+
+## Reliability findings closed in protocol-fix pass
+
+- `sync_session` has an additive 8K allowance. Its first-connection manifest is
+  intact, while large deltas are reduced to cursor-backed forward pages before
+  encoding; the encoder never deletes events after claiming their revision.
+- Private screening carries the room and candidate fact revisions it actually
+  judged. Missing or old verdict revisions stay stale, including in impasse
+  detection, and concurrent lookup/attestation changes cause `sync_required`.
+- Browser mutations use one logical idempotency key across attempts and
+  `sync_required` recovery. Natural-language turns are idempotent as a whole;
+  per-attempt correlation IDs remain diagnostic only.
+- Enrichment takes a bounded, fair process slot before its database lease, so
+  queued work cannot expire a lease it has not begun using. Excess waiters
+  receive stale cached data instead of growing the queue without bound.
+- Reconnecting tabs receive the existing live confirmation nonce; only a real
+  restage revokes it. Forged future delta targets are clamped to the room head,
+  and already-ahead cursors are rejected.
+- Fact commits notify the ordered room queue synchronously through a cycle-free
+  registry. WebSocket transport errors have an explicit listener, and the
+  TypeScript compiler used to derive the contract hash is pinned exactly.
 
 ## Data honesty
 
