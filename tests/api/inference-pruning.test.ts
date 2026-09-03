@@ -22,7 +22,7 @@ describe("inference-cache pruning", () => {
     await pool.end();
   });
 
-  async function seededRow(): Promise<{ osmRef: string; keys: string[] }> {
+  async function seededRow(): Promise<{ osmRef: string; keys: string[]; openKeys: string[] }> {
     const osmRef = `test/prune-${randomBytes(8).toString("hex")}`;
     refs.push(osmRef);
     const now = Date.now();
@@ -37,6 +37,19 @@ describe("inference-cache pruning", () => {
       source: "infer:test",
       observedAt: new Date(now - index * 60 * 60_000).toISOString(),
     }]));
+    const openKeys = Array.from({ length: 70 }, (_, index) =>
+      `open:2026-09-${String(index + 1).padStart(2, "0")}T12:00:00Z-${index}`
+    );
+    for (const [index, key] of openKeys.entries()) {
+      inferred[key] = {
+        key,
+        lean: "yes",
+        confidence: 0.5,
+        evidence: "legacy time-window evidence",
+        source: "infer:test",
+        observedAt: new Date(now - index * 60_000).toISOString(),
+      };
+    }
     inferred.delivery = {
       key: "delivery", lean: "yes", confidence: 0.5,
       evidence: "old delivery evidence", source: "infer:test",
@@ -52,7 +65,7 @@ describe("inference-cache pruning", () => {
        VALUES ($1, now(), now() + interval '7 days', $2::jsonb)`,
       [osmRef, JSON.stringify(inferred)],
     );
-    return { osmRef, keys };
+    return { osmRef, keys, openKeys };
   }
 
   async function triggerUpsert(osmRef: string): Promise<Record<string, unknown>> {
@@ -88,5 +101,13 @@ describe("inference-cache pruning", () => {
     expect(inferred).not.toHaveProperty("delivery");
     expect(inferred).toHaveProperty("takeaway");
     expect(inferred).toHaveProperty("dog-friendly");
+  });
+
+  it("caps legacy time-window inference keys", async () => {
+    const { osmRef, openKeys } = await seededRow();
+    const inferred = await triggerUpsert(osmRef);
+    const retained = Object.keys(inferred).filter((key) => key.startsWith("open:"));
+    expect(retained).toHaveLength(MAX_QUESTION_INFERENCES);
+    expect(retained).toEqual(expect.arrayContaining(openKeys.slice(0, MAX_QUESTION_INFERENCES)));
   });
 });

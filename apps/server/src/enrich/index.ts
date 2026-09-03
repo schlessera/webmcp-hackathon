@@ -712,7 +712,11 @@ export async function saveInferences(
            SELECT key,
                   value,
                   row_number() OVER (
-                    PARTITION BY key LIKE 'q:%'
+                    PARTITION BY CASE
+                      WHEN key LIKE 'q:%' THEN 'question'
+                      WHEN key LIKE 'open:%' THEN 'time-window'
+                      ELSE key
+                    END
                     ORDER BY observed_at DESC NULLS LAST, key
                   ) AS age_rank
              FROM merged
@@ -720,7 +724,7 @@ export async function saveInferences(
          )
          SELECT COALESCE(jsonb_object_agg(key, value), '{}'::jsonb)
            FROM ranked
-          WHERE key NOT LIKE 'q:%' OR age_rank <= $5
+          WHERE (key NOT LIKE 'q:%' AND key NOT LIKE 'open:%') OR age_rank <= $5
        ),
        inferred_at = now()`,
     [refs, ttls, payloads, String(INFERENCE_PRUNE_DAYS), MAX_QUESTION_INFERENCES],

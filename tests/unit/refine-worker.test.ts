@@ -67,6 +67,32 @@ describe("continuous refinement queue", () => {
       .some((item) => item.candidate.id === "active-near")).toBe(false);
   });
 
+  it("does not queue a time-window criterion for model evaluation", () => {
+    const value = inputs();
+    value.candidates = [value.candidates[0]];
+    value.candidates[0].attributes = attributes();
+    value.requirements = [{
+      id: "time-need",
+      owner_id: "p",
+      visibility: "shared",
+      hardness: "hard",
+      payload: {
+        kind: "time",
+        window: {
+          start: "2026-09-04T12:00:00+02:00",
+          end: "2026-09-04T14:00:00+02:00",
+        },
+      },
+      withdrawn: false,
+      active: true,
+    }];
+    expect(buildRefinementQueue(
+      value,
+      { evaluated: new Map(), providerChecked: new Set() },
+      "room",
+    )).toEqual([]);
+  });
+
   it("skips a place excluded by another active need and orders uncertain places by centre distance", () => {
     const value = inputs();
     value.scope = {

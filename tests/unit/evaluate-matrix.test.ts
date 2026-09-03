@@ -197,6 +197,32 @@ describe("batched matrix evaluation", () => {
     expect(other.source).toMatch(/^infer:/);
   });
 
+  it("never sends or accepts a time-window criterion", async () => {
+    const temporal: Criterion = {
+      id: "open:2026-09-04T12:00:00+02:00-2026-09-04T14:00:00+02:00",
+      kind: "key",
+      key: "open:2026-09-04T12:00:00+02:00-2026-09-04T14:00:00+02:00",
+      label: "open tomorrow 12:00 to 14:00",
+    };
+    const sample = input();
+    sample.criteria = [temporal];
+    sample.places[0].website = "https://alpha.example/";
+    sample.places[0].texts[0].text = "We are open tomorrow from noon until two.";
+    const transport = vi.fn(async () => response([]));
+    setTransport(transport);
+    expect(await evaluateMatrix(sample)).toEqual([]);
+    expect(transport).not.toHaveBeenCalled();
+    expect(matrixBatchFromAnswer({ claims: [{
+      candidateId: "alpha",
+      criterionId: temporal.id,
+      lean: "yes",
+      confidence: 0.99,
+      evidence: "open tomorrow from noon until two",
+      sourceIndex: 0,
+      explicit: true,
+    }] }, sample, "test").claims).toEqual([]);
+  });
+
   it("lets an explicit own-site question claim make its text need eligible", () => {
     const key = wifi.id;
     const attributes = applyEnrichmentAttributes([], {

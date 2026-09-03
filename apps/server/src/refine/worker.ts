@@ -133,6 +133,11 @@ interface ActiveCriterion {
   visibilities: Set<string>;
 }
 
+function modelCriterion(criterion: Criterion): boolean {
+  return !(criterion.kind === "key" &&
+    (criterion.key === "cuisine" || criterion.key.startsWith("open:")));
+}
+
 function refinementEnabled(): boolean {
   return process.env.REFINE !== "0" &&
     process.env.ENRICH_NETWORK !== "0" &&
@@ -204,7 +209,7 @@ export function buildRefinementQueue(
   now = Date.now(),
 ): RefinementQueueItem[] {
   const active = activeCriteria(inputs);
-  const activeList = [...active.values()].map((entry) => entry.criterion);
+  const activeList = [...active.values()].map((entry) => entry.criterion).filter(modelCriterion);
   const activeKeyIds = new Set(
     activeList.flatMap((criterion) => criterion.kind === "key" ? [criterion.key] : []),
   );
@@ -612,7 +617,7 @@ export async function runRefinementTick(
   const criteria = [...new Map(batch.flatMap((item) => item.criteria).map((criterion) => [
     criterion.id,
     criterion,
-  ])).values()].filter((criterion) => !(criterion.kind === "key" && criterion.key === "cuisine"));
+  ])).values()].filter(modelCriterion);
   const searchMode = options.searchMode ?? refineSearchMode();
   const queryShaping = options.queryShaping ?? refineQueryShaping();
   const firstCalls = modelCalls(batch.length, criteria.length);
@@ -660,7 +665,7 @@ export async function runRefinementTick(
     const active = activeCriteria(inputs);
     for (const preparedPlace of prepared) {
       const unresolved = preparedPlace.item.criteria.filter((criterion) =>
-        !(criterion.kind === "key" && criterion.key === "cuisine") &&
+        modelCriterion(criterion) &&
         !firstCells.has(`${preparedPlace.item.candidate.id}\u0000${criterion.id}`)
       );
       if (unresolved.length === 0) continue;
@@ -748,9 +753,7 @@ export async function runRefinementTick(
     const claims = [...firstClaims, ...searchClaims];
     const observedAt = new Date(now).toISOString();
     await saveInferences(pool, batch.flatMap((item) => {
-      const open = item.criteria.filter((criterion) =>
-        !(criterion.kind === "key" && criterion.key === "cuisine")
-      );
+      const open = item.criteria.filter(modelCriterion);
       return open.length ? [{
         osmRef: item.candidate.osm_ref!,
         criteria: open,

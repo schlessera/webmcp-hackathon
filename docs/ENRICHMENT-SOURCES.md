@@ -180,14 +180,19 @@ agent context.
 The model's stated confidence is capped by the evidence ladder in “Batched
 evaluation” below.
 
+Time-window criteria whose keys start with `open:` are never sent to the model
+and model output for such a key is rejected at the evaluator boundary. A time
+need is a deterministic predicate over structured opening hours, so prose must
+never manufacture its answer or promote it to a verified fact.
+
 Accepted claims are cached per criterion in `enrichments.inferred` for seven
 days. Only a cell the model explicitly returns with `lean: "abstain"` gets a
 24-hour omission sentinel. A cell missing from a partial or truncated answer
 stays open, as does every cell in a transport or JSON-parse failure, and is
 re-queued on the next pass. Every upsert also physically removes inference
 entries older than 30 days. Closed-vocabulary entries have no cardinality cap;
-question entries are separately capped at 64 per place, with the oldest
-evicted first, because their `q:` keyspace is unbounded.
+question entries and legacy `open:` entries are separately capped at 64 per
+place, with the oldest evicted first, because both keyspaces are unbounded.
 Inference is completely off when `ENRICH_NETWORK=0`, when
 `OPENAI_API_KEY` is absent, or when `INFER=0`; those paths make no model call
 and write no inference cache entry. Menu image reading remains a separate
