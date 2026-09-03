@@ -29,6 +29,8 @@ function startServer(buildId: string): ChildProcess {
       ...process.env,
       DATABASE_URL,
       PORT: String(PORT),
+      // Test servers never talk to the model: the composer takes its offline path.
+      OPENAI_API_KEY: "",
       BUILD_ID: buildId,
       LOG_LEVEL: "warn",
     },
