@@ -228,10 +228,13 @@ does not qualify as reader-facing evidence.
 Each room has one process-local refinement loop. It starts when the room gains
 a present socket and stops ten minutes after the last participant leaves. A
 new or reactivated need moves its unknown places to the front immediately.
-The loop first checks in-scope places that are unknown for an active criterion,
-nearest first. It then checks facts last observed more than seven days ago,
-then unknown keys from the remaining vocabulary. A place already being looked
-up is skipped.
+The loop first checks in-scope places that the shared eligibility classifier
+currently calls `uncertain` for an active need, nearest to the scope centre
+first. An unrelated unknown attribute alone does not qualify for tier 1. A
+place the classifier already excludes on decisive active evidence is skipped:
+refining another gap cannot bring it back. The loop then checks facts last
+observed more than seven days ago, then unknown keys from the remaining
+vocabulary. A place already being looked up is skipped.
 
 One tick takes at most 12 places. It reads each place's site at most once and
 reuses selected homepage and menu prose from a bounded, ten-minute in-memory
@@ -239,8 +242,34 @@ LRU when provider freshness prevents another fetch. That prose is never
 persisted, logged, put in a dossier, or sent in a realtime frame. One matrix
 evaluation covers the batch's whole open criterion set. For each place whose
 site material leaves criteria unanswered, one search covers all of those
-criteria together. A site URL makes that search domain-scoped; otherwise it
-uses the open web. Cited snippets go through one more batch matrix evaluation.
+criteria together. When this pass successfully read usable text from the
+place's tagged website, search goes straight to the open web instead of
+re-searching that same domain. A tagged domain is allowed only when its fetch
+failed or yielded no usable text; a place with no website tag has no domain to
+allow and also uses open search. The confidence bucket follows the mode
+actually used: 0.55 for domain search and 0.50 for open web.
+
+`REFINE_SEARCH_MODE=split|combined` selects the search leg; `split` is the
+default. In split mode, each unresolved place yields cited snippets and one
+second matrix call evaluates the whole snippet batch. Evidence is checked
+against snippet text the server itself holds. Combined mode instead makes one
+strict-schema Responses call per unresolved place, with that place, all its
+open criteria and the `web_search` tool. It returns the complete row directly,
+so there is no second matrix call. The server requires each `sourceUrl` to
+match that call's citations (ignoring the tool's `utm_source` parameter), and
+requires the verbatim evidence at whole-word boundaries in the answer before
+applying the ordinary echo, length, confidence-cap and `graded()` checks.
+Combined mode's guarantee is explicitly weaker: the server sees the model's
+cited answer, not the page the tool read, while split mode checks server-held
+text. Neither mode can create a verified fact.
+
+Queries are capped at 400 characters and contain the place name, tagged street
+address (falling back to the area label), city, the place's untranslated
+category and criterion words. In a German area, vocabulary-key labels also
+carry a small German lookup lexicon (`barrierefrei`, `WLAN`, `Hunde erlaubt`,
+`Außenbereich` / `Terrasse`, `vegetarisch`, `vegan`, `glutenfrei`, `halal`,
+`laktosefrei`, `Lieferung`, `Mitnahme`). Free-text questions keep the person's
+own words and are never machine-translated.
 
 With nothing left to refine the loop backs off to `REFINE_IDLE_TICK_MS`
 (thirty times the working cadence) so an idle room is not reloaded every
@@ -252,8 +281,9 @@ The per-room budgets refill continuously: `REFINE_MODEL_CALLS_PER_HOUR`
 defaults to 60 model calls and `REFINE_SEARCHES_PER_HOUR` defaults to 40
 searches. `REFINE=0` disables the loop. `ENRICH_NETWORK=0` disables all of its
 outbound work. `SEARCH_PROVIDER=tavily` selects the Tavily fallback and needs
-`TAVILY_API_KEY`; otherwise search uses OpenAI Responses `web_search` on
-`NL_FAST_MODEL` with low search context.
+`TAVILY_API_KEY`; otherwise split search uses OpenAI Responses `web_search` on
+`NL_FAST_MODEL` with low search context. Combined mode is intrinsically an
+OpenAI Responses tool call.
 
 The only search-derived data stored is a claim that passed criterion, source,
 span, confidence and status validation, plus its `sourceUrl`. Search queries,
