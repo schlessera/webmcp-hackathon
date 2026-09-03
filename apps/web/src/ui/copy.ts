@@ -328,6 +328,13 @@ export const COPY = {
   lookedUpAgo: (minutes: number) =>
     minutes <= 0 ? "looked up just now" : `looked up ${minutes} min ago`,
   readingRecord: "reading the record…",
+  /** The record fold: what is known and what is not, as absolute counts. */
+  onRecord: (known: number, unknown: number) =>
+    [known > 0 ? `${known} on record` : null, unknown > 0 ? `${unknown} not on record` : null]
+      .filter(Boolean)
+      .join(" · "),
+  /** The hours fold: how much of the week the record carries. */
+  hoursOnRecord: (days: number) => `hours for ${days} ${days === 1 ? "day" : "days"} on record`,
   recordRead: "what the record says",
   photoFromPlaceSite: "from the place's site ↗",
   photoFromOpenStreetMap: "photo · from OpenStreetMap ↗",

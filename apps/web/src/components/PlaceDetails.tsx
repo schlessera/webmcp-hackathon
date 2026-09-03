@@ -346,6 +346,10 @@ export function PlaceDetails({
   const handledFactsNonce = useRef(0);
   const settleTimer = useRef<number | null>(null);
   const [activePhoto, setActivePhoto] = useState(0);
+  /* The two folds. Both start closed: the count answers "is there more"
+     without spending the height, and opening one is the reader's call. */
+  const [recordOpen, setRecordOpen] = useState(false);
+  const [hoursOpen, setHoursOpen] = useState(false);
   /* A facts frame naming this place re-reads the dossier in place — the
      rows update, the panel does not blank. */
   const factsNonce = factsFrame.ids.includes(candidate.candidateId) ? factsFrame.nonce : 0;
@@ -450,6 +454,8 @@ export function PlaceDetails({
   useEffect(() => {
     setDossier(null);
     setActivePhoto(0);
+    setRecordOpen(false);
+    setHoursOpen(false);
     setLookupPhase("idle");
     setLookupChanged(0);
     setFactsSettlingCandidate(null);
@@ -1001,13 +1007,31 @@ export function PlaceDetails({
                   </a>
                 </div>
               )}
-              {hours.map((h) => (
-                <div className="ledger-row hours-row" key={h.days}>
-                  <span className="ledger-label">{h.days}</span>
-                  <span className="ledger-answer hours-times">{h.times}</span>
-                </div>
-              ))}
             </div>
+            {/* Open now, the address and the phone answer the reader's
+                question; the week rarely does. It stays one tap away, as a
+                count of what the record carries (§10). */}
+            {hours.length > 0 && (
+              <>
+                <button
+                  className="record-summary"
+                  data-testid="hours-summary"
+                  aria-expanded={hoursOpen}
+                  aria-controls="details-hours"
+                  onClick={() => setHoursOpen((open) => !open)}
+                >
+                  {COPY.hoursOnRecord(dossier.hours?.length ?? hours.length)}
+                </button>
+                <div className="ledger" id="details-hours" hidden={!hoursOpen}>
+                  {hours.map((h) => (
+                    <div className="ledger-row hours-row" key={h.days}>
+                      <span className="ledger-label">{h.days}</span>
+                      <span className="ledger-answer hours-times">{h.times}</span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
         )}
 
@@ -1056,8 +1080,20 @@ export function PlaceDetails({
         {dossier && (known.length > 0 || unknownCount > 0) && (
           <div className="details-group">
             <div className="group-heading">Also on record</div>
+            {/* The count is always visible, the pills are not: the record's
+                height grows with every question the room asks, and a reader
+                who wants the list asks for it (§4, §10). */}
+            <button
+              className="record-summary"
+              data-testid="facts-summary"
+              aria-expanded={recordOpen}
+              aria-controls="details-facts"
+              onClick={() => setRecordOpen((open) => !open)}
+            >
+              {COPY.onRecord(known.length, unknownCount)}
+            </button>
             {/* Server order, verbatim. No invented icons, no reordering. */}
-            <div className="fact-row" data-testid="facts">
+            <div className="fact-row" id="details-facts" data-testid="facts" hidden={!recordOpen}>
               {known.map((a) => {
                 const sourceUrl = safeHttpUrl(a.sourceUrl);
                 return (

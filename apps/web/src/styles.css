@@ -1993,6 +1993,25 @@ body { overflow: hidden; }
   padding: 4px 2px;
 }
 
+/* A fold's own line: an absolute count, never an instruction. The negative
+   margins keep the 44px target from stretching the group's rhythm, the same
+   trick .fact-confirm-action uses. */
+.record-summary {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--spoke-tap-min);
+  margin: -10px 0;
+  padding: 0 2px;
+  border: none;
+  background: none;
+  font-weight: var(--spoke-weight-quiet);
+  font-size: var(--spoke-size-meta);
+  color: var(--spoke-unsure-text);
+  cursor: pointer;
+}
+/* Following a ledger there is no heading gap to claw back. */
+.ledger + .record-summary { margin-top: 0; }
+
 .details-sources {
   font-weight: var(--spoke-weight-quiet);
   font-size: var(--spoke-size-micro);
