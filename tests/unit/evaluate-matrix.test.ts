@@ -12,7 +12,11 @@ import {
   type EvaluateMatrixInput,
   type EvaluatedInference,
 } from "../../apps/server/src/enrich/evaluate.ts";
-import { applyEnrichmentAttributes, saveInferences } from "../../apps/server/src/enrich/index.ts";
+import {
+  applyEnrichmentAttributes,
+  harvestRequirementCriteria,
+  saveInferences,
+} from "../../apps/server/src/enrich/index.ts";
 import { setTransport } from "../../apps/server/src/nl/openai.ts";
 
 /** U5/E8: one strict matrix call fills only verbatim, same-place evidence cells and source caps every guess. */
@@ -232,7 +236,7 @@ describe("batched matrix evaluation", () => {
 });
 
 describe("bulk inference persistence", () => {
-  it("merges a stored question as cited likely evidence even if its confidence is malformed", () => {
+  it("merges a stored question as cited likely evidence without reader copy", () => {
     const attributes = applyEnrichmentAttributes([], {
       osmRef: "node/1",
       fetchedAt: "2026-09-03T00:00:00.000Z",
@@ -246,8 +250,6 @@ describe("bulk inference persistence", () => {
           evidence: "Free wireless internet is available",
           source: "infer:test:domain_search",
           observedAt: "2026-09-03T00:00:00.000Z",
-          question: wifi.text,
-          label: wifi.label,
           sourceUrl: "https://alpha.example/visit",
         },
       },
@@ -255,15 +257,15 @@ describe("bulk inference persistence", () => {
     });
     expect(attributes).toEqual([expect.objectContaining({
       key: wifi.id,
-      label: "free wifi",
       status: "likely_true",
       confidence: 0.6,
       note: "Free wireless internet is available",
       sourceUrl: "https://alpha.example/visit",
     })]);
+    expect(attributes[0]).not.toHaveProperty("label");
   });
 
-  it("issues one upsert for a whole batch and preserves question metadata", async () => {
+  it("issues one upsert for a whole batch without persisting question copy", async () => {
     const calls: Array<{ sql: string; values: unknown[] }> = [];
     const db = {
       query: async (sql: string, values: unknown[]) => {
@@ -296,11 +298,23 @@ describe("bulk inference persistence", () => {
     expect(calls[0].sql).toContain("ON CONFLICT");
     const payloads = calls[0].values[2] as string[];
     expect(JSON.parse(payloads[0])[wifi.id]).toMatchObject({
-      question: "free wifi",
-      label: "free wifi",
+      key: wifi.id,
       lean: "yes",
       sourceUrl: "https://alpha.example/visit",
     });
+    expect(JSON.parse(payloads[0])[wifi.id]).not.toHaveProperty("question");
+    expect(JSON.parse(payloads[0])[wifi.id]).not.toHaveProperty("label");
     expect(JSON.parse(payloads[1])[dog.id]).toMatchObject({ omitted: true });
+  });
+
+  it("never harvests an agent-private payload as a model criterion", () => {
+    expect(harvestRequirementCriteria([
+      { visibility: "agent-private", payload: { kind: "text", text: "held by the agent" } },
+      { visibility: "application-private", payload: { kind: "text", text: "server evaluable" } },
+      { visibility: "shared", payload: { kind: "text", text: "room visible" } },
+    ])).toEqual([
+      expect.objectContaining({ kind: "question", label: "server evaluable" }),
+      expect.objectContaining({ kind: "question", label: "room visible" }),
+    ]);
   });
 });

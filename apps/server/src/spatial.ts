@@ -7,6 +7,7 @@ import type {
 import {
   POOL_CAP,
   areaById,
+  criterionFor,
   openNow,
   parseOpeningHours,
 } from "@webmcp-hackathon/contracts";
@@ -434,6 +435,17 @@ export async function inspectCandidates(
     const timezone = areaById(room.area_id as string)?.timezone ?? inputs.timezone ?? "UTC";
     const readAt = options.now ?? inputs.now ?? new Date();
     const candidateById = new Map(inputs.candidates.map((candidate) => [candidate.id, candidate]));
+    const entitledQuestionLabels = new Map<string, string>();
+    for (const requirement of inputs.requirements) {
+      if (
+        requirement.active === false ||
+        (requirement.owner_id !== actor.id && requirement.visibility !== "shared")
+      ) continue;
+      const criterion = criterionFor(requirement.payload as never, { timezone, now: readAt });
+      if (criterion?.kind === "question") {
+        entitledQuestionLabels.set(criterion.id, criterion.label);
+      }
+    }
     const needsFor = (candidateId: string): CandidateDossier["needs"] => {
       const candidate = candidateById.get(candidateId);
       if (!candidate) return [];
@@ -502,6 +514,18 @@ export async function inspectCandidates(
       const current = recordHours || siteHours
         ? openNow(recordHours ?? siteHours!, timezone, readAt)
         : null;
+      const attributes = mergedAttributes(
+        { id: r.id as string, category: r.category as string, attributes: r.attributes ?? [] },
+        enrichment,
+        attestations,
+      ).flatMap((attribute) => {
+        if (!attribute.key.startsWith("q:")) return [attribute];
+        const label = entitledQuestionLabels.get(attribute.key);
+        // The cache is cross-room. A question row exists only when this viewer
+        // can see the matching requirement, and its copy comes from that
+        // requirement rather than from cached inference metadata.
+        return label === undefined ? [] : [{ ...attribute, label }];
+      });
       return {
         candidateId: r.id,
         name: r.name,
@@ -514,11 +538,7 @@ export async function inspectCandidates(
         ...(hasHoursClaim ? { openNow: current?.open ?? null } : {}),
         ...(current?.until ? { openUntil: current.until } : {}),
         ...(current?.nextOpen ? { nextOpen: current.nextOpen } : {}),
-        attributes: mergedAttributes(
-          { id: r.id as string, category: r.category as string, attributes: r.attributes ?? [] },
-          enrichment,
-          attestations,
-        ) as CandidateDossier["attributes"],
+        attributes: attributes as CandidateDossier["attributes"],
         mapRevision: r.map_revision,
         ...(r.extras?.address ? { address: String(r.extras.address) } : {}),
         ...(r.extras?.phone ? { phone: String(r.extras.phone) } : {}),

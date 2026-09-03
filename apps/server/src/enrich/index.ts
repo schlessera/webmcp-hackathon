@@ -5,7 +5,6 @@ import {
   ATTRIBUTE_VOCABULARY,
   criterionFor,
   graded,
-  normalizeQuestion,
   normalizeStatus,
   type Criterion,
   type DossierLink,
@@ -83,14 +82,10 @@ export type StoredCriterionInference =
       source: string;
       observedAt: string;
       sourceUrl?: string;
-      question?: string;
-      label?: string;
     }
   | {
       omitted: true;
       observedAt: string;
-      question?: string;
-      label?: string;
     };
 
 export interface ProviderFetchState {
@@ -635,7 +630,7 @@ export interface InferenceBatchWrite {
 }
 
 /** One statement persists every place in a model batch, including explicit
- * omission markers. Questions retain both stable machine text and reader copy. */
+ * omission markers. Question copy never enters this cross-room cache. */
 export async function saveInferences(
   pool: Pick<pg.Pool, "query">,
   writes: InferenceBatchWrite[],
@@ -650,6 +645,9 @@ export async function saveInferences(
     const inferred: Record<string, StoredCriterionInference> = {};
     for (const criterion of write.criteria) {
       const key = criterion.kind === "key" ? criterion.key : criterion.id;
+      // A q:<sha1> is a stable, guessable commitment, not a secret. It is safe
+      // here only because neither the normalized sentence nor its label is
+      // stored; dossier copy is recovered from a viewer-authorized requirement.
       const claim = claimed.get(criterion.id);
       if (claim) {
         inferred[key] = {
@@ -660,17 +658,11 @@ export async function saveInferences(
           source: claim.source,
           observedAt: claim.observedAt,
           ...(claim.sourceUrl ? { sourceUrl: claim.sourceUrl } : {}),
-          ...(criterion.kind === "question"
-            ? { question: normalizeQuestion(criterion.text), label: criterion.label }
-            : {}),
         };
       } else {
         inferred[key] = {
           omitted: true,
           observedAt: write.observedAt,
-          ...(criterion.kind === "question"
-            ? { question: normalizeQuestion(criterion.text), label: criterion.label }
-            : {}),
         };
       }
     }
@@ -788,18 +780,22 @@ async function runLookupNow(
 
   const [attestations, requirementRows, initialCache] = await Promise.all([
     loadAttestations(pool, roomId),
+    // Shared and application-private payloads may reach the server-side model:
+    // that is application-private's tier contract. Agent-private content stays
+    // in its owner's agent and is never harvested. Model access is distinct
+    // from what the cross-room cache may store and a dossier viewer may see.
     pool.query(
-      `SELECT payload FROM requirements
-        WHERE room_id = $1 AND NOT withdrawn AND active IS NOT FALSE`,
+      `SELECT visibility, payload FROM requirements
+        WHERE room_id = $1 AND NOT withdrawn AND active IS NOT FALSE
+          AND visibility IN ('shared', 'application-private')`,
       [roomId],
     ),
     loadCached(pool, actionable.map((row) => row.osm_ref!).filter(Boolean)),
   ]);
   const activeCriteria = new Map<string, Criterion>();
   for (const criterion of options.criteria ?? []) activeCriteria.set(criterion.id, criterion);
-  for (const row of requirementRows.rows as Array<{ payload: unknown }>) {
-    const criterion = criterionFor(row.payload as never);
-    if (criterion) activeCriteria.set(criterion.id, criterion);
+  for (const criterion of harvestRequirementCriteria(requirementRows.rows)) {
+    activeCriteria.set(criterion.id, criterion);
   }
 
   interface CandidateEvaluation {
@@ -953,6 +949,17 @@ async function runLookupNow(
     await publishInferenceChanges(pool, roomId, changed, inferenceChanged ? "inference" : "lookup");
   }
   return changed;
+}
+
+/** Defense in depth for callers/tests that supply rows without the SQL gate. */
+export function harvestRequirementCriteria(
+  rows: Array<{ visibility?: unknown; payload?: unknown }>,
+): Criterion[] {
+  return rows.flatMap((row) => {
+    if (row.visibility !== "shared" && row.visibility !== "application-private") return [];
+    const criterion = criterionFor(row.payload as never);
+    return criterion ? [criterion] : [];
+  });
 }
 
 /** One revision/facts publication path for lookup and refinement writes. */
@@ -1133,12 +1140,9 @@ export function applyEnrichmentAttributes<T extends AttributeLike>(
       source: string;
       observedAt: string;
       sourceUrl?: string;
-      question?: string;
-      label?: string;
     };
     const confidence = Math.min(questionStored.confidence, 0.6);
     set(key, {
-      label: questionStored.label ?? questionStored.question ?? key,
       status: graded(questionStored.lean === "yes", confidence),
       source: questionStored.source,
       observedAt: questionStored.observedAt,
