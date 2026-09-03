@@ -70,6 +70,7 @@ export async function screen(
 
   const turn = await respond({
     model: config.nlSmartModel,
+    intent: "interactive",
     instructions: [
       `You screen places for one person against a condition they told you in confidence: "${condition}".`,
       "For each place, answer exactly one of:",

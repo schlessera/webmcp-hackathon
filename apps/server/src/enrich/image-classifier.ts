@@ -113,6 +113,7 @@ function schemaFor(count: number) {
 export async function classifyPlaceImages(
   placeName: string,
   images: Array<{ bytes: Uint8Array }>,
+  intent: "interactive" | "background" = "background",
 ): Promise<ClassifiedImageBatch> {
   const model = config.nlFastModel;
   if (images.length === 0) {
@@ -132,6 +133,7 @@ export async function classifyPlaceImages(
   }
   const reply = await respond({
     model,
+    intent,
     instructions: INSTRUCTIONS,
     input: [{ role: "user", content }],
     schema: { name: "place_image_verdicts", schema: schemaFor(images.length) },

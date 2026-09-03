@@ -366,7 +366,9 @@ describe("Parallel provider switch over the refinement API", () => {
           WHERE osm_ref LIKE $1 AND inferred->$2->>'lean' = 'yes'`,
         [`parallel/${room.roomId}/%`, key],
       )).rows[0].count);
-      if (count === 2) break;
+      // Persistence lands before the pipeline finishes its publication and
+      // structured tick log; wait for both observable outcomes.
+      if (count === 2 && server.logs().includes('"searchProvider":"parallel"')) break;
       if (Date.now() >= deadline) throw new Error(`Parallel refinement did not settle:\n${server.logs()}`);
       await new Promise((resolve) => setTimeout(resolve, 100));
     }

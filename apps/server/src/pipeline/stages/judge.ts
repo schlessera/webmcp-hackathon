@@ -14,5 +14,11 @@ export function judge(
   cacheDb?: Pick<pg.Pool, "query"> | Pick<pg.PoolClient, "query">,
   intent: PipelineIntent = "background",
 ): Promise<EvaluatedInference[]> {
-  return evaluateMatrix(input, persist, cacheDb, intent === "interactive" ? "refresh" : "reuse");
+  return evaluateMatrix(
+    input,
+    persist,
+    cacheDb,
+    intent === "interactive" ? "refresh" : "reuse",
+    intent,
+  );
 }

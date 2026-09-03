@@ -132,7 +132,10 @@ export function refreshAssetsThroughPipeline(context: PipelineAssetContext): Pro
     };
     return scheduler.enqueue(
       { ...base, dedupeKey: pipelineDedupeKey(base) },
-      async () => ({ value: await classifyPlaceImages(placeName, images), actualRoute: "direct" }),
+      async () => ({
+        value: await classifyPlaceImages(placeName, images, context.intent),
+        actualRoute: "direct",
+      }),
       { reason: { kind: "place" }, present: true },
     );
   };

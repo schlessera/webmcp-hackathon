@@ -813,7 +813,7 @@ async function lookup(
       // never stored, the claims are.
       if (site.facts && site.menuFile && menuReaderEnabled()) {
         try {
-          const reading = await readMenu(site.menuFile);
+          const reading = await readMenu(site.menuFile, intent);
           if (reading) site.facts.menuReading = reading;
         } catch {
           /* an unread menu is still a menu link */
@@ -1731,7 +1731,7 @@ async function runLookupNow(
           }),
         );
         if (accepted.length > 0) inferenceChanged = true;
-      }, pool, intent === "interactive" ? "refresh" : "reuse");
+      }, pool, intent === "interactive" ? "refresh" : "reuse", intent);
       inferenceChanged ||= claims.length > 0;
       const refreshed = await loadCached(
         pool,

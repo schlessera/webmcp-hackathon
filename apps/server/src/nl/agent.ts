@@ -376,6 +376,7 @@ export async function runAgent(
       const turn = await withinTurn(deadlineAt, () =>
         respond({
           model: config.nlSmartModel,
+          intent: "interactive",
           instructions: instructions(actor, held),
           input,
           tools: tools(),

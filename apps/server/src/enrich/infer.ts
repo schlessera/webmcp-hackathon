@@ -227,6 +227,7 @@ export async function inferAttributes(input: InferInput): Promise<InferredClaim[
   const model = config.nlFastModel;
   const reply = await respond({
     model,
+    intent: "background",
     instructions: INFERENCE_PROMPT,
     input: [
       {

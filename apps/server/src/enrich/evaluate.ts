@@ -422,9 +422,13 @@ export function matrixBatchFromAnswer(
   return { input, claims, answered };
 }
 
-async function evaluateBounded(input: EvaluateMatrixInput): Promise<EvaluatedMatrixBatch> {
+async function evaluateBounded(
+  input: EvaluateMatrixInput,
+  intent: "interactive" | "background",
+): Promise<EvaluatedMatrixBatch> {
   const reply = await respond({
     model: config.nlFastModel,
+    intent,
     instructions: EVALUATE_MATRIX_PROMPT,
     input: [{ role: "user", content: JSON.stringify(input) }],
     schema: { name: "venue_criterion_matrix", schema: EVALUATE_MATRIX_SCHEMA },
@@ -522,6 +526,7 @@ export async function evaluateMatrix(
   persistBatch?: (batch: EvaluatedMatrixBatch) => Promise<void>,
   cacheDb?: MatrixCacheQuery,
   cacheMode: MatrixCacheMode = "reuse",
+  intent: "interactive" | "background" = "background",
 ): Promise<EvaluatedInference[]> {
   if (!inferenceEnabled()) return [];
   const clean = uniqueInput(input);
@@ -580,7 +585,7 @@ export async function evaluateMatrix(
       ) {
         const criteria = group.criteria.slice(criterionAt, criterionAt + MAX_MATRIX_CRITERIA);
         try {
-          const batch = await evaluateBounded({ places, criteria });
+          const batch = await evaluateBounded({ places, criteria }, intent);
           if (cacheDb) {
             await storeMatrixBatch(cacheDb, batch).catch(() => undefined);
           }

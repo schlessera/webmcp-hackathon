@@ -38,6 +38,8 @@ export interface Call {
   model: string;
   instructions: string;
   input: InputItem[];
+  /** Interactive calls use standard latency; background work may use flex. */
+  intent?: "interactive" | "background";
   /** Strict JSON schema the answer must satisfy. */
   schema?: { name: string; schema: unknown };
   tools?: Array<FunctionTool | WebSearchTool>;
@@ -87,8 +89,23 @@ export interface ResponseMetrics {
   webSearchCalls: number;
   inputTokens: number;
   outputTokens: number;
+  serviceTierCalls: Record<ObservedServiceTier, number>;
   schemaCalls: Record<string, number>;
 }
+
+export type ServiceTier = "default" | "flex";
+export type ObservedServiceTier = ServiceTier | "auto" | "priority" | "fast" | "scale" | "ultrafast" | "unknown";
+
+const emptyServiceTierCalls = (): Record<ObservedServiceTier, number> => ({
+  default: 0,
+  flex: 0,
+  auto: 0,
+  priority: 0,
+  fast: 0,
+  scale: 0,
+  ultrafast: 0,
+  unknown: 0,
+});
 
 let responseMetricsState: ResponseMetrics = {
   calls: 0,
@@ -96,6 +113,7 @@ let responseMetricsState: ResponseMetrics = {
   webSearchCalls: 0,
   inputTokens: 0,
   outputTokens: 0,
+  serviceTierCalls: emptyServiceTierCalls(),
   schemaCalls: {},
 };
 
@@ -104,6 +122,7 @@ let responseMetricsState: ResponseMetrics = {
 export function responseMetrics(): ResponseMetrics {
   return {
     ...responseMetricsState,
+    serviceTierCalls: { ...responseMetricsState.serviceTierCalls },
     schemaCalls: { ...responseMetricsState.schemaCalls },
   };
 }
@@ -115,6 +134,7 @@ export function resetResponseMetrics(): void {
     webSearchCalls: 0,
     inputTokens: 0,
     outputTokens: 0,
+    serviceTierCalls: emptyServiceTierCalls(),
     schemaCalls: {},
   };
 }
@@ -143,19 +163,42 @@ const liveTransport: Transport = async (body, timeoutMs) => {
 };
 
 let transport: Transport = liveTransport;
+const flexUnsupportedModels = new Set<string>();
 
 /** Tests swap the wire for a scripted one; nothing else may. */
 export function setTransport(next: Transport | null): void {
   transport = next ?? liveTransport;
 }
 
+/** Test seam for the process-local model capability memory. */
+export function resetServiceTierSupportForTests(): void {
+  flexUnsupportedModels.clear();
+}
+
+function namesServiceTier(error: unknown): boolean {
+  const candidate = error as { status?: unknown; message?: unknown } | null;
+  return candidate?.status === 400 && typeof candidate.message === "string" &&
+    /(?:service[_ -]?tier|tier[^\n]*flex|flex[^\n]*tier)/i.test(candidate.message);
+}
+
+function observedServiceTier(value: unknown, requested: ServiceTier): ObservedServiceTier {
+  return value === "default" || value === "flex" || value === "auto" ||
+      value === "priority" || value === "fast" || value === "scale" || value === "ultrafast"
+    ? value
+    : requested;
+}
+
 export async function respond(call: Call): Promise<Reply> {
   const started = Date.now();
+  let serviceTier: ServiceTier = call.intent === "interactive" || flexUnsupportedModels.has(call.model)
+    ? "default"
+    : "flex";
   const body: Record<string, unknown> = {
     model: call.model,
     instructions: call.instructions,
     input: call.input,
     store: false,
+    service_tier: serviceTier,
   };
   if (call.schema) {
     body.text = {
@@ -172,10 +215,21 @@ export async function respond(call: Call): Promise<Reply> {
   if (call.reasoning) body.reasoning = { effort: call.reasoning };
   if (call.maxOutputTokens) body.max_output_tokens = call.maxOutputTokens;
 
-  const raw = (await transport(body, call.timeoutMs ?? 30_000)) as {
+  const timeoutMs = call.timeoutMs ?? 30_000;
+  let response: unknown;
+  try {
+    response = await transport(body, timeoutMs);
+  } catch (error) {
+    if (serviceTier !== "flex" || !namesServiceTier(error)) throw error;
+    flexUnsupportedModels.add(call.model);
+    serviceTier = "default";
+    response = await transport({ ...body, service_tier: serviceTier }, timeoutMs);
+  }
+  const raw = response as {
     output?: Array<Record<string, unknown>>;
     error?: { message?: string } | null;
     status?: string;
+    service_tier?: unknown;
     usage?: { input_tokens?: number; output_tokens?: number };
   };
   if (raw.error) throw new NlError(raw.error.message ?? "openai error", 502);
@@ -224,6 +278,7 @@ export async function respond(call: Call): Promise<Reply> {
   responseMetricsState.webSearchCalls += webSearchCalls.length;
   responseMetricsState.inputTokens += Number(raw.usage?.input_tokens ?? 0);
   responseMetricsState.outputTokens += Number(raw.usage?.output_tokens ?? 0);
+  responseMetricsState.serviceTierCalls[observedServiceTier(raw.service_tier, serviceTier)] += 1;
   if (schemaName) {
     responseMetricsState.schemaCalls[schemaName] =
       (responseMetricsState.schemaCalls[schemaName] ?? 0) + 1;

@@ -1083,6 +1083,8 @@ async function processRefinementBatch(
         { places: prepared.map((place) => place.matrix), criteria },
         collectAnswered,
         pool,
+        "reuse",
+        "background",
       );
     }
     const openByCandidate = new Map(batch.map((item) => [
@@ -1247,6 +1249,8 @@ async function processRefinementBatch(
           { places: searchPlaces, criteria: searchCriteria },
           collectAnswered,
           pool,
+          "reuse",
+          "background",
         );
         const unresolvedByCandidate = new Map(withSnippets.map((entry) => [
           entry.prepared.item.candidate.id,
@@ -1382,6 +1386,18 @@ function logBatch(
   const calls = now.calls - batch.spend.calls;
   const inputTokens = now.inputTokens - batch.spend.inputTokens;
   const outputTokens = now.outputTokens - batch.spend.outputTokens;
+  const serviceTierCalls = Object.fromEntries(
+    Object.entries(now.serviceTierCalls)
+      .map(([tier, count]) => [
+        tier,
+        count - batch.spend.serviceTierCalls[tier as keyof typeof batch.spend.serviceTierCalls],
+      ] as const)
+      .filter(([, count]) => count > 0),
+  );
+  const usedServiceTiers = Object.keys(serviceTierCalls);
+  const serviceTier = usedServiceTiers.length > 1
+    ? "mixed"
+    : usedServiceTiers[0] ?? "none";
   const listingCost = takeListingSpendUsd(roomId);
   const cost = batch.searches * SEARCH_PROVIDER_COST_USD[batch.providerName] +
     listingCost +
@@ -1393,6 +1409,8 @@ function logBatch(
     places: batch.places,
     criteria: batch.criteria,
     calls,
+    serviceTier,
+    serviceTierCalls,
     searches: batch.searches,
     searchProvider: batch.providerName,
     listingCostUsd: Number(listingCost.toFixed(4)),

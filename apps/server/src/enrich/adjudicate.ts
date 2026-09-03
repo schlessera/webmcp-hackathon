@@ -308,9 +308,13 @@ export interface AdjudicationBatch {
   reply: Reply;
 }
 
-export async function adjudicateCells(cells: AdjudicationCell[]): Promise<AdjudicationBatch> {
+export async function adjudicateCells(
+  cells: AdjudicationCell[],
+  intent: "interactive" | "background" = "background",
+): Promise<AdjudicationBatch> {
   const reply = await respond({
     model: config.nlFastModel,
+    intent,
     instructions: ADJUDICATION_PROMPT,
     input: [{ role: "user", content: JSON.stringify(boundedAdjudicationPayload(cells)) }],
     schema: { name: "venue_evidence_adjudication", schema: ADJUDICATION_SCHEMA },

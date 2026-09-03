@@ -221,6 +221,7 @@ export async function combinedSearch(input: CombinedSearchInput): Promise<Evalua
   const domains = cleanDomains(input.domains);
   const reply = await respond({
     model: config.nlFastModel,
+    intent: "background",
     instructions: COMBINED_SEARCH_PROMPT,
     input: [{
       role: "user",
@@ -301,6 +302,7 @@ export const openAiSearchProvider: SearchProvider = {
     const domains = cleanDomains(opts.domains);
     const reply = await respond({
       model: config.nlFastModel,
+      intent: "background",
       instructions: [
         "Find direct evidence that answers every criterion named in the request for this one place.",
         "Keep exact source wording in the answer and cite each supported statement inline.",
