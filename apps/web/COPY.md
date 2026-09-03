@@ -122,7 +122,10 @@ Work the room is doing is stated as what it is doing, never as a bare
 - A photo from the recorded website reads `from the place's site ↗`. A
   Creative Commons photo reads `photo · <credit> · <licence> ↗`, using the
   source's actual credit and licence. An image linked by OpenStreetMap reads
-  `photo · from OpenStreetMap ↗` when it has no embedded credit.
+  `photo · from OpenStreetMap ↗` when it has no embedded credit. A Commons
+  geosearch photo reads `photo near this place · <credit> ↗`; "near" is
+  explicit because coordinates plus a name match are strong evidence, not an
+  assertion that the file was attached to the record.
 
 ## Agent phrasing
 

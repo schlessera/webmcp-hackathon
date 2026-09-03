@@ -1,7 +1,9 @@
 import { readFileSync } from "node:fs";
+import { randomBytes } from "node:crypto";
+import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   MAX_IMAGE_DOWNLOAD_BYTES,
   downloadPlaceImage,
@@ -13,14 +15,29 @@ import {
   extractImageCandidates,
   fetchWebsiteImageCandidates,
   readBoundedHtmlBody,
+  websiteImageCandidateAllowed,
 } from "../../apps/server/src/enrich/website.ts";
-import { parseCommonsImageInfo } from "../../apps/server/src/enrich/wikidata.ts";
+import {
+  commonsGeosearchNameMatches,
+  geosearchCommonsImages,
+  parseCommonsGeosearchImageInfo,
+  parseCommonsImageInfo,
+} from "../../apps/server/src/enrich/wikidata.ts";
+import {
+  classifyPlaceImages,
+  keepPlaceImageVerdict,
+  placeImageVerdictsFromAnswer,
+} from "../../apps/server/src/enrich/image-classifier.ts";
+import { setTransport } from "../../apps/server/src/nl/openai.ts";
 import { dossierFromTags, KEPT_TAGS } from "../../packages/contracts/src/dossier.ts";
 
 const fixtures = join(dirname(fileURLToPath(import.meta.url)), "fixtures");
+const sharp = createRequire(new URL("../../apps/server/package.json", import.meta.url))("sharp");
+
+afterEach(() => setTransport(null));
 
 describe("place image candidate extraction", () => {
-  it("orders og, twitter, schema.org JSON-LD and microdata, image_src, then the largest bounded img", () => {
+  it("orders only structured representative-image declarations", () => {
     const html = readFileSync(join(fixtures, "place-images.html"), "utf8");
     expect(extractImageCandidates(html, "https://place.example/about").map((image) => image.url)).toEqual([
       "https://place.example/og.jpg",
@@ -28,8 +45,43 @@ describe("place image candidate extraction", () => {
       "https://place.example/schema.jpg",
       "https://place.example/microdata.jpg",
       "https://place.example/linked.jpg",
-      "https://place.example/largest.jpg",
     ]);
+  });
+
+  it("rejects chrome words and unsafe types without rejecting near misses", () => {
+    for (const url of [
+      "https://place.example/assets/flag-en.png",
+      "https://place.example/logo.png",
+      "https://place.example/ui/sprite.webp",
+    ]) expect(websiteImageCandidateAllowed({ url })).toBe(false);
+    expect(websiteImageCandidateAllowed({
+      url: "https://place.example/photo.jpg",
+      alt: "language flag",
+    })).toBe(false);
+    expect(websiteImageCandidateAllowed({
+      url: "https://place.example/photo.jpg",
+      className: "site-logo hero",
+    })).toBe(false);
+    expect(websiteImageCandidateAllowed({
+      url: "https://place.example/place.svg",
+    })).toBe(false);
+    expect(websiteImageCandidateAllowed({
+      url: "https://place.example/place",
+      declaredType: "image/gif",
+    })).toBe(false);
+    expect(websiteImageCandidateAllowed({
+      url: "https://place.example/photos/flagship-hotel.jpg",
+    })).toBe(true);
+    expect(websiteImageCandidateAllowed({
+      url: "https://bannerman.de/photos/dining-room.jpg",
+    })).toBe(true);
+  });
+
+  it("does not fall back to ordinary img elements", () => {
+    expect(extractImageCandidates(
+      '<img src="/flag-en.png" width="1200" height="800" alt="English">',
+      "https://place.example/",
+    )).toEqual([]);
   });
 
   it("returns no candidate for a page with none", () => {
@@ -139,11 +191,11 @@ describe("place image network and transform boundary", () => {
       .rejects.toThrow("forbids shared caching");
   });
 
-  it("turns a tiny generated image into bounded WebP", async () => {
-    const svg = Buffer.from(
-      '<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="800"><rect width="1200" height="800" fill="navy"/></svg>',
-    );
-    const result = await resizePlaceImage(svg);
+  it("turns a sufficiently large raster into bounded WebP", async () => {
+    const png = await sharp({
+      create: { width: 1200, height: 800, channels: 3, background: "navy" },
+    }).png().toBuffer();
+    const result = await resizePlaceImage(png);
     expect(result.mime).toBe("image/webp");
     expect(result.width).toBe(960);
     expect(result.height).toBe(640);
@@ -151,11 +203,106 @@ describe("place image network and transform boundary", () => {
     expect(result.bytes.subarray(8, 12).toString()).toBe("WEBP");
   });
 
-  it("rejects a noisy image that remains over 200 KB after resize", async () => {
-    const noisySvg = Buffer.from(
-      '<svg xmlns="http://www.w3.org/2000/svg" width="960" height="960"><filter id="n"><feTurbulence baseFrequency=".7" numOctaves="5"/></filter><rect width="100%" height="100%" filter="url(#n)"/></svg>',
+  it("rejects small and implausibly shaped decoded images", async () => {
+    const small = await sharp({
+      create: { width: 479, height: 320, channels: 3, background: "navy" },
+    }).png().toBuffer();
+    const portraitStrip = await sharp({
+      create: { width: 480, height: 1000, channels: 3, background: "navy" },
+    }).png().toBuffer();
+    const wideStrip = await sharp({
+      create: { width: 1800, height: 400, channels: 3, background: "navy" },
+    }).png().toBuffer();
+    await expect(resizePlaceImage(small)).rejects.toThrow("too small");
+    await expect(resizePlaceImage(portraitStrip)).rejects.toThrow("aspect ratio");
+    await expect(resizePlaceImage(wideStrip)).rejects.toThrow("aspect ratio");
+  });
+
+  it("rejects SVG and GIF after decode and ICO by extension before download", async () => {
+    const svg = Buffer.from(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="800"><rect width="1200" height="800" fill="navy"/></svg>',
     );
-    await expect(resizePlaceImage(noisySvg)).rejects.toThrow("storage limit");
+    const gif = Buffer.from("R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==", "base64");
+    await expect(resizePlaceImage(svg)).rejects.toThrow("not an image");
+    await expect(resizePlaceImage(gif)).rejects.toThrow("not an image");
+    let calls = 0;
+    await expect(downloadPlaceImage({
+      url: "https://93.184.216.34/favicon.ico",
+      source: "web:place.example",
+      pageUrl: "https://place.example/",
+    }, async () => {
+      calls += 1;
+      return new Response();
+    })).rejects.toThrow("file type");
+    expect(calls).toBe(0);
+  });
+
+  it("rejects a noisy image that remains over 200 KB after resize", async () => {
+    const noisy = await sharp(randomBytes(960 * 960 * 3), {
+      raw: { width: 960, height: 960, channels: 3 },
+    }).png().toBuffer();
+    await expect(resizePlaceImage(noisy)).rejects.toThrow("storage limit");
+  });
+});
+
+describe("place image vision verdicts", () => {
+  const answer = (kind: string, confidence: number) => ({ images: [{ kind, confidence }] });
+
+  it("keeps place views and food at 0.6, and rejects every other kind", () => {
+    for (const kind of ["venue_exterior", "venue_interior", "food_or_drink"] as const) {
+      const verdict = placeImageVerdictsFromAnswer(answer(kind, 0.6), 1)![0];
+      expect(keepPlaceImageVerdict(verdict)).toBe(true);
+    }
+    expect(keepPlaceImageVerdict(placeImageVerdictsFromAnswer(answer("venue_exterior", 0.599), 1)![0])).toBe(false);
+    for (const kind of ["people", "logo", "flag_or_icon", "map_or_screenshot", "text_or_graphic", "other"] as const) {
+      expect(keepPlaceImageVerdict(placeImageVerdictsFromAnswer(answer(kind, 0.99), 1)![0])).toBe(false);
+    }
+  });
+
+  it("rejects a malformed, invalid-confidence, or short answer as a whole", () => {
+    expect(placeImageVerdictsFromAnswer(null, 1)).toBeNull();
+    expect(placeImageVerdictsFromAnswer({ images: [] }, 1)).toBeNull();
+    expect(placeImageVerdictsFromAnswer({ images: [{ kind: "logo" }] }, 1)).toBeNull();
+    expect(placeImageVerdictsFromAnswer(answer("venue_exterior", 2), 1)).toBeNull();
+  });
+
+  it("sends one low-detail structured call for the whole place batch", async () => {
+    let sent: Record<string, unknown> | undefined;
+    setTransport(async (body) => {
+      sent = body;
+      return {
+        output: [{
+          type: "message",
+          content: [{ type: "output_text", text: JSON.stringify({ images: [
+            { kind: "venue_exterior", confidence: 0.8 },
+            { kind: "logo", confidence: 0.95 },
+          ] }) }],
+        }],
+        usage: { input_tokens: 111, output_tokens: 22 },
+      };
+    });
+    const result = await classifyPlaceImages("A place", [
+      { bytes: Buffer.from("first") },
+      { bytes: Buffer.from("second") },
+    ]);
+    const content = (sent?.input as Array<{ content: Array<Record<string, unknown>> }>)[0].content;
+    expect(content.filter((part) => part.type === "input_image")).toEqual([
+      expect.objectContaining({ detail: "low" }),
+      expect.objectContaining({ detail: "low" }),
+    ]);
+    expect(sent?.text).toMatchObject({ format: {
+      type: "json_schema",
+      name: "place_image_verdicts",
+      strict: true,
+    } });
+    expect(result).toMatchObject({
+      inputTokens: 111,
+      outputTokens: 22,
+      verdicts: [
+        { kind: "venue_exterior", confidence: 0.8 },
+        { kind: "logo", confidence: 0.95 },
+      ],
+    });
   });
 });
 
@@ -187,5 +334,53 @@ describe("Commons image metadata", () => {
 
   it("rejects a non-free licence", () => {
     expect(parseCommonsImageInfo(doc("All rights reserved"), "wikidata:Q1")).toBeNull();
+  });
+
+  it("normalises diacritics and accepts only a geosearch hit carrying the place name", () => {
+    expect(commonsGeosearchNameMatches(
+      "Café Einstein",
+      "File:Cafe Einstein, Berlin 2025.jpg",
+    )).toBe(true);
+    expect(commonsGeosearchNameMatches(
+      "Café Einstein",
+      "File:Unrelated cafe terrace.jpg",
+    )).toBe(false);
+    expect(commonsGeosearchNameMatches("Cafe", "File:Nearby cafe.jpg")).toBe(false);
+
+    const matching = doc("CC BY-SA 4.0") as any;
+    matching.query.pages[0].title = "File:Street scene.jpg";
+    matching.query.pages[0].categories = [{ title: "Category:Cafe Einstein Berlin" }];
+    expect(parseCommonsGeosearchImageInfo(matching, "Café Einstein")).toHaveLength(1);
+    expect(parseCommonsGeosearchImageInfo(matching, "Café Kranzler")).toEqual([]);
+  });
+
+  it("queries Commons namespace 6 within 40 m and resolves only named CC hits", async () => {
+    const requests: URL[] = [];
+    const result = await geosearchCommonsImages(
+      "Café Einstein",
+      { lat: 52.5, lng: 13.4 },
+      async (raw) => {
+        const url = new URL(raw);
+        requests.push(url);
+        if (url.searchParams.get("list") === "geosearch") {
+          return Response.json({ query: { geosearch: [
+            { title: "File:Cafe Einstein front.jpg" },
+            { title: "File:Random street.jpg" },
+          ] } });
+        }
+        const matching = doc("CC BY-SA 4.0") as any;
+        matching.query.pages[0].title = "File:Cafe Einstein front.jpg";
+        matching.query.pages.push({
+          title: "File:Random street.jpg",
+          categories: [{ title: "Category:Berlin streets" }],
+          imageinfo: matching.query.pages[0].imageinfo,
+        });
+        return Response.json(matching);
+      },
+    );
+    expect(requests[0].searchParams.get("list")).toBe("geosearch");
+    expect(requests[0].searchParams.get("gsnamespace")).toBe("6");
+    expect(requests[0].searchParams.get("gsradius")).toBe("40");
+    expect(result).toEqual([expect.objectContaining({ source: "commons:geosearch" })]);
   });
 });

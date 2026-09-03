@@ -471,15 +471,17 @@ describe("warm targets for a pool batch", () => {
     ...(extras ? { extras } : {}),
   }) as never;
 
-  it("keeps only the seeds with somewhere to look", () => {
+  it("keeps every OSM seed for Commons geosearch and carries provider tags", () => {
     const targets = warmTargetsFor([
       seed("with-site", { website: "https://example.test" }),
       seed("with-wikidata", { wikidata: "Q42" }),
       seed("with-nothing"),
     ]);
-    expect(targets.map((target) => target.candidateId)).toEqual(["with-site", "with-wikidata"]);
+    expect(targets.map((target) => target.candidateId)).toEqual(["with-site", "with-wikidata", "with-nothing"]);
     expect(targets[0]).toMatchObject({
       osmRef: "node/with-site",
+      placeName: "with-site",
+      location: { lat: 52.5, lng: 13.4 },
       website: "https://example.test",
     });
     expect(targets[1]).not.toHaveProperty("website");
