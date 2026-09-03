@@ -225,7 +225,9 @@ function outcomeInference(
     sourceIndex: 0,
     observedAt: cell.claim.observedAt,
     explicit: cell.claim.explicit === true,
-    ...(cell.claim.value !== undefined ? { value: cell.claim.value } : {}),
+    // price-level is the one numeric fact in the vocabulary; the stored
+    // inference carries it as a band, the evaluated claim as its text.
+    ...(cell.claim.value !== undefined ? { value: String(cell.claim.value) } : {}),
     ...(cell.claim.sourceUrl ? { sourceUrl: cell.claim.sourceUrl } : {}),
     ...(cell.claim.context ? { context: cell.claim.context } : {}),
     ...(cell.claim.pageTitle ? { pageTitle: cell.claim.pageTitle } : {}),

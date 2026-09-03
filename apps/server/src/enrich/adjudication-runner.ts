@@ -69,8 +69,8 @@ function activeCriteria(inputs: EligibilityInputs): Criterion[] {
       (requirement.visibility !== "shared" && requirement.visibility !== "application-private")
     ) return [];
     const criterion = criterionFor(requirement.payload as never, {
-      timezone: inputs.timezone,
-      now: inputs.now,
+      timezone: inputs.timezone ?? "UTC",
+      now: inputs.now ?? new Date(),
     });
     return criterion ? [[criterion.id, criterion] as const] : [];
   })).values()];
@@ -116,6 +116,8 @@ function cellsFor(
         : undefined;
       if (!stored || "omitted" in stored || !stored.sourceUrl) return [];
       const claim = stored as Claim;
+      // The guard above proves this, but the cast erases the narrowing.
+      const sourceUrl = stored.sourceUrl;
       const hash = evidenceHash(claim.evidence);
       if (adjudicationCached(claim, hash, now)) return [];
       const material = contextFromCache(claim, options.pageCache);
@@ -136,7 +138,7 @@ function cellsFor(
         evidence: claim.evidence,
         context: material.context,
         pageTitle: material.pageTitle,
-        url: claim.sourceUrl,
+        url: sourceUrl,
         publisherNames: material.publisherNames,
         claim,
         evidenceHash: hash,
