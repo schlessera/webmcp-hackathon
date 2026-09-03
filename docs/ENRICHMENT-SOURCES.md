@@ -399,11 +399,92 @@ source, not a browser optimization.
 
 DataForSEO's Business Listings Search is a separate evidence class,
 `listing:google`. It is neither the OpenStreetMap record nor verified evidence.
-One request covers the current room pool using the scope centre and radius and
-asks for at most 1,000 items. Returned businesses are joined locally only when
-the normalized names are similar and their coordinates are within 60 metres;
-when both sides have a website domain, the domains must agree. A nearby
-different business and a same-name result 300 metres away are both rejected.
+The request covers the current room pool using the scope centre and radius,
+asks for at most 1,000 items, and — this is the part that decides whether the
+class is useful at all — filters on the categories the pool's own place classes
+map to. Returned businesses are joined locally only when the normalized names
+are similar and their coordinates are within 60 metres; when both sides have a
+website domain, the domains must agree. A nearby different business and a
+same-name result 300 metres away are both rejected. A listing name that is the
+place name plus whole extra words counts as the same place within 25 metres,
+because the provider files branches as “Restaurant Hackescher Hof” and
+“Haferkater, Friedrichstrasse”; the shorter name must be at least six
+characters and cover half the longer one's words, so “sushi” never claims
+“Sushi Miyabi”.
+
+### How names are compared
+
+Names are compared on their **core** form: diacritics folded, `ß` expanded,
+punctuation dropped, then the words that say *where* or *what* a business is
+removed — city and legal forms (`berlin`, `mitte`, `gmbh`, `ltd`) and class
+words (`restaurant`, `cafe`, `bar`, `bistro`, `haus`, articles). A name made
+only of class words keeps them rather than collapsing to nothing.
+
+A shared website domain identifies a place on its own, without any name
+agreement, because it is the stronger signal: “Ryce” against “RYCE - Kitchen &
+Sushi Bar” scores 0.30 and would otherwise be lost. Domains that disagree still
+veto a pair the name had already accepted.
+
+Measured over a real 60-place Berlin Mitte pool against 958 listings, each step
+counted separately, with all 46 final matches hand-checked and **no false
+positives**:
+
+| rule | matched of 60 |
+|---|---|
+| name as normalized before, 0.72, 60 m, domain veto | 39 (65%) |
+| + drop city and legal words | 39 (65%) |
+| + drop class words (the core form) | 43 (72%) |
+| + a shared domain identifies on its own | **46 (77%)** |
+| widening the distance to 150 m | 46 (77%) — no gain |
+| raising the threshold to 0.85 | 45 (75%) — worse |
+
+Distance is not the constraint; name normalization is. The radius stays at
+60 metres because widening it buys nothing and a tight radius is the safer
+default. The 14 remaining misses break down as 12 name and 2 distance, which is
+what the batch log reports.
+
+### Why the item limit stays at the maximum
+
+Cost is charged per item **returned**, so a smaller `limit` looks like a saving.
+It is not: the provider does not order results by relevance to our pool, so
+truncation drops places at random. Measured on the same pool:
+
+| limit | items | cost | matched of 60 |
+|---|---|---|---|
+| 120 (twice the pool) | 516 | $0.246 | 26 |
+| 300 | 788 | $0.344 | 40 |
+| 1,000 | 958 | $0.405 | 46 |
+
+The category filter bounds this cost, and the per-room 24-hour budget bounds how
+often it is paid. The limit is not a cost lever worth pulling.
+
+### Why the category filter exists
+
+Measured live against the Berlin demo centre at the 1 km radius floor, on the
+31-place demo pool:
+
+| request | items | cost | pool places matched |
+|---|---|---|---|
+| no category filter | 1,000 of 10,238 matching | $0.372 | 1 of 31 |
+| pool's top-level classes | 369 | $0.145 | 10 of 31 |
+| …plus branch-suffix matching | 369 | $0.145 | 15 of 31 |
+| …plus cuisine subtypes (5 requests) | 808 | $0.351 | 24 of 31 |
+
+An unfiltered request is not a cheap superset: 10,238 businesses sit inside
+that radius, so the 1,000-item cap returns an arbitrary tenth of them —
+lawyers, software firms, hotels — and cost is charged per item returned.
+Filtering to the pool's classes costs less and finds far more.
+
+Classes expand to subtypes because the provider files a place under the most
+specific category it has: Grill Royal is `bar_and_grill`, not `restaurant`.
+Every category name in the map was checked against the 5,317-name list the
+provider's own categories endpoint publishes. The provider caps a request at
+ten categories, so a wide pool is split across up to six requests; the request
+fee is $0.012 each and the item fee dominates.
+
+The provider rejects a `location_coordinate` radius below one kilometre, so a
+tighter scope is fetched at that floor and the 60 metre match rule discards the
+overshoot.
 
 Available and unavailable Google-profile attributes are symmetric. Dogs,
 wheelchair entrance, outdoor seating, vegetarian options, wi-fi, takeaway and
@@ -420,9 +501,13 @@ and `resolveInference`, the same monotonic path used by every other inferred
 claim. `enrichments.listing` retains only the companion hours, rating and
 website fields for seven days. A durable per-room budget permits at most one
 request in 24 hours, with one immediate extra request when `scopeId` changes.
+Each batch logs counts only — pool size, matched, and unmatched split into
+`distance`, `name` and `domain` — so a drop in yield says which rule to look at.
+A listing that matched nothing is stored nowhere and named nowhere.
 `LISTINGS=0` disables the class. The price is **$0.012 per request plus
 $0.00036 per returned item**: 343 results cost about **$0.135** and the
-1,000-item maximum costs **$0.372**.
+1,000-item maximum costs **$0.372**. The measured Berlin demo pool costs
+**$0.351** across five category requests.
 
 DataForSEO's current Terms do not state a cache duration or an explicit
 redistribution grant. They do prohibit using SERP-derived data to compete with
@@ -439,12 +524,16 @@ cross-room, seven-day fallback described above. OpenAI stores validated claims
 but not raw snippets.
 
 Parallel uses the GA Search API's `fast` mode at **$1 per 1,000 searches**.
-Its excerpts are not reliably verbatim: Parallel calls them “LLM-optimized”,
-and its own response example inserts `Section Title:`, `Content:` and a
-truncation marker that do not occur together on the source page. An excerpt is
-therefore only a discovery hint. The server fetches at most the first two
+Its excerpts are not verbatim. Parallel calls them “LLM-optimized”; measured
+live on 2026-09-03, **zero of four excerpts** from a real search were
+substrings of the page fetched from the same URL. They arrive carrying `·`
+separators, escaped punctuation and stitched-together fragments. An excerpt is
+therefore only a discovery hint, and the evidence contract's exact-span rule
+would drop every claim built on one. The server fetches at most the first two
 result pages through the outbound client and passes onward only a literal span
 located in that fetched page; results without a usable exact span are dropped.
+That is deliberately lossy: in the same live check, one of four excerpts
+yielded a span and the rest were discarded rather than paraphrased.
 Parallel results are cached for seven days **per room**, never cross-room,
 because its Customer Terms restrict one query's output to one End Customer.
 Those terms also conflict with Parallel's FAQ on model training, another reason
