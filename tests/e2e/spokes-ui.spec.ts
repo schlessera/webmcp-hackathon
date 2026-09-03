@@ -463,7 +463,15 @@ async function mockApi(page: Page, state: MockState) {
   });
   await page.route("**/api/spatial/inspect", (route) => {
     recordRequest(route.request());
-    const ids = (route.request().postDataJSON() as { candidateIds: string[] }).candidateIds;
+    const inspectBody = route.request().postDataJSON() as {
+      candidateIds: string[];
+      intent?: string;
+      force?: boolean;
+    };
+    // "Look again" now rides the open fast track with force: record it where
+    // the lookup-route assertions look.
+    if (inspectBody.force === true) state.lastLookup = inspectBody;
+    const ids = inspectBody.candidateIds;
     return respond(route, {
       ok: true,
       revision: state.context.revision,
@@ -1990,8 +1998,11 @@ test("place details read the server's verdicts, address and hours, and say when 
     outstanding: [],
   };
   await mockApi(page, state);
-  await page.route("**/api/spatial/inspect", (route) =>
-    route.fulfill({
+  await page.route("**/api/spatial/inspect", (route) => {
+    const inspectBody = route.request().postDataJSON() as { candidateIds: string[]; force?: boolean };
+    // "Look again" rides the open fast track with force.
+    if (inspectBody?.force === true) state.lastLookup = inspectBody;
+    return route.fulfill({
       contentType: "application/json",
       body: JSON.stringify({
         ok: true,
@@ -2025,8 +2036,8 @@ test("place details read the server's verdicts, address and hours, and say when 
           },
         ],
       }),
-    }),
-  );
+    });
+  });
   const socket = await scriptedSocket(page, 40);
   await page.goto(`${BASE}/#invite=deadbeef`);
   await socket.welcomed;
