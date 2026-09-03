@@ -23,6 +23,10 @@ export const config = {
   demoSecretKey: process.env.DEMO_SECRET_KEY ?? "local-dev-only",
   /** Chrome WebMCP origin-trial token, injected as a response header when set. */
   originTrialToken: process.env.ORIGIN_TRIAL_TOKEN ?? "",
+  /** One honest identity for venue, Wikimedia and keyed-service traffic. */
+  identifyingUserAgent:
+    process.env.OUTBOUND_USER_AGENT ??
+    "spokes-enrich/0.2 (+https://github.com/schlessera/webmcp-hackathon; reads what a venue publishes about itself)",
   /**
    * Natural-language surface (docs/NL-AGENT.md). Absent key: the composer
    * falls back to its label matching and the page never shows an agent card.

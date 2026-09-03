@@ -1,4 +1,5 @@
 import { config } from "../config.ts";
+import { outboundFetchFor } from "../net/outbound.ts";
 import { graded, normalizeQuestion, type Criterion } from "@webmcp-hackathon/contracts";
 import {
   echoesCriterion,
@@ -311,11 +312,16 @@ export const openAiSearchProvider: SearchProvider = {
   },
 };
 
-let searchFetch: FetchLike = fetch;
+const liveSearchFetch: FetchLike = outboundFetchFor("tavily", {
+  direct: true,
+  maxBytes: 2 * 1024 * 1024,
+  timeoutMs: 15_000,
+});
+let searchFetch: FetchLike = liveSearchFetch;
 
 /** Test seam for the Tavily HTTP transport. */
 export function setSearchFetch(next: FetchLike | null): void {
-  searchFetch = next ?? fetch;
+  searchFetch = next ?? liveSearchFetch;
 }
 
 export const tavilySearchProvider: SearchProvider = {
@@ -338,7 +344,10 @@ export const tavilySearchProvider: SearchProvider = {
         }),
         signal: controller.signal,
       });
-      if (!response.ok) return [];
+      if (!response.ok) {
+        await response.body?.cancel();
+        return [];
+      }
       const body = await response.json() as {
         results?: Array<{ url?: unknown; title?: unknown; content?: unknown }>;
       };
@@ -367,6 +376,10 @@ let injectedProvider: SearchProvider | null = null;
 /** Replace the whole provider in tests; null restores environment selection. */
 export function setSearchProvider(next: SearchProvider | null): void {
   injectedProvider = next;
+}
+
+export function searchProviderId(): "tavily" | "openai" {
+  return process.env.SEARCH_PROVIDER === "tavily" ? "tavily" : "openai";
 }
 
 export function search(

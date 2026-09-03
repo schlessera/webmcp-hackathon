@@ -5,6 +5,7 @@ import {
   type Criterion,
   type SpatialContextResult,
 } from "@webmcp-hackathon/contracts";
+import type pg from "pg";
 import { pool } from "../db.ts";
 import {
   loadEligibilityInputs,
@@ -34,6 +35,7 @@ import {
   type EvaluatedInference,
 } from "../enrich/evaluate.ts";
 import { INFERABLE_KEYS, inferenceEnabled } from "../enrich/infer.ts";
+import { loadSearchCache, storeSearchCache } from "../enrich/cache.ts";
 import { beginLookups, lookupPending } from "../enrich/progress.ts";
 import { onPresenceChange, presentIn } from "../presence.ts";
 import { createTokenBucket } from "../token-bucket.ts";
@@ -42,6 +44,7 @@ import { adjudicateLikelyForRoom } from "../enrich/adjudication-runner.ts";
 import {
   combinedSearch,
   search,
+  searchProviderId,
   type SearchResult,
 } from "./search.ts";
 
@@ -528,6 +531,12 @@ export interface RefinementSearchRequest {
 export interface RefinementSearchResponse extends RefinementSearchRequest {
   source: "domain_search" | "open_web_search";
   results: SearchResult[];
+  /** True when this response replayed the seven-day provider cache. */
+  cacheHit?: boolean;
+  cachedClaims?: EvaluatedInference[];
+  cachedAnsweredIds?: string[];
+  cacheQuery?: string;
+  cacheDomains?: string[];
 }
 
 export interface RefinementAreaContext {
@@ -538,6 +547,8 @@ export interface RefinementAreaContext {
 
 export interface RefinementSearchPolicy {
   domainRule?: RefineDomainRule;
+  cacheDb?: Pick<pg.Pool, "query"> | Pick<pg.PoolClient, "query">;
+  providerName?: "tavily" | "openai";
 }
 
 export interface RefinementTickOptions extends RefinementSearchPolicy {
@@ -602,19 +613,57 @@ export async function searchRefinementPlaces(
 ): Promise<RefinementSearchResponse[]> {
   return Promise.all(requests.filter((request) => request.searchCriteria.length > 0).map(async (request) => {
     const domains = refinementSearchDomains(request, policy.domainRule);
+    const query = buildRefinementQuery(request, area);
+    const providerName = policy.providerName ?? searchProviderId();
+    if (policy.cacheDb) {
+      const cached = await loadSearchCache(
+        policy.cacheDb,
+        request.osmRef,
+        query,
+        providerName,
+        domains,
+      ).catch(() => null);
+      if (cached?.snippets || cached?.claims || cached?.answeredIds) {
+        return {
+          ...request,
+          source: domains ? "domain_search" as const : "open_web_search" as const,
+          results: cached.snippets ?? [],
+          cacheHit: true,
+          ...(cached.claims ? { cachedClaims: cached.claims.map((claim) => ({
+            ...claim,
+            candidateId: request.candidateId,
+            osmRef: request.osmRef,
+          })) } : {}),
+          ...(cached.answeredIds ? { cachedAnsweredIds: cached.answeredIds } : {}),
+          cacheQuery: query,
+          ...(domains ? { cacheDomains: domains } : {}),
+        };
+      }
+    }
     let results: SearchResult[] = [];
     try {
       results = await refinementSearchLimiter.use(() => provider(
-        buildRefinementQuery(request, area),
+        query,
         domains ? { domains } : undefined,
       ));
     } catch {
       results = [];
     }
+    if (policy.cacheDb && providerName === "tavily") {
+      await storeSearchCache(policy.cacheDb, {
+        osmRef: request.osmRef,
+        query,
+        provider: "tavily",
+        ...(domains ? { domains } : {}),
+        snippets: results,
+      }).catch(() => undefined);
+    }
     return {
       ...request,
       source: domains ? "domain_search" as const : "open_web_search" as const,
       results,
+      cacheQuery: query,
+      ...(domains ? { cacheDomains: domains } : {}),
     };
   }));
 }
@@ -662,13 +711,14 @@ async function preparePlace(
   item: RefinementQueueItem,
   cached: Map<string, Enrichment>,
   now: number,
+  countryCode?: string,
 ): Promise<PreparedPlace> {
   const candidate = item.candidate;
   const target = lookupTargetOf(candidate);
   let enrichment = cached.get(candidate.osm_ref!);
   let text = cachedText(candidate.osm_ref!, now);
   if (!text && target && (target.website || target.wikidata)) {
-    const pass = await readRefinementSource(pool, target);
+    const pass = await readRefinementSource(pool, target, countryCode);
     enrichment = pass.enrichment ?? enrichment;
     if (pass.pageText) {
       text = pass.pageText;
@@ -793,8 +843,11 @@ export async function runRefinementTick(
   );
   try {
     const refs = batch.map((item) => item.candidate.osm_ref!).filter(Boolean);
+    const placeInfo = await roomPlace(roomId);
     const cached = await loadCached(pool, refs);
-    const prepared = await Promise.all(batch.map((item) => preparePlace(item, cached, now)));
+    const prepared = await Promise.all(batch.map((item) =>
+      preparePlace(item, cached, now, placeInfo.countryCode)
+    ));
     // Cells the model genuinely answered (a claim or an explicit abstention);
     // only those are cached, everything else is re-queued (C3).
     const answeredCells = new Set<string>();
@@ -807,6 +860,7 @@ export async function runRefinementTick(
       firstClaims = await evaluateMatrix(
         { places: prepared.map((place) => place.matrix), criteria },
         collectAnswered,
+        pool,
       );
     }
     const openByCandidate = new Map(batch.map((item) => [
@@ -817,7 +871,6 @@ export async function runRefinementTick(
       openByCandidate.get(claim.candidateId)?.has(claim.criterionId)
     );
     const firstCells = new Set(firstClaims.map((claim) => `${claim.candidateId}\u0000${claim.criterionId}`));
-    const placeInfo = await roomPlace(roomId);
     const wanted: RefinementSearchRequest[] = [];
     const searchedCells = new Set<string>();
     const active = activeCriteria(inputs);
@@ -848,6 +901,7 @@ export async function runRefinementTick(
     const searchRequests = wanted.slice(0, searchSlots);
     searchBudget.consume(roomId, searchRequests.length, now);
     let searchClaims: EvaluatedInference[] = [];
+    const providerName = searchProviderId();
     if (searchMode === "combined") {
       for (const request of searchRequests) {
         for (const criterion of request.searchCriteria) {
@@ -857,19 +911,41 @@ export async function runRefinementTick(
       modelBudget.consume(roomId, searchRequests.length, now);
       searchClaims = (await Promise.all(searchRequests.map(async (request) => {
         const domains = refinementSearchDomains(request, options.domainRule);
+        const query = buildRefinementQuery(request, placeInfo);
+        const cachedSearch = await loadSearchCache(
+          pool,
+          request.osmRef,
+          query,
+          "openai",
+          domains,
+        ).catch(() => null);
+        if (cachedSearch?.claims) return cachedSearch.claims.map((claim) => ({
+          ...claim,
+          candidateId: request.candidateId,
+          osmRef: request.osmRef,
+        }));
         try {
-          return await refinementSearchLimiter.use(() => combinedSearch({
+          const claims = await refinementSearchLimiter.use(() => combinedSearch({
             candidateId: request.candidateId,
             osmRef: request.osmRef,
             name: request.name,
             category: request.category,
-            query: buildRefinementQuery(request, placeInfo),
+            query,
             // Combined mode enables web_search in this very call, so private
             // criteria are excluded from both its query and request body.
             sharedCriteria: request.searchCriteria,
             source: domains ? "domain_search" : "open_web_search",
             ...(domains ? { domains } : {}),
           }));
+          await storeSearchCache(pool, {
+            osmRef: request.osmRef,
+            query,
+            provider: "openai",
+            ...(domains ? { domains } : {}),
+            claims,
+            answeredIds: claims.map((claim) => claim.criterionId),
+          }).catch(() => undefined);
+          return claims;
         } catch {
           return [];
         }
@@ -880,17 +956,28 @@ export async function runRefinementTick(
         searchRequests,
         placeInfo,
         search,
-        options,
+        { ...options, cacheDb: pool, providerName },
       )).map((entry) => ({
         ...entry,
         prepared: preparedById.get(entry.candidateId)!,
       }));
       for (const entry of searched) {
-        const attempted = entry.results.length > 0 ? entry.criteria : entry.searchCriteria;
-        for (const criterion of attempted) {
-          searchedCells.add(`${entry.candidateId}\u0000${criterion.id}`);
+        // searchAttempts measures paid outbound legs. Replaying snippets or
+        // derived claims must not consume another attempt merely because a
+        // requirement toggle caused the worker to revisit the cell.
+        if (!entry.cacheHit) {
+          const attempted = entry.results.length > 0 || entry.cachedClaims
+            ? entry.criteria
+            : entry.searchCriteria;
+          for (const criterion of attempted) {
+            searchedCells.add(`${entry.candidateId}\u0000${criterion.id}`);
+          }
+        }
+        for (const id of entry.cachedAnsweredIds ?? []) {
+          answeredCells.add(`${entry.candidateId}\u0000${id}`);
         }
       }
+      const cachedClaims = searched.flatMap((entry) => entry.cachedClaims ?? []);
       const withSnippets = searched.filter((entry) => entry.results.length > 0);
       if (withSnippets.length > 0) {
         const searchCriteria = [...new Map(withSnippets.flatMap((entry) => entry.criteria).map(
@@ -907,17 +994,49 @@ export async function runRefinementTick(
         }));
         const secondCalls = modelCalls(searchPlaces.length, searchCriteria.length);
         modelBudget.consume(roomId, secondCalls, now);
-        searchClaims = await evaluateMatrix(
+        const evaluatedClaims = await evaluateMatrix(
           { places: searchPlaces, criteria: searchCriteria },
           collectAnswered,
+          pool,
         );
         const unresolvedByCandidate = new Map(withSnippets.map((entry) => [
           entry.prepared.item.candidate.id,
           new Set(entry.criteria.map((criterion) => criterion.id)),
         ]));
-        searchClaims = searchClaims.filter((claim) =>
+        const acceptedClaims = evaluatedClaims.filter((claim) =>
           unresolvedByCandidate.get(claim.candidateId)?.has(claim.criterionId)
         );
+        if (providerName === "openai") {
+          await Promise.all(withSnippets.map((entry) => {
+            const answeredIds = entry.criteria
+              .map((criterion) => criterion.id)
+              .filter((id) => answeredCells.has(`${entry.candidateId}\u0000${id}`));
+            if (!answeredIds.length) return Promise.resolve();
+            return storeSearchCache(pool, {
+              osmRef: entry.osmRef,
+              query: entry.cacheQuery!,
+              provider: "openai",
+              ...(entry.cacheDomains ? { domains: entry.cacheDomains } : {}),
+              claims: acceptedClaims.filter((claim) => claim.candidateId === entry.candidateId),
+              answeredIds,
+            }).catch(() => undefined);
+          }));
+        }
+        searchClaims = [...cachedClaims, ...acceptedClaims];
+      } else {
+        searchClaims = cachedClaims;
+      }
+      if (providerName === "openai") {
+        await Promise.all(searched
+          .filter((entry) => entry.results.length === 0 && entry.cachedClaims === undefined)
+          .map((entry) => storeSearchCache(pool, {
+            osmRef: entry.osmRef,
+            query: entry.cacheQuery!,
+            provider: "openai",
+            ...(entry.cacheDomains ? { domains: entry.cacheDomains } : {}),
+            claims: [],
+            answeredIds: [],
+          }).catch(() => undefined)));
       }
     }
 

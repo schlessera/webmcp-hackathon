@@ -8,6 +8,7 @@ import {
   evaluateMatrix,
   matrixClaimsFromAnswer,
   matrixBatchFromAnswer,
+  matrixCacheKey,
   MATRIX_CONFIDENCE_CAPS,
   MAX_MATRIX_CRITERIA,
   MAX_MATRIX_PLACES,
@@ -95,6 +96,15 @@ afterEach(() => {
 });
 
 describe("batched matrix evaluation", () => {
+  it("keys a cell by place, criterion, and bounded evidence text", () => {
+    const sample = input();
+    const key = matrixCacheKey(sample.places[0], wifi);
+    expect(key.startsWith(`node/1\u0000${wifi.id}\u0000`)).toBe(true);
+    expect(matrixCacheKey(sample.places[0], dog)).not.toBe(key);
+    sample.places[0].texts[0].text += " Changed.";
+    expect(matrixCacheKey(sample.places[0], wifi)).not.toBe(key);
+  });
+
   it("publishes its strict prompt, schema and limits", () => {
     expect(EVALUATE_MATRIX_PROMPT).toContain("candidateId × criterionId");
     expect(EVALUATE_MATRIX_SCHEMA.properties.claims.maxItems).toBe(40);

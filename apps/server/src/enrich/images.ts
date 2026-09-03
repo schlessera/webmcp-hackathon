@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
 import type pg from "pg";
 import sharp from "sharp";
+import { outboundFetchFor } from "../net/outbound.ts";
+import { IMAGE_CACHE_TTL_MS } from "./cache.ts";
 import {
   ENRICH_USER_AGENT,
   fetchAllowed,
@@ -50,7 +52,7 @@ export const MAX_IMAGE_ATTEMPTS = 8;
 export const MAX_IMAGE_DOWNLOAD_BYTES = 6 * 1024 * 1024;
 export const MAX_STORED_IMAGE_BYTES = 200 * 1024;
 export const IMAGE_TIMEOUT_MS = 10_000;
-export const IMAGE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+export const IMAGE_TTL_MS = IMAGE_CACHE_TTL_MS;
 const IMAGE_FAILURE_TTL_MS = 60 * 60 * 1000;
 export const IMAGE_VERDICT_TTL_DAYS = 30;
 /** A source that asks for a shorter life gets a shorter life, but re-fetching
@@ -134,7 +136,7 @@ export async function resizePlaceImage(input: Uint8Array): Promise<ProcessedImag
   return { mime: "image/webp", width: info.width, height: info.height, bytes: data };
 }
 
-/** Clamp our seven-day store to the source's own `max-age`, with a one-day
+/** Clamp our thirty-day store to the source's own `max-age`, with a one-day
  * floor so a short hint cannot turn into an hourly re-fetch of every place. */
 export function cacheTtlMs(cacheControl: string): number {
   const declared = [...cacheControl.matchAll(/(?:^|,)\s*(?:s-maxage|max-age)=(\d+)/g)]
@@ -147,7 +149,10 @@ export function cacheTtlMs(cacheControl: string): number {
 
 export async function downloadPlaceImage(
   candidate: ImageCandidate,
-  fetchImpl: FetchLike = fetch,
+  fetchImpl: FetchLike = outboundFetchFor("venue-image", {
+    maxBytes: MAX_IMAGE_DOWNLOAD_BYTES,
+    timeoutMs: IMAGE_TIMEOUT_MS,
+  }),
 ): Promise<ProcessedImage> {
   const target = new URL(candidate.url);
   if (target.protocol !== "http:" && target.protocol !== "https:") {
@@ -167,9 +172,13 @@ export async function downloadPlaceImage(
     },
     fetchImpl,
   );
-  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  if (!response.ok) {
+    await response.body?.cancel();
+    throw new Error(`HTTP ${response.status}`);
+  }
   const cacheControl = (response.headers.get("cache-control") ?? "").toLowerCase();
   if (/(?:^|,)\s*(?:no-store|no-cache|private)(?:\s|,|$)/.test(cacheControl)) {
+    await response.body?.cancel();
     throw new Error("source response forbids shared caching");
   }
   // A shorter freshness hint shortens our copy rather than refusing it: almost
@@ -296,7 +305,10 @@ export async function refreshPlaceImages(
   osmRef: string,
   placeName: string,
   candidates: ImageCandidate[],
-  fetchImpl: FetchLike = fetch,
+  fetchImpl: FetchLike = outboundFetchFor("venue-image", {
+    maxBytes: MAX_IMAGE_DOWNLOAD_BYTES,
+    timeoutMs: IMAGE_TIMEOUT_MS,
+  }),
 ): Promise<number> {
   const unique = [
     ...new Map(candidates.map((candidate) => [candidate.url, candidate])).values(),

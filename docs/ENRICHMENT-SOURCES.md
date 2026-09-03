@@ -17,8 +17,8 @@ Three sources ship, all server-side, all evidence-labelled:
 | # | source | licence | gives | how |
 |---|---|---|---|---|
 | S1 | OpenStreetMap's own long tail | ODbL | menu URL, opening-hours page, Instagram, description, vegan / gluten-free / halal, takeaway, delivery, Wikidata id | more tags kept in the snapshot (`KEPT_TAGS`); no request at all |
-| S2 | the place's own website | the venue's | schema.org facts (cuisine, price range, hours, accessibility, self-published rating, menu, reservations), menu link discovery, one-line description; selected visible text for same-pass inference only | one homepage fetch plus an optional menu follow, robots.txt honoured; parsed facts cached 7 days, page text held only in memory for that lookup pass |
-| S3 | Wikidata | CC0 | description, Wikipedia article, official site, awards (Michelin star, Bib Gourmand) | one entity fetch for places carrying a `wikidata` tag, cached 7 days |
+| S2 | the place's own website | the venue's | schema.org facts (cuisine, price range, hours, accessibility, self-published rating, menu, reservations), menu link discovery, one-line description; selected visible text for evaluation only | one homepage fetch plus an optional menu follow, robots.txt honoured; parsed facts and bounded evaluator text cached 7 days |
+| S3 | Wikidata | CC0 | description, Wikipedia article, official site, awards (Michelin star, Bib Gourmand) | one entity fetch for places carrying a `wikidata` tag, cached 30 days |
 
 A fourth input is not enrichment by a provider: a person can permanently
 confirm or rule out a vocabulary fact or `q:<sha1>` question answer. It is
@@ -32,6 +32,78 @@ its sentence is shown only to its requirement owner.
 Ratings from review platforms are **not** available under our constraints
 (details below). What a room sees as a rating is what the place publishes
 about itself, labelled "as published by the place", or an award on record.
+
+## Outbound routing and caching
+
+`apps/server/src/net/outbound.ts` is the single transport for every direct
+remote HTTP request. Venue traffic uses the residential proxy where a local
+exit and session rotation improve reachability; keyed APIs and open-data hosts
+stay direct. The table is the code's purpose allowlist, not a hostname guess:
+
+| purpose | route | reason |
+|---|---|---|
+| `venue-site`, `venue-menu` | proxy | venue hosts are the blocking-prone, geographically local source; the pass keeps one country-targeted sticky session |
+| `venue-image`, `image-cdn` | proxy | the same venue/CDN reachability applies to image bytes, with the venue pass's country and session |
+| `robots` | proxy | robots policy must be read from the same route and apparent origin as the venue request it governs |
+| `wikidata`, `wikimedia`, `commons` | direct | public, non-geographic Wikimedia data and licence metadata need no residential identity |
+| `geofabrik` | direct | the fixed open-data extract host is not a venue and gains nothing from residential routing |
+| `tavily` | direct | it is an authenticated API; Tavily's terms prohibit concealing the customer application's identity |
+| `openai` | direct | the API key is the service identity and organization rate limits do not become safer or larger through an exit proxy |
+
+The cache is deliberately source-shaped. Venue homepage and HTML-menu rows in
+`page_cache` retain only selected text (never raw HTML), validators and image
+candidates for seven days. The text is capped at 6,000 characters per page and
+is server-private evaluator input: it is never shown to a participant, put in
+a dossier, emitted in realtime or written to a log. A stale row sends its
+`ETag` and `Last-Modified`; `304 Not Modified` only advances the timestamps,
+while `200` replaces the extracted text and candidate set. This limited copy
+exists to avoid repeatedly downloading public venue prose while testing new
+criteria; robots is still honoured and cached separately for 24 hours.
+
+DNS answers used by the SSRF guard live in process memory for ten minutes. The
+guard rechecks that every cached or newly resolved address is public, and every
+redirect is checked again. Wikidata entity JSON and Commons `imageinfo`
+metadata are durable for 30 days and conditionally refreshed. Wikidata is CC0;
+Commons metadata describes files accepted only under CC0, CC BY or CC BY-SA,
+so the application can retain the necessary URL, credit and licence. Processed
+images live for up to 30 days. `cacheTtlMs` remains the one TTL calculator:
+an origin `max-age` shorter than 30 days shortens the row (with the existing
+one-day operational floor). The image path separately rejects `no-store`,
+`no-cache` and `private`; those directives also prevent a page-cache write.
+
+Search caching differs by provider. Tavily snippets are stored for seven days
+under `(place, query hash)`: its current [Platform Terms](https://www.tavily.com/terms) define links and
+text returned by the API as Output, expressly permit integrating the service
+with Customer Applications for internal business use, and contain no shorter
+cache limit. The same terms leave compliance with the underlying third-party
+sources to the customer, so only the already bounded citation snippet is
+retained, never raw page content. OpenAI search takes the more conservative
+path: official OpenAI API [data controls](https://developers.openai.com/api/docs/guides/your-data) identify tool-connected material as
+third-party data subject to third-party terms but does not grant a separate
+retention right for raw search excerpts. Its snippets and raw search responses
+therefore are not stored; only claims that pass this application's criterion,
+citation, span and confidence validators are cached for seven days under the
+same place/query key.
+
+Matrix results use `(place, criterion, evidence-text hash)`. The hash includes
+every bounded source string and record token the model can inspect. Cache hits
+are removed before rectangular batches are built, so unchanged evidence is
+never re-asked even when another criterion beside it is new. An explicit
+abstention is cached as an answered cell as well as in the shorter omission
+path; transport failures and malformed or missing cells are not answers. The
+existing three-search-attempt cap per place and criterion per UTC day remains
+the negative-result backstop.
+
+Outbound diagnostics keep a rolling 24-hour in-memory ring, aggregated by host
+and actual route with attempts, proxy-versus-target failures, target status,
+latency percentiles and decoded bytes. A stable hash sends ten percent of
+proxy-eligible hosts direct as a control group. Five proxy-class failures for
+one host inside ten minutes open its circuit to direct traffic for 30 minutes.
+A direct `403` or `429` closes that circuit early only when another proxied host
+has succeeded in the preceding ten minutes, distinguishing a target block from
+a dead proxy pool. `GET /api/diag/outbound` exposes the same aggregate; neither
+the ring, log nor endpoint includes URLs, query strings, request bodies,
+credentials or participant text.
 
 ## What was measured
 
@@ -204,9 +276,9 @@ when its URL path, alt text or class has a word-like match for `flag`, `icon`,
 the path rather than the host, so `flagship-hotel.jpg` and a photo hosted at
 `bannerman.de` remain eligible.
 
-When website facts are fetched in the same pass, homepage candidates travel
-only on that in-memory result and are stripped before the `website` JSON is
-persisted. When that cache is warm but images are due, a candidate-only read
+When website facts are fetched in the same pass, homepage candidates are
+stored only in the private `page_cache` row and are stripped before the
+`website` JSON is persisted. When that cache is warm but images are due, a candidate-only read
 uses the same robots, SSRF, redirect and User-Agent boundary: an advisory HEAD
 followed by a GET whose body stops at 512 KB. The existing image refresh clock
 keeps that fallback to at most once per image refresh period. It runs only
@@ -224,10 +296,10 @@ project's identifying User-Agent. Inputs are capped at 6 MB and ten seconds.
 The decoder rejects SVG, ICO and GIF content, dimensions below 480 × 320, and
 aspect ratios outside 1:2 through 3:1. Remaining images are resized to at most
 960 px wide and encoded as WebP quality 72; results above 200 KB are rejected.
-A response that forbids shared caching is rejected; a shorter usable freshness
-hint shortens the stored copy. The database stores only those WebP
+A response that forbids shared caching is rejected; an origin `max-age` shorter
+than 30 days shortens the stored copy. The database stores only those WebP
 bytes, dimensions, MIME, source and source URL, source page, credit, licence,
-and fetch/expiry timestamps. Rows expire after seven days and are re-fetched;
+and fetch/expiry timestamps. Rows expire after at most 30 days and are re-fetched;
 expired bytes are never served.
 
 Every non-curated (site) image is classified before storage by
@@ -270,11 +342,12 @@ still leave an active criterion unknown, the server may ask the fast NL model
 for a lean. A criterion can be a vocabulary key or a normalized free-text
 question. The input is limited to the place name, category, cuisine
 tokens, OSM/Wikidata descriptions, parsed website facts and description,
-menu words/readings, and — only when this lookup just fetched them — selected
-visible text from the homepage and followed menu page. That transient text is
+menu words/readings, and selected visible text from the homepage and followed
+menu page. That private cached text is
 title, meta description, headings, paragraphs and list items after scripts,
 styles, navigation and footer are stripped, capped separately at 6,000
-characters per page. A cache-only read has no page text to replay.
+characters per page. A cache-only read replays it to the evaluator without a
+network request; it still never crosses the server boundary.
 
 Inference normally remains below verification. An explicit statement quoted
 from the venue's own recorded website is the one exception described below;
@@ -383,6 +456,19 @@ text is removed and sources are ordered shortest first. Whole shorter sources
 are kept before the longest source, which is last and is the first/only source
 shortened when the 6,000-character aggregate budget is exhausted.
 
+Before those batches are formed, the matrix cache removes every cell whose
+place, criterion and evidence-text hash already has an answer. Places are then
+grouped by identical missing criterion sets so a cached cell cannot be
+incidentally re-sent in another place's rectangular batch.
+
+A forced lookup is the exception. When a participant asks to look a place up
+again, the matrix cache is written but not read: the cached page text is reused,
+so no site is refetched, while the judgement over it is taken fresh. Reusing the
+text is the saving; reusing the verdict would make the gesture do nothing, and a
+focused reread is exactly where an explicit contradiction on unchanged text can
+overturn a claim. Background work, warm-up, pool fill and the refinement sweep
+read the cache as usual.
+
 Model confidence is an input to `Math.min`, never authority:
 
 | evidence source bucket | maximum confidence |
@@ -485,9 +571,9 @@ observed more than seven days ago, then unknown keys from the remaining
 vocabulary. A place already being looked up is skipped.
 
 One tick takes at most 12 places. It reads each place's site at most once and
-reuses selected homepage and menu prose from a bounded, ten-minute in-memory
-LRU when provider freshness prevents another fetch. That prose is never
-persisted, logged, put in a dossier, or sent in a realtime frame. One matrix
+reuses selected homepage and menu prose from the durable seven-day page cache
+(with a small in-process hot set). That prose is never logged, put in a
+dossier, shown to a participant, or sent in a realtime frame. One matrix
 evaluation covers the batch's whole open criterion set. For each place whose
 site material leaves criteria unanswered, one search covers all of those
 criteria together. When this pass successfully read usable text from the
@@ -620,9 +706,10 @@ cross-room `enrichments.inferred` blob, follows its 24-hour omission lifetime,
 and is pruned and cardinality-capped with the other synthetic keys. A local
 matrix abstention without a search does not spend an attempt.
 
-The only search-derived data stored is a claim that passed criterion, source,
-span, confidence and status validation, plus its `sourceUrl`. Search queries,
-snippets and raw responses are not stored. An abstention remains unknown and
+OpenAI search stores only a claim that passed criterion, source, span,
+confidence and status validation, plus its `sourceUrl`; Tavily may also store
+the bounded snippets described above. Search queries and raw responses are not
+stored. An abstention remains unknown and
 may leave only an omission sentinel. Any web-derived fact shown to a person
 must carry a visible, clickable citation. A citation without a usable exact
 span is dropped rather than paraphrased. The provider annotates the inline
@@ -650,13 +737,13 @@ annotated span itself is a bare link and is never evidence.
 
 - `enrichments` (migrations 010, 013 and 015), keyed by OSM ref and shared by every
   room that holds the place. Website and Wikidata each carry their own fetch
-  status, error and expiry. A successful provider value is kept for seven
-  days; a transient failure preserves that provider's last good value and
+  status, error and expiry. A successful website value is kept for seven days
+  and a Wikidata value for 30; a transient failure preserves that provider's last good value and
   retries only that provider after about one hour. A short database lease per
   OSM ref prevents separate server processes from refreshing the same place at
-  once. Website and menu HTML never enter this row: selected text lives only
-  as a sibling of the fetched facts on the in-memory return value, reaches the
-  inference validator during that same pass, and is then discarded. Only a
+  once. Website and menu HTML never enter this row: selected text lives in
+  migration 017's private `page_cache`, reaches the evaluator through a
+  separate server-only return value, and expires after seven days. Only a
   validated short evidence span may survive inside an inferred claim.
 - **When**: a new room's pool is warmed in the background (4 at a time);
   `inspect_candidates` (the place panel, or an agent) waits up to 3.5 s for
@@ -689,5 +776,5 @@ annotated span itself is a bare link and is never evidence.
   are not looked up.
 - Parsing `openingHoursSpecification` objects into the hours table (only the
   `openingHours` string form is read, and only to `unverified`).
-- Persisting or returning full homepage/menu text. It remains the venue's and
-  is held only long enough to validate same-pass inference evidence.
+- Persisting or returning full homepage/menu HTML. Only the bounded extracted
+  evaluator text is retained, and it is never returned to a participant.
