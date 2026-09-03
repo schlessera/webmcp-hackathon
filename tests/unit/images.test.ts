@@ -38,7 +38,7 @@ const sharp = createRequire(new URL("../../apps/server/package.json", import.met
 afterEach(() => setTransport(null));
 
 describe("place image candidate extraction", () => {
-  it("orders only structured representative-image declarations", () => {
+  it("orders structured representative-image declarations before the page image", () => {
     const html = readFileSync(join(fixtures, "place-images.html"), "utf8");
     expect(extractImageCandidates(html, "https://place.example/about").map((image) => image.url)).toEqual([
       "https://place.example/og.jpg",
@@ -46,6 +46,7 @@ describe("place image candidate extraction", () => {
       "https://place.example/schema.jpg",
       "https://place.example/microdata.jpg",
       "https://place.example/linked.jpg",
+      "https://place.example/largest.jpg",
     ]);
   });
 
@@ -108,6 +109,17 @@ describe("place image candidate extraction", () => {
     );
     expect(candidates.filter((candidate) => candidate.imagePolicy.class === "page-image"))
       .toEqual([expect.objectContaining({ url: "https://place.example/first.jpg" })]);
+  });
+
+  it("uses the bounded prefix and a lazy source when semantic top blocks are absent", () => {
+    const candidates = extractImageCandidates(
+      '<div><img src="data:image/svg+xml,placeholder" data-src="/lazy-room.jpg" width="1000" height="700"></div>',
+      "https://place.example/",
+    );
+    expect(candidates).toEqual([expect.objectContaining({
+      url: "https://place.example/lazy-room.jpg",
+      source: "web:page-image:place.example",
+    })]);
   });
 
   it("uses companion social-image alt text to reject disguised chrome", () => {

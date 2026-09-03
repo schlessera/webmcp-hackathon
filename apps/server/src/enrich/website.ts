@@ -551,7 +551,11 @@ export function extractImageCandidates(html: string, pageUrl: string): WebsiteIm
   const headerRanges = [...bounded.matchAll(/<header\b[^>]*>[\s\S]*?<\/header\s*>/gi)]
     .map((match) => [match.index, match.index + match[0].length] as const);
   const firstTopClose = /<\/(?:section|main|article)\s*>/i.exec(bounded);
-  const prefixEnd = firstTopClose ? firstTopClose.index + firstTopClose[0].length : 0;
+  // Pages with no semantic top-block close fall back to the bounded prefix
+  // itself; this is the old first-fold approximation, not an unbounded scan.
+  const prefixEnd = firstTopClose
+    ? firstTopClose.index + firstTopClose[0].length
+    : bounded.length;
   const inHeroRegion = (index: number) =>
     index < prefixEnd || headerRanges.some(([start, end]) => index >= start && index < end);
   let largest: { url: string; score: number } | undefined;
@@ -566,8 +570,16 @@ export function extractImageCandidates(html: string, pageUrl: string): WebsiteIm
       (best, choice) => !best || Number(choice[2] ?? 0) > Number(best[2] ?? 0) ? choice : best,
       undefined,
     );
-    const raw = largestSrcsetChoice?.[1] ?? attributeOf(attrs, "src") ?? attributeOf(attrs, "data-src");
-    const url = raw ? imageUrl(pageUrl, raw) : undefined;
+    const rawChoices = [
+      largestSrcsetChoice?.[1],
+      attributeOf(attrs, "src"),
+      attributeOf(attrs, "data-src"),
+      attributeOf(attrs, "data-lazy-src"),
+      attributeOf(attrs, "data-original"),
+      attributeOf(attrs, "data-src2"),
+      attributeOf(attrs, "data-src1"),
+    ];
+    const url = rawChoices.map((raw) => imageUrl(pageUrl, raw)).find(Boolean);
     if (!url || !websiteImageCandidateAllowed({
       url,
       alt: attributeOf(attrs, "alt"),
@@ -577,10 +589,10 @@ export function extractImageCandidates(html: string, pageUrl: string): WebsiteIm
     const width = Number.parseFloat(attributeOf(attrs, "width") ?? "0");
     const height = Number.parseFloat(attributeOf(attrs, "height") ?? "0");
     const descriptors = srcsetChoices.filter((item) => item[2] && item[3]);
-    const widthDescriptor = Math.max(0, ...descriptors.filter((item) => item[2].toLowerCase() === "w")
-      .map((item) => Number(item[1])));
-    const densityDescriptor = Math.max(0, ...descriptors.filter((item) => item[2].toLowerCase() === "x")
-      .map((item) => Number(item[1])));
+    const widthDescriptor = Math.max(0, ...descriptors.filter((item) => item[3].toLowerCase() === "w")
+      .map((item) => Number(item[2])));
+    const densityDescriptor = Math.max(0, ...descriptors.filter((item) => item[3].toLowerCase() === "x")
+      .map((item) => Number(item[2])));
     const declaredArea = width > 0 && height > 0
       ? width * height
       : width > 0 ? width * width : height * height;
