@@ -1,123 +1,239 @@
-<h1><picture><source media="(prefers-color-scheme: dark)" srcset="docs/design/brand/spokes-mark-dark.svg"><img src="docs/design/brand/spokes-mark-light.svg" width="28" height="28" alt=""></picture> Spokes</h1>
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/design/brand/spokes-lockup-dark.svg">
+    <img src="docs/design/brand/spokes-lockup-light.svg" width="236" alt="Spokes">
+  </picture>
+</p>
 
-A shared map where a small group and their personal AI agents privately
-negotiate a meeting venue — state requirements (shared / application-private /
-agent-private), see live eligibility, resolve impasses with quantified
-counterfactuals under in-page consent, reach an organizer-committed agreement,
-and hand off to navigation. Built on **WebMCP**: 22 tools on
-`document.modelContext` expose two custom protocols (`negotiation/v1` +
-`spatial-destination/v1`), so a personal agent acts in the same live session the
-human sees, one command model for clicks and tool calls alike.
+<p align="center">
+  <strong>Find the one place everyone can say yes to, without making everyone explain why.</strong>
+</p>
 
-**Status: pre-submission.** The vertical slice is built and passes 364 automated
-tests (222 unit + 128 three-user API + 14 browser e2e); two adversarial reviews ran
-with the critical findings fixed. Not yet done: live eyes-on verification, the
-WebMCP-in-ChatGPT gate for the new tools, UX polish. Read
-[docs/PROJECT-STATUS.md](docs/PROJECT-STATUS.md) first, then
-[docs/DEMO-RUNBOOK.md](docs/DEMO-RUNBOOK.md).
+<p align="center">
+  A shared map where people and their personal AI agents negotiate requirements,
+  resolve conflicts, and agree on where to meet.
+</p>
 
-Product concept and protocol design live in [docs/](docs/) and
-[docs/protocols/](docs/protocols/). The original transport core came from
-[docs/VALIDATION-SPIKE-1-AUTOMATED-DEMO.md](docs/VALIDATION-SPIKE-1-AUTOMATED-DEMO.md):
-one shared deployment, one authoritative room, three tab-scoped participant
-sessions (ChatGPT organizer + two Chromium participants).
+<p align="center">
+  <a href="docs/DEMO-RUNBOOK.md"><strong>Demo runbook</strong></a> ·
+  <a href="#run-the-demo">Run locally</a> ·
+  <a href="docs/protocols/INTERACTION-AND-BINDING.md">WebMCP protocol</a> ·
+  <a href="docs/PROJECT-STATUS.md">Project status</a>
+</p>
 
-## Layout
+<p align="center">
+  <img alt="WebMCP Challenge 2026" src="https://img.shields.io/badge/WebMCP_Challenge-2026-1649a5">
+  <img alt="22 WebMCP tools" src="https://img.shields.io/badge/WebMCP_tools-22-a11d67">
+  <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-00646b"></a>
+</p>
 
+Spokes gives a group one live room for choosing where to go. Each person, and
+each person's AI agent, can state needs, inspect places, rule options out, and
+agree on a destination. Sensitive requirements can affect the result without
+being shown to the rest of the group.
+
+## What happens in one room
+
+1. Sarah adds a shared requirement for vegetarian options.
+2. Joe adds a private lactose-free requirement. Joe sees its content; everyone
+   else sees only "A private condition" and its effect on the candidate count.
+3. Nothing satisfies the confirmed requirements. Spokes privately offers a
+   measured way out: widen the search from 800 m to 1.2 km and recover four
+   places.
+4. The organizer confirms that change on the page. ChatGPT catches up with the
+   room and proposes a destination through WebMCP.
+5. Everyone accepts. The organizer settles the decision, and each participant
+   receives a navigation handoff.
+
+The room never identifies one person as "blocking" the group. It shows the
+conflict, calculates possible adjustments, and asks the affected person for
+consent.
+
+## Why WebMCP belongs here
+
+A map contains meaning that cannot be recovered reliably from pixels: what each
+pin represents, which requirements removed it, what remains unknown, whose
+private projection is being viewed, and what changed while an agent was away.
+
+Spokes exposes that state through 22 typed WebMCP tools registered on
+`document.modelContext`. Human gestures and agent tool calls enter the same
+command bus and update the same room.
+
+| Need | WebMCP behavior |
+|---|---|
+| Catch up after being away | `sync_session` returns a revision delta and participant-specific brief |
+| Understand the map | Tools expose candidates, evidence, eligibility, scope, proposals, and arrival state |
+| Act in the live room | Agents submit requirements, inspect places, propose destinations, respond, and plan arrival |
+| Protect private context | Every participant receives a separately authorized server projection |
+| Preserve human authority | An agent may stage sensitive changes; only the page receives the code needed to apply them |
+
+The first `sync_session` response teaches the agent two application protocols:
+`negotiation/v1` and `spatial-destination/v1`. The full tool and binding
+contract is documented in
+[Interaction and binding](docs/protocols/INTERACTION-AND-BINDING.md).
+
+The web app remains fully usable when WebMCP is unavailable.
+
+## Three privacy levels
+
+| Level | Who receives the requirement | What the group sees |
+|---|---|---|
+| Shared | The room | Its owner, content, and effect |
+| Application-private | The owner and coordinator | A redacted condition and aggregate effect |
+| Agent-private | The owner's personal agent | Verdicts returned by the agent, never the hidden reason |
+
+Application-private data is hidden from other participants and their agents,
+not from the Spokes operator. Agent-private content stays with the personal
+agent. See [Known limitations](docs/KNOWN-LIMITATIONS.md) for the complete
+boundary.
+
+## How it works
+
+```mermaid
+flowchart LR
+    H[Human map gestures] --> C[Shared command bus]
+    A[Personal AI agent] --> W[22 WebMCP tools]
+    W --> C
+
+    C --> R[Revisioned room]
+    R --> E[Deterministic council]
+    E --> R
+
+    R --> P1[Sarah's projection]
+    R --> P2[Joe's projection]
+    R --> P3[Organizer's projection]
+
+    P1 --> M1[Live map]
+    P2 --> M2[Live map]
+    P3 --> M3[Live map]
 ```
-packages/contracts   single protocol-schema source (TypeBox): tools, commands,
-                     envelopes, errors, realtime messages, manifest + hash;
-                     data/ — Berlin Mitte venue dataset (OSM/ODbL) + attribution
-apps/server          Fastify: UI serving, API, WebSocket, command bus, event log
-                     with revisions, per-participant projections, council
-                     (eligibility + impasse counterfactuals), spatial read routes
-apps/web             React/Vite: MapLibre map UI (pins, requirement/decisions
-                     panels, arrival), invite exchange, sessionStorage identity,
-                     19 WebMCP tools registered at page load, diagnostics panel
-scripts              one-time OSM extract + curation; open-participants launcher
-tests/unit           lane 1 — schemas, budgets, contract hash, eligibility,
-                     projection redaction
-tests/api            lane 2 — three-user API + privacy-at-the-wire + impasse flow
-tests/e2e            lane 3 — three-context Playwright trajectory + product UI
-                     lane 4 — native WebMCP in real Chrome 149+ (origin trial)
+
+The council computes eligibility, detects impasses, and produces quantified
+counterfactuals. Generative models may interpret language or evidence, but they
+do not invent feasibility facts or decide whose requirement should yield.
+
+Every accepted command becomes a revisioned event. The server projects that
+event separately for each participant, so unauthorized fields never enter
+another participant's HTTP response or WebSocket frame.
+
+## Run the demo
+
+Prerequisites:
+
+- Docker with Compose
+- GNU Make
+- Node.js 24 and pnpm for the participant launcher and local tests
+
+```bash
+make doctor
+make demo
+pnpm exec node scripts/open-participants.mjs
 ```
 
-Places: two areas (Berlin Mitte, San Francisco SoMa) on OpenStreetMap
-snapshots built by `make venues`; what was measured about each city's data,
-why no public place API is in the request path, and the engine decision are
-in [docs/DATA-QUALITY.md](docs/DATA-QUALITY.md); what a room looks up about
-a place beyond its record (menus, links, descriptions, awards) and which
-sources were rejected are in [docs/ENRICHMENT-SOURCES.md](docs/ENRICHMENT-SOURCES.md).
+`make demo` starts Postgres and the application, runs migrations, seeds the
+three-person Berlin room, and prints its participant URLs. The launcher opens
+Sarah and Joe in isolated Chromium contexts and prints the organizer URL.
 
-Deploy: [docs/DEPLOY-COOLIFY.md](docs/DEPLOY-COOLIFY.md)
-(`compose.coolify.yaml`). Handoff/status: [docs/PROJECT-STATUS.md](docs/PROJECT-STATUS.md).
+Open the organizer URL in ChatGPT's in-app browser to use the WebMCP tools. For
+the exact three-window sequence, follow the
+[demo runbook](docs/DEMO-RUNBOOK.md).
 
-## Quick start
+No model API key is required for the deterministic room flow. Optional model
+and search-provider keys enable the in-app natural-language and enrichment
+paths.
 
-```
-make doctor        # verify Docker, ports, configuration
-make dev           # app + db + migrations with compose watch (HMR)
-make demo          # idempotently seed; prints three participant URLs
-make demo-reset    # reset ONLY the demo room, then reseed
-make update        # after git pull: rebuild all images, migrate, restart, reseed
-make test          # lanes 1-3 (needs `docker compose up -d db` + migrations)
-make test-native   # lane 4 (needs real Chrome >= 149 + ORIGIN_TRIAL_TOKEN)
-make demo-public   # fixed HTTPS tunnel (needs TUNNEL_TOKEN)
-make logs          # follow correlated app logs
+For development with file watching:
+
+```bash
+make dev
 ```
 
-Local without Docker: `docker compose up -d db`, then
+The app is served at `http://127.0.0.1:4173`.
 
+## Test
+
+```bash
+make test
 ```
-DATABASE_URL=postgres://webmcp:webmcp@127.0.0.1:5432/webmcp \
-  node apps/server/src/migrate.ts && node apps/server/src/seed.ts && \
-  node apps/server/src/server.ts
+
+The main suite covers:
+
+- Protocol schemas, result budgets, and contract hashing
+- Eligibility and quantified impasse resolution
+- Privacy redaction at the HTTP and WebSocket boundaries
+- Three-user API trajectories
+- Three isolated browser contexts and the full product flow
+
+Native WebMCP discovery and execution use a separate real-Chrome lane:
+
+```bash
+make test-native
 ```
 
-## WebMCP tools (19)
+That lane requires Chrome 149 or newer and an origin-trial token. See the
+[deployment guide](docs/DEPLOY-COOLIFY.md).
 
-All registered through `document.modelContext.registerTool()` at page load from
-the top-level document (imperative only; no iframes, no declarative forms;
-static surface — no phase-gated registration). 9 negotiation + 10 spatial:
-`sync_session`, `submit_requirement`, `withdraw_requirement`,
-`set_requirement_active`, `evaluate_candidates`, `respond_to_proposal`,
-`resolve_private_request`, `set_ready_state`, `confirm_agreement`;
-`get_spatial_context`, `inspect_candidates`, `look_up_places`,
-`set_search_scope`, `add_candidates`, `propose_destination`,
-`focus_destination` (page-local), `plan_arrival`, `attest_attribute`,
-`prepare_navigation`. Two
-applying commands (`ConfirmPrivateRequest`, `CommitAgreement`) are UI-only —
-in the schema registry but bound to no tool, so an agent can stage but only a
-human commits on the page. `sync_session`'s first call (no `sinceRevision`)
-returns the capability manifest that teaches both protocols; later calls return
-delta + brief + outstanding. Before the invite-token exchange finishes, tools
-return a structured `not_authenticated` result. Binding details:
-[docs/protocols/INTERACTION-AND-BINDING.md](docs/protocols/INTERACTION-AND-BINDING.md).
+## Repository structure
 
-## Version concepts (Gate 2/5)
+| Path | Responsibility |
+|---|---|
+| `apps/web` | React, Vite, MapLibre, participant views, and WebMCP registration |
+| `apps/server` | Fastify API, WebSockets, command bus, projections, council, and event log |
+| `packages/contracts` | TypeBox schemas, commands, results, protocol manifest, and place data |
+| `tests/unit` | Contracts, eligibility, redaction, evidence, and UI behavior |
+| `tests/api` | Three-user API and privacy-at-the-wire scenarios |
+| `tests/e2e` | Multi-context browser flows and native WebMCP |
+| `scripts` | Demo launcher, recording, data preparation, and operational tools |
 
-- `buildId` — per deployed bundle (`BUILD_ID` env; random per dev start).
-- `toolContractVersion` — bumped when tool names/schemas/result contracts
-  change; CI-checked via `packages/contracts/contract-manifest.json`
-  (regenerate: `pnpm --filter @webmcp-hackathon/contracts generate:manifest`).
-- Protocol versions — `negotiation/v1`, `spatial-destination/v1`, independent.
+## Data and evidence
 
-Contract-version mismatch on a command returns `upgrade_required`; a WS welcome
-with a different `buildId`/`toolContractVersion` silently reloads all known
-surfaces. Manual gate step 9 was run on 2026-08-31: ChatGPT's built-in browser
-re-discovers the tools after a programmatic reload and identity survives, so
-the ChatGPT surface reloads silently too; only unknown non-Chromium surfaces
-keep the "protocol updated — tap to refresh" banner.
+Rooms use bounded OpenStreetMap-backed place pools for Berlin Mitte and San
+Francisco SoMa. Spokes keeps verified facts, informed estimates, disputed
+claims, and missing data separate. An unknown attribute does not silently
+disqualify a place.
 
-## Manual ChatGPT release gate (lane 5)
+Agents can investigate missing facts and attach an attestation with its source.
+Existing verified data is marked disputed rather than silently overwritten.
 
-See the spike doc's five-lane section. Entitlement preflight first: open
-OpenAI's docs in ChatGPT's built-in browser and confirm their own site tools
-appear under **Available site tools** before debugging this app.
+Read [Data quality](docs/DATA-QUALITY.md) and
+[Enrichment sources](docs/ENRICHMENT-SOURCES.md) for coverage measurements,
+provider decisions, provenance, caching, and known gaps.
 
-## Secrets
+## Documentation
 
-Invite URLs carry participant secrets in the URL fragment. Locally fine; with
-the tunnel profile active, treat terminal/CI output as secret-bearing or
-regenerate the demo room's secrets afterwards (`make demo-reset`). Demo
-secrets are HMAC-derived from `DEMO_SECRET_KEY` (local development only).
+- [Product concept](docs/PRODUCT-CONCEPT.md)
+- [Demo runbook](docs/DEMO-RUNBOOK.md)
+- [System architecture](docs/SYSTEM-ARCHITECTURE.md)
+- [WebMCP interaction and binding](docs/protocols/INTERACTION-AND-BINDING.md)
+- [Data quality](docs/DATA-QUALITY.md)
+- [Known limitations](docs/KNOWN-LIMITATIONS.md)
+- [Deployment](docs/DEPLOY-COOLIFY.md)
+- [Current project status](docs/PROJECT-STATUS.md)
+
+## Project status
+
+Spokes is a WebMCP Challenge 2026 prototype with a complete three-person
+vertical slice. It does not claim cryptographic secrecy from the application
+operator, perfect protection from inference, exhaustive place coverage, or
+background ChatGPT execution.
+
+See [Project status](docs/PROJECT-STATUS.md) for the latest release gates and
+remaining work.
+
+## Contributing
+
+Issues and pull requests are welcome. Please run `make test` before submitting
+a change, and keep protocol changes synchronized with the generated contract
+manifest.
+
+If Spokes gives you an idea for another shared decision domain, open an issue.
+The negotiation layer is intended to support scheduling, travel, purchasing,
+and resource allocation by replacing the spatial adapter.
+
+## License
+
+Source code is available under the [MIT License](LICENSE).
+
+The bundled OpenStreetMap-derived data remains subject to the Open Database
+License. See
+[packages/contracts/data/ATTRIBUTION.md](packages/contracts/data/ATTRIBUTION.md).
