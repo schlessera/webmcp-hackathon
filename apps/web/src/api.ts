@@ -74,8 +74,10 @@ async function post(
     return {
       ok: false,
       error: {
-        code: "not_found",
-        message: `Network error: ${String(err).slice(0, 120)}`,
+        // R17: transport and JSON-decoding failures say nothing about whether
+        // an ID exists; `not_found` would send an agent down the wrong path.
+        code: "temporarily_unavailable",
+        message: `Request failed before a result was received: ${String(err).slice(0, 120)}`,
         recovery: "Retry once the page shows a live connection.",
       },
     };

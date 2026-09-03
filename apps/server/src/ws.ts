@@ -2,7 +2,8 @@ import type { Server } from "node:http";
 import { WebSocketServer, WebSocket } from "ws";
 import {
   TOOL_CONTRACT_VERSION,
-  type ClientMessage,
+  type AuthMessage,
+  type ViewingMessage,
   type ServerMessage,
 } from "@webmcp-hackathon/contracts";
 import { pool } from "./db.ts";
@@ -79,7 +80,7 @@ export function attachWebSocket(server: Server): void {
 
     socket.on("message", (raw) => {
       (async () => {
-        let message: ClientMessage;
+        let message: unknown;
         try {
           message = JSON.parse(String(raw));
         } catch {
@@ -91,38 +92,68 @@ export function attachWebSocket(server: Server): void {
         }
         // The one post-auth message: which place this page has open. Presence
         // only — it changes no room state and is never persisted.
-        if (
-          connection &&
-          message !== null &&
-          typeof message === "object" &&
-          message.type === "viewing"
-        ) {
-          const candidateId =
-            typeof message.candidateId === "string" && message.candidateId.length <= 40
-              ? message.candidateId
-              : null;
+        if (connection && isViewingMessage(message)) {
+          const candidateId = message.candidateId;
+          if (candidateId !== null) {
+            const candidate = await pool.query(
+              "SELECT 1 FROM candidates WHERE room_id = $1 AND id = $2",
+              [connection.roomId, candidateId],
+            );
+            if (candidate.rowCount !== 1) {
+              send(socket, {
+                type: "error",
+                code: "invalid_message",
+                message: "Unknown candidateId. Refresh the room before setting viewing state.",
+              });
+              return;
+            }
+          }
           if (setViewing(connection.roomId, connection.participantId, connection.socketId, candidateId)) {
             broadcastPresence(connection.roomId);
           }
           return;
         }
-        // Runtime validation: unauthenticated input must never throw.
         if (
-          message === null ||
-          typeof message !== "object" ||
-          message.type !== "auth" ||
-          typeof message.token !== "string"
+          connection &&
+          message !== null &&
+          typeof message === "object" &&
+          (message as { type?: unknown }).type === "viewing"
         ) {
+          // R17: malformed viewing state is not the same as clearing it. Only
+          // an explicit null removes the current candidate.
+          send(socket, {
+            type: "error",
+            code: "invalid_message",
+            message: "viewing.candidateId must be null or a non-empty candidate ID up to 40 characters.",
+          });
+          return;
+        }
+        // Runtime validation: unauthenticated input must never throw.
+        if (!isAuthMessage(message)) {
           if (!connection) {
             send(socket, {
               type: "error",
               code: "invalid_message",
-              message: "First message must be { type: 'auth', token }.",
+              message: "First message must include type, token, clientBuildId, and clientToolContractVersion.",
             });
           }
           return;
         }
         if (connection || authenticating) return;
+        if (
+          message.clientBuildId !== config.buildId ||
+          message.clientToolContractVersion !== TOOL_CONTRACT_VERSION
+        ) {
+          // R17: both advertised client versions are required and checked
+          // before presence is registered; stale pages must reload, not join.
+          send(socket, {
+            type: "error",
+            code: "upgrade_required",
+            message: `Client ${message.clientBuildId}/${message.clientToolContractVersion} != server ${config.buildId}/${TOOL_CONTRACT_VERSION}. Reload the page.`,
+          });
+          socket.close(4002, "upgrade required");
+          return;
+        }
         authenticating = true;
         const participant = await authenticateToken(message.token);
         if (!participant) {
@@ -177,17 +208,6 @@ export function attachWebSocket(server: Server): void {
         } else {
           send(socket, presenceMessage(participant.roomId));
         }
-        // Belt-and-braces: also tell a contract-stale client explicitly.
-        if (
-          typeof message.clientToolContractVersion === "string" &&
-          message.clientToolContractVersion !== TOOL_CONTRACT_VERSION
-        ) {
-          send(socket, {
-            type: "error",
-            code: "upgrade_required",
-            message: `Client contract v${message.clientToolContractVersion} != server v${TOOL_CONTRACT_VERSION}. Reload the page.`,
-          });
-        }
       })().catch((err) => {
         // Unauthenticated input must never take the server down.
         console.error("ws message handling failed:", err);
@@ -216,6 +236,33 @@ export function attachWebSocket(server: Server): void {
       console.error("post-commit broadcast failed:", err);
     });
   });
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function hasOnlyKeys(value: Record<string, unknown>, allowed: string[]): boolean {
+  return Object.keys(value).every((key) => allowed.includes(key));
+}
+
+function isAuthMessage(value: unknown): value is AuthMessage {
+  if (!isRecord(value) || !hasOnlyKeys(value, [
+    "type", "token", "clientBuildId", "clientToolContractVersion",
+  ])) return false;
+  return value.type === "auth" &&
+    typeof value.token === "string" && value.token.length > 0 && value.token.length <= 256 &&
+    typeof value.clientBuildId === "string" && value.clientBuildId.length > 0 && value.clientBuildId.length <= 80 &&
+    typeof value.clientToolContractVersion === "string" &&
+    value.clientToolContractVersion.length > 0 && value.clientToolContractVersion.length <= 20;
+}
+
+function isViewingMessage(value: unknown): value is ViewingMessage {
+  if (!isRecord(value) || !hasOnlyKeys(value, ["type", "candidateId"])) return false;
+  return value.type === "viewing" &&
+    (value.candidateId === null ||
+      (typeof value.candidateId === "string" &&
+        value.candidateId.length > 0 && value.candidateId.length <= 40));
 }
 
 async function broadcast(n: CommitNotification): Promise<void> {

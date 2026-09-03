@@ -168,7 +168,11 @@ describe("presence", () => {
 
   it("expires a half-open socket and clears its viewing state", async () => {
     const heartbeatServer = await startServer({
-      env: { WS_PING_INTERVAL_MS: "100", WS_PONG_TIMEOUT_MS: "600" },
+      env: {
+        BUILD_ID: "heartbeat-test",
+        WS_PING_INTERVAL_MS: "100",
+        WS_PONG_TIMEOUT_MS: "600",
+      },
     });
     const heartbeatRoom = await createTestRoom(heartbeatServer.baseUrl);
     const observer = await openRealtime(heartbeatServer.baseUrl, heartbeatRoom.tokens.org);
@@ -184,7 +188,7 @@ describe("presence", () => {
       halfOpen.send(JSON.stringify({
         type: "auth",
         token: heartbeatRoom.tokens.sarah,
-        clientBuildId: "test",
+        clientBuildId: "heartbeat-test",
         clientToolContractVersion: TOOL_CONTRACT_VERSION,
       }));
       await new Promise<void>((resolve, reject) => {

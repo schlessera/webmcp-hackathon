@@ -244,6 +244,7 @@ export async function openRealtime(
   baseUrl: string,
   token: string,
 ): Promise<TestRealtime> {
+  const meta = await (await fetch(`${baseUrl}/api/meta`)).json() as { buildId: string };
   const socket = new WebSocket(`${baseUrl.replace(/^http/, "ws")}/ws`);
   const received: string[] = [];
   const grants: Array<{ kind: string; subjectId: string; nonce: string }> = [];
@@ -272,8 +273,8 @@ export async function openRealtime(
     JSON.stringify({
       type: "auth",
       token,
-      clientBuildId: "test",
-      clientToolContractVersion: "1",
+      clientBuildId: meta.buildId,
+      clientToolContractVersion: TOOL_CONTRACT_VERSION,
     }),
   );
   await welcome;

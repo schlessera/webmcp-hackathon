@@ -110,3 +110,20 @@ describe("WebMCP cancellation", () => {
     expect(result.error.code).toBe("temporarily_unavailable");
   });
 });
+
+describe("client transport failures", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("does not label fetch or JSON parsing failures as not_found", async () => {
+    vi.stubGlobal("sessionStorage", { getItem: () => "token" });
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("offline"); }));
+    const fetchFailure = await syncSessionRaw({}) as { error: { code: string } };
+    expect(fetchFailure.error.code).toBe("temporarily_unavailable");
+
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      json: async () => { throw new SyntaxError("bad json"); },
+    })));
+    const parseFailure = await syncSessionRaw({}) as { error: { code: string } };
+    expect(parseFailure.error.code).toBe("temporarily_unavailable");
+  });
+});

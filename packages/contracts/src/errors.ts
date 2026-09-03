@@ -12,6 +12,8 @@ export const ERROR_CODES = [
   "bound_exceeded",
   "not_authenticated",
   "upgrade_required",
+  /** Additive retryable code for transport and unexpected server failures. */
+  "temporarily_unavailable",
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];
 

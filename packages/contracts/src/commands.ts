@@ -177,25 +177,32 @@ export const SetRequirementActiveInput = Type.Object(
   { additionalProperties: false },
 );
 
-const VerdictEnum = Type.Union([
-  Type.Literal("acceptable"),
-  Type.Literal("unacceptable"),
-  Type.Literal("needs_info"),
+const CandidateVerdict = Type.Union([
+  Type.Object(
+    {
+      candidateId: Type.String({ maxLength: 40 }),
+      verdict: Type.Union([Type.Literal("acceptable"), Type.Literal("unacceptable")]),
+      infoNeeded: Type.Optional(Type.String({ minLength: 1, maxLength: 100 })),
+    },
+    { additionalProperties: false },
+  ),
+  Type.Object(
+    {
+      candidateId: Type.String({ maxLength: 40 }),
+      verdict: Type.Literal("needs_info"),
+      infoNeeded: Type.String({ minLength: 1, maxLength: 100 }),
+    },
+    { additionalProperties: false },
+  ),
 ]);
 export const EvaluateCandidatesInput = Type.Object(
   {
     baseRevision: Type.Integer({ minimum: 0 }),
-    verdicts: Type.Array(
-      Type.Object(
-        {
-          candidateId: Type.String({ maxLength: 40 }),
-          verdict: VerdictEnum,
-          infoNeeded: Type.Optional(Type.String({ maxLength: 100 })),
-        },
-        { additionalProperties: false },
-      ),
-      { minItems: 1, maxItems: 10 },
-    ),
+    verdicts: Type.Array(CandidateVerdict, {
+      minItems: 1,
+      maxItems: 10,
+      uniqueItems: true,
+    }),
   },
   { additionalProperties: false },
 );
@@ -374,7 +381,7 @@ export const AttestAttributeInput = Type.Object(
     confidence: Type.Number({ minimum: 0, maximum: 1 }),
     /** What was checked — the room reads this next to the fact. */
     note: Type.String({ minLength: 1, maxLength: 200 }),
-    sourceUrl: Type.Optional(Type.String({ maxLength: 300 })),
+    sourceUrl: Type.Optional(Type.String({ maxLength: 300, format: "uri" })),
   },
   { additionalProperties: false },
 );

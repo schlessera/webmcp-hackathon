@@ -151,6 +151,7 @@ describe("error model", () => {
         "bound_exceeded", "consent_required", "invalid_input",
         "not_authenticated", "not_authorized", "not_found",
         "phase_unavailable", "sync_required", "upgrade_required",
+        "temporarily_unavailable",
       ].sort(),
     );
   });

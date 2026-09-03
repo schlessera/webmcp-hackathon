@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import AjvModule, { type ValidateFunction } from "ajv";
+import AjvModule, { type ErrorObject, type ValidateFunction } from "ajv";
 import addFormatsModule from "ajv-formats";
 
 // CJS/ESM interop: ajv publishes CJS; under Node ESM the class may sit on
@@ -164,18 +164,51 @@ export async function submitCommand(
     );
   }
   const validate = validators.get(type as CommandType)!;
+  if (type === "EvaluateCandidates" && input !== null && typeof input === "object") {
+    const verdicts = (input as { verdicts?: unknown }).verdicts;
+    const missingInfo = Array.isArray(verdicts) && verdicts.some((verdict) =>
+      verdict !== null && typeof verdict === "object" &&
+      (verdict as { verdict?: unknown }).verdict === "needs_info" &&
+      (typeof (verdict as { infoNeeded?: unknown }).infoNeeded !== "string" ||
+        (verdict as { infoNeeded: string }).infoNeeded.length === 0));
+    if (missingInfo) {
+      return rememberNonMutatingOutcome(
+        actor.id,
+        idempotency,
+        failure(
+          "invalid_input",
+          "Invalid infoNeeded: needs_info verdicts require a non-empty infoNeeded string.",
+          "Name the missing information for every needs_info verdict.",
+        ),
+      );
+    }
+  }
   if (!validate(input)) {
-    const first = validate.errors?.[0];
-    const field = first?.instancePath?.replace(/^\//, "") || first?.params?.additionalProperty || "input";
     return rememberNonMutatingOutcome(
       actor.id,
       idempotency,
-      failure(
-        "invalid_input",
-        `Invalid ${String(field)}: ${first?.message ?? "validation failed"}.`,
-        "Correct the named field to the documented closed value set and retry.",
-      ),
+      actionableValidationFailure(input, validate.errors ?? []),
     );
+  }
+  if (type === "EvaluateCandidates") {
+    const verdicts = (input as { verdicts: Array<{ candidateId: string }> }).verdicts;
+    const seen = new Set<string>();
+    const duplicate = verdicts.find(({ candidateId }) => {
+      if (seen.has(candidateId)) return true;
+      seen.add(candidateId);
+      return false;
+    });
+    if (duplicate) {
+      return rememberNonMutatingOutcome(
+        actor.id,
+        idempotency,
+        failure(
+          "invalid_input",
+          `Duplicate verdict candidateId ${JSON.stringify(duplicate.candidateId)}.`,
+          "Send at most one verdict for each candidateId.",
+        ),
+      );
+    }
   }
   const cmd = input as { baseRevision: number };
 
@@ -345,7 +378,14 @@ export async function submitCommand(
         err.envelope as ToolResult,
       );
     }
-    throw err;
+    // R17: database and programming failures must not escape the shared tool
+    // envelope. withTransaction has already rolled back, so retry may succeed.
+    console.error("command engine failed:", err);
+    return failure(
+      "temporarily_unavailable",
+      "The command could not be completed.",
+      "Retry with the same idempotency key; if it continues, resync the room.",
+    );
   }
 
   // A replay returns the byte-equivalent domain outcome and deliberately has
@@ -380,6 +420,67 @@ export async function submitCommand(
     }
   }
   return result.success;
+}
+
+function pointerValue(input: unknown, instancePath: string): unknown {
+  if (!instancePath) return input;
+  return instancePath
+    .split("/")
+    .slice(1)
+    .map((part) => part.replace(/~1/g, "/").replace(/~0/g, "~"))
+    .reduce<unknown>((value, key) =>
+      value !== null && typeof value === "object"
+        ? (value as Record<string, unknown>)[key]
+        : undefined, input);
+}
+
+/** R17: return the concrete closed values Ajv rejected so a caller can repair
+ * its request without consulting prose that may have drifted. */
+function actionableValidationFailure(
+  input: unknown,
+  errors: ErrorObject[],
+): FailureEnvelope {
+  const allowedByPath = new Map<string, unknown[]>();
+  for (const error of errors) {
+    const allowed = error.keyword === "const"
+      ? [(error.params as { allowedValue: unknown }).allowedValue]
+      : error.keyword === "enum"
+        ? (error.params as { allowedValues: unknown[] }).allowedValues
+        : [];
+    if (allowed.length === 0) continue;
+    const values = allowedByPath.get(error.instancePath) ?? [];
+    for (const value of allowed) {
+      if (!values.some((item) => JSON.stringify(item) === JSON.stringify(value))) values.push(value);
+    }
+    allowedByPath.set(error.instancePath, values);
+  }
+  const enumFailure = [...allowedByPath.entries()]
+    .sort((a, b) => b[1].length - a[1].length)[0];
+  if (enumFailure) {
+    const [path, allowed] = enumFailure;
+    const field = path.split("/").at(-1) || "input";
+    const received = JSON.stringify(pointerValue(input, path));
+    const values = allowed.map((value) => JSON.stringify(value)).join(", ");
+    return failure(
+      "invalid_input",
+      `Invalid ${field}: received ${received ?? "undefined"}; allowed values: ${values}.`,
+      `Use one of these values for ${field}: ${values}.`,
+    );
+  }
+  const first = errors[0];
+  const missing = first?.keyword === "required"
+    ? (first.params as { missingProperty: string }).missingProperty
+    : undefined;
+  const additional = first?.keyword === "additionalProperties"
+    ? (first.params as { additionalProperty: string }).additionalProperty
+    : undefined;
+  const field = missing ?? additional ?? first?.instancePath.split("/").at(-1) ?? "input";
+  const received = missing ? "missing" : JSON.stringify(pointerValue(input, first?.instancePath ?? ""));
+  return failure(
+    "invalid_input",
+    `Invalid ${field}: received ${received ?? "undefined"}; ${first?.message ?? "validation failed"}.`,
+    `Correct ${field} and retry.`,
+  );
 }
 
 async function dispatch(

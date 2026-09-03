@@ -41,6 +41,16 @@ export async function syncSession(
       },
     };
   }
+  if (sinceRevision !== undefined && sinceRevision > Number(room.revision)) {
+    return {
+      ok: false,
+      error: {
+        code: "invalid_input",
+        message: `sinceRevision ${sinceRevision} is ahead of room revision ${room.revision}.`,
+        recovery: `Use a revision from 0 through ${room.revision}.`,
+      },
+    };
+  }
 
   const eligibilityRows = await computeEligibility(client, actor.roomId);
   const present = presentIn(actor.roomId);

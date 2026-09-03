@@ -159,14 +159,15 @@ export function connectRealtime(
         callbacks.onConfirmation(message);
       } else if (message.type === "error") {
         diagnostics.log(`ws error: ${message.code}`);
+        if (message.code === "upgrade_required") callbacks.onStaleBundle();
       }
     };
     socket.onclose = (event) => {
       diagnostics.update({ wsState: "closed" });
       if (closed) return;
-      if (event.code === 4003) {
+      if (event.code === 4002 || event.code === 4003) {
         // Dead token: retrying cannot help — the page must re-exchange.
-        diagnostics.log("ws: token rejected (4003), reconnect stopped");
+        diagnostics.log(`ws: unrecoverable close (${event.code}), reconnect stopped`);
         return;
       }
       setTimeout(connect, reconnectDelayMs(retryAttempt));
