@@ -36,8 +36,6 @@ export interface CachedPoolPlan {
 
 interface Job {
   timer?: ReturnType<typeof setTimeout>;
-  lockClient?: pg.PoolClient;
-  lockReady?: Promise<boolean>;
   rerun: boolean;
   scopeId?: string;
   pending: LocatedVenue[];
@@ -94,39 +92,9 @@ export function cachedPoolPlan(
   return cached;
 }
 
-async function acquireJobLock(roomId: string, job: Job): Promise<boolean> {
-  if (job.lockClient) return true;
-  if (job.lockReady) return job.lockReady;
-  job.lockReady = (async () => {
-    const client = await database.connect();
-    const locked = Boolean((await client.query(
-      "SELECT pg_try_advisory_lock(hashtext('pool-fill'), hashtext($1)) AS locked",
-      [roomId],
-    )).rows[0]?.locked);
-    if (!locked) {
-      client.release();
-      return false;
-    }
-    job.lockClient = client;
-    return true;
-  })().finally(() => {
-    job.lockReady = undefined;
-  });
-  return job.lockReady;
-}
-
 async function finishJob(roomId: string, job: Job): Promise<void> {
   if (jobs.get(roomId) === job) jobs.delete(roomId);
   if (job.timer) clearTimeout(job.timer);
-  const client = job.lockClient;
-  job.lockClient = undefined;
-  if (client) {
-    try {
-      await client.query("SELECT pg_advisory_unlock(hashtext('pool-fill'), hashtext($1))", [roomId]);
-    } finally {
-      client.release();
-    }
-  }
 }
 
 async function preparePlan(roomId: string, job: Job): Promise<boolean> {
@@ -175,6 +143,18 @@ async function insertNextBatch(roomId: string, job: Job): Promise<BatchResult> {
   }
   const selected = job.pending.splice(0, FILL_BATCH);
   return withTransaction(async (client) => {
+    // The cross-process guard is a transaction-scoped advisory lock: it lives
+    // exactly as long as this batch and never pins a pool client. Holding a
+    // client per job deadlocked the whole process once ten rooms resumed at
+    // boot (every client a lock holder, none left for the batch itself).
+    const locked = Boolean((await client.query(
+      "SELECT pg_try_advisory_xact_lock(hashtext('pool-fill'), hashtext($1)) AS locked",
+      [roomId],
+    )).rows[0]?.locked);
+    if (!locked) {
+      job.pending.unshift(...selected);
+      return { roomExists: true, hasMore: true, candidateIds: [], warmTargets: [] };
+    }
     const room = (await client.query(
       "SELECT scope FROM rooms WHERE id = $1 FOR UPDATE",
       [roomId],
@@ -277,10 +257,6 @@ function schedule(roomId: string, job: Job, delay = FILL_INTERVAL_MS): void {
 async function run(roomId: string, job: Job): Promise<void> {
   if (jobs.get(roomId) !== job) return;
   try {
-    if (!(await acquireJobLock(roomId, job))) {
-      await finishJob(roomId, job);
-      return;
-    }
     const result = await insertNextBatch(roomId, job);
     if (result.scopeChanged) {
       job.scopeId = undefined;
