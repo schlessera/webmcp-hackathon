@@ -110,6 +110,15 @@ Work the room is doing is stated as what it is doing, never as a bare
   "thinking", never "processing".
 - Nothing under a second shows a state at all; a ring that flashes for a
   glance is noise.
+- The room refining on its own: `looking up 12 · 40 to go` in the count
+  block while places are being worked on, and a quiet line under it,
+  `checked 84 places for 3 needs · 12 to go`. Out of budget: `paused for
+  now` — nothing is wrong, the room is waiting its turn. Never "AI is
+  searching", never a spinner without a number.
+- A question need that has answers: `· looked up` beside its label.
+- A fact read from the web names where: `from example.org ↗` as a link,
+  host only, always clickable. Sources in words: `found on the web`,
+  `found on the place's site`, `a guess from what the place publishes`.
 
 ## Agent phrasing
 

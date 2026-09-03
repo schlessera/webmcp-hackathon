@@ -21,6 +21,7 @@ import {
   numberWord,
   personColor,
   readableWhy,
+  citationLabel,
   sourceLabel,
   UNKNOWN_SOURCE,
 } from "../ui/copy.ts";
@@ -60,6 +61,8 @@ interface Check {
   /** Under the answer: the evidence, in the reader's words. */
   note?: string;
   source?: string;
+  /** Where a web-derived fact was read; rendered as a link, always. */
+  sourceUrl?: string;
 }
 
 /** A server verdict → the mark it is drawn with. A private need that passes
@@ -280,11 +283,15 @@ export function PlaceDetails({
     const own = activeNeeds.find((n) => n.id === v.requirementId);
     // The attribute this need reads, so its pill does not repeat below. The
     // key is protocol (ATTRIBUTE_LABELS is the manifest's own table).
-    const key = own
-      ? Object.entries(ATTRIBUTE_LABELS).find(
-          ([, label]) => own.label.replace(/^no /, "").toLowerCase() === label.toLowerCase(),
-        )?.[0]
-      : undefined;
+    // A question need reads the `q:` fact the server keyed on its criterion;
+    // an attribute need reads its vocabulary key.
+    const key = own?.criterionId?.startsWith("q:")
+      ? own.criterionId
+      : own
+        ? Object.entries(ATTRIBUTE_LABELS).find(
+            ([, label]) => own.label.replace(/^no /, "").toLowerCase() === label.toLowerCase(),
+          )?.[0]
+        : undefined;
     const attr = key ? dossier?.attributes.find((a) => a.key === key) : undefined;
     if (key && attr && attr.status !== "unknown") askedKeys.add(key);
     return {
@@ -294,6 +301,7 @@ export function PlaceDetails({
       answer: answerOf(v),
       note: attr?.note,
       source: attr && attr.status !== "unknown" ? sourceOf(attr) : undefined,
+      sourceUrl: attr && attr.status !== "unknown" ? attr.sourceUrl : undefined,
     };
   });
   /* No verdicts yet (the dossier is still loading): every stated need is a
@@ -330,11 +338,15 @@ export function PlaceDetails({
       // words to render ("hours · likely" said nothing, W8).
       (inVocabulary(a.key) || (a.value !== undefined && a.value !== null)),
   );
-  const known = facts.filter((a) => a.status !== "unknown");
+  // A question the room asked (`q:`) shows only with its label — a peer's
+  // private question arrives without one and stays out of the record (§5).
+  const known = facts.filter((a) => a.status !== "unknown" && (!a.key.startsWith("q:") || a.label));
   const unknownCount = facts.length - known.length;
   const factLabel = (a: DossierAttribute) => {
     const label =
-      ATTRIBUTE_LABELS[a.key as keyof typeof ATTRIBUTE_LABELS] ?? a.key.replace(/-/g, " ");
+      a.label ??
+      ATTRIBUTE_LABELS[a.key as keyof typeof ATTRIBUTE_LABELS] ??
+      a.key.replace(/-/g, " ");
     if (a.key === "price-level") {
       const band = eurBand(Number(a.value));
       // A guessed band says so once, in front, never twice (W8).
@@ -476,6 +488,17 @@ export function PlaceDetails({
                   <span className="ledger-label check-text">
                     {c.label}
                     {c.note && <span className="ledger-note"> · {c.note}</span>}
+                    {c.sourceUrl && (
+                      <a
+                        className="fact-cite"
+                        href={c.sourceUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        data-testid="fact-cite"
+                      >
+                        {citationLabel(c.sourceUrl)}
+                      </a>
+                    )}
                   </span>
                   <span className="ledger-answer" data-mark={c.mark}>
                     <span className="sr-only">
@@ -589,6 +612,23 @@ export function PlaceDetails({
                     <span className="fact-note"> · likely</span>
                   )}
                   {a.status === "likely_false" && <span className="fact-note"> · unlikely</span>}
+                  {a.status === "verified_false" && a.key.startsWith("q:") && (
+                    <span className="fact-note"> · no</span>
+                  )}
+                  {a.key.startsWith("q:") && a.note && (
+                    <span className="fact-note"> · “{a.note}”</span>
+                  )}
+                  {a.sourceUrl && (
+                    <a
+                      className="fact-cite"
+                      href={a.sourceUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      data-testid="fact-cite"
+                    >
+                      {citationLabel(a.sourceUrl)}
+                    </a>
+                  )}
                 </span>
               ))}
               {unknownCount > 0 && (

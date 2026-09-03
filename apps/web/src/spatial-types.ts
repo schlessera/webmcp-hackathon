@@ -69,6 +69,9 @@ export interface ActiveNeed {
   visibility: Visibility;
   hardness: "hard" | "soft";
   ownerId: string;
+  /** The criterion this need reads; `q:<hash>` for a question the room asks
+   * of the data, a vocabulary key otherwise (contracts criteria). */
+  criterionId?: string;
 }
 
 /** A peer's private need, reduced to its effect (FACETS.md §4). Never the
@@ -137,6 +140,8 @@ export interface SpatialContext {
   scope: SpatialScope;
   area?: AreaView;
   pool?: PoolView;
+  /** Background fact refinement, when the server runs it for this room. */
+  refine?: RefineView;
   feasibility: {
     state: "feasible" | "fragile" | "infeasible" | "uncertain";
     eligible: number;
@@ -179,6 +184,8 @@ export interface DossierAttribute {
   /** Why the source says so: a rule's reason, an evidence span, a note. */
   note?: string;
   sourceUrl?: string;
+  /** A question the room asked of the data (`q:` keys): the reader's label. */
+  label?: string;
 }
 
 /** How this place stands against one need the viewer may see, composed
@@ -219,6 +226,14 @@ export interface CandidateDossier {
   lookupPending?: boolean;
   /** When the server last looked this place up, ISO time; absent when never. */
   lookedUpAt?: string;
+}
+
+/** What the refinement worker is doing for this room (contracts). */
+export interface RefineView {
+  active: boolean;
+  queued: number;
+  checkedToday: number;
+  budgetLeft: { calls: number; searches: number };
 }
 
 /** The room's pool of places as it stands (contracts PoolView). */

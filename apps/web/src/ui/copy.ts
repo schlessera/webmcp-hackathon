@@ -90,7 +90,15 @@ export function sourceLabel(source: string): string {
   if (source.startsWith("wikidata:")) return "from Wikidata";
   if (source.startsWith("guess:")) return "a guess from the kind of place";
   if (source.startsWith("menu:")) return "read from the menu";
-  if (source.startsWith("infer:")) return "a guess from what the place publishes";
+  if (source.startsWith("infer:")) {
+    // infer:<model>:<bucket> — the bucket is where the evidence came from.
+    const bucket = source.split(":")[2] ?? "";
+    if (bucket === "open_web_search") return "found on the web";
+    if (bucket === "domain_search") return "found on the place's site";
+    if (bucket === "menu") return "read from the menu";
+    if (bucket === "name_category") return "a guess from the kind of place";
+    return "a guess from what the place publishes";
+  }
   if (!source) return "unknown";
   return source;
 }
@@ -230,7 +238,30 @@ export function provenanceLine(area: {
 }
 
 /** Empty and error states, verbatim from COPY.md. */
+/**
+ * A web-derived fact names where it was read, as a link the reader can open
+ * (the search provider's terms make the citation mandatory; the room's own
+ * rule makes it useful). Host only, never the path: the path is the link.
+ */
+export function citationLabel(url: string): string {
+  try {
+    const host = new URL(url).hostname.replace(/^www\./, "");
+    return `from ${host}`;
+  } catch {
+    return "from the source";
+  }
+}
+
 export const COPY = {
+  /** The refinement worker, in the count block: absolute counts, no verbs
+   * of feeling (COPY.md "In progress"). */
+  lookingUpMany: (busy: number, queued: number) =>
+    `looking up ${busy}${queued > 0 ? ` · ${queued} to go` : ""}`,
+  refining: (checked: number, needs: number, queued: number) =>
+    `checked ${checked} place${checked === 1 ? "" : "s"} for ${needs} need${needs === 1 ? "" : "s"}` +
+    (queued > 0 ? ` · ${queued} to go` : ""),
+  refinePaused: "paused for now",
+  lookedUp: "looked up",
   emptyRoom:
     "Nothing yet. Say anything that would rule a place in or out — a condition, a time, how far you can get — and choose who gets to see it.",
   noCandidates: "Nothing here fits yet. Widen the area, or drop a need.",
