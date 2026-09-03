@@ -55,6 +55,13 @@ type MockContext = {
     filling: boolean;
     target: number;
   };
+  refine?: {
+    active: boolean;
+    queued: number;
+    checkedToday: number;
+    budgetLeft: { calls: number; searches: number };
+    paused?: "budget" | "idle" | null;
+  };
   feasibility: {
     state: "feasible" | "fragile" | "infeasible" | "uncertain";
     eligible: number;
@@ -1627,8 +1634,155 @@ test("mirrored name cards stay inside the band and keep every dot on its marker"
   await browserContext.close();
 });
 
+test("name cards stack over bare dots and own taps across their drawn box", async ({ browser }) => {
+  const browserContext = await browser.newContext({
+    viewport: { width: 1200, height: 900 },
+    reducedMotion: "reduce",
+  });
+  const page = await browserContext.newPage();
+  const context = fixture({ radiusM: 800, matching: 0 });
+  const card = candidateAtMeters("card-owner", -250, 0, "excluded");
+  card.name = "The named place with a deliberately wide card";
+  const dots = Array.from({ length: 18 }, (_, index) => {
+    const dot = candidateAtMeters(`bare-dot-${index}`, -210 + index * 25, 0, "excluded");
+    dot.name = `Bare ${index}`;
+    return dot;
+  });
+  context.candidates = [card, ...dots];
+  context.total = context.candidates.length;
+  context.matching = 0;
+  context.feasibility = {
+    state: "infeasible",
+    eligible: 0,
+    uncertain: 0,
+    excluded: context.candidates.length,
+  };
+  context.proposals = [
+    {
+      proposalId: "proposal-card-owner",
+      candidateId: card.candidateId,
+      status: "open",
+      stances: [],
+      vetoStands: false,
+    },
+    {
+      proposalId: "terminal-bare-dot",
+      candidateId: dots[10].candidateId,
+      status: "vetoed",
+      stances: [],
+      vetoStands: true,
+    },
+  ];
+  await mockApi(page, { context, outstanding: [] });
+  await page.goto(`${BASE}/#invite=deadbeef`);
+  await expect(page.getByTestId("map-region")).toHaveAttribute("data-loaded", "true", {
+    timeout: 20_000,
+  });
+  await expect(page.getByTestId("pin-card-owner")).toHaveAttribute("data-named", "true");
+  await expect(page.locator('[data-testid^="pin-bare-dot-"][data-named="false"]')).toHaveCount(
+    dots.length,
+  );
+  await page.mouse.move(1, 1);
+
+  const stacking = await page.evaluate(() => {
+    const rows = [...document.querySelectorAll<HTMLElement>('[data-testid^="pin-"]')].map(
+      (marker) => ({
+        named: marker.dataset.named === "true",
+        z: Number.parseInt(
+          getComputedStyle(marker.closest<HTMLElement>(".maplibregl-marker")!).zIndex,
+          10,
+        ),
+      }),
+    );
+    const cards = rows.filter((row) => row.named);
+    const dotsOnly = rows.filter((row) => !row.named);
+    return {
+      cards: cards.length,
+      dots: dotsOnly.length,
+      everyPair: cards.every((cardRow) => dotsOnly.every((dotRow) => cardRow.z > dotRow.z)),
+    };
+  });
+  expect(stacking).toEqual({ cards: 1, dots: dots.length, everyPair: true });
+
+  const overlap = await page.evaluate(() => {
+    const cardBox = document.querySelector<HTMLElement>(
+      '[data-testid="pin-card-owner"] .sticker-box',
+    )!;
+    const cardRect = cardBox.getBoundingClientRect();
+    const nameRect = cardBox.querySelector<HTMLElement>(".sticker-name")!.getBoundingClientRect();
+    for (const dot of document.querySelectorAll<HTMLElement>(
+      '[data-testid^="pin-bare-dot-"] .marker-dot',
+    )) {
+      const dotRect = dot.getBoundingClientRect();
+      const x = dotRect.left + dotRect.width / 2;
+      const y = dotRect.top + dotRect.height / 2;
+      const distanceToName = Math.hypot(
+        Math.max(nameRect.left - x, 0, x - nameRect.right),
+        Math.max(nameRect.top - y, 0, y - nameRect.bottom),
+      );
+      if (
+        x >= cardRect.left && x <= cardRect.right &&
+        y >= cardRect.top && y <= cardRect.bottom &&
+        distanceToName <= 6
+      ) {
+        const top = document.elementFromPoint(x, y);
+        return {
+          x,
+          y,
+          distanceToName,
+          cardOnTop: Boolean(top?.closest('[data-testid="pin-card-owner"] .sticker-box')),
+        };
+      }
+    }
+    return null;
+  });
+  expect(overlap).not.toBeNull();
+  expect(overlap!.distanceToName).toBeLessThanOrEqual(6);
+  expect(overlap!.cardOnTop).toBe(true);
+
+  await page.mouse.click(overlap!.x, overlap!.y);
+  await expect(page.getByTestId("place-details")).toHaveAttribute("aria-label", card.name);
+  await page.getByTestId("details-close").click();
+  await expect(page.getByTestId("place-details")).toHaveCount(0);
+
+  const emptyPoint = await page.evaluate(() => {
+    const map = document.querySelector<HTMLElement>('[data-testid="map-region"]')!;
+    const mapRect = map.getBoundingClientRect();
+    const cards = [...map.querySelectorAll<HTMLElement>('[data-named="true"] .sticker-box')]
+      .map((node) => node.getBoundingClientRect());
+    const dots = [...map.querySelectorAll<HTMLElement>('[data-testid^="pin-"]')]
+      .map((node) => {
+        const rect = node.getBoundingClientRect();
+        return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+      });
+    const distanceToRect = (x: number, y: number, rect: DOMRect) => Math.hypot(
+      Math.max(rect.left - x, 0, x - rect.right),
+      Math.max(rect.top - y, 0, y - rect.bottom),
+    );
+    for (let y = mapRect.top + 50; y < mapRect.bottom - 50; y += 20) {
+      for (let x = mapRect.left + 50; x < mapRect.right - 50; x += 20) {
+        if (cards.some((rect) => distanceToRect(x, y, rect) < 30)) continue;
+        if (dots.some((dot) => Math.hypot(dot.x - x, dot.y - y) <= 22)) continue;
+        if (!document.elementFromPoint(x, y)?.closest(".maplibregl-map")) continue;
+        return { x, y };
+      }
+    }
+    return null;
+  });
+  expect(emptyPoint).not.toBeNull();
+  await page.mouse.click(emptyPoint!.x, emptyPoint!.y);
+  await expect(page.getByTestId("place-details")).toHaveCount(0);
+  expect(await page.evaluate(() => window.__spokesMapStats?.().selected)).toBeNull();
+  await browserContext.close();
+});
+
 test("a need said is pending until the room settles it, and busy rings mark places being looked up", async ({ page }) => {
   const audit: string[] = [];
+  const missingImageMessages: string[] = [];
+  page.on("console", (message) => {
+    const text = message.text();
+    if (/missing image|spokes-mark-(dash|busy)/i.test(text)) missingImageMessages.push(text);
+  });
   const state: MockState = {
     audit,
     context: fixture({ matching: 4, revision: 30 }),
@@ -1721,6 +1875,7 @@ test("a need said is pending until the room settles it, and busy rings mark plac
   await expect
     .poll(() => page.evaluate(() => window.__spokesMapStats?.().busyLayerMounted))
     .toBe(true);
+  expect(missingImageMessages).toEqual([]);
   // The loop turning is not the point — an updated image only reaches the
   // atlas inside a render pass, so the map must actually be repainting while
   // a place is busy, on a camera nobody is touching (W5).
@@ -1915,18 +2070,18 @@ test("place details read the server's verdicts, address and hours, and say when 
   await expect(page.getByTestId("scope-agent-private")).toContainText("your agent holds it");
 });
 
-test("two places a few metres apart are both reachable by tapping their own dot", async ({ page }) => {
+test("two dot-only places a few metres apart are both reachable by tapping their own dot", async ({ page }) => {
   // Haferkater and Witty's sit 5.6 m apart in the Berlin dataset: at the
   // room's zoom that is under two pixels. Each dot fans out by a fixed few
-  // pixels and a tap resolves to the nearest dot, whatever box is on top
-  // (§13) — even after one of them is selected and wears a name card.
+  // pixels and a tap resolves to the nearest dot, whatever 44px target is on
+  // top (§13). Name-card overlap has its own precedence test above.
   const pair = dataset.venues.filter((venue) =>
     /^(Haferkater|Witty's Bio-Currywurst)$/.test(venue.name),
   );
   expect(pair).toHaveLength(2);
   const ids = pair.map((venue) => venue.candidateId);
   const state: MockState = {
-    context: fixture({ eligibleIds: ids }),
+    context: fixture({ eligibleIds: [] }),
     outstanding: [],
     command(_request, current) {
       current.context.revision += 1;
@@ -1937,6 +2092,9 @@ test("two places a few metres apart are both reachable by tapping their own dot"
   await closeDrawer(page);
   await expect(page.getByTestId("map-region")).toHaveAttribute("data-loaded", "true", { timeout: 20_000 });
   await stableMarkerTransforms(page, ids);
+  for (const id of ids) {
+    await expect(page.getByTestId(`pin-${id}`)).toHaveAttribute("data-named", "false");
+  }
 
   const dotCentre = async (id: string) => {
     const box = await page.locator(`[data-testid="pin-${id}"] .marker-dot`).boundingBox();
@@ -2045,7 +2203,7 @@ test("the room says what it is refining, a question need shows it was looked up,
     },
   ];
   const context = fixture({ matching: 4, revision: 50, activeNeeds: needs });
-  (context as MockContext & { refine?: unknown }).refine = {
+  context.refine = {
     active: true,
     queued: 5,
     checkedToday: 84,
@@ -2138,6 +2296,20 @@ test("the room says what it is refining, a question need shows it was looked up,
   await expect(page.getByTestId("pin-place_1")).not.toHaveAttribute("data-busy", "true");
   await expect(refineLine).toBeVisible();
 
+  // A server-declared budget pause wins even while its counters still look
+  // reachable. No lookup frame means no stale checking line survives.
+  context.refine.paused = "budget";
+  socket.send({ type: "facts", candidateIds: [], reason: "inference" });
+  await expect(refineLine).toHaveText("paused for now");
+  await expect(refineLine).not.toContainText("to go");
+  await expect(page.getByTestId("count-busy")).toHaveCount(0);
+
+  // Explicit null resumes the complete sentence. The initial assertion above
+  // exercised an older context where the field was absent.
+  context.refine.paused = null;
+  socket.send({ type: "facts", candidateIds: [], reason: "inference" });
+  await expect(refineLine).toHaveText("checked 84 places for 1 need · 5 to go");
+
   // A question need that has answers says it was looked up, beside its counts.
   const row = page.getByTestId("need-need-wifi");
   await expect(row).toHaveAttribute("data-kind", "question");
@@ -2187,9 +2359,7 @@ test("the room says what it is refining, a question need shows it was looked up,
 
   // The server's full queue can exceed this hour's reach. In that case the
   // room keeps its in-progress register but drops the un-actionable promise.
-  const refine = (state.context as MockContext & {
-    refine: { queued: number; budgetLeft: { calls: number; searches: number } };
-  }).refine;
+  const refine = state.context.refine!;
   refine.queued = 2_500;
   socket.send({ type: "facts", candidateIds: [], reason: "inference" });
   await expect(refineLine).toHaveText("checked 84 places for 1 need");
@@ -2232,4 +2402,3 @@ test("the refinement line and the fact rows are still under reduced motion", asy
   expect(settle).toBe("0ms");
   await context.close();
 });
-

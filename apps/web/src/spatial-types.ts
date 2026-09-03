@@ -234,6 +234,8 @@ export interface RefineView {
   queued: number;
   checkedToday: number;
   budgetLeft: { calls: number; searches: number };
+  /** Why work is not advancing. Older servers omit this field. */
+  paused?: "budget" | "idle" | null;
 }
 
 /** The room's pool of places as it stands (contracts PoolView). */
