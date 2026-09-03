@@ -78,6 +78,44 @@ export class NlError extends Error {
 
 type Transport = (body: Record<string, unknown>, timeoutMs: number) => Promise<unknown>;
 
+export interface ResponseMetrics {
+  calls: number;
+  webSearchRequests: number;
+  webSearchCalls: number;
+  inputTokens: number;
+  outputTokens: number;
+  schemaCalls: Record<string, number>;
+}
+
+let responseMetricsState: ResponseMetrics = {
+  calls: 0,
+  webSearchRequests: 0,
+  webSearchCalls: 0,
+  inputTokens: 0,
+  outputTokens: 0,
+  schemaCalls: {},
+};
+
+/** Process-local measurement for the refinement benchmark; no request or
+ * response content is retained. */
+export function responseMetrics(): ResponseMetrics {
+  return {
+    ...responseMetricsState,
+    schemaCalls: { ...responseMetricsState.schemaCalls },
+  };
+}
+
+export function resetResponseMetrics(): void {
+  responseMetricsState = {
+    calls: 0,
+    webSearchRequests: 0,
+    webSearchCalls: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    schemaCalls: {},
+  };
+}
+
 const liveTransport: Transport = async (body, timeoutMs) => {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -135,6 +173,7 @@ export async function respond(call: Call): Promise<Reply> {
     output?: Array<Record<string, unknown>>;
     error?: { message?: string } | null;
     status?: string;
+    usage?: { input_tokens?: number; output_tokens?: number };
   };
   if (raw.error) throw new NlError(raw.error.message ?? "openai error", 502);
   const output = raw.output ?? [];
@@ -172,6 +211,18 @@ export async function respond(call: Call): Promise<Reply> {
     } else if (item.type === "web_search_call") {
       webSearchCalls.push(item);
     }
+  }
+  const schemaName = call.schema?.name;
+  responseMetricsState.calls += 1;
+  responseMetricsState.webSearchRequests += call.tools?.some((tool) => tool.type === "web_search")
+    ? 1
+    : 0;
+  responseMetricsState.webSearchCalls += webSearchCalls.length;
+  responseMetricsState.inputTokens += Number(raw.usage?.input_tokens ?? 0);
+  responseMetricsState.outputTokens += Number(raw.usage?.output_tokens ?? 0);
+  if (schemaName) {
+    responseMetricsState.schemaCalls[schemaName] =
+      (responseMetricsState.schemaCalls[schemaName] ?? 0) + 1;
   }
   return {
     text: texts.length ? texts.join("\n") : null,
