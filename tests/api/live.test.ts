@@ -226,6 +226,141 @@ describe("need-triggered lookup and realtime facts", () => {
     expect(modelCalls).toBe(1);
   });
 
+  it("negative-caches omitted keys briefly and still fetches a newly available website", async () => {
+    vi.stubEnv("ENRICH_NETWORK", "1");
+    vi.stubEnv("INFER", "1");
+    vi.stubEnv("OPENAI_API_KEY", "test");
+    const candidateId = `place_a_${room.roomId.slice("room_test_".length)}`;
+    const osmRef = `node/omitted-${room.roomId}`;
+    await room.pool.query(
+      `UPDATE candidates SET osm_ref = $2,
+         extras = '{"description":{"text":"A neighborhood venue with no delivery evidence."}}'::jsonb,
+         attributes = '[{"key":"delivery","status":"unknown","source":"osm:delivery","confidence":0}]'::jsonb
+       WHERE id = $1`,
+      [candidateId, osmRef],
+    );
+    let modelCalls = 0;
+    setTransport(async () => {
+      modelCalls += 1;
+      return {
+        output: [
+          {
+            type: "message",
+            content: [{ type: "output_text", text: JSON.stringify({ claims: [] }) }],
+          },
+        ],
+      };
+    });
+    await lookupNow(room.pool, room.roomId, [{ candidateId, osmRef }], {
+      keys: ["delivery"],
+    });
+    const omitted = (
+      await room.pool.query(
+        `SELECT inferred, EXTRACT(EPOCH FROM (expires_at - fetched_at)) AS ttl_seconds
+           FROM enrichments WHERE osm_ref = $1`,
+        [osmRef],
+      )
+    ).rows[0];
+    expect(omitted.inferred.delivery).toMatchObject({ omitted: true });
+    expect(Number(omitted.ttl_seconds)).toBeGreaterThan(23 * 60 * 60);
+    expect(Number(omitted.ttl_seconds)).toBeLessThanOrEqual(24 * 60 * 60 + 1);
+
+    await lookupNow(room.pool, room.roomId, [{ candidateId, osmRef }], {
+      keys: ["delivery"],
+    });
+    expect(modelCalls).toBe(1);
+
+    let siteFetches = 0;
+    setEnrichFetch(async (url) => {
+      if (url.endsWith("/robots.txt")) return new Response("", { status: 200 });
+      siteFetches += 1;
+      return new Response("<html></html>", {
+        status: 200,
+        headers: { "content-type": "text/html" },
+      });
+    });
+    await lookupNow(
+      room.pool,
+      room.roomId,
+      [{ candidateId, osmRef, website: "https://93.184.216.34/new-site" }],
+      { keys: ["delivery"] },
+    );
+    expect(siteFetches).toBe(1);
+    expect(modelCalls).toBe(1);
+    expect(
+      (
+        await room.pool.query(
+          "SELECT website FROM enrichments WHERE osm_ref = $1",
+          [osmRef],
+        )
+      ).rows[0].website,
+    ).toMatchObject({ host: "93.184.216.34" });
+  });
+
+  it("keeps a failed website fetch on its one-hour TTL when inference lands", async () => {
+    vi.stubEnv("ENRICH_NETWORK", "1");
+    vi.stubEnv("INFER", "1");
+    vi.stubEnv("OPENAI_API_KEY", "test");
+    const candidateId = `place_b_${room.roomId.slice("room_test_".length)}`;
+    const osmRef = `node/failure-ttl-${room.roomId}`;
+    const evidence = "Dogs are welcome on our terrace";
+    await room.pool.query(
+      `UPDATE candidates SET osm_ref = $2,
+         extras = $3::jsonb,
+         attributes = '[{"key":"dog-friendly","status":"unknown","source":"osm:dog","confidence":0}]'::jsonb
+       WHERE id = $1`,
+      [candidateId, osmRef, JSON.stringify({ description: { text: evidence } })],
+    );
+    setEnrichFetch(async (url) => {
+      if (url.endsWith("/robots.txt")) return new Response("", { status: 200 });
+      throw new Error("site down");
+    });
+    setTransport(async () => ({
+      output: [
+        {
+          type: "message",
+          content: [
+            {
+              type: "output_text",
+              text: JSON.stringify({
+                claims: [
+                  {
+                    key: "dog-friendly",
+                    lean: "yes",
+                    confidence: 0.9,
+                    evidence,
+                    evidenceSource: "description_website",
+                    value: null,
+                  },
+                ],
+              }),
+            },
+          ],
+        },
+      ],
+    }));
+    await lookupNow(
+      room.pool,
+      room.roomId,
+      [{ candidateId, osmRef, website: "https://93.184.216.34/failing-site" }],
+      { keys: ["dog-friendly"] },
+    );
+    const cached = (
+      await room.pool.query(
+        `SELECT error, inferred, EXTRACT(EPOCH FROM (expires_at - fetched_at)) AS ttl_seconds
+           FROM enrichments WHERE osm_ref = $1`,
+        [osmRef],
+      )
+    ).rows[0];
+    expect(cached.error).toContain("site down");
+    expect(cached.inferred["dog-friendly"]).toMatchObject({
+      lean: "yes",
+      evidence,
+    });
+    expect(Number(cached.ttl_seconds)).toBeGreaterThan(59 * 60);
+    expect(Number(cached.ttl_seconds)).toBeLessThanOrEqual(60 * 60 + 1);
+  });
+
   it("never broadcasts an application-private need label with lookup progress", async () => {
     const networkServer = await startServer({
       entrypoint: "tests/api/fixtures/live-network-server.ts",

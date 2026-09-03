@@ -39,9 +39,9 @@ export interface InferredClaim {
   value?: number;
 }
 
-export interface StoredInference extends InferredClaim {
-  observedAt: string;
-}
+export type StoredInference =
+  | (InferredClaim & { observedAt: string })
+  | { omitted: true; observedAt: string };
 
 export const INFERENCE_CONFIDENCE_CAPS: Record<EvidenceSource, number> = {
   name_category: 0.45,
@@ -243,6 +243,7 @@ export function applyInferredAttributes<T extends AttributeLike>(
   const out = attributes.map((attribute) => ({ ...attribute }));
   for (const [key, claim] of Object.entries(inferred)) {
     if (!(INFERABLE_KEYS as readonly string[]).includes(key)) continue;
+    if ("omitted" in claim) continue;
     const existing = out.find((attribute) => attribute.key === key);
     if (existing && existing.status !== "unknown") continue;
     // The caps are all below 0.7. Calling graded() is nevertheless mandatory:

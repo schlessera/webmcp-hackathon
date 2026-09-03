@@ -54,6 +54,7 @@ export interface LookupTarget {
 const TTL_OK_MS = 7 * 24 * 60 * 60 * 1000;
 const TTL_FAIL_MS = 60 * 60 * 1000;
 const TTL_INFER_MS = 7 * 24 * 60 * 60 * 1000;
+const TTL_OMITTED_MS = 24 * 60 * 60 * 1000;
 const WARM_CONCURRENCY = 4;
 
 const OFFLINE = "ENRICH_NETWORK=0";
@@ -83,7 +84,8 @@ const rowToEnrichment = (r: Row): Enrichment => {
   const inferred = Object.fromEntries(
     Object.entries(r.inferred ?? {}).filter(([, claim]) => {
       const observed = new Date(claim.observedAt).getTime();
-      return Number.isFinite(observed) && Date.now() - observed < TTL_INFER_MS;
+      const ttl = "omitted" in claim ? TTL_OMITTED_MS : TTL_INFER_MS;
+      return Number.isFinite(observed) && Date.now() - observed < ttl;
     }),
   );
   return {
@@ -173,7 +175,10 @@ export async function ensureEnrichments(
 ): Promise<Map<string, Enrichment>> {
   const wanted = targets.filter((t) => t.website || t.wikidata);
   const found = await loadCached(pool, wanted.map((t) => t.osmRef));
-  const missing = wanted.filter((t) => !found.has(t.osmRef));
+  const missing = wanted.filter((t) => {
+    const cached = found.get(t.osmRef);
+    return !cached || (!cached.website && !cached.wikidata && !cached.error);
+  });
   if (missing.length === 0) return found;
   const jobs = missing.map((t) => lookup(pool, t));
   const deadline = new Promise<"timeout">((resolve) => setTimeout(() => resolve("timeout"), waitMs));
@@ -279,12 +284,18 @@ async function saveInferences(
   pool: pg.Pool,
   osmRef: string,
   claims: Awaited<ReturnType<typeof inferAttributes>>,
+  requested: string[],
   observedAt: string,
 ): Promise<void> {
-  if (claims.length === 0 || !inferenceEnabled()) return;
-  const inferred = Object.fromEntries(
-    claims.map((claim) => [claim.key, { ...claim, observedAt }]),
-  );
+  if (requested.length === 0 || !inferenceEnabled()) return;
+  const claimed = new Set<string>(claims.map((claim) => claim.key));
+  const inferred: Record<string, StoredInference> = Object.fromEntries([
+    ...claims.map((claim) => [claim.key, { ...claim, observedAt }] as const),
+    ...requested
+      .filter((key) => !claimed.has(key))
+      .map((key) => [key, { omitted: true as const, observedAt }] as const),
+  ]);
+  const ttl = claims.length > 0 ? TTL_INFER_MS : TTL_OMITTED_MS;
   await pool.query(
     `INSERT INTO enrichments
        (osm_ref, fetched_at, expires_at, website, wikidata, inferred, inferred_at, error)
@@ -292,8 +303,12 @@ async function saveInferences(
      ON CONFLICT (osm_ref) DO UPDATE SET
        inferred = enrichments.inferred || EXCLUDED.inferred,
        inferred_at = now(),
-       expires_at = GREATEST(enrichments.expires_at, EXCLUDED.expires_at)`,
-    [osmRef, String(TTL_INFER_MS), JSON.stringify(inferred)],
+       expires_at = CASE
+         WHEN enrichments.error IS NULL
+           THEN GREATEST(enrichments.expires_at, EXCLUDED.expires_at)
+         ELSE enrichments.expires_at
+       END`,
+    [osmRef, String(ttl), JSON.stringify(inferred)],
   );
 }
 
@@ -392,7 +407,9 @@ async function runLookupNow(
         let current = (await loadCached(pool, [row.osm_ref!])).get(row.osm_ref!);
         const before = stableAttributeHash(mergedForLookup(row, current, attestations, observedAt));
 
-        if (!current && (target.website || target.wikidata)) {
+        const sourcesNotFetched =
+          !current || (!current.website && !current.wikidata && !current.error);
+        if (sourcesNotFetched && (target.website || target.wikidata)) {
           await lookup(pool, target);
           current = (await loadCached(pool, [row.osm_ref!])).get(row.osm_ref!);
         }
@@ -418,7 +435,7 @@ async function runLookupNow(
               texts: inferenceTexts(row, current),
               keys: unknown,
             });
-            await saveInferences(pool, row.osm_ref!, claims, observedAt);
+            await saveInferences(pool, row.osm_ref!, claims, unknown, observedAt);
             if (claims.length > 0) inferenceChanged = true;
             current = (await loadCached(pool, [row.osm_ref!])).get(row.osm_ref!);
           }
