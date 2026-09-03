@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { SpatialContext } from "../../apps/web/src/spatial-types.ts";
 import { SpatialStore } from "../../apps/web/src/spatial-store.ts";
-import { hasRevisionGap } from "../../apps/web/src/ws-client.ts";
+import { hasRevisionGap, reconnectDelayMs } from "../../apps/web/src/ws-client.ts";
 import { RoomBroadcastQueue } from "../../apps/server/src/ws.ts";
 import { RevisionWatermarks } from "../../apps/web/src/revision-watermarks.ts";
 import { serializeToolOutput } from "../../apps/server/src/nl/tool-output.ts";
@@ -89,6 +89,16 @@ describe("ordered realtime delivery", () => {
     expect(hasRevisionGap(4, 5)).toBe(true);
     expect(hasRevisionGap(4, 3)).toBe(true);
     expect(hasRevisionGap(4, undefined)).toBe(false);
+  });
+});
+
+describe("realtime reconnect backoff", () => {
+  it("uses bounded jitter over an exponential delay", () => {
+    expect(reconnectDelayMs(0, () => 0)).toBe(500);
+    expect(reconnectDelayMs(0, () => 1)).toBe(1000);
+    expect(reconnectDelayMs(3, () => 1)).toBe(8000);
+    expect(reconnectDelayMs(8, () => 0)).toBe(7500);
+    expect(reconnectDelayMs(8, () => 1)).toBe(15000);
   });
 });
 

@@ -47,6 +47,17 @@ export function hasRevisionGap(
   return fromRevision !== undefined && fromRevision !== projectedThroughRevision;
 }
 
+/** R13: reconnecting clients share the same outage, so deterministic delays
+ * create a synchronized retry wave. Half-to-full jitter keeps exponential
+ * backoff while spreading attempts, capped at the existing 15 seconds. */
+export function reconnectDelayMs(
+  attempt: number,
+  random: () => number = Math.random,
+): number {
+  const exponential = Math.min(1000 * 2 ** Math.max(0, attempt), 15_000);
+  return Math.round(exponential * (0.5 + Math.min(1, Math.max(0, random())) * 0.5));
+}
+
 let pageBuildId: string | null = null;
 let pageBuildFetch: Promise<string> | null = null;
 
@@ -81,7 +92,7 @@ export function connectRealtime(
 ): RealtimeHandle {
   let closed = false;
   let socket: WebSocket | null = null;
-  let retryMs = 1000;
+  let retryAttempt = 0;
   let viewing: string | null = null;
   let welcomed = false;
 
@@ -117,7 +128,7 @@ export function connectRealtime(
         return;
       }
       if (message.type === "welcome") {
-        retryMs = 1000; // healthy connection resets the backoff
+        retryAttempt = 0; // healthy connection resets the backoff
         diagnostics.update({ serverBuildId: message.buildId });
         callbacks.onWelcome(message);
         welcomed = true;
@@ -158,8 +169,8 @@ export function connectRealtime(
         diagnostics.log("ws: token rejected (4003), reconnect stopped");
         return;
       }
-      setTimeout(connect, retryMs);
-      retryMs = Math.min(retryMs * 2, 15000);
+      setTimeout(connect, reconnectDelayMs(retryAttempt));
+      retryAttempt += 1;
     };
   };
   connect();

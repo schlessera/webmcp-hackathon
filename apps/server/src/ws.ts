@@ -24,6 +24,9 @@ let nextSocketId = 0;
 
 const connections = new Set<Connection>();
 
+const PING_INTERVAL_MS = Number(process.env.WS_PING_INTERVAL_MS ?? 30_000);
+const PONG_TIMEOUT_MS = Number(process.env.WS_PONG_TIMEOUT_MS ?? 45_000);
+
 /** R10: one tail per room preserves commit order without coupling unrelated
  * rooms. A failed delivery is reported for that item but cannot poison the
  * room's later broadcasts. Exported so the ordering guarantee is unit-tested
@@ -54,6 +57,18 @@ export function attachWebSocket(server: Server): void {
 
   wss.on("connection", (socket) => {
     let connection: Connection | null = null;
+    // R13: a half-open mobile connection never emits `close` on its own. A
+    // pong deadline makes `terminate()` drive the ordinary cleanup path, so
+    // stale presence and viewing state cannot survive indefinitely.
+    let pongDeadline = setTimeout(() => socket.terminate(), PONG_TIMEOUT_MS);
+    const resetPongDeadline = () => {
+      clearTimeout(pongDeadline);
+      pongDeadline = setTimeout(() => socket.terminate(), PONG_TIMEOUT_MS);
+    };
+    socket.on("pong", resetPongDeadline);
+    const pingTimer = setInterval(() => {
+      if (socket.readyState === WebSocket.OPEN) socket.ping();
+    }, PING_INTERVAL_MS);
     // Set synchronously before the async token lookup so a second auth frame
     // on the same socket cannot register a duplicate connection.
     let authenticating = false;
@@ -182,6 +197,8 @@ export function attachWebSocket(server: Server): void {
 
     socket.on("close", () => {
       clearTimeout(authTimer);
+      clearInterval(pingTimer);
+      clearTimeout(pongDeadline);
       if (connection) {
         connections.delete(connection);
         if (markClosed(connection.roomId, connection.participantId, connection.socketId)) {

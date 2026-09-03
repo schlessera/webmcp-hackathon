@@ -1,4 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { createRequire } from "node:module";
+import { TOOL_CONTRACT_VERSION } from "@webmcp-hackathon/contracts";
 import {
   apiPost,
   createTestRoom,
@@ -7,6 +9,12 @@ import {
   type TestRoom,
   type TestServer,
 } from "./helpers.ts";
+
+// The API test owns no runtime dependency bundle; resolve the server's actual
+// ws client so autoPong can be disabled to model a half-open connection.
+const WsWebSocket = createRequire(
+  new URL("../../apps/server/package.json", import.meta.url),
+)("ws") as any;
 
 /**
  * Presence on the wire (REDESIGN-HANDOFF gaps 3 and 6): `arrived` is durable
@@ -157,4 +165,63 @@ describe("presence", () => {
       org.close();
     }
   });
+
+  it("expires a half-open socket and clears its viewing state", async () => {
+    const heartbeatServer = await startServer({
+      env: { WS_PING_INTERVAL_MS: "100", WS_PONG_TIMEOUT_MS: "600" },
+    });
+    const heartbeatRoom = await createTestRoom(heartbeatServer.baseUrl);
+    const observer = await openRealtime(heartbeatServer.baseUrl, heartbeatRoom.tokens.org);
+    const halfOpen = new WsWebSocket(
+      `${heartbeatServer.baseUrl.replace(/^http/, "ws")}/ws`,
+      { autoPong: false },
+    );
+    try {
+      await new Promise<void>((resolve, reject) => {
+        halfOpen.once("open", resolve);
+        halfOpen.once("error", reject);
+      });
+      halfOpen.send(JSON.stringify({
+        type: "auth",
+        token: heartbeatRoom.tokens.sarah,
+        clientBuildId: "test",
+        clientToolContractVersion: TOOL_CONTRACT_VERSION,
+      }));
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error("no welcome")), 2000);
+        halfOpen.on("message", (raw: unknown) => {
+          if ((JSON.parse(String(raw)) as { type: string }).type !== "welcome") return;
+          clearTimeout(timer);
+          resolve();
+        });
+      });
+      halfOpen.send(JSON.stringify({ type: "viewing", candidateId: `place_b_${heartbeatRoom.roomId.slice(-8)}` }));
+
+      expect(await waitFor(async () => {
+        const view = await contextFor(heartbeatServer.baseUrl, heartbeatRoom.tokens.org);
+        return person(view, heartbeatRoom.participantIds.sarah).present;
+      })).toBe(true);
+
+      expect(await waitFor(async () => {
+        const view = await contextFor(heartbeatServer.baseUrl, heartbeatRoom.tokens.org);
+        return !person(view, heartbeatRoom.participantIds.sarah).present;
+      }, 4000)).toBe(true);
+      const lastPresence = observer.frames()
+        .map((frame) => JSON.parse(frame) as { type: string; present?: string[]; viewing?: Array<{ participantId: string }> })
+        .filter((message) => message.type === "presence")
+        .at(-1)!;
+      expect(lastPresence.present).not.toContain(heartbeatRoom.participantIds.sarah);
+      expect(lastPresence.viewing).not.toContainEqual(
+        expect.objectContaining({ participantId: heartbeatRoom.participantIds.sarah }),
+      );
+    } finally {
+      halfOpen.terminate();
+      observer.close();
+      await heartbeatRoom.cleanup();
+      await heartbeatServer.stop();
+    }
+  });
 });
+
+const contextFor = async (baseUrl: string, token: string) =>
+  (await apiPost<Roster>(baseUrl, "/api/spatial/context", token, {})).body;

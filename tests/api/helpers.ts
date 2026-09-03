@@ -17,8 +17,12 @@ export interface TestServer {
   stop: () => Promise<void>;
 }
 
+export interface TestServerOptions {
+  env?: Record<string, string>;
+}
+
 /** Spawn a real server process, capturing its log output for invariant checks. */
-export async function startServer(): Promise<TestServer> {
+export async function startServer(options: TestServerOptions = {}): Promise<TestServer> {
   const port = 42000 + Math.floor(Math.random() * 2000);
   let captured = "";
   const child: ChildProcess = spawn(
@@ -32,6 +36,7 @@ export async function startServer(): Promise<TestServer> {
         SERVE_STATIC: "1", // skip Vite middleware in API tests
         ENRICH_NETWORK: "0", // no venue or Wikidata lookups from a test server
         LOG_LEVEL: "info",
+        ...options.env,
       },
       stdio: ["ignore", "pipe", "pipe"],
     },
