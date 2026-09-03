@@ -83,6 +83,9 @@ attributes present across the current results.
   verbatim. It is the server's job to make it read well.
 - `type` — one of `boolean` | `enum` | `numeric` | `temporal` | `text`.
   The client has one renderer per type and no domain branches.
+- The `walking time` numeric facet is recomputed from the viewer's private
+  origin on every read, falling back to the room scope centre when that viewer
+  has no origin. Other participants' origins never enter the facet payload.
 - `counts.unknown` — **mandatory**. Unverified is a first-class state in this
   UI; a facet without an unknown count cannot render its `?` badge.
 - `counts.likely` / `counts.unlikely` — graded facts (SPATIAL-PROTOCOL §8.2):

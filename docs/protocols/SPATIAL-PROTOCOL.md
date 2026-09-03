@@ -133,7 +133,7 @@ These are the `payload` shapes the negotiation envelope carries when
 { "kind": "attribute", "key": "vegetarian-options", "expect": "verified_true" }
 
 // Scope predicate
-{ "kind": "scope", "dimension": "walk_min", "max": 15, "origin": { "lat": 52.5, "lng": 13.42 } }
+{ "kind": "scope", "dimension": "walk_min", "max": 15 }
 
 // Budget
 { "kind": "budget", "perPersonMax": { "amount": 18, "currency": "EUR" } }
@@ -222,18 +222,38 @@ Transport-agnostic, like the negotiation command set. Mutations carry
 | `GetSpatialContext` | read | scope, feasibility counts, candidate summaries, current proposal, selection state |
 | `InspectCandidates { candidateIds[1..3] }` | read | full dossiers (side-by-side when >1 — this is "compare") |
 | `SetSearchScope { area?, transport? }` | mutate | **organizer only**; applies circle scope and walk/bike/car modes, emits `scope_change_proposed` + `_applied` |
+| `SetOrigin { position, label?, source }` | mutate | updates the acting participant's application-private starting position |
 | `AddCandidates { refs[1..40] }` | mutate | brings snapshot places from the explore layer into the shared room pool, additively and subject to the pool ceiling |
 | `LookUpPlaces { candidateIds[], keys? }` | read | starts bounded provider lookup for current places |
 | `ProposeDestination { candidateId }` | mutate | emits negotiation `proposal_created` with `domainRef` |
 | `FocusDestination { candidateId }` | local | pans/highlights the caller's own map view; **no shared state change** |
 | `PlanArrival { mode, pickupNote? }` | mutate | per-participant walk/bike/car mode and note; emits `arrival_plan_updated` |
 | `AttestAttribute { candidateId, key, status, confidence, note, sourceUrl? }` | mutate | records shared participant-supplied evidence |
-| `PrepareNavigation { candidateId? }` | read | one-click handoff links for that candidate or the committed destination (§9) |
+| `PrepareNavigation { candidateId?, from? }` | read | one-click handoff links for that candidate or the committed destination (§9) |
 
 Negotiation-meaningful map actions do **not** get spatial commands: vetoing a
 pin is `RespondToProposal { proposalId, disposition: "reject", reason: {…} }`.
 The map resolves pin → candidate → proposal and dispatches the negotiation
 command. One command model, two entry surfaces.
+
+### 6.3 Origins
+
+An origin is where one participant starts from:
+`{ lat, lng, label, source: fixture | device | stated, updatedAt }`. A real
+client reads and refreshes it from device geolocation; fixtures and stated
+positions make the same model usable when that is unavailable. `SetOrigin`
+has no target participant: identity comes from the authenticated session and a
+participant can update only their own origin. It has the same phase gate as
+`SetReadyState`.
+
+Coordinates and their label are application-private. The server and owner get
+the full value; every peer summary omits `origin` entirely and an
+`origin_updated` event projects to peers at existence level only. Its effect
+on eligibility counts remains visible. A scope need is measured from its
+owner's origin, falling back to the shared scope centre when that owner has no
+origin. Candidate `walkMin` and the walk facet are measured from the viewer's
+origin with the same fallback. The implicit shared search-circle constraint
+always remains centred on the room scope.
 
 ## 7. Gesture ↔ command ↔ event mapping
 
@@ -247,6 +267,7 @@ command. One command model, two entry surfaces.
 | Pin card → "Veto…" + reason menu | `RespondToProposal(reject)` | `stance_submitted` |
 | Pin card → "Works for me" | `RespondToProposal(accept)` | `stance_submitted` |
 | "I'm done adding" toggle | `SetReadyState` | `ready_state_changed` |
+| Starting-point control → drag or device location | `SetOrigin` | `origin_updated` |
 | Arrival panel → mode + pickup note | `PlanArrival` | `arrival_plan_updated` |
 | "Navigate" button | `PrepareNavigation` | none (read) |
 
@@ -484,7 +505,9 @@ coordination surface, the installed map app is the execution surface:
 ```
 
 Links are constructed from coordinates the session already holds — no
-provider API call is required at handoff time.
+provider API call is required at handoff time. When `from` is supplied, the
+Google and Apple directions links start there; otherwise the server uses the
+caller's saved origin when one exists.
 
 ## 10. World-knowledge boundary
 

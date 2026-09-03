@@ -175,6 +175,16 @@ Use **bring in** for moving a place from the map's explore layer into the
 room. Never expose “ref”, endpoint names, command names, or pool vocabulary in
 the visible copy.
 
+## Starting point
+
+- Own roster line: **“Starting from Rosenthaler Platz”**. Peers get no line.
+- Controls: **“Set where you start”**, **“Finish setting where you start”**,
+  and, when the browser supports it, **“Use my location”**.
+- Map instruction: **“Drag your mark on the map, or use its arrow keys.”**
+- Place distance: **“12 min from you”**, never “away”.
+- A peer event says only **“Sarah updated where they start from.”** Coordinates
+  and labels never appear in peer copy.
+
 ## Tone
 
 Plain, short, declarative. No exclamation marks. No "Oops". No emoji anywhere

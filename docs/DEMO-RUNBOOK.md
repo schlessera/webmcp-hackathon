@@ -9,7 +9,7 @@ named is one the UI draws.
 
 1. `make demo` — starts Postgres + server on `127.0.0.1:4173` and seeds
    `room_demo`: 31 Berlin Mitte places, an 800 m scope around Weidendammer
-   Brücke, participants Alex (organizer), Sarah and Joe, no needs yet.
+   Brücke, participants Alain (organizer), Sarah and Joe, no needs yet.
    Re-run a clean state anytime with `make demo-reset`.
 2. `node scripts/open-participants.mjs` — opens Sarah and Joe in two separate
    browser contexts and prints the organizer invite URL.
@@ -26,7 +26,7 @@ named is one the UI draws.
 | Before any need | `21 places · nothing ruled out yet` |
 | After Sarah's need | `12 still work · of 21 · 2 likely · 5 unsure · 2 unlikely` |
 | After Joe's private need | `0 still work · of 21 · 17 unsure · 2 unlikely` |
-| After Alex's two needs | `0 still work · of 21 · 14 unsure · 1 unlikely` |
+| After Alain's two needs | `0 still work · of 21 · 14 unsure · 1 unlikely` |
 | After the area widens to 1.2 km | `4 still work · of 31 · 20 unsure · 1 unlikely` |
 
 "Likely" and "unlikely" are guesses from the kind of place (an Indian
@@ -39,19 +39,19 @@ number: the impasse still reads 0 at 800 m and 4 at 1.2 km.
 
 | # | Window | Action | What the windows show |
 |---|--------|--------|------------------------|
-| 1 | Sarah, Joe | Both open their links | Edge-to-edge map: 31 places, the 21 inside the dashed ring drawn as stickers, the rest as grey dots. Count block top-left reads `21 places`. Alex's avatar is idle and the brief carries an "Alex hasn't arrived" card: they will see the map exactly as it stands when they open the link |
+| 1 | Sarah, Joe | Both open their links | Edge-to-edge map: 31 places, the 21 inside the dashed ring drawn as stickers, the rest as grey dots. Count block top-left reads `21 places`. Alain's avatar is idle and the brief carries an "Alain hasn't arrived" card: they will see the map exactly as it stands when they open the link |
 | 2 | Sarah | Tap the **vegetarian options** pill above the composer (scope chip stays **Shared**) | A row joins "What matters" with `2 likely · 2 unlikely · 5 unknown` badges; the map settles in place and never re-centres. Count drops to 12. Press and hold the row to preview the set without it — 21 come back, release restores. Every pill and every row's text is a server label |
-| 3 | Organizer | Open the organizer URL in ChatGPT's browser, look around, then close it again — Alex steps out for a while | Alex's avatar fills in, ChatGPT lists the site tools, and the other two windows show Alex as arrived |
+| 3 | Organizer | Open the organizer URL in ChatGPT's browser, look around, then close it again — Alain steps out for a while | Alain's avatar fills in, ChatGPT lists the site tools, and the other two windows show Alain as arrived |
 | 4 | Joe | Set the composer scope chip to **Private**, type `lactose-free options`, press **Add** | Joe sees the need as a row, bordered in the scope colour. Sarah sees only "A private condition" with `−2` and a `private` badge — no label, no toggle. Count falls to 0; the header subtitle turns "nothing works for all three". Joe alone gets **One way out**: "Let 'lactose-free options' be nice-to-have `+12`" with **Make it optional**, and the offer chip on that map |
 | 5 | Organizer | Open the organizer URL again (a fresh tab, so the page knows what it missed) | The brief opens on **While you were away**: Joe's missed move is a `?` row with no author and no content; Sarah's already-seen need remains named in **What matters** below. A consent card is already waiting, badged **only you see this** |
 | 6 | Organizer's ChatGPT | *"What changed while I was away? What are our options?"* — the agent calls `sync_session`, then `get_spatial_context` | The agent relays the brief: nothing satisfies everyone, and it names no private reason because it was never sent one |
-| 7 | Alex | Type `€15` in the composer (Shared) → **Add**. Then ask ChatGPT *"we're not doing Italian tonight"* — the agent calls `submit_requirement` with an exclusion | Two more rows: "budget €15" `−1` and "avoid italian" `−3`. The subline tightens to `of 21 · 15 unsure`. Peers still learn nothing about Joe's condition |
-| 8 | Alex | On the consent card — "Widen the area from 800 m to 1.2 km? · Brings back 4 places" — press **Accept**, then **Confirm** on the card that replaces it | Peers never see the card. While it stands, Alex's map draws the proposed radius as a second, fainter ring. After the confirm the ring grows in all three windows, outside places settle in, and the count reads `4 still work / of 31 · 21 unsure`. Every subtitle returns to "three in the room · 4 still work"; Alex's digest has already folded away with Alex's first new move in beat 7 |
-| 9 | Organizer's ChatGPT | *"Put Chén Ché forward."* — the agent calls `propose_destination` on **Chén Ché** (`place_30`) | The pin fills in the act colour and reads "· proposed". Every brief gains a card: "Chén Ché is on the table" with **Works for me** / **Look at it**. Alex also gets "Settle on Chén Ché?" with **Stage it** |
+| 7 | Alain | Type `€15` in the composer (Shared) → **Add**. Then ask ChatGPT *"we're not doing Italian tonight"* — the agent calls `submit_requirement` with an exclusion | Two more rows: "budget €15" `−1` and "avoid italian" `−3`. The subline tightens to `of 21 · 15 unsure`. Peers still learn nothing about Joe's condition |
+| 8 | Alain | On the consent card — "Widen the area from 800 m to 1.2 km? · Brings back 4 places" — press **Accept**, then **Confirm** on the card that replaces it | Peers never see the card. While it stands, Alain's map draws the proposed radius as a second, fainter ring. After the confirm the ring grows in all three windows, outside places settle in, and the count reads `4 still work / of 31 · 21 unsure`. Every subtitle returns to "three in the room · 4 still work"; Alain's digest has already folded away with Alain's first new move in beat 7 |
+| 9 | Organizer's ChatGPT | *"Put Chén Ché forward."* — the agent calls `propose_destination` on **Chén Ché** (`place_30`) | The pin fills in the act colour and reads "· proposed". Every brief gains a card: "Chén Ché is on the table" with **Works for me** / **Look at it**. Alain also gets "Settle on Chén Ché?" with **Stage it** |
 | 10 | Sarah | Tap the Chén Ché sticker — the place panel opens (verdict strip, "Does it fit", "Also on record", "Where everyone stands") → **Rule it out** | While Sarah has the panel open, the other two windows draw her initials peeking out from behind the Chén Ché sticker. Her veto appears under "Where everyone stands" in every window, the sticker turns hollow in the act colour with the name struck through and a "ruled out" chip, and the proposal stops being stageable. The count does **not** move: a veto blocks the agreement, it does not rule the place out of the set |
 | 11 | Organizer's ChatGPT | The agent's next mutation comes back `sync_required` with the delta — narrate this: it is not a realtime subscriber, so it catches up, reads the veto, and proposes **The Barn** (`place_24`) instead | A second proposal card, and the Chén Ché pin drops back to a plain sticker |
-| 12 | All three | **Works for me** on The Barn, from the card or the place panel | Each acceptance appears under "Where everyone stands" as a filled mark, and accepting marks that person done adding (the toggle at the foot of the brief fills in by itself). Until the last accept, Alex's card reads "Settle on The Barn?" with a disabled button and says who it waits on; with it, the card turns to "Everyone is in on The Barn" |
-| 13 | Alex | **Stage it**, then **Settle it** on the staged card | The Barn's sticker reads "· staged" in the act colour; peers see "Waiting for the organizer to settle it." After the commit the sticker reads "· settled", the header title becomes "The Barn", the subtitle "agreed by all three", the count block shrinks to `Settled / 11 min from you`, and the brief shows **How it got here** |
+| 12 | All three | **Works for me** on The Barn, from the card or the place panel | Each acceptance appears under "Where everyone stands" as a filled mark, and accepting marks that person done adding (the toggle at the foot of the brief fills in by itself). Until the last accept, Alain's card reads "Settle on The Barn?" with a disabled button and says who it waits on; with it, the card turns to "Everyone is in on The Barn" |
+| 13 | Alain | **Stage it**, then **Settle it** on the staged card | The Barn's sticker reads "· staged" in the act colour; peers see "Waiting for the organizer to settle it." After the commit the sticker reads "· settled", the header title becomes "The Barn", the subtitle "agreed by all three", the count block shrinks to `Settled / 11 min from you`, and the brief shows **How it got here** |
 | 14 | All three | The composer is replaced by the arrival bar: pick **Walk** / **Bike** / **Drive**, then **Take me there** | Google Maps opens with The Barn as destination; the `geo:` link and Apple Maps sit beside it |
 
 ## Other areas, live places (optional)
@@ -81,7 +81,7 @@ What to expect, and to say, in such a room:
   whether B Restaurant has lactose-free options and record what you find"* —
   the agent reads the dossier with `inspect_candidates`, looks it up, and
   calls `attest_attribute` with a note. The place panel then reads "checked
-  by Alex" beside the fact, the feed says who checked what, and the
+  by Alain" beside the fact, the feed says who checked what, and the
   classifier rules on it. Contradicting a verified OpenStreetMap fact marks
   it disputed rather than overwriting it.
 
@@ -94,7 +94,7 @@ With `OPENAI_API_KEY` in the environment (`docs/NL-AGENT.md`), beats 4 and 7
 can be spoken instead of typed: Joe sets the scope chip to **Agent only** and
 types "I can't have lactose" — the agent holds it, the room sees only that a
 private condition exists, and the map settles as the agent screens.
-Alex types "we're not doing Italian tonight" in Shared and the exclusion
+Alain types "we're not doing Italian tonight" in Shared and the exclusion
 arrives without ChatGPT. "What are our options?" comes back as a "Your agent"
 card in the brief. Every routed sentence logs its model and timing in `{ }`.
 
@@ -148,7 +148,7 @@ card in the brief. Every routed sentence logs its model and timing in `{ }`.
 
 - **No "While you were away" at beat 5.** The digest needs a tab whose last
   sync is behind the room. Reloading the same tab keeps its place; open the
-  URL fresh instead. If Alex never synced above revision 0, there is nothing
+  URL fresh instead. If Alain never synced above revision 0, there is nothing
   to be behind — that is why beat 3 comes after Sarah's need.
 - **The pill for a need is missing.** Pills only offer yes/no facets that at
   least one place in the current set is verified for, and never one already

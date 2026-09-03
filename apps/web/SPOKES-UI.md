@@ -141,6 +141,16 @@ SVG mask. When an agent widens the area, draw the **proposed** radius as a
 second, fainter dashed ring (`8d`, `7b`) so the change is visible before it
 is accepted.
 
+### You mark
+
+The viewer's own origin is a small `data-mark="you"`: a
+`--spoke-scope` ring with a centre dot, inside a 44px target. It never uses
+`--spoke-act` because it describes private scope, not authorship. It is
+draggable only after the viewer chooses **Set where you start** in their own
+roster row. Arrow keys nudge it while that mode is active. Enabling, dragging,
+and the resulting recount never pan, fit, or re-centre the map. No peer origin
+mark is rendered because peer coordinates never reach the client.
+
 ### Refinement (2026-09-03)
 
 The room keeps looking things up on its own (docs/ENRICHMENT-SOURCES.md,

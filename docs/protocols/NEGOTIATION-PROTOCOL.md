@@ -226,6 +226,7 @@ private_requirement_declared                          requirement_relaxed
 candidates_updated         proposal_created           proposal_withdrawn
 stance_submitted           evaluation_requested       evaluation_recorded
 scope_change_proposed      scope_change_applied
+origin_updated
 impasse_detected           adjustment_proposed        adjustment_resolved
 disclosure_requested       disclosure_resolved
 ready_state_changed        agreement_staged           agreement_committed
