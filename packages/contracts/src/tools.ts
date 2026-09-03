@@ -89,9 +89,14 @@ export const INSPECT_CANDIDATES_INPUT = Type.Object(
       { minItems: 1, maxItems: 3 },
     ),
     intent: Type.Optional(
-      Type.Literal("open", {
-        description: "A person opened the place: answer with what is cached and fast-track the rest.",
-      }),
+      Type.Union(
+        [Type.Literal("open"), Type.Literal("read")],
+        {
+          description:
+            "\"open\": a person opened it — answer from cache and fast-track the rest. " +
+            "\"read\": re-read the record and start nothing.",
+        },
+      ),
     ),
     force: Type.Optional(
       Type.Boolean({

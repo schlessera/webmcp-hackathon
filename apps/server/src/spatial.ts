@@ -778,7 +778,13 @@ export async function spatialContext(
 export async function inspectCandidates(
   actor: Participant,
   candidateIds: string[],
-  options: { triggerLookup?: boolean; waitMs?: number; now?: Date; intent?: "open"; force?: boolean } = {},
+  options: {
+    triggerLookup?: boolean;
+    waitMs?: number;
+    now?: Date;
+    intent?: "open" | "read";
+    force?: boolean;
+  } = {},
 ): Promise<InspectCandidatesResponse> {
   // R9: discover network targets without locking the room and without
   // checking out a client. The candidate rows are deliberately re-read in a
@@ -817,7 +823,12 @@ export async function inspectCandidates(
     })
     .filter((target): target is RoomLookupTarget => target !== null);
 
-  if (options.triggerLookup !== false) {
+  // A "read" is the page re-reading the record a frame just changed. It must
+  // start nothing: the panel refreshes its rows on every interactive stage,
+  // and before this each of those refreshes launched its own uncapped lookup,
+  // which outlived the plan that prompted it and left the place reading as
+  // pending long after the open had finished.
+  if (options.triggerLookup !== false && options.intent !== "read") {
     if (options.intent === "open") {
       // Cache is returned immediately. Each place then owns an independent
       // bounded plan, so inspecting three candidates cannot pool their budgets.

@@ -1,6 +1,6 @@
 {
   "toolContractVersion": "3",
-  "sha256": "2e6f435ea3d343794b33c354cfe00c0ec9fd0768445f82c9007557222240dad3",
+  "sha256": "1e9120c2f3befa9eb6d3e337d1be4aa2664b45779ae2f22014f934964aaeb6e7",
   "manifest": {
     "capabilityManifest": {
       "agreement": {
@@ -6869,9 +6869,17 @@
               "type": "boolean"
             },
             "intent": {
-              "const": "open",
-              "description": "A person opened the place: answer with what is cached and fast-track the rest.",
-              "type": "string"
+              "anyOf": [
+                {
+                  "const": "open",
+                  "type": "string"
+                },
+                {
+                  "const": "read",
+                  "type": "string"
+                }
+              ],
+              "description": "\"open\": a person opened it — answer from cache and fast-track the rest. \"read\": re-read the record and start nothing."
             }
           },
           "required": [

@@ -3121,7 +3121,9 @@ test("opening a place fills the panel step by step on the fast track, and hoveri
   await expect(details.getByTestId("details-lookup")).toHaveCount(0);
   await expect(details.getByTestId("details-lookup-btn")).toBeVisible();
   await expect.poll(() => inspectBodies.length).toBeGreaterThanOrEqual(5);
-  expect(inspectBodies.slice(1).every((body) => body.intent === undefined)).toBe(true);
+  // Only the open is an open. Every later read of what a frame just changed
+  // says so, and the server then starts nothing for it.
+  expect(inspectBodies.slice(1).every((body) => body.intent === "read")).toBe(true);
   const terminalTitle = await details.getByTestId("details-lookup-btn").getAttribute("title");
   const readsAtDone = inspectBodies.length;
   await page.waitForTimeout(10_000);

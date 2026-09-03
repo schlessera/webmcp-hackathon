@@ -36,6 +36,10 @@ describe("pipeline over HTTP, WebSocket, and PostgreSQL", () => {
   let focusFastId: string;
   let sharedSlowId: string;
   let sharedFastId: string;
+  let clientRoom: TestRoom;
+  let clientRealtime: TestRealtime;
+  let clientAId: string;
+  let clientBId: string;
   let focusGate: Awaited<ReturnType<typeof createFocusGate>>;
 
   beforeAll(async () => {
@@ -214,6 +218,35 @@ describe("pipeline over HTTP, WebSocket, and PostgreSQL", () => {
     sharedFocusRoom = await createTestRoom(server.baseUrl);
     [sharedSlowId, sharedFastId] = await prepareFocusRoom(sharedFocusRoom);
     sharedFocusRealtime = await openRealtime(server.baseUrl, sharedFocusRoom.tokens.org);
+
+    // Two ordinary places, both answering at full speed: the point of the
+    // client-sequence test is the switch, not a stalled fetch.
+    clientRoom = await createTestRoom(server.baseUrl);
+    const clientRows = (await clientRoom.pool.query(
+      "SELECT id FROM candidates WHERE room_id = $1 ORDER BY id LIMIT 2",
+      [clientRoom.roomId],
+    )).rows as Array<{ id: string }>;
+    [clientAId, clientBId] = [clientRows[0].id, clientRows[1].id];
+    await clientRoom.pool.query(
+      `UPDATE candidates
+          SET osm_ref = 'pipeline-client/' || $1 || '/' || id,
+              extras = jsonb_build_object('website', 'https://alpha.example/' || $1 || '/' || id),
+              attributes = $3::jsonb
+        WHERE room_id = $1 AND id = ANY($2)`,
+      [clientRoom.roomId, [clientAId, clientBId], JSON.stringify(KNOWN_ATTRIBUTES)],
+    );
+    await clientRoom.pool.query(
+      `INSERT INTO requirements
+         (id, room_id, owner_id, visibility, hardness, delegation, payload, active)
+       VALUES ($1, $2, $3, 'shared', 'hard', '{}', $4, true)`,
+      [
+        `pipeline_client_${clientRoom.roomId}`,
+        clientRoom.roomId,
+        clientRoom.participantIds.org,
+        JSON.stringify({ kind: "text", text: "free wifi" }),
+      ],
+    );
+    clientRealtime = await openRealtime(server.baseUrl, clientRoom.tokens.org);
   });
 
   beforeEach(() => {
@@ -229,6 +262,7 @@ describe("pipeline over HTTP, WebSocket, and PostgreSQL", () => {
     hangRealtime?.close();
     focusRealtime?.close();
     sharedFocusRealtime?.close();
+    clientRealtime?.close();
     focusGate?.release();
     await room?.pool.query("DELETE FROM enrichments WHERE osm_ref LIKE $1", [
       `pipeline/${room.roomId}/%`,
@@ -244,6 +278,10 @@ describe("pipeline over HTTP, WebSocket, and PostgreSQL", () => {
     await hangRoom?.cleanup();
     await focusRoom?.cleanup();
     await sharedFocusRoom?.cleanup();
+    await clientRoom?.pool.query("DELETE FROM enrichments WHERE osm_ref LIKE $1", [
+      `pipeline-client/${clientRoom.roomId}/%`,
+    ]);
+    await clientRoom?.cleanup();
     await hangServer?.stop();
     await server?.stop();
     await focusGate?.close();
@@ -605,6 +643,115 @@ describe("pipeline over HTTP, WebSocket, and PostgreSQL", () => {
     expect(line).toContain('"modelCalls":');
     expect(line).toContain('"costUsd":');
     expect(line).not.toContain(PRIVATE_TEXT);
+  });
+
+  /**
+   * The real page's sequence, not a synthetic one: a click sends `viewing`
+   * over the socket and posts one `intent: "open"` inspect, and every `facts`
+   * frame naming the open place makes the panel re-read the dossier. Those
+   * re-reads carry `intent: "read"`; before they did, each of them launched
+   * its own uncapped lookup, which outlived the plan that prompted it and
+   * left `lookupPending` true with no later frame to correct it — the panel
+   * then stayed busy for as long as it stayed open.
+   */
+  it("settles A, B and A again when a person switches places within 300ms", async () => {
+    const frameStart = clientRealtime.frames().length;
+    const frames = () => clientRealtime.frames().slice(frameStart);
+    const pendingIn = (candidateId: string): boolean | null => {
+      for (const raw of [...frames()].reverse()) {
+        const frame = JSON.parse(raw) as { type?: string; pending?: string[] };
+        if (frame.type === "lookups") return frame.pending?.includes(candidateId) === true;
+      }
+      return null;
+    };
+    /** What the panel does on a `facts` frame: re-read, and start nothing. */
+    const readDossier = async (candidateId: string) =>
+      apiPost<{ ok: boolean; candidates: Array<{ lookupPending?: boolean }> }>(
+        server.baseUrl,
+        "/api/spatial/inspect",
+        clientRoom.tokens.org,
+        { candidateIds: [candidateId], intent: "read" },
+      );
+    const open = async (candidateId: string) => {
+      clientRealtime.send({ type: "viewing", candidateId });
+      await apiPost(server.baseUrl, "/api/spatial/inspect", clientRoom.tokens.org, {
+        candidateIds: [candidateId], intent: "open", force: true,
+      });
+    };
+
+    await open(clientAId);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    await open(clientBId);
+
+    // B is the place the person is looking at: it has to finish.
+    await waitFor(
+      () => terminalFrame(frames(), clientBId, "complete"),
+      15_000,
+      () => frames().join("|"),
+    );
+    // And the room has to stop calling it pending, or the panel reads as busy
+    // with nothing left to clear it.
+    await waitFor(() => pendingIn(clientBId) === false, 15_000, () => frames().join("|"));
+    const readAfterB = await readDossier(clientBId);
+    expect(readAfterB.body.ok).toBe(true);
+    expect(readAfterB.body.candidates[0]?.lookupPending).toBe(false);
+
+    // Going back to A starts a fresh plan and that one finishes too.
+    const reopenStart = clientRealtime.frames().length;
+    const reopened = () => clientRealtime.frames().slice(reopenStart);
+    await open(clientAId);
+    await waitFor(
+      () => terminalFrame(reopened(), clientAId, "complete"),
+      15_000,
+      () => reopened().join("|"),
+    );
+    await waitFor(() => pendingIn(clientAId) === false, 15_000, () => frames().join("|"));
+    const readAfterA = await readDossier(clientAId);
+    expect(readAfterA.body.candidates[0]?.lookupPending).toBe(false);
+  });
+
+  it("starts no plan for a read, however many frames the panel answers", async () => {
+    const planMarker = `\"candidateId\":\"${clientBId}\"`;
+    await apiPost(server.baseUrl, "/api/spatial/inspect", clientRoom.tokens.org, {
+      candidateIds: [clientBId], intent: "open", force: true,
+    });
+    await waitFor(
+      () => terminalFrame(clientRealtime.frames(), clientBId, "complete"),
+      15_000,
+      () => clientRealtime.frames().join("|"),
+    );
+    const plans = countLog(planMarker);
+    // The room has to be quiet first, or a frame from the open itself would
+    // be mistaken for one the reads caused.
+    await waitFor(() => {
+      for (const raw of [...clientRealtime.frames()].reverse()) {
+        const frame = JSON.parse(raw) as { type?: string; pending?: string[] };
+        if (frame.type === "lookups") return frame.pending?.includes(clientBId) !== true;
+      }
+      return false;
+    }, 15_000, () => clientRealtime.frames().join("|"));
+    const readStart = clientRealtime.frames().length;
+    for (let i = 0; i < 6; i += 1) {
+      const read = await apiPost<{ ok: boolean; candidates: Array<{ lookupPending?: boolean }> }>(
+        server.baseUrl,
+        "/api/spatial/inspect",
+        clientRoom.tokens.org,
+        { candidateIds: [clientBId], intent: "read" },
+      );
+      expect(read.body.ok).toBe(true);
+      // A read never leaves the place reading as pending.
+      expect(read.body.candidates[0]?.lookupPending).toBe(false);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    expect(countLog(planMarker), server.logs()).toBe(plans);
+    // Nor does it register a lookup span: a read that begins one puts the
+    // place back in the room's pending set, which is what the panel reads as
+    // busy — and nothing would arrive later to take it out again.
+    const startedALookup = clientRealtime.frames().slice(readStart).some((raw) => {
+      const frame = JSON.parse(raw) as { type?: string; pending?: string[] };
+      return frame.type === "lookups" && frame.pending?.includes(clientBId) === true;
+    });
+    expect(startedALookup, clientRealtime.frames().slice(readStart).join("|")).toBe(false);
   });
 
   it("lets force bypass the interactive-open floor", async () => {

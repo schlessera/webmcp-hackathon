@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { ATTRIBUTE_LABELS, PRICE_LEVEL_EUR } from "@webmcp-hackathon/contracts";
 import { blurhashDataUrl } from "../ui/blurhash.ts";
 import { placeImageBlob, spatialInspectRaw } from "../api.ts";
+import { LOOKUP_HINT_MS, panelLookingUp, panelWorking } from "../ui/panel-work.ts";
 import type { InteractiveStage } from "../spatial-store.ts";
 
 /** After this long without the open fast track closing, say so. */
@@ -344,6 +345,9 @@ export function PlaceDetails({
   const dossierRef = useRef<CandidateDossier | null>(dossier);
   dossierRef.current = dossier;
   const [factsSettlingCandidate, setFactsSettlingCandidate] = useState<string | null>(null);
+  /* When the dossier now on screen was read. Its `lookupPending` is only as
+     current as that moment — see panel-work.ts. */
+  const [dossierReadAt, setDossierReadAt] = useState<number | null>(null);
   const handledFactsNonce = useRef(0);
   const settleTimer = useRef<number | null>(null);
   const [activePhoto, setActivePhoto] = useState(0);
@@ -411,7 +415,7 @@ export function PlaceDetails({
         candidateIds: [candidate.candidateId],
         // Only the first dossier read is an open. Facts/need/confirmation
         // refreshes are reads of what just landed and must not start a plan.
-        ...(initialOpen ? { intent: "open" as const } : {}),
+        intent: initialOpen ? ("open" as const) : ("read" as const),
       })) as { ok?: boolean; candidates?: CandidateDossier[] };
       if (!cancelled && result.ok && result.candidates?.[0]) {
         const next = result.candidates[0];
@@ -423,7 +427,9 @@ export function PlaceDetails({
           dossierStatusSignature(current) !== dossierStatusSignature(next);
         if (factsNonce > 0) handledFactsNonce.current = factsNonce;
         const applyDossier = () => {
-          if (!cancelled) setDossier(next);
+          if (cancelled) return;
+          setDossier(next);
+          setDossierReadAt(Date.now());
         };
         if (factsChanged) {
           setFactsSettlingCandidate(candidate.candidateId);
@@ -454,6 +460,7 @@ export function PlaceDetails({
   // A different place: the old dossier must not read as this one's.
   useEffect(() => {
     setDossier(null);
+    setDossierReadAt(null);
     setActivePhoto(0);
     setRecordOpen(false);
     setHoursOpen(false);
@@ -473,7 +480,25 @@ export function PlaceDetails({
     },
     [],
   );
-  const lookingUp = busy || dossier?.lookupPending === true;
+  /* The snapshot expires on its own, so a lookup that ends after the last
+     read still lets the panel settle. The timer only forces the re-render
+     the expiry needs; the decision itself is in panel-work.ts. */
+  const [, setHintTick] = useState(0);
+  const dossierPending = dossier?.lookupPending === true;
+  useEffect(() => {
+    if (!dossierPending || dossierReadAt === null) return;
+    const timer = window.setTimeout(
+      () => setHintTick((tick) => tick + 1),
+      LOOKUP_HINT_MS,
+    );
+    return () => window.clearTimeout(timer);
+  }, [dossierPending, dossierReadAt]);
+  const lookingUp = panelLookingUp({
+    busy,
+    lookupPending: dossierPending,
+    readAt: dossierReadAt,
+    now: Date.now(),
+  });
 
   useEffect(() => {
     if (lookupPhase === "asked" && lookingUp) setLookupPhase("running");
@@ -701,7 +726,12 @@ export function PlaceDetails({
   /* One "something is happening here" signal for the nav: the room's
      pipeline, the open fast track, a read this page asked for, or the very
      first dossier read. */
-  const working = lookingUp || openStage !== null || lookupPhase === "asked" || !dossier;
+  const working = panelWorking({
+    lookingUp,
+    openStage,
+    lookupAsked: lookupPhase === "asked",
+    hasDossier: dossier !== null,
+  });
   /* The busy face carries words as well as the ring: reduced motion stands
      the ring still, and the words are then the whole signal (§9). */
   const workLabel =
