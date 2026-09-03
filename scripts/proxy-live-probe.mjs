@@ -66,6 +66,51 @@ async function bounded(response, max = 1_500_000) {
   }
 }
 
+async function boundedText(response, max = 100_000) {
+  if (!response.body) return { text: "", bytes: 0 };
+  const reader = response.body.getReader();
+  const chunks = [];
+  let bytes = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const remaining = max - bytes;
+      if (remaining <= 0) {
+        await reader.cancel();
+        break;
+      }
+      chunks.push(value.subarray(0, remaining));
+      bytes += Math.min(value.byteLength, remaining);
+      if (value.byteLength >= remaining) {
+        await reader.cancel();
+        break;
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return { text: Buffer.concat(chunks.map((chunk) => Buffer.from(chunk)), bytes).toString("utf8"), bytes };
+}
+
+function robotsAllows(text, path) {
+  let inStar = false;
+  let sawStar = false;
+  const disallowed = [];
+  for (const rawLine of text.split(/\r?\n/)) {
+    const line = rawLine.replace(/#.*$/, "").trim();
+    const match = /^([A-Za-z-]+)\s*:\s*(.*)$/.exec(line);
+    if (!match) continue;
+    if (match[1].toLowerCase() === "user-agent") {
+      inStar = match[2].trim() === "*";
+      if (inStar) sawStar = true;
+    } else if (inStar && match[1].toLowerCase() === "disallow" && match[2].trim()) {
+      disallowed.push(match[2].trim());
+    }
+  }
+  return !sawStar || !disallowed.some((rule) => path.startsWith(rule.replace(/\*$/, "")));
+}
+
 async function proxyRequest(label, target, password) {
   const dispatcher = agent(password);
   const started = performance.now();
@@ -129,17 +174,34 @@ for (const venue of snapshot.venues) {
 async function measured(venue, route) {
   const started = performance.now();
   let dispatcher;
+  let bytes = 0;
   try {
     if (route === "proxy") {
       const session = randomUUID().replaceAll("-", "").slice(0, 12);
       dispatcher = agent(`${authKey}_country-DE_session-${session}`);
     }
-    const response = await fetch(venue.url, {
+    const request = (url, accept) => fetch(url, {
       ...(dispatcher ? { dispatcher } : {}),
-      headers: { "user-agent": ua, accept: "text/html,application/xhtml+xml" },
+      headers: { "user-agent": ua, accept },
       signal: AbortSignal.timeout(25_000),
     });
-    const bytes = await bounded(response);
+    try {
+      const robotsUrl = new URL("/robots.txt", venue.url);
+      const robots = await request(robotsUrl, "text/plain");
+      if (robots.ok) {
+        const read = await boundedText(robots);
+        bytes += read.bytes;
+        if (!robotsAllows(read.text, new URL(venue.url).pathname || "/")) {
+          return { status: "robots-disallowed", ok: false, ms: Math.round(performance.now() - started), bytes };
+        }
+      } else {
+        await robots.body?.cancel();
+      }
+    } catch {
+      // Matches the production policy: an unavailable robots file is allow.
+    }
+    const response = await request(venue.url, "text/html,application/xhtml+xml");
+    bytes += await bounded(response);
     return {
       status: response.status,
       ok: response.status >= 200 && response.status < 400,
@@ -147,7 +209,7 @@ async function measured(venue, route) {
       bytes,
     };
   } catch (error) {
-    return { status: errorShape(error).code ?? "error", ok: false, ms: Math.round(performance.now() - started), bytes: 0 };
+    return { status: errorShape(error).code ?? "error", ok: false, ms: Math.round(performance.now() - started), bytes };
   } finally {
     await dispatcher?.close().catch(() => undefined);
   }
