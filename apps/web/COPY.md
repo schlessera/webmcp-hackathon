@@ -212,7 +212,6 @@ Each states what's true, then the one thing to do.
   **“Everyone in the room will see it.”**
 - Desktop batch action: **“Bring in all here (N)”**, where N is the absolute
   number that will be brought in and never exceeds 40.
-- A capped viewport says **“Zoom in to see every place here.”**
 
 Use **bring in** for moving a place from the map's explore layer into the
 room. Never expose “ref”, endpoint names, command names, or pool vocabulary in

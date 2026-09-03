@@ -1018,9 +1018,9 @@ test("panning reveals explorable places, bringing one in preserves the viewport,
   await expect
     .poll(async () => Number(await page.getByTestId("map-region").getAttribute("data-explore-count")))
     .toBeGreaterThan(0);
-  await expect(page.getByTestId("explore-truncated")).toHaveText(
-    "Zoom in to see every place here.",
-  );
+  // The endpoint still says it capped the read; the map says nothing about it
+  // (the zoom cue was removed on 2026-09-03).
+  await expect(page.getByTestId("explore-truncated")).toHaveCount(0);
   const pannedBefore = await stableMarkerTransforms(page, ["place_1", "place_24"]);
 
   // The GL layer also exposes its visible places through one native keyboard

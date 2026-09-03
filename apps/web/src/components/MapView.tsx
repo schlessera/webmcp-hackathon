@@ -253,7 +253,6 @@ interface Props {
   roomId: string;
   isOrganizer: boolean;
   explore: ReadonlyMap<string, ExplorePlace>;
-  exploreTruncated: boolean;
   /** The viewer's own application-private starting point. */
   origin?: ParticipantOrigin;
   originEditing: boolean;
@@ -374,7 +373,6 @@ export function MapView({
   roomId,
   isOrganizer,
   explore,
-  exploreTruncated,
   origin,
   originEditing,
   onSetOrigin,
@@ -2412,12 +2410,6 @@ export function MapView({
       <div className="sr-only" aria-live="polite" aria-atomic="true">
         {exploreAnnouncement}
       </div>
-
-      {exploreTruncated && (
-        <div className="explore-truncated-cue" data-testid="explore-truncated">
-          Zoom in to see every place here.
-        </div>
-      )}
 
       <div className="map-wash" aria-hidden="true" />
 

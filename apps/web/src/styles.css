@@ -815,24 +815,6 @@ body { overflow: hidden; }
 }
 .explore-card-actions button:disabled { opacity: var(--spoke-out-opacity); }
 
-.explore-truncated-cue {
-  position: absolute;
-  top: 12px;
-  right: 12px;
-  z-index: 5;
-  max-width: min(190px, 48%);
-  padding: 5px 9px;
-  border: var(--spoke-border) solid var(--spoke-line);
-  border-radius: var(--spoke-radius-chip);
-  background: var(--spoke-surface);
-  box-shadow: var(--spoke-shadow-drop);
-  color: var(--spoke-ink);
-  font-size: var(--spoke-size-meta);
-  font-weight: var(--spoke-weight-strong);
-  line-height: 1.25;
-  pointer-events: none;
-}
-
 /* Explicit viewport actions. The outer button supplies a 44px target while
    the inner chip keeps the compact visual requested by the map spec. */
 .map-nav-actions {

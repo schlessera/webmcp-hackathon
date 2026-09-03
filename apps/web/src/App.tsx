@@ -900,7 +900,6 @@ export function App() {
               roomId={id.roomId}
               isOrganizer={isOrganizer}
               explore={spatialState.explore}
-              exploreTruncated={spatialState.exploreTruncated}
               run={run}
               origin={me?.origin}
               originEditing={originEditing}

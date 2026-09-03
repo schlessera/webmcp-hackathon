@@ -91,8 +91,6 @@ export interface SpatialState {
   refetching: boolean;
   /** Bounded snapshot-place cache across recent viewport reads, by stable ref. */
   explore: Map<string, ExplorePlace>;
-  /** Whether the most recent viewport held more than the endpoint cap. */
-  exploreTruncated: boolean;
 }
 
 export interface LookupReason {
@@ -248,7 +246,6 @@ export class SpatialStore {
     interactive: {},
     refetching: false,
     explore: new Map(),
-    exploreTruncated: false,
   };
   private listeners = new Set<Listener>();
   private pendingTimer: number | null = null;
@@ -471,7 +468,6 @@ export class SpatialStore {
     this.exploreAbort = null;
     this.update({
       explore: new Map(),
-      exploreTruncated: false,
       busy: [],
       busyReason: null,
       stages: {},
@@ -494,12 +490,7 @@ export class SpatialStore {
     const result = await fetchExplorePlaces(roomId, bbox, controller.signal);
     if (controller.signal.aborted || this.roomId !== roomId || !result.ok) return;
     const explore = mergeExploreCache(this.state.explore, result.places, bbox);
-    if (
-      explore !== this.state.explore ||
-      result.truncated !== this.state.exploreTruncated
-    ) {
-      this.update({ explore, exploreTruncated: result.truncated });
-    }
+    if (explore !== this.state.explore) this.update({ explore });
   }
 
   markExploreAdded(refs: string[]): void {
