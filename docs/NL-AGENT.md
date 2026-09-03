@@ -26,9 +26,10 @@ deployment model today.
 | Act on the room or answer a question about it | `apps/server/src/nl/agent.ts` | Function-tool loop over participant-visible room state. |
 | Screen places against an agent-private condition | `apps/server/src/nl/screening.ts` | Strict schema with no-collection and zero-retention provider routing. |
 
-`LLM_MODEL` chooses the deployment model and defaults to
-`z-ai/glm-5.3-flash`. `NL_FAST_MODEL`, `NL_SMART_MODEL` and
-`MENU_READER_MODEL` remain per-site overrides for a future return to tiers.
+`LLM_MODEL` chooses the deployment default and defaults to
+`z-ai/glm-5.3-flash`. `LLM_MODEL_ROUTE`, `LLM_MODEL_JUDGE`,
+`LLM_MODEL_AGENT`, and `LLM_MODEL_VISION` can override one job family; each
+inherits `LLM_MODEL` when unset, preserving the single-model default.
 `LLM_PROVIDER` selects `openrouter` or `openai`; absent an explicit value it
 uses OpenRouter when `OPENROUTER_API_KEY` exists and OpenAI otherwise.
 
@@ -138,6 +139,10 @@ uses the existing honest `text` fallback.
 - Cannot commit or confirm: `CommitAgreement` and `ConfirmPrivateRequest`
   have no tool route here either. The human's page gesture stays the only
   path (INTERACTION-AND-BINDING.md §5.4).
+- `inspect_candidates` has an optional `intent: "open"`. With it, the tool
+  returns the cached dossier immediately and streams the bounded priority-zero
+  site, image, adjudication and optional Parallel-turbo search continuation
+  through `facts` frames.
 - One agent turn has a total deadline of about 90 seconds, including its
   initial snapshot, requested reads and every model call. Each call receives
   only the remaining budget. The loop is capped at four model rounds and at

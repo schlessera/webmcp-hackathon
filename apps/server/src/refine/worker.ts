@@ -44,12 +44,14 @@ import { createTokenBucket } from "../token-bucket.ts";
 import { responseMetrics } from "../nl/llm.ts";
 import { adjudicateLikelyForRoom } from "../enrich/adjudication-runner.ts";
 import {
+  parallelSearchProvider,
   search,
   SEARCH_PROVIDER_COST_USD,
   searchProviderId,
   type SearchResult,
   type SearchProviderId,
 } from "./search.ts";
+import type { InteractiveBudget } from "../pipeline/interactive.ts";
 import { pipelineScheduler, type DispatchResult } from "../pipeline/scheduler.ts";
 import {
   pipelineDedupeKey,
@@ -580,6 +582,7 @@ export interface RefinementSearchPolicy {
     roomId: string;
     needsEpoch: number;
     priority?: PipelineItem["priority"];
+    intent?: PipelineItem["intent"];
   };
 }
 
@@ -707,7 +710,7 @@ export async function searchRefinementPlaces(
       // snippets without contributing a byte of query text.
       criteria: request.criteria,
       priority: policy.pipeline!.priority ?? 1,
-      intent: "background" as const,
+      intent: policy.pipeline!.intent ?? "background" as const,
       needsEpoch: policy.pipeline!.needsEpoch,
       enqueuedAt: Date.now(),
     };
@@ -736,6 +739,116 @@ export async function searchRefinementPlaces(
       }, reject);
     });
   });
+}
+
+/** The single Parallel-turbo search permitted after an interactive site pass. */
+export async function searchInteractiveCandidate(
+  roomId: string,
+  candidateId: string,
+  budget: InteractiveBudget,
+): Promise<{ searched: boolean; paidSearch: boolean; modelCall: boolean; changed: string[] }> {
+  const inputs = await loadEligibilityInputs(pool, roomId);
+  const candidate = inputs.candidates.find((entry) => entry.id === candidateId);
+  if (!candidate?.osm_ref) return { searched: false, paidSearch: false, modelCall: false, changed: [] };
+  const active = activeCriteria(inputs);
+  const unresolved = [...active.values()]
+    .map((entry) => entry.criterion)
+    .filter(modelCriterion)
+    .filter((criterion) => unknown(inputs, candidate, criterion, Date.now()));
+  if (unresolved.length > MAX_MATRIX_CRITERIA) wakeRefinement(roomId);
+  const interactiveCriteria = unresolved.slice(0, MAX_MATRIX_CRITERIA);
+  const searchCriteria = interactiveCriteria.filter((criterion) => searchableCriterion(criterion, active));
+  if (searchCriteria.length === 0) return { searched: false, paidSearch: false, modelCall: false, changed: [] };
+  if (!process.env.PARALLEL_API_KEY) {
+    wakeRefinement(roomId);
+    return { searched: false, paidSearch: false, modelCall: false, changed: [] };
+  }
+  if (!budget.take("search") || !searchBudget.consume(roomId, 1, Date.now())) {
+    wakeRefinement(roomId);
+    return { searched: false, paidSearch: false, modelCall: false, changed: [] };
+  }
+  const area = await roomPlace(roomId);
+  const request: RefinementSearchRequest = {
+    candidateId,
+    osmRef: candidate.osm_ref,
+    name: candidate.name,
+    category: candidate.category,
+    website: candidate.extras?.website,
+    address: candidate.extras?.address,
+    siteTextUsable: false,
+    criteria: interactiveCriteria,
+    searchCriteria,
+  };
+  const [found] = await searchRefinementPlaces([request], area, parallelSearchProvider.search, {
+    cacheDb: pool,
+    providerName: "parallel",
+    roomId,
+    pipeline: { roomId, needsEpoch: stateFor(roomId).cursorEpoch, priority: 0, intent: "interactive" },
+  });
+  const paidSearch = Boolean(process.env.PARALLEL_API_KEY && found && !found.cacheHit);
+  if (!found || found.results.length === 0) {
+    return { searched: true, paidSearch, modelCall: false, changed: [] };
+  }
+  if (!budget.take("model") || !modelBudget.consume(roomId, 1, Date.now())) {
+    wakeRefinement(roomId);
+    return { searched: true, paidSearch, modelCall: false, changed: [] };
+  }
+  const place = {
+    candidateId,
+    osmRef: candidate.osm_ref,
+    name: candidate.name,
+    category: candidate.category,
+    cuisine: [],
+    texts: found.results.map((result) => ({
+      source: found.source,
+      text: result.snippet,
+      url: result.url,
+      title: result.title,
+    })),
+  } satisfies EvaluateMatrixInput["places"][number];
+  const before = stableAttributeHash(candidate.attributes as never);
+  const answered = new Set<string>();
+  const base = {
+    roomId,
+    candidateId,
+    osmRef: candidate.osm_ref,
+    kind: "process.judge" as const,
+    criteria: interactiveCriteria,
+    priority: 0 as const,
+    intent: "interactive" as const,
+    evidenceHash: matrixEvidenceHash(place),
+    needsEpoch: stateFor(roomId).cursorEpoch,
+    enqueuedAt: Date.now(),
+  };
+  const claims = await pipelineScheduler.enqueue(
+    { ...base, dedupeKey: pipelineDedupeKey(base) },
+    async () => ({
+      value: await evaluateMatrix(
+        { places: [place], criteria: interactiveCriteria },
+        async (batch) => {
+          for (const cell of batch.answered) answered.add(cell.criterionId);
+        },
+        pool,
+        "refresh",
+        "interactive",
+      ),
+      actualRoute: "direct",
+    }),
+    { present: presentIn(roomId).size > 0, reason: { kind: "place" } },
+  );
+  await saveInferences(pool, [{
+    osmRef: candidate.osm_ref,
+    criteria: interactiveCriteria,
+    claims,
+    answeredCriterionIds: [...answered],
+    searchedCriterionIds: searchCriteria.map((criterion) => criterion.id),
+    observedAt: new Date().toISOString(),
+  }]);
+  const refreshed = await loadEligibilityInputs(pool, roomId);
+  const updated = refreshed.candidates.find((entry) => entry.id === candidateId);
+  const changed = updated && stableAttributeHash(updated.attributes as never) !== before ? [candidateId] : [];
+  await publishInferenceChanges(pool, roomId, changed, "interactive", "web");
+  return { searched: true, paidSearch, modelCall: true, changed };
 }
 
 function modelCalls(places: number, criteria: number): number {
@@ -881,8 +994,8 @@ function queuePreparedForJudging(
     for (const cell of cells) {
       const processItem = cell.value.item;
       pipelineScheduler.buffer(processItem, { reason });
-      pipelineBatcher.add(cell);
     }
+    pipelineBatcher.addMany(cells);
   });
 }
 
@@ -1075,6 +1188,8 @@ async function processRefinementBatch(
         { places: prepared.map((place) => place.matrix), criteria },
         collectAnswered,
         pool,
+        "reuse",
+        "background",
       );
     }
     const openByCandidate = new Map(batch.map((item) => [
@@ -1297,6 +1412,18 @@ function logBatch(
 ): void {
   const now = responseMetrics();
   const calls = now.calls - batch.spend.calls;
+  const serviceTierCalls = Object.fromEntries(
+    Object.entries(now.serviceTierCalls)
+      .map(([tier, count]) => [
+        tier,
+        count - batch.spend.serviceTierCalls[tier as keyof typeof batch.spend.serviceTierCalls],
+      ] as const)
+      .filter(([, count]) => count > 0),
+  );
+  const usedServiceTiers = Object.keys(serviceTierCalls);
+  const serviceTier = usedServiceTiers.length > 1
+    ? "mixed"
+    : usedServiceTiers[0] ?? "none";
   const modelCost = now.costUsd - batch.spend.costUsd;
   const listingCost = takeListingSpendUsd(roomId);
   // OpenRouter reports built-in web-search spend in usage.cost. External
@@ -1312,6 +1439,8 @@ function logBatch(
     places: batch.places,
     criteria: batch.criteria,
     calls,
+    serviceTier,
+    serviceTierCalls,
     searches: batch.searches,
     searchProvider: batch.providerName,
     listingCostUsd: Number(listingCost.toFixed(4)),

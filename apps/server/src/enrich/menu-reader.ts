@@ -132,7 +132,10 @@ export function readingFromAnswer(answer: unknown, model: string, readAt: string
 }
 
 /** One model call over one menu file. Null when disabled, too big, or unreadable. */
-export async function readMenu(source: MenuSource): Promise<MenuReading | null> {
+export async function readMenu(
+  source: MenuSource,
+  intent: "interactive" | "background" = "background",
+): Promise<MenuReading | null> {
   if (!menuReaderEnabled()) return null;
   if (source.bytes.byteLength === 0 || source.bytes.byteLength > MAX_BYTES) return null;
   const base64 = Buffer.from(source.bytes).toString("base64");
@@ -141,9 +144,10 @@ export async function readMenu(source: MenuSource): Promise<MenuReading | null> 
     source.kind === "pdf"
       ? { type: "input_file" as const, filename: "menu.pdf", file_data: `data:${mime};base64,${base64}` }
       : { type: "input_image" as const, image_url: `data:${mime};base64,${base64}`, detail: "high" as const };
-  const model = config.menuReaderModel;
+  const model = config.llmVisionModel;
   const reply = await respond({
     model,
+    intent,
     instructions: INSTRUCTIONS,
     input: [{ role: "user", content: [{ type: "input_text", text: `Menu from ${source.url}` }, part] }],
     schema: { name: "menu_reading", schema: SCHEMA },

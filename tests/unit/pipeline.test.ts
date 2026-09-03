@@ -24,6 +24,8 @@ import {
   type DispatchResult,
 } from "../../apps/server/src/pipeline/scheduler.ts";
 import { refreshAssetsThroughPipeline } from "../../apps/server/src/pipeline/stages/assets.ts";
+import { InteractiveBudget } from "../../apps/server/src/pipeline/interactive.ts";
+import { PrefetchManager } from "../../apps/server/src/pipeline/prefetch.ts";
 import { judge } from "../../apps/server/src/pipeline/stages/judge.ts";
 import {
   searchRefinementPlaces,
@@ -37,6 +39,16 @@ import {
 const sharp = createRequire(new URL("../../apps/server/package.json", import.meta.url))("sharp");
 
 const criterion = (id = "wifi"): Criterion => ({ id, kind: "key", key: id, label: id });
+const NO_RESERVATIONS = {
+  proxy: 0,
+  direct: 0,
+  search: 0,
+  "llm-matrix": 0,
+  vision: 0,
+  "image-decode": 0,
+} as const;
+const testPools = (limits: Parameters<typeof createPipelinePools>[0]) =>
+  createPipelinePools(limits, NO_RESERVATIONS);
 
 function item(
   candidateId: string,
@@ -107,7 +119,8 @@ describe("refinement pipeline", () => {
     expect(finished).toHaveLength(7);
     await vi.advanceTimersByTimeAsync(1);
     await expect(job).resolves.toHaveLength(8);
-    expect(pipelineScheduler.pools.search.maxInFlight).toBe(4);
+    // One of the four slots is reserved for a priority-zero search.
+    expect(pipelineScheduler.pools.search.maxInFlight).toBe(3);
   });
 
   it("never contributes a private need to a pipeline search query", async () => {
@@ -136,7 +149,7 @@ describe("refinement pipeline", () => {
 
   it("shares the llm-matrix budget between judge and adjudicate cells", async () => {
     const scheduler = new PipelineScheduler({
-      pools: createPipelinePools({ direct: 1, proxy: 1, search: 1, "llm-matrix": 2, vision: 1, "image-decode": 1 }),
+      pools: testPools({ direct: 1, proxy: 1, search: 1, "llm-matrix": 2, vision: 1, "image-decode": 1 }),
       hostGateOpen: () => true,
     });
     const releases = [controlled(), controlled(), controlled()];
@@ -166,7 +179,7 @@ describe("refinement pipeline", () => {
 
   it("keeps direct site occupancy full while a slow proxied asset downloads", async () => {
     const scheduler = new PipelineScheduler({
-      pools: createPipelinePools({ direct: 4, proxy: 1, search: 1, "llm-matrix": 1, vision: 1, "image-decode": 1 }),
+      pools: testPools({ direct: 4, proxy: 1, search: 1, "llm-matrix": 1, vision: 1, "image-decode": 1 }),
       routeFor: (_host, purpose) => purpose === "image-cdn" ? "proxy" : "direct",
       hostGateOpen: () => true,
     });
@@ -196,7 +209,7 @@ describe("refinement pipeline", () => {
 
   it("enqueues decode and vision only for interactive asset materialisation", async () => {
     const scheduler = new PipelineScheduler({
-      pools: createPipelinePools({ direct: 2, proxy: 1, search: 1, "llm-matrix": 1, vision: 1, "image-decode": 2 }),
+      pools: testPools({ direct: 2, proxy: 1, search: 1, "llm-matrix": 1, vision: 1, "image-decode": 2 }),
       routeFor: () => "direct",
       hostGateOpen: () => true,
     });
@@ -272,7 +285,7 @@ describe("refinement pipeline", () => {
     let crowdedAdmissions = 0;
     let crowdedReleased = false;
     const scheduler = new PipelineScheduler({
-      pools: createPipelinePools({ direct: 8, proxy: 1, search: 1, "llm-matrix": 1, vision: 1, "image-decode": 1 }),
+      pools: testPools({ direct: 8, proxy: 1, search: 1, "llm-matrix": 1, vision: 1, "image-decode": 1 }),
       routeFor: () => "direct",
       hostGateOpen: (host) => host !== "crowded.example" || crowdedReleased || crowdedAdmissions++ < 2,
     });
@@ -320,7 +333,7 @@ describe("refinement pipeline", () => {
     let open = false;
     let started = 0;
     const scheduler = new PipelineScheduler({
-      pools: createPipelinePools({ direct: 1, proxy: 1, search: 1, "llm-matrix": 1, vision: 1, "image-decode": 1 }),
+      pools: testPools({ direct: 1, proxy: 1, search: 1, "llm-matrix": 1, vision: 1, "image-decode": 1 }),
       routeFor: () => "direct",
       hostGateOpen: () => open,
     });
@@ -336,10 +349,10 @@ describe("refinement pipeline", () => {
     expect(started).toBe(1);
   });
 
-  it("prefers direct for interactive fetches and retries one block through proxy", async () => {
+  it("leaves interactive route selection with routeFor", async () => {
     const routes: Array<{ route?: OutboundRoute; attempt: number }> = [];
     const scheduler = new PipelineScheduler({
-      pools: createPipelinePools({ direct: 1, proxy: 1, search: 1, "llm-matrix": 1, vision: 1, "image-decode": 1 }),
+      pools: testPools({ direct: 1, proxy: 1, search: 1, "llm-matrix": 1, vision: 1, "image-decode": 1 }),
       routeFor: () => "proxy",
       hostGateOpen: () => true,
     });
@@ -348,15 +361,132 @@ describe("refinement pipeline", () => {
       priority: 0,
     }), async (route, attempt): Promise<DispatchResult<string>> => {
       routes.push({ route, attempt });
-      return attempt === 0
-        ? { value: "blocked", actualRoute: "direct", status: 429 }
-        : { value: "ok", actualRoute: "proxy" };
+      return { value: "ok", actualRoute: route ?? "direct" };
     });
     expect(result).toBe("ok");
     expect(routes).toEqual([
-      { route: "direct", attempt: 0 },
-      { route: "proxy", attempt: 1 },
+      { route: "proxy", attempt: 0 },
     ]);
+  });
+
+  it("keeps reserved direct slots free through a fifty-item background saturation", async () => {
+    vi.useFakeTimers();
+    const pools = createPipelinePools(
+      { direct: 4, proxy: 1, search: 1, "llm-matrix": 1, vision: 1, "image-decode": 1 },
+      { direct: 2 },
+    );
+    const scheduler = new PipelineScheduler({
+      pools,
+      routeFor: () => "direct",
+      hostGateOpen: () => true,
+    });
+    const background = Array.from({ length: 50 }, (_, index) => scheduler.enqueue(
+      item(`sweep-${index}`, { priority: 3 }),
+      async () => {
+        await new Promise((resolve) => setTimeout(resolve, 10_000));
+        return { value: index, actualRoute: "direct" as const };
+      },
+    ));
+    await vi.advanceTimersByTimeAsync(1);
+    expect(pools.direct.inFlight).toBe(2);
+    const openedAt = Date.now();
+    let openFinishedAt = openedAt;
+    const open = scheduler.enqueue(
+      item("opened", { priority: 0, intent: "interactive" }),
+      async () => {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        openFinishedAt = Date.now();
+        return { value: "usable", actualRoute: "direct" as const };
+      },
+    );
+    await vi.advanceTimersByTimeAsync(100);
+    await expect(open).resolves.toBe("usable");
+    expect(openFinishedAt - openedAt).toBeLessThan(3_000);
+    await vi.advanceTimersByTimeAsync(250_000);
+    await Promise.all(background);
+  });
+
+  it("flushes only a priority-zero place immediately and retains collected background cells", async () => {
+    vi.useFakeTimers();
+    const dispatched: string[][] = [];
+    const batcher = new MatrixBatcher<number>((cells) => {
+      dispatched.push(cells.map((cell) => `${cell.candidateId}:${cell.criterionId}`));
+    });
+    const cell = (candidateId: string, criterionId: string, priority: PipelinePriority): ReadyCell<number> => ({
+      roomId: "room-a", candidateId, criterionId, priority, bytes: 1, value: 1,
+    });
+    batcher.add(cell("background", "wifi", 3));
+    batcher.addMany([
+      cell("opened", "wifi", 0),
+      cell("opened", "terrace", 0),
+    ]);
+    expect(dispatched).toEqual([["opened:wifi", "opened:terrace"]]);
+    expect(batcher.size).toBe(1);
+    await vi.advanceTimersByTimeAsync(299);
+    expect(dispatched).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(dispatched).toEqual([
+      ["opened:wifi", "opened:terrace"],
+      ["background:wifi"],
+    ]);
+  });
+
+  it("enforces the per-open budget and returns every excess unit to background work", () => {
+    const returnedToBackground: string[] = [];
+    const budget = new InteractiveBudget((resource) => returnedToBackground.push(resource));
+    expect(budget.take("fetch")).toBe(true);
+    expect(budget.take("fetch")).toBe(false);
+    expect(budget.take("search")).toBe(true);
+    expect(budget.take("search")).toBe(false);
+    expect(budget.take("model")).toBe(true);
+    expect(budget.take("model")).toBe(true);
+    expect(budget.take("model")).toBe(false);
+    expect(budget.take("vision")).toBe(true);
+    expect(budget.take("vision")).toBe(false);
+    expect(budget.snapshot()).toEqual({
+      used: { fetch: 1, search: 1, model: 2, vision: 1 },
+      deferred: { fetch: 1, search: 1, model: 1, vision: 1 },
+    });
+    expect(returnedToBackground).toEqual(["fetch", "search", "model", "vision"]);
+  });
+
+  it("cancels unopened prefetches at five seconds and runs at most two", async () => {
+    vi.useFakeTimers();
+    const manager = new PrefetchManager(2, 5_000);
+    const releases = [controlled<void>(), controlled<void>(), controlled<void>()];
+    const started: number[] = [];
+    const aborted: number[] = [];
+    for (let index = 0; index < 3; index += 1) {
+      manager.preview(`p${index}`, async ({ signal }) => {
+        started.push(index);
+        signal.addEventListener("abort", () => aborted.push(index));
+        await releases[index].promise;
+      });
+    }
+    expect(started).toEqual([0, 1]);
+    expect(manager.inFlight).toBe(2);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(aborted).toEqual([0, 1]);
+    expect(manager.pending).toBe(0);
+    for (const release of releases) release.resolve();
+    await Promise.resolve();
+    manager.reset();
+  });
+
+  it("limits speculative work to cache, site and judge", async () => {
+    const manager = new PrefetchManager(2, 5_000);
+    const stages: string[] = [];
+    manager.preview("cheap", async ({ signal }) => {
+      stages.push("cache");
+      if (signal.aborted) return;
+      stages.push("fetch.site");
+      if (signal.aborted) return;
+      stages.push("process.judge");
+    });
+    await vi.waitFor(() => expect(stages).toHaveLength(3));
+    expect(stages).not.toContain("fetch.search");
+    expect(stages).not.toContain("process.vision");
+    manager.reset();
   });
 
   it("uses the dispatch route after routeFor diverges and accounts the reported route", async () => {
@@ -365,7 +495,7 @@ describe("refinement pipeline", () => {
       .mockReturnValueOnce("direct");
     const seen: Array<OutboundRoute | undefined> = [];
     const scheduler = new PipelineScheduler({
-      pools: createPipelinePools({ direct: 1, proxy: 1, search: 1, "llm-matrix": 1, vision: 1, "image-decode": 1 }),
+      pools: testPools({ direct: 1, proxy: 1, search: 1, "llm-matrix": 1, vision: 1, "image-decode": 1 }),
       routeFor,
       hostGateOpen: () => true,
     });
@@ -435,7 +565,7 @@ describe("refinement pipeline", () => {
   it("keeps fetches, drops stale queued judge cells, and leaves in-flight work alone", async () => {
     let fetchGateOpen = false;
     const scheduler = new PipelineScheduler({
-      pools: createPipelinePools({ direct: 1, proxy: 1, search: 1, "llm-matrix": 1, vision: 1, "image-decode": 1 }),
+      pools: testPools({ direct: 1, proxy: 1, search: 1, "llm-matrix": 1, vision: 1, "image-decode": 1 }),
       routeFor: () => "direct",
       hostGateOpen: (host) => host !== "fetch-kept.example" || fetchGateOpen,
     });
@@ -488,7 +618,7 @@ describe("refinement pipeline", () => {
     ready.push(buffered);
     const scheduler = new PipelineScheduler({
       ready,
-      pools: createPipelinePools({ direct: 1, proxy: 1, search: 1, "llm-matrix": 1, vision: 1, "image-decode": 1 }),
+      pools: testPools({ direct: 1, proxy: 1, search: 1, "llm-matrix": 1, vision: 1, "image-decode": 1 }),
       routeFor: () => "direct",
       hostGateOpen: () => true,
     });
@@ -557,6 +687,14 @@ describe("refinement pipeline", () => {
     volume.enqueue(pipelineItem);
     frames.update(pipelineItem, "queued");
     expect(seen).toHaveLength(1);
+    expect(seen[0]).toMatchObject({
+      stages: [{ candidateId: "frame", stage: "queued" }],
+      reset: false,
+    });
+    expect(frames.currentPipeline("room-a")).toMatchObject({
+      stages: [{ candidateId: "frame", stage: "queued" }],
+      reset: true,
+    });
     volume.start(pipelineItem, 0);
     frames.update(pipelineItem, "fetching");
     volume.settle(pipelineItem, 100);
@@ -569,6 +707,8 @@ describe("refinement pipeline", () => {
     expect(seen.at(-1)).toMatchObject({
       outstanding: { fetch: 0, process: 0 },
       inFlight: { fetch: 0, process: 0 },
+      stages: [{ candidateId: "frame", stage: null }],
+      reset: false,
     });
   });
 

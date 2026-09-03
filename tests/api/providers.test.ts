@@ -464,15 +464,15 @@ describe("Parallel provider switch over the refinement API", () => {
           WHERE osm_ref LIKE $1 AND inferred->$2->>'lean' = 'yes'`,
         [`parallel/${room.roomId}/%`, key],
       )).rows[0].count);
-      // The tick line is written after the tick finishes, so waiting only for
-      // the rows leaves the assertions racing it.
+      // Persistence lands before the pipeline finishes its publication and
+      // structured tick log, so waiting only for the rows races the assertions.
       if (count === 2 && server.logs().includes('"searchProvider":"parallel"')) break;
       if (Date.now() >= deadline) throw new Error(`Parallel refinement did not settle:\n${server.logs()}`);
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
     const logs = server.logs();
     expect(logs).toContain("parallel-search-request");
-    expect(logs).toContain('"mode":"fast"');
+    expect(logs).toContain('"mode":"turbo"');
     expect(logs).not.toContain("web-search-request");
     expect(logs).toContain('"searchProvider":"parallel"');
     expect(logs).toContain('"searches":3');

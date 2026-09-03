@@ -35,6 +35,8 @@ export interface Call {
   model: string;
   instructions: string;
   input: InputItem[];
+  /** Interactive calls use standard latency; background work may use flex. */
+  intent?: "interactive" | "background";
   /** Strict JSON schema the answer must satisfy. */
   schema?: { name: string; schema: unknown };
   tools?: Array<FunctionTool | WebSearchTool>;
@@ -99,8 +101,30 @@ export interface ResponseMetrics {
   inputTokens: number;
   outputTokens: number;
   costUsd: number;
+  serviceTierCalls: Record<ObservedServiceTier, number>;
   schemaCalls: Record<string, number>;
 }
+
+export type ServiceTier = "default" | "flex";
+export type ObservedServiceTier =
+  | ServiceTier
+  | "auto"
+  | "priority"
+  | "fast"
+  | "scale"
+  | "ultrafast"
+  | "unknown";
+
+const emptyServiceTierCalls = (): Record<ObservedServiceTier, number> => ({
+  default: 0,
+  flex: 0,
+  auto: 0,
+  priority: 0,
+  fast: 0,
+  scale: 0,
+  ultrafast: 0,
+  unknown: 0,
+});
 
 let responseMetricsState: ResponseMetrics = {
   calls: 0,
@@ -109,6 +133,7 @@ let responseMetricsState: ResponseMetrics = {
   inputTokens: 0,
   outputTokens: 0,
   costUsd: 0,
+  serviceTierCalls: emptyServiceTierCalls(),
   schemaCalls: {},
 };
 
@@ -117,6 +142,7 @@ let responseMetricsState: ResponseMetrics = {
 export function responseMetrics(): ResponseMetrics {
   return {
     ...responseMetricsState,
+    serviceTierCalls: { ...responseMetricsState.serviceTierCalls },
     schemaCalls: { ...responseMetricsState.schemaCalls },
   };
 }
@@ -129,6 +155,7 @@ export function resetResponseMetrics(): void {
     inputTokens: 0,
     outputTokens: 0,
     costUsd: 0,
+    serviceTierCalls: emptyServiceTierCalls(),
     schemaCalls: {},
   };
 }
@@ -204,10 +231,29 @@ const openrouterTransport: Transport = (body, timeoutMs) =>
   );
 
 let injectedTransport: Transport | null = null;
+const flexUnsupportedModels = new Set<string>();
 
 /** Tests swap the wire for a scripted one; nothing else may. */
 export function setTransport(next: Transport | null): void {
   injectedTransport = next;
+}
+
+/** Test seam for process-local model capability memory. */
+export function resetServiceTierSupportForTests(): void {
+  flexUnsupportedModels.clear();
+}
+
+function namesServiceTier(error: unknown): boolean {
+  const candidate = error as { status?: unknown; message?: unknown } | null;
+  return candidate?.status === 400 && typeof candidate.message === "string" &&
+    /(?:service[_ -]?tier|tier[^\n]*flex|flex[^\n]*tier)/i.test(candidate.message);
+}
+
+function observedServiceTier(value: unknown, requested: ServiceTier): ObservedServiceTier {
+  return value === "default" || value === "flex" || value === "auto" ||
+      value === "priority" || value === "fast" || value === "scale" || value === "ultrafast"
+    ? value
+    : requested;
 }
 
 function hasInputFile(input: InputItem[]): boolean {
@@ -298,6 +344,7 @@ interface RawResponse {
   output?: Array<Record<string, unknown>>;
   error?: { message?: string } | null;
   status?: string;
+  service_tier?: unknown;
   incomplete_details?: { reason?: string } | null;
   usage?: {
     input_tokens?: number;
@@ -337,7 +384,7 @@ function webSearchRequestCount(raw: RawResponse, call: Call): number {
     : call.tools?.some((tool) => tool.type === "web_search") ? 1 : 0;
 }
 
-function recordMetrics(raw: RawResponse, call: Call): void {
+function recordMetrics(raw: RawResponse, call: Call, serviceTier: ServiceTier): void {
   const output = raw.output ?? [];
   responseMetricsState.calls += 1;
   responseMetricsState.webSearchRequests += webSearchRequestCount(raw, call);
@@ -347,6 +394,7 @@ function recordMetrics(raw: RawResponse, call: Call): void {
   responseMetricsState.inputTokens += Number(raw.usage?.input_tokens ?? 0);
   responseMetricsState.outputTokens += Number(raw.usage?.output_tokens ?? 0);
   responseMetricsState.costUsd += Number(raw.usage?.cost ?? 0) || 0;
+  responseMetricsState.serviceTierCalls[observedServiceTier(raw.service_tier, serviceTier)] += 1;
   const schemaName = call.schema?.name;
   if (schemaName) {
     responseMetricsState.schemaCalls[schemaName] =
@@ -356,28 +404,42 @@ function recordMetrics(raw: RawResponse, call: Call): void {
 
 function higherOutputCap(body: Record<string, unknown>): number {
   const current = Number(body.max_output_tokens ?? 1_000);
-  return Math.max(current + 500, Math.ceil(current * 1.5));
+  return Math.ceil(current * 2);
 }
 
 async function respondWithPolicy(call: Call, privatePath: boolean): Promise<Reply> {
   const started = Date.now();
   const provider = config.llmProvider;
-  const body = requestBody(call, provider, privatePath);
-  if (!(ALLOWED_SERVICE_TIERS as readonly unknown[]).includes(body.service_tier)) {
-    throw new NlError(`service tier ${String(body.service_tier)} is not allowed`, 400);
+  const requestedServiceTier: ServiceTier = call.serviceTier ??
+    (call.intent === "background" ? "flex" : "default");
+  if (!(ALLOWED_SERVICE_TIERS as readonly unknown[]).includes(requestedServiceTier)) {
+    throw new NlError(`service tier ${String(requestedServiceTier)} is not allowed`, 400);
   }
+  let serviceTier: ServiceTier = requestedServiceTier === "flex" && flexUnsupportedModels.has(call.model)
+    ? "default"
+    : requestedServiceTier;
+  let body = requestBody({ ...call, serviceTier }, provider, privatePath);
   const transport = injectedTransport ??
     (provider === "openrouter" ? openrouterTransport : openaiTransport);
   const deadlineAt = started + (call.timeoutMs ?? 30_000);
   const raws: RawResponse[] = [];
-  let raw = await sendWithRetries(body, transport, deadlineAt);
+  let raw: RawResponse;
+  try {
+    raw = await sendWithRetries(body, transport, deadlineAt);
+  } catch (error) {
+    if (serviceTier !== "flex" || !namesServiceTier(error)) throw error;
+    flexUnsupportedModels.add(call.model);
+    serviceTier = "default";
+    body = requestBody({ ...call, serviceTier }, provider, privatePath);
+    raw = await sendWithRetries(body, transport, deadlineAt);
+  }
   raws.push(raw);
-  recordMetrics(raw, call);
+  recordMetrics(raw, call, serviceTier);
   if (raw.status === "incomplete") {
     body.max_output_tokens = higherOutputCap(body);
     raw = await sendWithRetries(body, transport, deadlineAt);
     raws.push(raw);
-    recordMetrics(raw, call);
+    recordMetrics(raw, call, serviceTier);
   }
   if (raw.status === "incomplete") {
     throw new NlError(

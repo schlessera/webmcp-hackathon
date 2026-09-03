@@ -123,6 +123,8 @@ Work the room is doing is stated as what it is doing, never as a bare
 - The whole area still arriving: `adding places · 120 of 343` in the count
   block, absolute both sides. Not "loading", and never a percentage.
 - A place being looked up: `looking it up…` in the panel; a ring on the map.
+- No photo known yet while a place is being looked up: `looking for a photo…` on a fixed-height line under the panel's top; it collapses only when the lookup ends without one.
+- The hover card on the map carries the place's name and first photo, nothing else — no verdict, no numbers.
 - The agent: `reading what you said…` then `updating 40 places…`. Never
   "thinking", never "processing".
 - Nothing under a second shows a state at all; a ring that flashes for a
@@ -259,3 +261,9 @@ ring and the line disappear; nothing lingers. "Fetching", "processing",
 
 The place panel says which stage a place is in: "waiting its turn…",
 "reading what the place publishes…", "checking it against your needs…".
+
+Opening a place fills the panel progressively: what is cached shows at once,
+then each step of the fast track lands in place with a line naming it —
+"reading the site…", "checking against your needs…", "looking at the
+photos…", "asking the web…" — and, after three seconds without the plan
+closing, "still reading the site…". One ring beside the line, no spinner.

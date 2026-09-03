@@ -384,14 +384,15 @@ function parseExploreBbox(value: unknown): ExploreBbox | null {
 app.post("/api/spatial/inspect", async (req) => {
   const actor = await bearer(req);
   if (!actor) return notAuthenticated;
-  const body = (req.body ?? {}) as { candidateIds?: string[] };
+  const body = (req.body ?? {}) as { candidateIds?: string[]; intent?: "open" };
+  const intent = body.intent;
   if (!validateInspectInput(body)) {
     return invalidInput(
       "candidateIds must be 1-3 candidate ID strings.",
       "Pass candidateIds from get_spatial_context.",
     );
   }
-  const result = await inspectCandidates(actor, body.candidateIds!);
+  const result = await inspectCandidates(actor, body.candidateIds!, { intent });
   logRead(req, actor.id, "InspectCandidates", result.ok);
   return result;
 });

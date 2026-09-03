@@ -237,12 +237,12 @@ export async function say(
     meta = { model: null, ms: 0 };
   } else {
     const reply = await respond({
-      model: config.nlFastModel,
+      model: config.llmRouteModel,
       instructions: modelInstructions(context, input, parsed.concepts, parsed.remainder),
       input: [{ role: "user", content: parsed.remainder || text }],
       schema: { name: "understanding", schema: SCHEMA },
       reasoning: "low",
-      maxOutputTokens: 1_200,
+      maxOutputTokens: 1_500,
       timeoutMs: 30_000,
       serviceTier: "default",
     });

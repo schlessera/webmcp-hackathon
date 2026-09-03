@@ -1,6 +1,8 @@
 import type {
   CandidateDossier,
+  FactsMessage,
   InspectCandidatesResponse,
+  InteractiveStage,
   PrepareNavigationResponse,
   SpatialContextResponse,
 } from "@webmcp-hackathon/contracts";
@@ -40,19 +42,204 @@ import {
   type LookupIntent,
   type RoomLookupTarget,
 } from "./enrich/index.ts";
-import { lookupPending } from "./enrich/progress.ts";
+import { lookupPending, publishFacts } from "./enrich/progress.ts";
 import { pool } from "./db.ts";
-import { refinementView } from "./refine/worker.ts";
-import { loadImageCounts, loadPlaceImages } from "./enrich/images.ts";
+import {
+  consumeRefinementModelCall,
+  refinementView,
+  searchInteractiveCandidate,
+  wakeRefinement,
+} from "./refine/worker.ts";
+import { loadImageSummaries, loadPlaceImages } from "./enrich/images.ts";
 import {
   adjudicateLikelyForRoom,
 } from "./enrich/adjudication-runner.ts";
 import type { AdjudicationPageCache } from "./enrich/adjudicate.ts";
-import { consumeRefinementModelCall } from "./refine/worker.ts";
+import { InteractiveBudget } from "./pipeline/interactive.ts";
+import { prefetchKey, prefetchManager } from "./pipeline/prefetch.ts";
+import { responseMetrics } from "./nl/openai.ts";
+import { config } from "./config.ts";
 
 /** How long a place panel waits for a fresh lookup before opening with what
  * is cached. The lookup keeps running and lands for the next read. */
 const INSPECT_LOOKUP_WAIT_MS = 3000;
+const interactiveInFlight = new Map<string, Promise<void>>();
+
+function tokenRates(): { input: number; output: number } {
+  return config.llmJudgeModel === "gpt-5.6-terra"
+    ? { input: 2, output: 12 }
+    : config.llmJudgeModel === "gpt-5.6-sol"
+      ? { input: 4, output: 20 }
+      : { input: 0.2, output: 1.2 };
+}
+
+function publishInteractive(
+  roomId: string,
+  candidateId: string,
+  detail: {
+    stage?: InteractiveStage;
+    done?: boolean;
+    steps?: NonNullable<FactsMessage["steps"]>;
+    costUsd?: number;
+  },
+): void {
+  publishFacts(roomId, {
+    type: "facts",
+    candidateIds: [candidateId],
+    reason: "interactive",
+    ...detail,
+  });
+}
+
+function runInteractiveTarget(roomId: string, target: RoomLookupTarget): Promise<void> {
+  const key = prefetchKey(roomId, target.candidateId);
+  prefetchManager.opened(key);
+  const existing = interactiveInFlight.get(key);
+  if (existing) return existing;
+  publishInteractive(roomId, target.candidateId, { stage: "site" });
+  const budget = new InteractiveBudget(() => wakeRefinement(roomId));
+  const before = responseMetrics();
+  const steps: NonNullable<FactsMessage["steps"]> = [];
+  let currentStage: InteractiveStage = "site";
+  let stageStarted = Date.now();
+  const beginStage = (stage: InteractiveStage) => {
+    if (stage === currentStage) return;
+    steps.push({ stage: currentStage, ms: Date.now() - stageStarted });
+    currentStage = stage;
+    stageStarted = Date.now();
+  };
+  const finishStage = () => {
+    steps.push({ stage: currentStage, ms: Date.now() - stageStarted });
+  };
+  let paidSearches = 0;
+  const pageCache: AdjudicationPageCache = new Map();
+  const job = (async () => {
+    await lookupNow(pool, roomId, [target], {
+      keys: [],
+      intent: "interactive",
+      reason: { kind: "place" },
+      pageCache,
+      priority: 0,
+      activeCriteriaOnly: true,
+      skipListingRefresh: true,
+      reuseFreshPage: true,
+      siteOnly: true,
+      publishInteractiveStages: true,
+      onlyUnclassifiedImages: true,
+      onInteractiveStage: (stage) => {
+        beginStage(stage === "images" ? "photos" : "site");
+      },
+      maxCriteria: 5,
+      budget,
+      consumeModelCall: consumeRefinementModelCall,
+      deferExcess: () => wakeRefinement(roomId),
+    }).catch(() => []);
+    // The photo stage is part of lookupNow so its fresh page candidates and
+    // existing image cache stay on the established materialisation path.
+    beginStage("needs");
+    await adjudicateLikelyForRoom(pool, roomId, {
+      mode: "on_demand",
+      candidateIds: [target.candidateId],
+      pageCache,
+      consumeModelCall: (candidateRoomId, now) => {
+        const admitted = budget.take("model") && consumeRefinementModelCall(candidateRoomId, now);
+        if (!admitted) wakeRefinement(candidateRoomId);
+        return admitted;
+      },
+    }).catch(() => ({ calls: 0, cells: 0, changed: [] }));
+    publishInteractive(roomId, target.candidateId, { stage: "needs" });
+
+    const webStarted = Date.now();
+    const search = await searchInteractiveCandidate(roomId, target.candidateId, budget)
+      .catch(() => ({ searched: false, paidSearch: false, modelCall: false, changed: [] }));
+    if (search.searched) {
+      steps.push({ stage: currentStage, ms: webStarted - stageStarted });
+      currentStage = "web";
+      stageStarted = webStarted;
+      paidSearches = search.paidSearch ? 1 : 0;
+      publishInteractive(roomId, target.candidateId, { stage: "web" });
+    }
+  })().finally(() => {
+    finishStage();
+    interactiveInFlight.delete(key);
+    const after = responseMetrics();
+    const rates = tokenRates();
+    const inputTokens = after.inputTokens - before.inputTokens;
+    const outputTokens = after.outputTokens - before.outputTokens;
+    const reportedModelCost = after.costUsd - before.costUsd;
+    const costUsd = paidSearches * 0.001 +
+      (reportedModelCost > 0
+        ? reportedModelCost
+        : (inputTokens * rates.input + outputTokens * rates.output) / 1_000_000);
+    const roundedCostUsd = Number(costUsd.toFixed(6));
+    publishInteractive(roomId, target.candidateId, {
+      done: true,
+      steps,
+      costUsd: roundedCostUsd,
+    });
+    console.info(JSON.stringify({
+      msg: "interactive open cost",
+      roomId,
+      candidateId: target.candidateId,
+      modelCalls: after.calls - before.calls,
+      inputTokens,
+      outputTokens,
+      searches: paidSearches,
+      costUsd: roundedCostUsd,
+      budget: budget.snapshot(),
+    }));
+  });
+  interactiveInFlight.set(key, job);
+  return job;
+}
+
+/** Server-side half of viewing/inspect: start one bounded priority-zero plan. */
+export async function openCandidate(roomId: string, candidateId: string): Promise<void> {
+  const row = (await pool.query(
+    "SELECT id, osm_ref, name, location, extras FROM candidates WHERE room_id = $1 AND id = $2",
+    [roomId, candidateId],
+  )).rows[0];
+  if (!row) return;
+  const target = lookupTargetOf(row as {
+    osm_ref: string | null;
+    name: string;
+    location: { lat: number; lng: number };
+    extras: Record<string, unknown> | null;
+  });
+  if (target) await runInteractiveTarget(roomId, { candidateId, ...target });
+}
+
+/** Priority-one cache/site/judge only. Search, assets and vision are impossible here. */
+export function previewCandidate(roomId: string, candidateId: string): void {
+  const key = prefetchKey(roomId, candidateId);
+  prefetchManager.preview(key, async ({ signal }) => {
+    const row = (await pool.query(
+      "SELECT id, osm_ref, name, location, extras FROM candidates WHERE room_id = $1 AND id = $2",
+      [roomId, candidateId],
+    )).rows[0];
+    if (!row || signal.aborted) return;
+    const target = lookupTargetOf(row as {
+      osm_ref: string | null;
+      name: string;
+      location: { lat: number; lng: number };
+      extras: Record<string, unknown> | null;
+    });
+    if (!target || signal.aborted) return;
+    await lookupNow(pool, roomId, [{ candidateId, ...target }], {
+      keys: [],
+      intent: "background",
+      reason: { kind: "place" },
+      priority: 1,
+      activeCriteriaOnly: true,
+      skipListingRefresh: true,
+      skipImages: true,
+      reuseFreshPage: true,
+      siteOnly: true,
+      signal,
+      consumeModelCall: consumeRefinementModelCall,
+    });
+  });
+}
 
 type NeedVerdict = NonNullable<CandidateDossier["needs"]>[number]["verdict"];
 
@@ -187,7 +374,7 @@ export async function spatialContext(
       disposition: string;
       visibility: string;
     }>;
-    const imageCounts = await loadImageCounts(
+    const imageSummaries = await loadImageSummaries(
       client,
       inputs.candidates.flatMap((candidate) =>
         candidate.osm_ref ? [candidate.osm_ref] : [],
@@ -310,6 +497,16 @@ export async function spatialContext(
       // scope are enough to derive and resume whatever work is missing.
       if (filling) startPoolFill(actor.roomId);
     }
+    if (process.env.ENRICH_NETWORK !== "0") {
+      const likely = rows
+        .filter((row) => row.eligibility === "eligible" || row.eligibility === "likely")
+        .sort((a, b) => a.walkMin - b.walkMin || a.candidateId.localeCompare(b.candidateId))
+        .slice(0, 20)
+        .map((row) => row.candidateId);
+      queueMicrotask(() => {
+        for (const candidateId of likely) previewCandidate(actor.roomId, candidateId);
+      });
+    }
     return {
       ok: true as const,
       revision: room.revision as number,
@@ -340,6 +537,7 @@ export async function spatialContext(
       participants,
       candidates: rows.map((r) => {
         const why = whyFor(r, actor.id);
+        const imageSummary = r.ref ? imageSummaries.get(r.ref) : undefined;
         return {
           candidateId: r.candidateId,
           ...(r.ref ? { ref: r.ref } : {}),
@@ -355,7 +553,17 @@ export async function spatialContext(
           // null passes through: a phantom 0 would put mass at the bottom of
           // every price reading.
           priceLevel: r.priceLevel,
-          imageCount: r.ref ? (imageCounts.get(r.ref) ?? 0) : 0,
+          imageCount: imageSummary?.count ?? 0,
+          ...(r.ref && imageSummary?.first
+            ? {
+                image: {
+                  url: `/api/places/${r.ref}/images/0`,
+                  width: imageSummary.first.width,
+                  height: imageSummary.first.height,
+                  blurhash: imageSummary.first.blurhash,
+                },
+              }
+            : {}),
         };
       }),
       proposals: proposalViews,
@@ -371,7 +579,7 @@ export async function spatialContext(
 export async function inspectCandidates(
   actor: Participant,
   candidateIds: string[],
-  options: { triggerLookup?: boolean; waitMs?: number; now?: Date } = {},
+  options: { triggerLookup?: boolean; waitMs?: number; now?: Date; intent?: "open" } = {},
 ): Promise<InspectCandidatesResponse> {
   // R9: discover network targets without locking the room and without
   // checking out a client. The candidate rows are deliberately re-read in a
@@ -409,40 +617,43 @@ export async function inspectCandidates(
     .filter((target): target is RoomLookupTarget => target !== null);
 
   if (options.triggerLookup !== false) {
-    // Live lookup/progress starts outside the room lock. The panel may wait
-    // for its bounded budget, while the same job continues into cache after
-    // the read returns.
-    const pageCache: AdjudicationPageCache = new Map();
-    const lookupJob = lookupNow(pool, actor.roomId, targets, {
-      intent: "interactive",
-      reason: { kind: "place" },
-      pageCache,
-    });
-    const lookupAndAdjudicate = lookupJob.then(() => adjudicateLikelyForRoom(
-      pool,
-      actor.roomId,
-      {
-        mode: "on_demand",
-        candidateIds,
-        pageCache,
-        consumeModelCall: consumeRefinementModelCall,
-      },
-    ));
-    const waitMs = Math.max(0, options.waitMs ?? INSPECT_LOOKUP_WAIT_MS);
-    if (waitMs > 0) {
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      await Promise.race([
-        lookupAndAdjudicate.catch(() => ({ calls: 0, cells: 0, changed: [] })),
-        new Promise<[]>(resolve => {
-          timer = setTimeout(() => resolve([]), waitMs);
-          timer.unref?.();
-        }),
-      ]);
-      if (timer) clearTimeout(timer);
+    if (options.intent === "open") {
+      // Cache is returned immediately. Each place then owns an independent
+      // bounded plan, so inspecting three candidates cannot pool their budgets.
+      for (const target of targets) void runInteractiveTarget(actor.roomId, target);
     } else {
-      void lookupAndAdjudicate.catch(() => {
-        /* explicit fire-and-forget lookups never fail the read */
+      // Compatibility for callers that did not opt into the additive open
+      // intent: keep the previous bounded wait and full focused lookup.
+      const pageCache: AdjudicationPageCache = new Map();
+      const lookupJob = lookupNow(pool, actor.roomId, targets, {
+        intent: "interactive",
+        reason: { kind: "place" },
+        pageCache,
       });
+      const lookupAndAdjudicate = lookupJob.then(() => adjudicateLikelyForRoom(
+        pool,
+        actor.roomId,
+        {
+          mode: "on_demand",
+          candidateIds,
+          pageCache,
+          consumeModelCall: consumeRefinementModelCall,
+        },
+      ));
+      const waitMs = Math.max(0, options.waitMs ?? INSPECT_LOOKUP_WAIT_MS);
+      if (waitMs > 0) {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        await Promise.race([
+          lookupAndAdjudicate.catch(() => ({ calls: 0, cells: 0, changed: [] })),
+          new Promise<[]>(resolve => {
+            timer = setTimeout(() => resolve([]), waitMs);
+            timer.unref?.();
+          }),
+        ]);
+        if (timer) clearTimeout(timer);
+      } else {
+        void lookupAndAdjudicate.catch(() => undefined);
+      }
     }
   }
 
@@ -601,6 +812,7 @@ export async function inspectCandidates(
                 url: `/api/places/${image.osmRef}/images/${image.idx}`,
                 width: image.width,
                 height: image.height,
+                ...(image.blurhash ? { blurhash: image.blurhash } : {}),
                 source: image.source,
                 ...(image.credit ? { credit: image.credit } : {}),
                 ...(image.license ? { license: image.license } : {}),

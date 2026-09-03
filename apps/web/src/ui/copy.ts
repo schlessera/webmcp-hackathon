@@ -286,6 +286,17 @@ export const COPY = {
     ].filter(Boolean);
     return parts.length ? `· ${parts.join(" · ")}` : null;
   },
+  /** The open fast track, in the place panel: which step just landed. */
+  openStageLine: (stage: "site" | "needs" | "photos" | "web" | "still") =>
+    stage === "site"
+      ? "reading the site…"
+      : stage === "needs"
+        ? "checking against your needs…"
+        : stage === "photos"
+          ? "looking at the photos…"
+          : stage === "web"
+            ? "asking the web…"
+            : "still reading the site…",
   /** The place panel's line while a place is in the pipeline, by stage. */
   stageLine: (stage: "queued" | "fetching" | "processing" | null) =>
     stage === "processing"
@@ -320,6 +331,7 @@ export const COPY = {
   readingRecord: "reading the record…",
   recordRead: "what the record says",
   photoFromPlaceSite: "from the place's site ↗",
+  lookingForPhoto: "looking for a photo…",
   photoFromOpenStreetMap: "photo · from OpenStreetMap ↗",
   photoNearPlace: (credit: string) => `photo near this place · ${credit} ↗`,
   photoCredit: (credit: string, license: string) => `photo · ${credit} · ${license} ↗`,

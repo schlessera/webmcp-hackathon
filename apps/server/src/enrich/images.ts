@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import type pg from "pg";
 import sharp from "sharp";
+import { encode as encodeBlurhash } from "blurhash";
 import { outboundFetchFor } from "../net/outbound.ts";
 import { IMAGE_CACHE_TTL_MS } from "./cache.ts";
 import {
@@ -58,6 +59,36 @@ export interface StoredPlaceImage extends ProcessedImage {
   license?: string;
   fetchedAt: string;
   expiresAt: string;
+  blurhash?: string;
+}
+
+export const BLURHASH_COMPONENTS = { x: 4, y: 3 } as const;
+export const BLURHASH_DOWNSCALE_PX = 32;
+
+/** Encode a tiny RGBA copy. The stored WebP remains the source of truth; this
+ * derivative is cheap to recompute and deliberately never blocks the image. */
+export async function blurhashForImage(bytes: Uint8Array): Promise<string> {
+  const { data, info } = await sharp(Buffer.from(bytes), {
+    failOn: "error",
+    limitInputPixels: 40_000_000,
+  })
+    .rotate()
+    .resize({
+      width: BLURHASH_DOWNSCALE_PX,
+      height: BLURHASH_DOWNSCALE_PX,
+      fit: "inside",
+      withoutEnlargement: true,
+    })
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  return encodeBlurhash(
+    new Uint8ClampedArray(data),
+    info.width,
+    info.height,
+    BLURHASH_COMPONENTS.x,
+    BLURHASH_COMPONENTS.y,
+  );
 }
 
 export const MAX_IMAGE_CANDIDATES = 3;
@@ -341,6 +372,8 @@ export interface RefreshPlaceImageStages {
   ): ReturnType<typeof classifyPlaceImages>;
 }
 
+type BlurhashImpl = (bytes: Uint8Array) => Promise<string>;
+
 /** One place at a time is already bounded by the enrichment semaphore.
  * Curated candidates are tried first. Site candidates are cache-gated before
  * download, transformed once, then classified together in one vision call. */
@@ -356,8 +389,12 @@ export async function refreshPlaceImages(
   /** Counted by the caller on the routed Commons fetch, reported on the log
    * line so the per-place geosearch volume is visible in production. */
   imageWork: { commonsApiCalls?: number } = {},
-  stages?: RefreshPlaceImageStages,
+  stagesOrBlurhash?: RefreshPlaceImageStages | BlurhashImpl,
 ): Promise<number> {
+  const stages = typeof stagesOrBlurhash === "function" ? undefined : stagesOrBlurhash;
+  const blurhashImpl = typeof stagesOrBlurhash === "function"
+    ? stagesOrBlurhash
+    : blurhashForImage;
   const unique = [
     ...new Map(candidates.map((candidate) => [candidate.url, candidate])).values(),
   ].slice(0, MAX_IMAGE_ATTEMPTS);
@@ -471,12 +508,23 @@ export async function refreshPlaceImages(
     await client.query("DELETE FROM place_images WHERE osm_ref = $1", [osmRef]);
     if (stored.length > 0) {
       for (const [idx, entry] of stored.entries()) {
+        let blurhash: string | null = null;
+        try {
+          blurhash = await blurhashImpl(entry.image.bytes);
+        } catch (error) {
+          console.error(JSON.stringify({
+            msg: "place image blurhash failed",
+            osmRef,
+            idx,
+            error: error instanceof Error ? error.message : String(error),
+          }));
+        }
         await client.query(
           `INSERT INTO place_images
              (osm_ref, idx, mime, width, height, bytes, source, source_url,
-              page_url, license, credit, fetched_at, expires_at)
+              page_url, license, credit, blurhash, fetched_at, expires_at)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
-                   now(), now() + ($12 || ' milliseconds')::interval)`,
+                   $12, now(), now() + ($13 || ' milliseconds')::interval)`,
           [
             osmRef,
             idx,
@@ -493,6 +541,7 @@ export async function refreshPlaceImages(
             entry.candidate.credit
               ? truncateText(cleanInlineText(entry.candidate.credit), 180)
               : null,
+            blurhash,
             String(entry.image.ttlMs ?? IMAGE_TTL_MS),
           ],
         );
@@ -549,6 +598,7 @@ interface ImageRow {
   credit: string | null;
   fetched_at: Date;
   expires_at: Date;
+  blurhash: string | null;
 }
 
 function storedImage(row: ImageRow): StoredPlaceImage {
@@ -566,6 +616,7 @@ function storedImage(row: ImageRow): StoredPlaceImage {
     ...(row.credit ? { credit: truncateText(cleanInlineText(row.credit), 180) } : {}),
     fetchedAt: row.fetched_at.toISOString(),
     expiresAt: row.expires_at.toISOString(),
+    ...(row.blurhash ? { blurhash: row.blurhash } : {}),
   };
 }
 
@@ -606,20 +657,58 @@ export async function loadPlaceImage(
   return row ? storedImage(row) : null;
 }
 
-export async function loadImageCounts(
+export interface PlaceImageSummary {
+  count: number;
+  first?: { width: number; height: number; blurhash: string };
+}
+
+/** Counts and the first-image thumbnail metadata share one query. This is the
+ * context batch boundary: callers must not follow it with per-place reads. */
+export async function loadImageSummaries(
   q: Pick<pg.Pool, "query"> | Pick<pg.PoolClient, "query">,
   refs: string[],
-): Promise<Map<string, number>> {
+): Promise<Map<string, PlaceImageSummary>> {
   if (refs.length === 0) return new Map();
   const rows = (
     await q.query(
-      `SELECT osm_ref, count(*)::int AS count FROM place_images
+      `SELECT osm_ref,
+              count(*)::int AS count,
+              max(width) FILTER (WHERE idx = 0) AS first_width,
+              max(height) FILTER (WHERE idx = 0) AS first_height,
+              max(blurhash) FILTER (WHERE idx = 0) AS first_blurhash
+         FROM place_images
         WHERE osm_ref = ANY($1) AND expires_at > now()
         GROUP BY osm_ref`,
       [refs],
     )
-  ).rows as Array<{ osm_ref: string; count: number }>;
-  return new Map(rows.map((row) => [row.osm_ref, Number(row.count)]));
+  ).rows as Array<{
+    osm_ref: string;
+    count: number;
+    first_width: number | null;
+    first_height: number | null;
+    first_blurhash: string | null;
+  }>;
+  return new Map(rows.map((row) => [row.osm_ref, {
+    count: Number(row.count),
+    ...(row.first_width !== null && row.first_height !== null && row.first_blurhash !== null
+      ? {
+          first: {
+            width: Number(row.first_width),
+            height: Number(row.first_height),
+            blurhash: row.first_blurhash,
+          },
+        }
+      : {}),
+  }]));
+}
+
+/** Compatibility helper for non-context callers. */
+export async function loadImageCounts(
+  q: Pick<pg.Pool, "query"> | Pick<pg.PoolClient, "query">,
+  refs: string[],
+): Promise<Map<string, number>> {
+  const summaries = await loadImageSummaries(q, refs);
+  return new Map([...summaries].map(([ref, summary]) => [ref, summary.count]));
 }
 
 /** A lightweight change token for realtime refreshes. It contains no URL or

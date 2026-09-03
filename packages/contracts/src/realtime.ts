@@ -22,7 +22,16 @@ export interface ViewingMessage {
   type: "viewing";
   candidateId: string | null;
 }
-export type ClientMessage = AuthMessage | ViewingMessage;
+/**
+ * Which place this page is about to open (a dot or card under the pointer
+ * or keyboard focus, debounced), or null. Presentation-side hint only: the
+ * server may prefetch; nothing is stored, nothing reaches peers.
+ */
+export interface PreviewingMessage {
+  type: "previewing";
+  candidateId: string | null;
+}
+export type ClientMessage = AuthMessage | ViewingMessage | PreviewingMessage;
 
 export interface WelcomeMessage {
   type: "welcome";
@@ -88,7 +97,6 @@ export interface PresenceMessage {
  */
 export interface LookupsMessage {
   type: "lookups";
-  /** Compatibility field retained for one release. */
   pending: string[];
   /** Why they are being looked up, for the count block ("checking 12 places
    * for step-free access"). Absent for a warm-up nobody asked for. */
@@ -136,8 +144,20 @@ export interface PipelineMessage {
 export interface FactsMessage {
   type: "facts";
   candidateIds: string[];
-  reason: "lookup" | "inference" | "pool" | "confirmation";
+  reason: "lookup" | "inference" | "pool" | "confirmation" | "interactive";
+  /**
+   * The open fast track (reason "interactive", one candidate): which step
+   * just landed — the place's site, the needs judgement, the photos, a web
+   * search — so the panel fills progressively with a stage line; `done`
+   * closes the plan. `steps` and `costUsd` describe the whole plan for the
+   * `{ }` drawer. All optional and presentation-only.
+   */
+  stage?: InteractiveStage;
+  done?: boolean;
+  steps?: Array<{ stage: InteractiveStage; ms?: number }>;
+  costUsd?: number;
 }
+export type InteractiveStage = "site" | "needs" | "photos" | "web";
 /**
  * Application-level keepalive, every few seconds to every authenticated
  * socket. Browsers answer protocol pings silently, so the page cannot see
@@ -158,5 +178,4 @@ export type ServerMessage =
   | LookupsMessage
   | PipelineMessage
   | FactsMessage
-  | PipelineMessage
   | PingMessage;

@@ -215,7 +215,10 @@ export async function adjudicateLikelyForRoom(
       const run = async (): Promise<void> => {
         const started = Date.now();
         try {
-          const result = await adjudicateCells(admitted);
+          const result = await adjudicateCells(
+            admitted,
+            options.mode === "on_demand" ? "interactive" : "background",
+          );
           calls += 1;
           attemptedCells += admitted.length;
           logBatch(roomId, admitted.length, result);

@@ -308,14 +308,18 @@ export interface AdjudicationBatch {
   reply: Reply;
 }
 
-export async function adjudicateCells(cells: AdjudicationCell[]): Promise<AdjudicationBatch> {
+export async function adjudicateCells(
+  cells: AdjudicationCell[],
+  intent: "interactive" | "background" = "background",
+): Promise<AdjudicationBatch> {
   const reply = await respond({
-    model: config.nlFastModel,
+    model: config.llmJudgeModel,
+    intent,
     instructions: ADJUDICATION_PROMPT,
     input: [{ role: "user", content: JSON.stringify(boundedAdjudicationPayload(cells)) }],
     schema: { name: "venue_evidence_adjudication", schema: ADJUDICATION_SCHEMA },
     reasoning: "none",
-    maxOutputTokens: Math.min(2_900, 620 + cells.length * 100),
+    maxOutputTokens: 1_200,
     timeoutMs: ADJUDICATION_TIMEOUT_MS,
   });
   const answer = parseJson<{ results?: unknown }>(reply.text);

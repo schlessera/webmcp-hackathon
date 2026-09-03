@@ -202,6 +202,8 @@ function fixture(options: {
   proposals?: MockContext["proposals"];
   agreement?: MockContext["agreement"];
   arrival?: MockContext["arrival"];
+  /** First image per candidate id, as the summary would carry it. */
+  images?: Record<string, { url: string; width: number; height: number; blurhash?: string }>;
 } = {}): MockContext {
   const radiusM = options.radiusM ?? 800;
   const scopeCenter = options.scopeCenter ?? center;
@@ -237,6 +239,7 @@ function fixture(options: {
             : "meets all evaluable requirements",
       walkMin: Math.max(1, Math.round(haversineMeters(scopeCenter, venue.location) / 75)),
       priceLevel: venue.priceLevel,
+      ...(options.images?.[venue.candidateId] ? { image: options.images[venue.candidateId] } : {}),
     };
   });
   const matching = candidates.filter((candidate) => candidate.eligibility === "eligible").length;
@@ -1320,6 +1323,8 @@ async function scriptedSocket(page: Page, revision: number) {
   const welcomed = new Promise<void>((resolve) => {
     ready = resolve;
   });
+  /** Every frame the page sent, for assertions on presence-side hints. */
+  const sent: Array<Record<string, unknown>> = [];
   await page.routeWebSocket("**/ws", (ws) => {
     route = ws;
     ws.onMessage((raw) => {
@@ -1327,6 +1332,7 @@ async function scriptedSocket(page: Page, revision: number) {
         type: string;
         clientToolContractVersion?: string;
       };
+      sent.push(message as Record<string, unknown>);
       if (message.type !== "auth") return;
       ws.send(
         JSON.stringify({
@@ -1345,6 +1351,7 @@ async function scriptedSocket(page: Page, revision: number) {
   });
   return {
     welcomed,
+    sent,
     send(frame: Record<string, unknown>) {
       if (!route) throw new Error("socket not open yet");
       route.send(JSON.stringify(frame));
@@ -2919,4 +2926,184 @@ test("dots show their pipeline stage: queued stands still, fetching and processi
     .poll(() => page.evaluate(() => window.__spokesMapStats!().stages))
     .toEqual({ queued: 0, fetching: 0, processing: 0 });
   await browserContext.close();
+});
+
+test("opening a place fills the panel step by step on the fast track, and hovering a dot hints the server", async ({ browser }) => {
+  const browserContext = await browser.newContext({ viewport: { width: 1180, height: 900 } });
+  const page = await browserContext.newPage();
+  const context = fixture({ matching: 0, revision: 1 });
+  const state: MockState = { context, outstanding: [] };
+  await mockApi(page, state);
+  // The dossier grows with every read: cached rows first, then what each
+  // step of the fast track added.
+  const inspectBodies: Array<Record<string, unknown>> = [];
+  let reads = 0;
+  await page.route("**/api/spatial/inspect", async (route) => {
+    inspectBodies.push(route.request().postDataJSON() as Record<string, unknown>);
+    reads += 1;
+    const attributes = [
+      { key: "outdoor-seating", status: "verified_true", source: "osm:outdoor_seating", observedAt: "2026-08-31T00:00:00Z", confidence: 0.8 },
+      ...(reads >= 2 ? [{ key: "dog-friendly", status: "likely_true", source: "web:place.example", observedAt: "2026-09-03T00:00:00Z", confidence: 0.6, note: "dogs welcome on the terrace" }] : []),
+      ...(reads >= 3 ? [{ key: "vegan-options", status: "likely_true", source: "infer:gpt:menu", observedAt: "2026-09-03T00:00:00Z", confidence: 0.6, note: "vegan bowl" }] : []),
+    ];
+    await route.fulfill({
+      json: {
+        ok: true,
+        revision: 1,
+        candidates: [{
+          candidateId: "place_1",
+          name: "Café Einstein",
+          location: { lat: 52.52, lng: 13.39 },
+          category: "cafe",
+          priceLevel: null,
+          hours: [],
+          attributes,
+          mapRevision: 1,
+        }],
+      },
+    });
+  });
+  const socket = await scriptedSocket(page, 1);
+  await page.goto(`${BASE}/#invite=deadbeef`);
+  await socket.welcomed;
+
+  // Hover: one debounced hint names the place; leaving clears it.
+  const pinBox = await page.getByTestId("pin-place_1").boundingBox();
+  if (!pinBox) throw new Error("pin-place_1 has no box");
+  await page.mouse.move(pinBox.x + pinBox.width / 2, pinBox.y + pinBox.height / 2, { steps: 4 });
+  await expect.poll(() => socket.sent.filter((m) => m.type === "previewing").at(-1)?.candidateId ?? null).toBe("place_1");
+  await page.mouse.move(5, 5);
+  await expect.poll(() => socket.sent.filter((m) => m.type === "previewing").at(-1)?.candidateId ?? null).toBe(null);
+
+  // Open: the cached row is there at once, and the read said why. (A card
+  // may overlap the dot at this width; the tap resolver decides, not the
+  // element under the pointer.)
+  await page.getByTestId("pin-place_1").click({ force: true });
+  const details = page.getByTestId("place-details");
+  await expect(details).toBeVisible();
+  await expect(details).toContainText("outdoor seating");
+  await expect.poll(() => inspectBodies.at(0)?.intent ?? null).toBe("open");
+
+  // Three interactive frames land in order, each with its own line.
+  socket.send({ type: "facts", candidateIds: ["place_1"], reason: "interactive", stage: "site" });
+  await expect(details.getByTestId("details-lookup")).toHaveText("reading the site…");
+  await expect(details).toContainText("dogs welcome");
+  socket.send({ type: "facts", candidateIds: ["place_1"], reason: "interactive", stage: "needs" });
+  await expect(details.getByTestId("details-lookup")).toHaveText("checking against your needs…");
+  await expect(details).toContainText("vegan");
+  socket.send({ type: "facts", candidateIds: ["place_1"], reason: "interactive", stage: "photos" });
+  await expect(details.getByTestId("details-lookup")).toHaveText("looking at the photos…");
+
+  // Nothing closes the plan: after three seconds the line says so.
+  await expect(details.getByTestId("details-lookup")).toHaveText("still reading the site…", { timeout: 5_000 });
+
+  // Done: the line steps back to the record's own words.
+  socket.send({ type: "facts", candidateIds: ["place_1"], reason: "interactive", done: true, steps: [{ stage: "site", ms: 420 }, { stage: "needs", ms: 900 }], costUsd: 0.0012 });
+  await expect(details.getByTestId("details-lookup")).not.toHaveText(/reading|checking|looking/);
+
+  // The drawer keeps the plan.
+  await page.getByTestId("open-drawer").click();
+  await expect(page.getByTestId("diag-interactive")).toContainText("site 420ms → needs 900ms");
+  await expect(page.getByTestId("diag-interactive")).toContainText("$0.0012");
+  await browserContext.close();
+});
+
+test("a dot with a photo shows a hover card that never takes the pointer, and the panel reserves the photo box before the bytes land", async ({ browser }) => {
+  const context = await browser.newContext({ viewport: { width: 1180, height: 900 }, hasTouch: false });
+  const page = await context.newPage();
+  // A flat mid-grey blurhash: decodes anywhere, no real photo needed.
+  const image = { url: "/api/places/node/24/images/0", width: 960, height: 640, blurhash: "L6PZfSi_.AyE_3t7t7R**0o#DgR4" };
+  const state: MockState = { context: fixture({ revision: 55, images: { place_24: image } }), outstanding: [] };
+  await mockApi(page, state);
+  let imageRequests = 0;
+  await page.route("**/api/places/**/images/*", async (route) => {
+    imageRequests += 1;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    return route.fulfill({
+      contentType: "image/webp",
+      body: Buffer.from("UklGRiIAAABXRUJQVlA4IBYAAAAwAQCdASoCAAIAAUAmJaQAA3AA/v89WAAAAA==", "base64"),
+    });
+  });
+  await page.route("**/api/spatial/inspect", (route) =>
+    route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        ok: true,
+        revision: 55,
+        candidates: [{
+          candidateId: "place_24",
+          name: "The Barn",
+          location: { lat: 52.5219, lng: 13.3899 },
+          category: "cafe",
+          priceLevel: 2,
+          hours: [],
+          attributes: [],
+          images: [{ ...image, source: "website", pageUrl: "https://place.example/" }],
+          mapRevision: 1,
+        }],
+      }),
+    }),
+  );
+  const socket = await scriptedSocket(page, 55);
+  await page.goto(`${BASE}/#invite=deadbeef`);
+  await socket.welcomed;
+  await expect(page.getByTestId("map-region")).toHaveAttribute("data-loaded", "true");
+
+  // Hover: the card appears after the delay with the blurhash painted, then
+  // the image; the card never intercepts the pointer.
+  const pin = page.getByTestId("pin-place_24");
+  await pin.hover();
+  const card = page.getByTestId("hover-card");
+  await expect(card).toBeVisible();
+  await expect(page.getByTestId("hover-card-photo")).toHaveCSS("background-image", /data:image\/png/);
+  await expect(card).toHaveAttribute("data-loaded", "true");
+  const underCard = await page.evaluate(() => {
+    const el = document.querySelector('[data-testid="hover-card"]')!;
+    const r = el.getBoundingClientRect();
+    const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    return { intercepts: el.contains(hit), pointerEvents: getComputedStyle(el).pointerEvents };
+  });
+  expect(underCard.intercepts).toBe(false);
+  expect(underCard.pointerEvents).toBe("none");
+  // A dot without a photo shows no card.
+  await page.getByTestId("pin-place_25").hover();
+  await expect(card).toHaveCount(0);
+  // Keyboard focus shows it too.
+  await pin.focus();
+  await expect(card).toBeVisible();
+  await page.keyboard.press("Tab");
+  await expect(card).toHaveCount(0);
+
+  // The panel: the photo box is reserved from first paint with the blurhash
+  // and keeps its height when the image lands.
+  await pin.click();
+  const band = page.getByTestId("photo-band");
+  await expect(band).toBeVisible();
+  const before = await band.boundingBox();
+  await expect(band.locator("img[src^='blob:']")).toHaveCount(1, { timeout: 5000 });
+  const after = await band.boundingBox();
+  expect(Math.abs((after?.height ?? 0) - (before?.height ?? 0))).toBeLessThanOrEqual(1);
+  expect(imageRequests).toBeGreaterThan(0);
+  await context.close();
+});
+
+test("touch never shows a hover card", async ({ browser }) => {
+  const context = await browser.newContext({ viewport: { width: 430, height: 932 }, hasTouch: true, isMobile: true });
+  const page = await context.newPage();
+  const image = { url: "/api/places/node/24/images/0", width: 960, height: 640, blurhash: "L6PZfSi_.AyE_3t7t7R**0o#DgR4" };
+  const state: MockState = { context: fixture({ revision: 56, images: { place_24: image } }), outstanding: [] };
+  await mockApi(page, state);
+  const socket = await scriptedSocket(page, 56);
+  await page.goto(`${BASE}/#invite=deadbeef`);
+  await socket.welcomed;
+  await expect(page.getByTestId("map-region")).toHaveAttribute("data-loaded", "true");
+  const pin = page.getByTestId("pin-place_24");
+  // A touch pointer entering the dot, then a real tap on it: neither may
+  // raise the card (the card is a fine-pointer and keyboard affordance).
+  await pin.dispatchEvent("pointerenter", { pointerType: "touch", clientX: 0, clientY: 0 });
+  const box = await pin.boundingBox();
+  if (box) await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
+  await page.waitForTimeout(400);
+  await expect(page.getByTestId("hover-card")).toHaveCount(0);
+  await context.close();
 });

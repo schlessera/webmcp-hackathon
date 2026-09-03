@@ -128,12 +128,12 @@ export class PipelineScheduler {
         first = await dispatch(route, 0);
       } catch (error) {
         if (planned.intent !== "interactive" || route !== "direct" || !blockShapedError(error)) throw error;
-        const retried = await this.pools.proxy.submit(() => dispatch("proxy", 1));
+        const retried = await this.pools.proxy.submit(() => dispatch("proxy", 1), planned.priority);
         this.routeCompletions[retried.actualRoute] += 1;
         return retried.value;
       }
       if (planned.intent === "interactive" && route === "direct" && blockShaped(first)) {
-        const retried = await this.pools.proxy.submit(() => dispatch("proxy", 1));
+        const retried = await this.pools.proxy.submit(() => dispatch("proxy", 1), planned.priority);
         this.routeCompletions[retried.actualRoute] += 1;
         return retried.value;
       }
@@ -276,7 +276,9 @@ export class PipelineScheduler {
     const authoritative = item.host && item.purpose
       ? this.routeAuthority(item.host, item.purpose)
       : "direct";
-    return item.intent === "interactive" ? "direct" : authoritative;
+    // This is a pool hint only. Dispatch repeats routeFor below and the
+    // outbound client remains authoritative about the actual route.
+    return item.priority === 0 ? "direct" : authoritative;
   }
 
   private dispatchRoute(item: PipelineItem): OutboundRoute | undefined {
@@ -284,7 +286,7 @@ export class PipelineScheduler {
     const authoritative = item.host && item.purpose
       ? this.routeAuthority(item.host, item.purpose)
       : "direct";
-    return item.intent === "interactive" ? "direct" : authoritative;
+    return authoritative;
   }
 
   private eligible = (item: PipelineItem): boolean => {
@@ -305,11 +307,13 @@ export class PipelineScheduler {
     do {
       this.pumpAgain = false;
       for (const [name, pool] of Object.entries(this.pools) as Array<[PoolName, PipelinePools[PoolName]]>) {
-        let capacity = pool.available;
-        while (capacity > 0) {
-          const entry = this.queue.take(name, this.eligible, 32);
+        while (pool.available > 0) {
+          const entry = this.queue.take(
+            name,
+            (item) => pool.canRun(item.priority) && this.eligible(item),
+            32,
+          );
           if (!entry) break;
-          capacity -= 1;
           this.launch(entry);
         }
       }
@@ -321,7 +325,11 @@ export class PipelineScheduler {
     const item = entry.item;
     const tracked = this.batches.get(item.dedupeKey) ?? [item];
     const route = this.dispatchRoute(item);
-    const actualPool = this.pools[poolForKind(item, route)];
+    const actualPool = this.pools[
+      item.priority === 0 && (item.kind === "fetch.site" || item.kind === "fetch.asset")
+        ? "direct"
+        : poolForKind(item, route)
+    ];
     for (const trackedItem of tracked) {
       this.inFlight.set(trackedItem.dedupeKey, trackedItem);
       this.volume.start(trackedItem);
@@ -330,7 +338,7 @@ export class PipelineScheduler {
         trackedItem.kind.startsWith("fetch.") ? "fetching" : "processing",
       );
     }
-    void actualPool.submit(() => entry.run(route)).then(
+    void actualPool.submit(() => entry.run(route), item.priority).then(
       (value) => {
         for (const trackedItem of tracked) {
           this.inFlight.delete(trackedItem.dedupeKey);

@@ -224,9 +224,10 @@ export async function inferAttributes(input: InferInput): Promise<InferredClaim[
     (INFERABLE_KEYS as readonly string[]).includes(key),
   );
   if (keys.length === 0) return [];
-  const model = config.nlFastModel;
+  const model = config.llmJudgeModel;
   const reply = await respond({
     model,
+    intent: "background",
     instructions: INFERENCE_PROMPT,
     input: [
       {

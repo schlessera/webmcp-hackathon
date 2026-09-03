@@ -43,6 +43,15 @@ export const config = {
   dataForSeoLogin: process.env.DATAFORSEO_LOGIN ?? "",
   dataForSeoPassword: process.env.DATAFORSEO_PASSWORD ?? "",
   llmModel: process.env.LLM_MODEL || "z-ai/glm-5.3-flash",
+  llmRouteModel:
+    process.env.LLM_MODEL_ROUTE || process.env.LLM_MODEL || "z-ai/glm-5.3-flash",
+  llmJudgeModel:
+    process.env.LLM_MODEL_JUDGE || process.env.LLM_MODEL || "z-ai/glm-5.3-flash",
+  llmAgentModel:
+    process.env.LLM_MODEL_AGENT || process.env.LLM_MODEL || "z-ai/glm-5.3-flash",
+  llmVisionModel:
+    process.env.LLM_MODEL_VISION || process.env.LLM_MODEL || "z-ai/glm-5.3-flash",
+  /** Deprecated aliases retained for deployment compatibility. */
   nlFastModel:
     process.env.NL_FAST_MODEL || process.env.LLM_MODEL || "z-ai/glm-5.3-flash",
   nlSmartModel:

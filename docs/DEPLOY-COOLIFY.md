@@ -22,10 +22,14 @@ outbound proxy variables passed through to the app service.
 | `OPENROUTER_API_KEY` | recommended | Enables the natural-language surface, matrix evaluation, menu reading, and model-backed refinement through OpenRouter. Leave both provider keys empty for a deterministic no-model deployment. |
 | `OPENAI_API_KEY` | fallback only | Enables the retained OpenAI Responses backend when `LLM_PROVIDER=openai`, or when no OpenRouter key exists. |
 | `LLM_PROVIDER` | optional | `openrouter` or `openai`. Defaults to OpenRouter when `OPENROUTER_API_KEY` exists, otherwise OpenAI. |
-| `LLM_MODEL` | optional | Model for every LLM task; defaults to `z-ai/glm-5.3-flash`. |
-| `NL_FAST_MODEL` | optional | Historical per-site override for bounded routing and evaluation. Empty inherits `LLM_MODEL`. |
-| `NL_SMART_MODEL` | optional | Historical per-site override for room actions and private screening. Empty inherits `LLM_MODEL`. |
-| `MENU_READER_MODEL` | optional | Historical menu-reader override. Empty inherits `NL_SMART_MODEL`, then `LLM_MODEL`. |
+| `LLM_MODEL` | optional | Default for every LLM job; defaults to `z-ai/glm-5.3-flash`. |
+| `LLM_MODEL_ROUTE` | optional | Composer understanding/routing model. Empty inherits `LLM_MODEL`. |
+| `LLM_MODEL_JUDGE` | optional | Matrix, inference, adjudication, screening, and built-in-search model. Empty inherits `LLM_MODEL`. |
+| `LLM_MODEL_AGENT` | optional | Participant tool-loop model. Empty inherits `LLM_MODEL`. |
+| `LLM_MODEL_VISION` | optional | Place-image and menu-reader model. Empty inherits `LLM_MODEL`. |
+| `NL_FAST_MODEL` | deprecated | Compatibility setting retained in config; job call sites use `LLM_MODEL_ROUTE` or `LLM_MODEL_JUDGE`. |
+| `NL_SMART_MODEL` | deprecated | Compatibility setting retained in config; job call sites use `LLM_MODEL_AGENT` or `LLM_MODEL_JUDGE`. |
+| `MENU_READER_MODEL` | deprecated | Compatibility setting retained in config; menu reading uses `LLM_MODEL_VISION`. |
 | `REFINE` | optional | Set to `0` to disable the continuous refinement worker; enabled by default when network and model access are available. |
 | `REFINE_IDLE_STOP_MS` | optional | How long refinement remains alive after the last room participant leaves; defaults to `600000`. |
 | `REFINE_TICK_MS` | optional | Working-loop interval in milliseconds; defaults to `1000`. |
@@ -34,6 +38,7 @@ outbound proxy variables passed through to the app service.
 | `REFINE_SEARCHES_PER_HOUR` | optional | Per-room search budget; defaults to `150`. |
 | `SEARCH_PROVIDER` | optional | Search provider: `parallel`, `openai`, or `tavily`. Parallel is always the default; `openai` names the built-in search path, which now runs through OpenRouter. |
 | `PARALLEL_API_KEY` | when using Parallel | Parallel Search credential. Results are cached per room under its End Customer restriction. |
+| `PARALLEL_SEARCH_MODE` | optional | Parallel search processor; `turbo` by default (same price as `fast`, quicker, slightly lower quality), `fast` when quality matters more than latency. |
 | `TAVILY_API_KEY` | when `SEARCH_PROVIDER=tavily` | Tavily credential for the optional fallback search provider. |
 | `DATAFORSEO_LOGIN` | when listings are enabled | DataForSEO API login for one structured business-listings batch per room pool. |
 | `DATAFORSEO_PASSWORD` | when listings are enabled | DataForSEO API password. Treat it as a secret; it is never logged. |

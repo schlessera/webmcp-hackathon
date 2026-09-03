@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   NlError,
+  resetServiceTierSupportForTests,
   respond,
   respondPrivate,
   setTransport,
@@ -13,9 +14,40 @@ describe("LLM Responses transport", () => {
 
   afterEach(() => {
     setTransport(null);
+    resetServiceTierSupportForTests();
     vi.unstubAllEnvs();
     vi.restoreAllMocks();
     vi.useRealTimers();
+  });
+
+  it("constructs only default and flex service-tier requests", async () => {
+    const sent: Record<string, unknown>[] = [];
+    setTransport(async (body) => {
+      sent.push(body);
+      return { output: [] };
+    });
+    await respond({ model: "interactive-model", instructions: "test", input: [], intent: "interactive" });
+    await respond({ model: "background-model", instructions: "test", input: [], intent: "background" });
+    expect(sent.map((body) => body.service_tier)).toEqual(["default", "flex"]);
+    for (const body of sent) {
+      expect(body.service_tier).not.toBe("priority");
+      expect(body.service_tier).not.toBe("fast");
+    }
+  });
+
+  it("remembers a model's flex rejection and falls back to default only once", async () => {
+    const tiers: unknown[] = [];
+    setTransport(async (body) => {
+      tiers.push(body.service_tier);
+      if (body.service_tier === "flex") {
+        throw new NlError("openrouter 400: unsupported service_tier flex", 400);
+      }
+      return { output: [] };
+    });
+    const call = { model: "no-flex-model", instructions: "test", input: [], intent: "background" as const };
+    await respond(call);
+    await respond(call);
+    expect(tiers).toEqual(["flex", "default", "default"]);
   });
 
   it("rewrites search controls, drops include, and parses OpenRouter calls and citations without offsets", async () => {
@@ -177,7 +209,7 @@ describe("LLM Responses transport", () => {
       input: [],
       maxOutputTokens: 1_200,
     });
-    expect(sent.map((body) => body.max_output_tokens)).toEqual([1_200, 1_800]);
+    expect(sent.map((body) => body.max_output_tokens)).toEqual([1_200, 2_400]);
     expect(reply.usage).toEqual({ inputTokens: 20, outputTokens: 3, costUsd: 0.003 });
   });
 

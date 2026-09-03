@@ -161,7 +161,7 @@ describe("batched matrix evaluation", () => {
     expect(wire).toMatchObject({
       reasoning: { effort: "low", exclude: true },
       provider: { require_parameters: true },
-      max_output_tokens: 8_500,
+      max_output_tokens: 4_000,
       text: { format: { type: "json_schema", strict: true } },
     });
   });

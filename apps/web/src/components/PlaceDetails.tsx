@@ -1,6 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { ATTRIBUTE_LABELS, PRICE_LEVEL_EUR } from "@webmcp-hackathon/contracts";
+import { blurhashDataUrl } from "../ui/blurhash.ts";
 import { placeImageBlob, spatialInspectRaw, spatialLookupRaw } from "../api.ts";
+import type { InteractiveStage } from "../spatial-store.ts";
+
+/** After this long without the open fast track closing, say so. */
+const STILL_READING_MS = 3_000;
 import type {
   ActiveNeed,
   CandidateDossier,
@@ -156,7 +161,7 @@ interface Props {
   /** Which stage of the pipeline the place is in, when it is. */
   stage: "queued" | "fetching" | "processing" | null;
   /** The last `facts` frame: re-read the dossier when it named this place. */
-  factsFrame: { ids: string[]; nonce: number };
+  factsFrame: { ids: string[]; nonce: number; reason: string; stage: InteractiveStage | null; done: boolean };
   onClose(): void;
   run(type: string, input: Record<string, unknown>): Promise<CommandEnvelope>;
 }
@@ -197,8 +202,14 @@ function PlacePhoto({ image, alt }: { image: DossierImage; alt: string }) {
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
   }, [image.url]);
+  const placeholder = blurhashDataUrl(image.blurhash);
   return (
-    <div className="details-photo-frame" ref={frame}>
+    <div
+      className="details-photo-frame"
+      ref={frame}
+      data-placeholder={placeholder && !src ? "true" : undefined}
+      style={placeholder ? { backgroundImage: `url(${placeholder})` } : undefined}
+    >
       <img
         src={src}
         alt={alt}
@@ -319,6 +330,29 @@ export function PlaceDetails({
      facts before and after, so the line never claims more than the rows
      show. Client-side state only. */
   const [lookupPhase, setLookupPhase] = useState<"idle" | "asked" | "running" | "done">("idle");
+  /* The open fast track: the step that just landed for this place, from
+     interactive facts frames, and "still reading" after 3 s without the
+     plan closing. Presentation only; nothing here is room truth. */
+  const [openStage, setOpenStage] = useState<InteractiveStage | "still" | null>(null);
+  const interactiveForMe =
+    factsFrame.reason === "interactive" && factsFrame.ids.includes(candidate.candidateId);
+  useEffect(() => {
+    if (!interactiveForMe) return;
+    if (factsFrame.done) {
+      setOpenStage(null);
+      return;
+    }
+    if (factsFrame.stage) setOpenStage(factsFrame.stage);
+  }, [factsFrame.nonce, factsFrame.done, factsFrame.stage, interactiveForMe]);
+  useEffect(() => {
+    setOpenStage(null);
+  }, [candidate.candidateId]);
+  const stillTimerArmed = openStage !== null && openStage !== "still";
+  useEffect(() => {
+    if (!stillTimerArmed) return;
+    const timer = window.setTimeout(() => setOpenStage("still"), STILL_READING_MS);
+    return () => window.clearTimeout(timer);
+  }, [stillTimerArmed, factsFrame.nonce]);
   const [lookupChanged, setLookupChanged] = useState(0);
   const [refreshNonce, setRefreshNonce] = useState(0);
   const factsBefore = useRef<Map<string, string> | null>(null);
@@ -330,6 +364,8 @@ export function PlaceDetails({
     void (async () => {
       const result = (await spatialInspectRaw({
         candidateIds: [candidate.candidateId],
+        // A person opened it: cached facts now, the rest on the fast track.
+        intent: "open",
       })) as { ok?: boolean; candidates?: CandidateDossier[] };
       if (!cancelled && result.ok && result.candidates?.[0]) {
         const next = result.candidates[0];
@@ -659,6 +695,35 @@ export function PlaceDetails({
       </div>
 
       <div className="details-body">
+        {/* Before the dossier lands the summary already says whether a
+            photo exists: the band's box is reserved from first paint with
+            the blurhash painted, so nothing below shifts when the bytes
+            arrive. Unknown but being looked up: a thin quiet band that only
+            collapses once the lookup ends without a photo. */}
+        {photos.length === 0 && !dossier && candidate.image && (
+          <div className="details-photo" data-testid="photo-band" data-reserved="true">
+            <div
+              className="details-photo-band"
+              data-count={1}
+            >
+              <div
+                className="details-photo-frame"
+                data-placeholder="true"
+                style={
+                  blurhashDataUrl(candidate.image.blurhash)
+                    ? { backgroundImage: `url(${blurhashDataUrl(candidate.image.blurhash)})` }
+                    : undefined
+                }
+              />
+            </div>
+          </div>
+        )}
+        {photos.length === 0 && dossier && !candidate.image && lookingUp && (
+          <div className="details-photo-looking" data-testid="photo-looking" role="status">
+            <i className="busy-ring row-busy" aria-hidden="true" />
+            {COPY.lookingForPhoto}
+          </div>
+        )}
         {photos.length > 0 && (
           <div className="details-photo" data-testid="photo-band">
             <div
@@ -709,12 +774,17 @@ export function PlaceDetails({
               looks final before the facts have landed. */}
           <div
             className="details-lookup"
-            data-state={lookingUp ? "busy" : dossier ? "done" : "loading"}
+            data-state={openStage !== null || lookingUp ? "busy" : dossier ? "done" : "loading"}
             data-testid="details-lookup"
             role="status"
             aria-busy={lookingUp || !dossier || undefined}
           >
-            {lookingUp || !dossier ? (
+            {openStage !== null ? (
+              <>
+                <i className="busy-ring line-busy" aria-hidden="true" />
+                {COPY.openStageLine(openStage)}
+              </>
+            ) : lookingUp || !dossier ? (
               <>
                 <i className="busy-ring line-busy" aria-hidden="true" />
                 {lookingUp ? (stage ? COPY.stageLine(stage) : COPY.lookingUp) : COPY.readingRecord}

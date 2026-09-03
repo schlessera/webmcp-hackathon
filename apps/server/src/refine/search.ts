@@ -118,7 +118,7 @@ export const openAiSearchProvider: SearchProvider = {
   async search(query, opts = {}) {
     const domains = cleanDomains(opts.domains);
     const reply = await respond({
-      model: config.nlFastModel,
+      model: config.llmJudgeModel,
       instructions: [
         "Find direct evidence that answers every criterion named in the request for this one place.",
         "Keep exact source wording in the answer and cite each supported statement inline.",
@@ -349,7 +349,7 @@ export const parallelSearchProvider: SearchProvider = {
         body: JSON.stringify({
           objective: query,
           search_queries: [query],
-          mode: "fast",
+          mode: parallelSearchMode(),
           max_chars_total: 10_000,
           advanced_settings: {
             max_results: 5,
@@ -405,4 +405,11 @@ export function search(
     title: cleanTitle(result.title) || result.url,
     snippet: cleanSummary(result.snippet, 2_000),
   })).filter((result) => Boolean(result.snippet)));
+}
+
+/** Parallel's faster processor is the default; deployments can opt back into
+ * `fast` (or another documented processor) without changing request shape. */
+export function parallelSearchMode(): string {
+  const mode = process.env.PARALLEL_SEARCH_MODE?.trim();
+  return mode && mode.length > 0 ? mode : "turbo";
 }

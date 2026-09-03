@@ -3,6 +3,7 @@ import { WebSocketServer, WebSocket } from "ws";
 import {
   TOOL_CONTRACT_VERSION,
   type AuthMessage,
+  type PreviewingMessage,
   type ViewingMessage,
   type ServerMessage,
 } from "@webmcp-hackathon/contracts";
@@ -15,6 +16,8 @@ import { projectEvent } from "./projection.ts";
 import { markClosed, markOpen, presentIn, setViewing, viewingIn } from "./presence.ts";
 import { currentLookups, onFacts, onLookupProgress } from "./enrich/progress.ts";
 import { pipelineScheduler } from "./pipeline/scheduler.ts";
+import { openCandidate, previewCandidate } from "./spatial.ts";
+import { prefetchKey, prefetchManager } from "./pipeline/prefetch.ts";
 
 interface Connection {
   socket: WebSocket;
@@ -22,6 +25,7 @@ interface Connection {
   roomId: string;
   /** Per-socket identity for viewing state (two tabs, two places). */
   socketId: string;
+  previewedCandidateId?: string;
 }
 let nextSocketId = 0;
 
@@ -144,20 +148,47 @@ export function attachWebSocket(server: Server): void {
           if (setViewing(connection.roomId, connection.participantId, connection.socketId, candidateId)) {
             await broadcastPresence(connection.roomId);
           }
+          if (candidateId !== null) {
+            void openCandidate(connection.roomId, candidateId).catch(() => undefined);
+          }
+          return;
+        }
+        if (connection && isPreviewingMessage(message)) {
+          const candidateId = message.candidateId;
+          if (candidateId !== null) {
+            const candidate = await pool.query(
+              "SELECT 1 FROM candidates WHERE room_id = $1 AND id = $2",
+              [connection.roomId, candidateId],
+            );
+            if (candidate.rowCount !== 1) {
+              send(socket, {
+                type: "error",
+                code: "invalid_message",
+                message: "Unknown candidateId. Refresh the room before previewing it.",
+              });
+              return;
+            }
+          }
+          if (connection.previewedCandidateId && connection.previewedCandidateId !== candidateId) {
+            prefetchManager.cancel(prefetchKey(connection.roomId, connection.previewedCandidateId));
+          }
+          connection.previewedCandidateId = candidateId ?? undefined;
+          if (candidateId) previewCandidate(connection.roomId, candidateId);
           return;
         }
         if (
           connection &&
           message !== null &&
           typeof message === "object" &&
-          (message as { type?: unknown }).type === "viewing"
+          ((message as { type?: unknown }).type === "viewing" ||
+            (message as { type?: unknown }).type === "previewing")
         ) {
           // R17: malformed viewing state is not the same as clearing it. Only
           // an explicit null removes the current candidate.
           send(socket, {
             type: "error",
             code: "invalid_message",
-            message: "viewing.candidateId must be null or a non-empty candidate ID up to 40 characters.",
+            message: "viewing/previewing.candidateId must be null or a non-empty candidate ID up to 40 characters.",
           });
           return;
         }
@@ -257,6 +288,9 @@ export function attachWebSocket(server: Server): void {
       clearInterval(keepaliveTimer);
       clearTimeout(pongDeadline);
       if (connection) {
+        if (connection.previewedCandidateId) {
+          prefetchManager.cancel(prefetchKey(connection.roomId, connection.previewedCandidateId));
+        }
         connections.delete(connection);
         if (markClosed(connection.roomId, connection.participantId, connection.socketId)) {
           void broadcastPresence(connection.roomId).catch((err) => {
@@ -308,6 +342,14 @@ function isAuthMessage(value: unknown): value is AuthMessage {
 function isViewingMessage(value: unknown): value is ViewingMessage {
   if (!isRecord(value) || !hasOnlyKeys(value, ["type", "candidateId"])) return false;
   return value.type === "viewing" &&
+    (value.candidateId === null ||
+      (typeof value.candidateId === "string" &&
+        value.candidateId.length > 0 && value.candidateId.length <= 40));
+}
+
+function isPreviewingMessage(value: unknown): value is PreviewingMessage {
+  if (!isRecord(value) || !hasOnlyKeys(value, ["type", "candidateId"])) return false;
+  return value.type === "previewing" &&
     (value.candidateId === null ||
       (typeof value.candidateId === "string" &&
         value.candidateId.length > 0 && value.candidateId.length <= 40));

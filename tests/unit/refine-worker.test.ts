@@ -262,7 +262,9 @@ describe("continuous refinement queue", () => {
     ])).flat();
     expect(responses).toHaveLength(12);
     expect(provider).toHaveBeenCalledTimes(12);
-    expect(peak).toBe(pipelineScheduler.pools.search.limit);
+    expect(peak).toBe(
+      pipelineScheduler.pools.search.limit - pipelineScheduler.pools.search.reserved,
+    );
     for (const [query, opts] of provider.mock.calls) {
       expect(query).toMatch(/^Place \d+ Berlin first words second words$/);
       expect(opts).toBeUndefined();

@@ -13,7 +13,7 @@ const SCRIPTED_IMAGE = await sharp({
 }).png().toBuffer();
 
 pipelineScheduler.onEnqueue((item) => {
-  console.info(`pipeline-enqueue ${item.kind} ${item.candidateId}`);
+  console.info(`pipeline-enqueue ${item.kind} ${item.candidateId} priority=${item.priority}`);
 });
 
 setEnrichFetch(async (url) => {
