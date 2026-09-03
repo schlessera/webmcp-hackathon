@@ -9,6 +9,15 @@ export const LISTING_TTL_MS = 7 * 24 * 60 * 60_000;
 export const LISTING_ROOM_BUDGET_MS = 24 * 60 * 60_000;
 export const DATAFORSEO_REQUEST_USD = 0.012;
 export const DATAFORSEO_ITEM_USD = 0.00036;
+/**
+ * Kept at the provider maximum on purpose. Cost is per item RETURNED, so a
+ * smaller limit looks like a saving, but the provider does not order results
+ * by relevance to our pool — truncation drops places at random. Measured over
+ * the real 60-place Berlin pool: limit 120 (twice the pool) returned 516 items
+ * for $0.246 and matched 26, while limit 1,000 returned 958 for $0.405 and
+ * matched 46. The category filter, not the limit, is what bounds this cost;
+ * the per-room 24-hour budget bounds how often it is paid.
+ */
 export const DATAFORSEO_LIMIT = 1_000;
 export const LISTING_MATCH_DISTANCE_M = 60;
 /** The provider caps a request at 10 categories; a wider pool takes more. */
@@ -211,8 +220,10 @@ export interface ListingBatchResult {
   scopeId: string;
   observedAt: string;
   returnedItems: number;
+  requests: number;
   costUsd: number;
   matches: MatchedListing[];
+  diagnostics: ListingMatchDiagnostics;
 }
 
 function safeHttpUrl(value: unknown): string | undefined {
@@ -243,15 +254,50 @@ function listingDomain(listing: DataForSeoListing): string | undefined {
   return normalizedDomain(listing.domain) ?? normalizedDomain(listing.url);
 }
 
+/**
+ * Words a listing adds that say where or what a business is, not which one it
+ * is. Dropping them is what makes the name comparison work: measured over a
+ * real 60-place Berlin pool against 958 listings, dropping the class words
+ * alone took matches from 39 to 43, because the provider writes "Gentle
+ * Restaurant" and "Segafredo Coffee Bar" where the map says "Gentle" and
+ * "Segafredo".
+ */
+const NAME_PLACE_WORDS = new Set([
+  "berlin", "mitte", "deutschland", "germany", "filiale", "standort",
+  "gmbh", "ug", "kg", "ohg", "ag", "co", "inc", "ltd",
+]);
+const NAME_CLASS_WORDS = new Set([
+  "restaurant", "cafe", "bar", "pub", "kiosk", "imbiss", "bistro", "coffee",
+  "shop", "house", "haus", "the", "der", "die", "das", "am", "an", "zur",
+  "zum", "by", "und", "and",
+]);
+
 function normalizeName(value: string): string {
   return value
     .normalize("NFKD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLocaleLowerCase()
     .replace(/&/g, " and ")
+    .replace(/\u00df/g, "ss")
     .replace(/[^\p{L}\p{N}]+/gu, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+/** Normalized, minus the city and legal-form words. */
+function strongName(value: string): string {
+  return normalizeName(value).split(" ").filter((word) => word && !NAME_PLACE_WORDS.has(word)).join(" ");
+}
+
+/**
+ * Normalized, minus the class words too — the form names are compared on.
+ * A name made only of class words keeps them, so "The Coffee House" still has
+ * something to compare rather than collapsing to nothing.
+ */
+export function listingNameCore(value: string): string {
+  const strong = strongName(value);
+  const words = strong.split(" ").filter((word) => word && !NAME_CLASS_WORDS.has(word));
+  return (words.length ? words : strong.split(" ")).join(" ");
 }
 
 function bigrams(value: string): string[] {
@@ -262,8 +308,8 @@ function bigrams(value: string): string[] {
 
 /** Sørensen-Dice similarity, with exact normalized names taking the fast path. */
 export function listingNameSimilarity(left: string, right: string): number {
-  const a = normalizeName(left);
-  const b = normalizeName(right);
+  const a = listingNameCore(left);
+  const b = listingNameCore(right);
   if (!a || !b) return 0;
   if (a === b) return 1;
   const remaining = new Map<string, number>();
@@ -315,8 +361,8 @@ export const LISTING_NAME_SIMILARITY = 0.72;
  * and the shorter name covering half the longer one's words.
  */
 export function listingNameContains(left: string, right: string): boolean {
-  const a = normalizeName(left);
-  const b = normalizeName(right);
+  const a = strongName(left);
+  const b = strongName(right);
   if (!a || !b || a === b) return false;
   const [shorter, longer] = a.length <= b.length ? [a, b] : [b, a];
   // Six characters, because "sushi" (five) sits inside "Sushi Miyabi" and is
@@ -333,27 +379,55 @@ export function listingNameContains(left: string, right: string): boolean {
  * that identity signal must agree as well; a nearby similarly named venue on
  * another site is deliberately rejected.
  */
-export function matchListing(
+export type ListingMissReason = "distance" | "name" | "domain";
+
+export interface ListingMatchOutcome {
+  distanceM: number;
+  nameSimilarity: number;
+  domainMatch: boolean;
+}
+
+/** Why a candidate/listing pair was refused, for the batch's diagnostic line. */
+export function matchListingOutcome(
   candidate: ListingCandidate,
   listing: DataForSeoListing,
-): { distanceM: number; nameSimilarity: number } | null {
+): ListingMatchOutcome | ListingMissReason {
   const title = typeof listing.title === "string"
     ? listing.title
     : typeof listing.original_title === "string"
       ? listing.original_title
       : "";
   const location = listingLocation(listing);
-  if (!title || !location) return null;
+  if (!title || !location) return "name";
   const distanceM = listingDistanceMeters(candidate.location, location);
-  if (distanceM > LISTING_MATCH_DISTANCE_M) return null;
+  if (distanceM > LISTING_MATCH_DISTANCE_M) return "distance";
+  const candidateSite = candidateDomain(candidate);
+  const listingSite = listingDomain(listing);
+  const domainMatch = Boolean(candidateSite && listingSite && candidateSite === listingSite);
+  const domainClash = Boolean(candidateSite && listingSite && candidateSite !== listingSite);
   const nameSimilarity = listingNameSimilarity(candidate.name, title);
   const contained = distanceM <= LISTING_CONTAINED_DISTANCE_M &&
     listingNameContains(candidate.name, title);
-  if (nameSimilarity < LISTING_NAME_SIMILARITY && !contained) return null;
-  const candidateSite = candidateDomain(candidate);
-  const listingSite = listingDomain(listing);
-  if (candidateSite && listingSite && candidateSite !== listingSite) return null;
-  return { distanceM, nameSimilarity };
+  // The same site at the same spot is the strongest identity there is, and it
+  // carries pairs a name comparison cannot: "Ryce" against "RYCE - Kitchen &
+  // Sushi Bar" scores 0.30. Measured, this path is worth 3 of 46 matches.
+  const identified = domainMatch || nameSimilarity >= LISTING_NAME_SIMILARITY || contained;
+  // "domain" means the veto alone refused a pair the name already identified.
+  // A pair that failed on the name is a name miss even when the domains also
+  // differ, or the count would blame the veto for work it did not do.
+  if (!identified) return "name";
+  if (domainClash && !domainMatch) return "domain";
+  return { distanceM, nameSimilarity, domainMatch };
+}
+
+export function matchListing(
+  candidate: ListingCandidate,
+  listing: DataForSeoListing,
+): { distanceM: number; nameSimilarity: number } | null {
+  const outcome = matchListingOutcome(candidate, listing);
+  return typeof outcome === "string"
+    ? null
+    : { distanceM: outcome.distanceM, nameSimilarity: outcome.nameSimilarity };
 }
 
 function collectAttributeNames(value: unknown, out: Set<string>): void {
@@ -504,28 +578,81 @@ export function mapListing(
   };
 }
 
-/** Greedy one-to-one assignment, best identity signal first. */
-export function matchListings(
+export interface ListingMatchDiagnostics {
+  matched: number;
+  unmatchedByReason: Record<ListingMissReason, number>;
+}
+
+/**
+ * Greedy one-to-one assignment, best identity signal first. A domain match
+ * outranks a name score, because it is the stronger signal.
+ *
+ * The diagnostics count each unmatched CANDIDATE once, under its nearest
+ * miss: a place refused only for distance is a coverage problem, one refused
+ * for the name is a normalization problem, and they need different fixes.
+ * No listing id or title is retained.
+ */
+export function matchListingsWithDiagnostics(
   candidates: ListingCandidate[],
   listings: DataForSeoListing[],
   observedAt = new Date().toISOString(),
-): MatchedListing[] {
-  const possible = candidates.flatMap((candidate) => listings.flatMap((listing, listingIndex) => {
-    const match = matchListing(candidate, listing);
-    const facts = match ? mapListing(listing, observedAt) : null;
-    return match && facts ? [{ candidate, listing, listingIndex, facts, ...match }] : [];
-  })).sort((a, b) =>
+): { matches: MatchedListing[]; diagnostics: ListingMatchDiagnostics } {
+  const RANK: Record<ListingMissReason, number> = { domain: 0, name: 1, distance: 2 };
+  const nearestMiss = new Map<string, ListingMissReason>();
+  const possible: Array<
+    MatchedListing & { listingIndex: number; domainMatch: boolean }
+  > = [];
+  for (const candidate of candidates) {
+    for (const [listingIndex, listing] of listings.entries()) {
+      const outcome = matchListingOutcome(candidate, listing);
+      if (typeof outcome === "string") {
+        const held = nearestMiss.get(candidate.candidateId);
+        if (held === undefined || RANK[outcome] < RANK[held]) {
+          nearestMiss.set(candidate.candidateId, outcome);
+        }
+        continue;
+      }
+      const facts = mapListing(listing, observedAt);
+      if (!facts) continue;
+      possible.push({
+        candidate,
+        listing,
+        listingIndex,
+        facts,
+        distanceM: outcome.distanceM,
+        nameSimilarity: outcome.nameSimilarity,
+        domainMatch: outcome.domainMatch,
+      });
+    }
+  }
+  possible.sort((a, b) =>
+    Number(b.domainMatch) - Number(a.domainMatch) ||
     b.nameSimilarity - a.nameSimilarity || a.distanceM - b.distanceM ||
     a.candidate.candidateId.localeCompare(b.candidate.candidateId)
   );
   const usedCandidates = new Set<string>();
   const usedListings = new Set<number>();
-  return possible.flatMap(({ listingIndex, ...match }) => {
-    if (usedCandidates.has(match.candidate.candidateId) || usedListings.has(listingIndex)) return [];
+  const matches: MatchedListing[] = [];
+  for (const { listingIndex, domainMatch: _domainMatch, ...match } of possible) {
+    if (usedCandidates.has(match.candidate.candidateId) || usedListings.has(listingIndex)) continue;
     usedCandidates.add(match.candidate.candidateId);
     usedListings.add(listingIndex);
-    return [match];
-  });
+    matches.push(match);
+  }
+  const unmatchedByReason: Record<ListingMissReason, number> = { distance: 0, name: 0, domain: 0 };
+  for (const candidate of candidates) {
+    if (usedCandidates.has(candidate.candidateId)) continue;
+    unmatchedByReason[nearestMiss.get(candidate.candidateId) ?? "name"] += 1;
+  }
+  return { matches, diagnostics: { matched: matches.length, unmatchedByReason } };
+}
+
+export function matchListings(
+  candidates: ListingCandidate[],
+  listings: DataForSeoListing[],
+  observedAt = new Date().toISOString(),
+): MatchedListing[] {
+  return matchListingsWithDiagnostics(candidates, listings, observedAt).matches;
 }
 
 interface RoomListingRow {
@@ -647,8 +774,10 @@ export async function fetchRoomListings(
         scopeId: room.scope_id,
         observedAt,
         returnedItems: 0,
+        requests: 0,
         costUsd: 0,
         matches: [],
+        diagnostics: { matched: 0, unmatchedByReason: { distance: 0, name: 0, domain: 0 } },
       };
     }
     // The provider rejects a radius under a kilometre, so a tighter scope is
@@ -693,13 +822,16 @@ export async function fetchRoomListings(
         WHERE room_id = $1`,
       [roomId, items.length, costUsd],
     );
+    const { matches, diagnostics } = matchListingsWithDiagnostics(candidates, items, observedAt);
     return {
       roomId,
       scopeId: room.scope_id,
       observedAt,
       returnedItems: items.length,
+      requests: requests.length,
       costUsd,
-      matches: matchListings(candidates, items, observedAt),
+      matches,
+      diagnostics,
     };
   } catch (error) {
     await q.query(
