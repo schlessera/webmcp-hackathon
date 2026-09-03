@@ -128,6 +128,26 @@ SVG mask. When an agent widens the area, draw the **proposed** radius as a
 second, fainter dashed ring (`8d`, `7b`) so the change is visible before it
 is accepted.
 
+### Refinement (2026-09-03)
+
+The room keeps looking things up on its own (docs/ENRICHMENT-SOURCES.md,
+"Continuous refinement"). What the page shows, and only this:
+
+- Places being worked on carry the busy ring (the `lookups` frame with
+  `reason.kind: "refine"` drives it exactly like a need-triggered lookup).
+- The count block's progress slot says `looking up N · M to go` while the
+  frame names places; whole-area fill still wins the slot while it runs.
+- A quiet mono line under the count, `.count-refine`: `checked N places
+  for K needs · M to go` from the context's `refine` view; `paused for
+  now` when the room is out of budget. Announced to screen readers at most
+  once every 10 s (`aria-live="polite"`, batched), never per frame.
+- A question need (criterion `q:`) that has answers shows `· looked up`
+  beside its label; its badges are the live likely / unlikely / unknown.
+- In the place panel a web-derived fact carries a citation link,
+  `from example.org ↗`, opening in a new tab; 44px tall through padding.
+  A fact settling while the panel is open changes colour and edge on the
+  settle duration — no movement, no new keyframe.
+
 ### Count block
 
 Top-left, 14px inset, rotated −2°, `--spoke-radius-block`, `--spoke-shadow-lift`.

@@ -1894,3 +1894,150 @@ test("the page says what the map is as of once the browser goes offline, and dro
   socket.send({ type: "ping", at: new Date().toISOString() });
   await expect(page.getByTestId("offline-line")).toHaveCount(0);
 });
+
+test("the room says what it is refining, a question need shows it was looked up, and a web-derived fact cites its page", async ({ page }) => {
+  const needs = [
+    {
+      id: "need-wifi",
+      label: "free wifi",
+      ruledOut: 0,
+      wouldReturn: 0,
+      unknown: 12,
+      likely: 3,
+      unlikely: 1,
+      active: true,
+      visibility: "shared" as const,
+      hardness: "hard" as const,
+      ownerId: "p_org",
+      criterionId: "q:0123456789abcdef0123456789abcdef01234567",
+    },
+  ];
+  const context = fixture({ matching: 4, revision: 50, activeNeeds: needs });
+  (context as MockContext & { refine?: unknown }).refine = {
+    active: true,
+    queued: 5,
+    checkedToday: 84,
+    budgetLeft: { calls: 40, searches: 20 },
+  };
+  const state: MockState = { context, outstanding: [] };
+  await mockApi(page, state);
+  await page.route("**/api/spatial/inspect", (route) =>
+    route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        ok: true,
+        revision: 50,
+        candidates: [
+          {
+            candidateId: "place_24",
+            name: "The Barn",
+            location: center,
+            category: "cafe",
+            priceLevel: null,
+            hours: [],
+            needs: [
+              { requirementId: "need-wifi", label: "free wifi", verdict: "likely", confidence: 0.5 },
+            ],
+            attributes: [
+              {
+                key: "q:0123456789abcdef0123456789abcdef01234567",
+                label: "free wifi",
+                status: "likely_true",
+                source: "infer:gpt-5.6-luna:open_web_search",
+                observedAt: "2026-09-03T00:00:00Z",
+                confidence: 0.5,
+                note: "free Wi-Fi for guests",
+                sourceUrl: "https://www.example.org/berlin/the-barn",
+              },
+              {
+                key: "q:ffffffffffffffffffffffffffffffffffffffff",
+                status: "likely_false",
+                source: "infer:gpt-5.6-luna:open_web_search",
+                observedAt: "2026-09-03T00:00:00Z",
+                confidence: 0.5,
+              },
+            ],
+            mapRevision: 1,
+          },
+        ],
+      }),
+    }),
+  );
+  const socket = await scriptedSocket(page, 50);
+  await page.goto(`${BASE}/#invite=deadbeef`);
+  await socket.welcomed;
+
+  // The refinement line, quiet under the count, absolute both sides.
+  const refineLine = page.getByTestId("count-refine");
+  await expect(refineLine).toHaveText("checked 84 places for 1 need · 5 to go");
+  await expect(page.getByTestId("count-busy")).toHaveCount(0);
+
+  // The worker names the places it is on: rings on them, the count says how many.
+  socket.send({ type: "lookups", pending: ["place_1", "place_2"], reason: { kind: "refine" } });
+  await expect(page.getByTestId("count-busy")).toHaveText("looking up 2 · 5 to go");
+  await expect(page.getByTestId("pin-place_1")).toHaveAttribute("data-busy", "true");
+  await expect(page.getByTestId("pin-place_2")).toHaveAttribute("data-busy", "true");
+  await expect(page.getByTestId("map-region")).toHaveAttribute("aria-busy", "true");
+  socket.send({ type: "lookups", pending: [] });
+  await expect(page.getByTestId("count-busy")).toHaveCount(0);
+  await expect(page.getByTestId("pin-place_1")).not.toHaveAttribute("data-busy", "true");
+  await expect(refineLine).toBeVisible();
+
+  // A question need that has answers says it was looked up, beside its counts.
+  const row = page.getByTestId("need-need-wifi");
+  await expect(row).toHaveAttribute("data-kind", "question");
+  await expect(row.getByTestId("need-looked")).toContainText("looked up");
+  await expect(row.locator('.badge[data-kind="likely"]')).toHaveText("3 likely");
+  await expect(row.locator('.badge[data-kind="unlikely"]')).toHaveText("1 unlikely");
+  await expect(row.locator('.badge[data-kind="unsure"]')).toHaveText("12 unknown");
+
+  // The fact the question rests on cites the page it was read from.
+  await page.getByTestId("pin-place_24").click();
+  const details = page.getByTestId("place-details");
+  const check = details.getByTestId("fit-ledger").locator(".check-row").first();
+  await expect(check).toHaveAttribute("data-mark", "likely");
+  await expect(check).toContainText("free wifi");
+  await expect(check).toContainText("free Wi-Fi for guests");
+  const cite = check.getByTestId("fact-cite");
+  await expect(cite).toHaveText("from example.org");
+  await expect(cite).toHaveAttribute("href", "https://www.example.org/berlin/the-barn");
+  await expect(cite).toHaveAttribute("target", "_blank");
+  await expect(cite).toHaveAttribute("rel", /noopener/);
+  const citeBox = await cite.boundingBox();
+  expect(citeBox && citeBox.height).toBeGreaterThanOrEqual(44);
+  // A question nobody in this view may see (no label) stays out of the record.
+  await expect(details.getByTestId("facts")).toHaveCount(0);
+  await expect(details).not.toContainText(/q:|infer:|open_web/);
+
+  // Out of budget reads as paused, never as a failure.
+  (state.context as MockContext & { refine?: { budgetLeft: { calls: number } } }).refine!.budgetLeft.calls = 0;
+  socket.send({ type: "facts", candidateIds: ["place_24"], reason: "inference" });
+  await expect(refineLine).toHaveText("paused for now");
+});
+
+test("the refinement line and the fact rows are still under reduced motion", async ({ browser }) => {
+  const context = await browser.newContext({ reducedMotion: "reduce" });
+  const page = await context.newPage();
+  const ctx = fixture({ matching: 4, revision: 51 });
+  (ctx as MockContext & { refine?: unknown }).refine = {
+    active: true,
+    queued: 2,
+    checkedToday: 3,
+    budgetLeft: { calls: 10, searches: 5 },
+  };
+  await mockApi(page, { context: ctx, outstanding: [] });
+  const socket = await scriptedSocket(page, 51);
+  await page.goto(`${BASE}/#invite=deadbeef`);
+  await socket.welcomed;
+  await expect(page.getByTestId("count-refine")).toHaveText("checked 3 places for 0 needs · 2 to go");
+  socket.send({ type: "lookups", pending: ["place_1"], reason: { kind: "refine" } });
+  await expect(page.getByTestId("pin-place_1")).toHaveAttribute("data-busy", "true");
+  await expect
+    .poll(() => page.evaluate(() => window.__spokesMapStats?.().busyAnimating))
+    .toBe(false);
+  const settle = await page.evaluate(() =>
+    getComputedStyle(document.documentElement).getPropertyValue("--spoke-dur-settle").trim(),
+  );
+  expect(settle).toBe("0ms");
+  await context.close();
+});
