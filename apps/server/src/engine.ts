@@ -20,6 +20,7 @@ import {
   type ToolResult,
   type Criterion,
   ATTRIBUTE_LABELS,
+  ATTRIBUTE_VOCABULARY,
   criterionFor,
   implies,
   normalizeCuisineTokens,
@@ -65,6 +66,7 @@ import {
 } from "./candidate-write.ts";
 import { startPoolFill } from "./pool-fill.ts";
 import { wakeRefinement } from "./refine/worker.ts";
+import { publishFacts } from "./enrich/progress.ts";
 export {
   notifyCommit,
   onCommit,
@@ -164,6 +166,8 @@ interface HandlerOutcome {
   };
   /** An active criterion changed and the continuous queue must be re-ranked. */
   refine?: boolean;
+  /** Presentation refreshes for every room sharing a globally changed ref. */
+  factRooms?: Array<{ roomId: string; candidateIds: string[] }>;
 }
 
 /** Thrown inside the command transaction so failures ROLL BACK any writes a
@@ -404,6 +408,7 @@ export async function submitCommand(
       refine: outcome.refine ?? false,
       warmTargets: outcome.warmTargets ?? [],
       poolFill: outcome.poolFill ?? false,
+      factRooms: outcome.factRooms ?? [],
       replayed: false as const,
     };
     });
@@ -450,6 +455,13 @@ export async function submitCommand(
     storedRevisions: result.storedRevisions,
     confirmations,
   });
+  for (const room of result.factRooms) {
+    publishFacts(room.roomId, {
+      type: "facts",
+      candidateIds: room.candidateIds,
+      reason: "confirmation",
+    });
+  }
   if (result.refine) wakeRefinement(actor.roomId);
   if (result.lookup) {
     // The command is already durable. Lookup selection and every downstream
@@ -622,6 +634,10 @@ async function dispatch(
       return planArrival(client, actor, input as never);
     case "AttestAttribute":
       return attestAttribute(client, actor, input as never);
+    case "ConfirmFact":
+      return confirmFact(client, actor, input as never);
+    case "UnconfirmFact":
+      return unconfirmFact(client, actor, input as never);
     case "ResolvePrivateRequest":
       return resolvePrivateRequest(client, actor, input as never);
     case "ConfirmPrivateRequest":
@@ -1451,6 +1467,232 @@ async function attestAttribute(
       ...screeningEvents,
     ],
     effect: `Attested ${label}: ${answer} for ${candidate.name}.`,
+  };
+}
+
+const QUESTION_CRITERION = /^q:[0-9a-f]{40}$/;
+
+function confirmableCriterion(criterionId: string): boolean {
+  return (ATTRIBUTE_VOCABULARY as readonly string[]).includes(criterionId) ||
+    QUESTION_CRITERION.test(criterionId);
+}
+
+/** Event copy may carry a question only when that question was shared. */
+async function confirmedCriterionLabel(
+  client: pg.PoolClient,
+  actor: Participant,
+  criterionId: string,
+): Promise<string> {
+  const vocabulary = ATTRIBUTE_LABELS[criterionId as keyof typeof ATTRIBUTE_LABELS];
+  if (vocabulary) return vocabulary;
+  const requirements = (
+    await client.query(
+      `SELECT payload, visibility FROM requirements
+        WHERE room_id = $1 AND NOT withdrawn AND visibility = 'shared'`,
+      [actor.roomId],
+    )
+  ).rows as Array<{ payload: Record<string, unknown>; visibility: string }>;
+  for (const requirement of requirements) {
+    const criterion = criterionFor(requirement.payload as never);
+    if (criterion?.id === criterionId) return criterion.label;
+  }
+  return "a question";
+}
+
+interface ConfirmFactCmd {
+  candidateId: string;
+  criterionId: string;
+  lean: boolean;
+  note?: string;
+  sourceUrl?: string;
+}
+
+async function confirmedCandidate(
+  client: pg.PoolClient,
+  actor: Participant,
+  candidateId: string,
+): Promise<{ id: string; name: string; osm_ref: string } | HandlerOutcome> {
+  const candidate = (
+    await client.query(
+      "SELECT id, name, osm_ref FROM candidates WHERE id = $1 AND room_id = $2",
+      [candidateId, actor.roomId],
+    )
+  ).rows[0] as { id: string; name: string; osm_ref: string | null } | undefined;
+  if (!candidate) {
+    return errorOutcome(
+      "not_found",
+      "Unknown candidateId.",
+      "Call get_spatial_context to refresh candidate IDs.",
+    );
+  }
+  if (!candidate.osm_ref) {
+    return errorOutcome(
+      "invalid_input",
+      "This place has no permanent record reference.",
+      "Use a place backed by the shared map record.",
+    );
+  }
+  return { ...candidate, osm_ref: candidate.osm_ref };
+}
+
+async function bumpConfirmedFactCandidates(
+  client: pg.PoolClient,
+  actor: Participant,
+  candidate: { id: string; osm_ref: string },
+): Promise<{
+  events: AppendedEvent[];
+  factRooms: Array<{ roomId: string; candidateIds: string[] }>;
+}> {
+  const affected = (
+    await client.query(
+      "SELECT room_id, id FROM candidates WHERE osm_ref = $1 ORDER BY room_id, id",
+      [candidate.osm_ref],
+    )
+  ).rows as Array<{ room_id: string; id: string }>;
+  const localEvents = await bumpCandidateMapRevisions(client, actor.roomId, [candidate.id]);
+  // The fact is global, so stale private verdicts in every other room must
+  // stop being authoritative even though only this room receives the event.
+  await client.query(
+    `UPDATE candidates SET map_revision = map_revision + 1
+      WHERE osm_ref = $1 AND room_id <> $2`,
+    [candidate.osm_ref, actor.roomId],
+  );
+  const grouped = new Map<string, string[]>();
+  for (const row of affected) {
+    const ids = grouped.get(row.room_id) ?? [];
+    ids.push(row.id);
+    grouped.set(row.room_id, ids);
+  }
+  return {
+    events: localEvents,
+    factRooms: [...grouped].map(([roomId, candidateIds]) => ({ roomId, candidateIds })),
+  };
+}
+
+async function confirmFact(
+  client: pg.PoolClient,
+  actor: Participant,
+  cmd: ConfirmFactCmd,
+): Promise<HandlerOutcome> {
+  // Defence in depth behind the generated schema: neither time-window ids,
+  // value-specific synthetic ids nor question text can reach shared storage.
+  if (!confirmableCriterion(cmd.criterionId)) {
+    return errorOutcome(
+      "invalid_input",
+      "criterionId must be a vocabulary key or q:<sha1>; open:* windows cannot be confirmed.",
+      "Use the criterionId supplied by an eligible vocabulary or question need.",
+    );
+  }
+  const candidate = await confirmedCandidate(client, actor, cmd.candidateId);
+  if ("events" in candidate) return candidate;
+  await client.query(
+    `INSERT INTO confirmed_facts
+       (osm_ref, criterion_id, lean, note, source_url, confirmed_by_name,
+        confirmed_by_participant, room_id, confirmed_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now())
+     ON CONFLICT (osm_ref, criterion_id) DO UPDATE SET
+       lean = EXCLUDED.lean, note = EXCLUDED.note, source_url = EXCLUDED.source_url,
+       confirmed_by_name = EXCLUDED.confirmed_by_name,
+       confirmed_by_participant = EXCLUDED.confirmed_by_participant,
+       room_id = EXCLUDED.room_id, confirmed_at = now()`,
+    [
+      candidate.osm_ref,
+      cmd.criterionId,
+      cmd.lean,
+      cmd.note ?? null,
+      cmd.sourceUrl ?? null,
+      actor.displayName,
+      actor.id,
+      actor.roomId,
+    ],
+  );
+  const bumped = await bumpConfirmedFactCandidates(client, actor, candidate);
+  const label = await confirmedCriterionLabel(client, actor, cmd.criterionId);
+  return {
+    events: [
+      {
+        type: "attribute_attested",
+        actorId: actor.id,
+        visibility: "shared",
+        payload: {
+          actorName: actor.displayName,
+          candidateId: candidate.id,
+          candidateName: candidate.name,
+          key: cmd.criterionId,
+          label,
+          status: cmd.lean ? "verified_true" : "verified_false",
+          confidence: 0.95,
+          confirmed: true,
+        },
+      },
+      ...bumped.events,
+    ],
+    effect: `${actor.displayName} confirmed ${label} at ${candidate.name}.`,
+    factRooms: bumped.factRooms,
+  };
+}
+
+async function unconfirmFact(
+  client: pg.PoolClient,
+  actor: Participant,
+  cmd: Pick<ConfirmFactCmd, "candidateId" | "criterionId">,
+): Promise<HandlerOutcome> {
+  if (!confirmableCriterion(cmd.criterionId)) {
+    return errorOutcome(
+      "invalid_input",
+      "criterionId must be a vocabulary key or q:<sha1>; open:* windows cannot be confirmed.",
+      "Use the criterionId stored on the confirmed fact.",
+    );
+  }
+  const candidate = await confirmedCandidate(client, actor, cmd.candidateId);
+  if ("events" in candidate) return candidate;
+  const existing = (
+    await client.query(
+      `SELECT confirmed_by_participant FROM confirmed_facts
+        WHERE osm_ref = $1 AND criterion_id = $2 FOR UPDATE`,
+      [candidate.osm_ref, cmd.criterionId],
+    )
+  ).rows[0] as { confirmed_by_participant: string | null } | undefined;
+  if (!existing) {
+    return errorOutcome(
+      "not_found",
+      "No confirmed fact matches that place and criterion.",
+      "Refresh the place details before trying again.",
+    );
+  }
+  if (existing.confirmed_by_participant !== actor.id && actor.role !== "organizer") {
+    return errorOutcome(
+      "not_authorized",
+      "Only the confirmer or the organizer can undo this confirmation.",
+      "Ask the confirmer or the room organizer to withdraw it.",
+    );
+  }
+  await client.query(
+    "DELETE FROM confirmed_facts WHERE osm_ref = $1 AND criterion_id = $2",
+    [candidate.osm_ref, cmd.criterionId],
+  );
+  const bumped = await bumpConfirmedFactCandidates(client, actor, candidate);
+  const label = await confirmedCriterionLabel(client, actor, cmd.criterionId);
+  return {
+    events: [
+      {
+        type: "attribute_attested",
+        actorId: actor.id,
+        visibility: "shared",
+        payload: {
+          actorName: actor.displayName,
+          candidateId: candidate.id,
+          candidateName: candidate.name,
+          key: cmd.criterionId,
+          label,
+          withdrawn: true,
+          confirmed: true,
+        },
+      },
+      ...bumped.events,
+    ],
+    effect: `Withdrew the confirmation of ${label} at ${candidate.name}.`,
+    factRooms: bumped.factRooms,
   };
 }
 

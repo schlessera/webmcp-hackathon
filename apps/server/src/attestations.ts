@@ -30,6 +30,22 @@ export interface AttestationRow {
   note: string;
   source_url: string | null;
   at_revision: number;
+  /** Permanent facts reuse this merge path as the strongest person evidence. */
+  evidence_kind?: "confirmed";
+  confirmed_by_name?: string | null;
+  confirmed_at?: string;
+}
+
+export interface ConfirmedFactRow {
+  osm_ref: string;
+  criterion_id: string;
+  lean: boolean;
+  note: string | null;
+  source_url: string | null;
+  confirmed_by_name: string | null;
+  confirmed_by_participant: string | null;
+  room_id: string | null;
+  confirmed_at: Date | string;
 }
 
 export interface MergedAttribute {
@@ -43,6 +59,9 @@ export interface MergedAttribute {
   attestedBy?: string;
   note?: string;
   sourceUrl?: string;
+  confirmedByName?: string;
+  confirmedByParticipant?: string;
+  confirmedAt?: string;
 }
 
 export async function loadAttestations(
@@ -56,6 +75,46 @@ export async function loadAttestations(
       [roomId],
     )
   ).rows as AttestationRow[];
+}
+
+/** Global, non-expiring facts for the OSM refs represented in a read. */
+export async function loadConfirmedFacts(
+  q: pg.PoolClient | pg.Pool,
+  osmRefs: string[],
+): Promise<ConfirmedFactRow[]> {
+  if (osmRefs.length === 0) return [];
+  return (
+    await q.query(
+      `SELECT osm_ref, criterion_id, lean, note, source_url,
+              confirmed_by_name, confirmed_by_participant, room_id, confirmed_at
+         FROM confirmed_facts
+        WHERE osm_ref = ANY($1)
+        ORDER BY osm_ref, criterion_id`,
+      [osmRefs],
+    )
+  ).rows as ConfirmedFactRow[];
+}
+
+/** Adapt permanent rows to the attestation evidence path, never to a dossier write. */
+export function confirmedForCandidate(
+  osmRef: string | null | undefined,
+  candidateId: string,
+  rows: ConfirmedFactRow[],
+): AttestationRow[] {
+  if (!osmRef) return [];
+  return rows.filter((row) => row.osm_ref === osmRef).map((row) => ({
+    candidate_id: candidateId,
+    key: row.criterion_id,
+    participant_id: row.confirmed_by_participant ?? "unknown",
+    status: row.lean ? "verified_true" : "verified_false",
+    confidence: 0.95,
+    note: row.note ?? "",
+    source_url: row.source_url,
+    at_revision: Number.MAX_SAFE_INTEGER,
+    evidence_kind: "confirmed",
+    confirmed_by_name: row.confirmed_by_name,
+    confirmed_at: new Date(row.confirmed_at).toISOString(),
+  }));
 }
 
 const isVerified = (s: string) => isVerifiedStatus(s);
@@ -90,6 +149,8 @@ export function applyAttestations<T extends MergedAttribute>(
 }
 
 function merge<T extends MergedAttribute>(attr: T, rows: AttestationRow[]): T {
+  const confirmed = rows.find((row) => row.evidence_kind === "confirmed");
+  if (confirmed) return mergeConfirmed(attr, confirmed);
   const statuses = new Set(rows.map((r) => r.status));
   const latest = rows[rows.length - 1];
   const agentSource = `agent:${latest.participant_id}`;
@@ -131,5 +192,37 @@ function merge<T extends MergedAttribute>(attr: T, rows: AttestationRow[]): T {
     attestedBy: latest.participant_id,
     note: latest.note,
     ...(latest.source_url ? { sourceUrl: latest.source_url } : {}),
+  };
+}
+
+/** A confirmed fact outranks every server-derived or room-scoped person fact.
+ * The OSM/curated record is the one exception: disagreement remains visible
+ * as a dispute, using the same unknown + disputed source shape as an ordinary
+ * attestation contradiction. */
+function mergeConfirmed<T extends MergedAttribute>(attr: T, row: AttestationRow): T {
+  const record = /^(osm|curated):/.test(attr.source ?? "") && isVerified(attr.status);
+  const metadata = {
+    attestedBy: row.participant_id,
+    confirmedByParticipant: row.participant_id,
+    ...(row.confirmed_by_name ? { confirmedByName: row.confirmed_by_name } : {}),
+    ...(row.confirmed_at ? { confirmedAt: row.confirmed_at } : {}),
+    ...(row.note ? { note: row.note } : {}),
+    ...(row.source_url ? { sourceUrl: row.source_url } : {}),
+  };
+  if (record && attr.status !== row.status) {
+    return {
+      ...attr,
+      status: "unknown",
+      confidence: 0,
+      source: `disputed:${attr.source ?? "record"}|person:confirmed`,
+      ...metadata,
+    };
+  }
+  return {
+    ...attr,
+    status: row.status,
+    confidence: 0.95,
+    source: "person:confirmed",
+    ...metadata,
   };
 }
