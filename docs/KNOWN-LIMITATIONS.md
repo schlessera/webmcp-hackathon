@@ -62,6 +62,14 @@ bounded, honest threat model. We list them rather than hide them.
   attestation increments `mapRevision`, stale verdicts stop affecting
   eligibility, and each active private condition receives a fresh screening
   request without exposing its content.
+- Candidate inspection no longer holds a room lock or database client while
+  waiting on external sources. On-demand work has a shared concurrency bound
+  and the request returns at its lookup deadline while bounded work may finish
+  into the cache.
+- Enrichment refreshes use an OSM-ref database lease across server processes.
+  Website and Wikidata freshness and errors are independent, and a transient
+  provider failure keeps its last good parsed facts while shortening only its
+  own retry window.
 
 ## Data honesty
 

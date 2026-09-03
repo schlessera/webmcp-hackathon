@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type pg from "pg";
 import type { DossierLink } from "@webmcp-hackathon/contracts";
 import { fetchWebsiteFacts, type FetchLike, type WebFacts } from "./website.ts";
@@ -29,6 +30,17 @@ export interface Enrichment {
   website: WebFacts | null;
   wikidata: WikiFacts | null;
   error: string | null;
+  providerStatus?: {
+    website: ProviderFetchState;
+    wikidata: ProviderFetchState;
+  };
+}
+
+export interface ProviderFetchState {
+  status: "never" | "ok" | "error";
+  fetchedAt: string | null;
+  expiresAt: string | null;
+  error: string | null;
 }
 
 export interface LookupTarget {
@@ -41,6 +53,8 @@ export interface LookupTarget {
 const TTL_OK_MS = 7 * 24 * 60 * 60 * 1000;
 const TTL_FAIL_MS = 60 * 60 * 1000;
 const WARM_CONCURRENCY = 4;
+export const ON_DEMAND_CONCURRENCY = 4;
+const LEASE_MS = 2 * 60 * 1000;
 
 const OFFLINE = "ENRICH_NETWORK=0";
 const offline: FetchLike = () => Promise.reject(new Error(OFFLINE));
@@ -51,8 +65,6 @@ export function setEnrichFetch(f: FetchLike | null): void {
   fetchImpl = f ?? (process.env.ENRICH_NETWORK === "0" ? offline : fetch);
 }
 
-const inFlight = new Map<string, Promise<Enrichment>>();
-
 interface Row {
   osm_ref: string;
   fetched_at: Date;
@@ -60,7 +72,27 @@ interface Row {
   website: WebFacts | null;
   wikidata: WikiFacts | null;
   error: string | null;
+  website_status: ProviderFetchState["status"];
+  website_fetched_at: Date | null;
+  website_expires_at: Date | null;
+  website_error: string | null;
+  wikidata_status: ProviderFetchState["status"];
+  wikidata_fetched_at: Date | null;
+  wikidata_expires_at: Date | null;
+  wikidata_error: string | null;
 }
+
+const stateOf = (
+  status: ProviderFetchState["status"],
+  fetchedAt: Date | null,
+  expiresAt: Date | null,
+  error: string | null,
+): ProviderFetchState => ({
+  status,
+  fetchedAt: fetchedAt?.toISOString() ?? null,
+  expiresAt: expiresAt?.toISOString() ?? null,
+  error,
+});
 
 const rowToEnrichment = (r: Row): Enrichment => ({
   osmRef: r.osm_ref,
@@ -68,6 +100,20 @@ const rowToEnrichment = (r: Row): Enrichment => ({
   website: r.website,
   wikidata: r.wikidata,
   error: r.error,
+  providerStatus: {
+    website: stateOf(
+      r.website_status,
+      r.website_fetched_at,
+      r.website_expires_at,
+      r.website_error,
+    ),
+    wikidata: stateOf(
+      r.wikidata_status,
+      r.wikidata_fetched_at,
+      r.wikidata_expires_at,
+      r.wikidata_error,
+    ),
+  },
 });
 
 export async function loadCached(
@@ -77,22 +123,168 @@ export async function loadCached(
   if (refs.length === 0) return new Map();
   const rows = (
     await q.query(
-      "SELECT * FROM enrichments WHERE osm_ref = ANY($1) AND expires_at > now()",
+      // R11: last-known good provider values remain usable while only the
+      // failed/expired provider is retried. Freshness decides refresh work,
+      // not whether good cached facts disappear from a dossier.
+      "SELECT * FROM enrichments WHERE osm_ref = ANY($1)",
       [refs],
     )
   ).rows as Row[];
   return new Map(rows.map((r) => [r.osm_ref, rowToEnrichment(r)]));
 }
 
-async function lookup(pool: pg.Pool, target: LookupTarget): Promise<Enrichment> {
-  const existing = inFlight.get(target.osmRef);
-  if (existing) return existing;
-  const job = (async () => {
-    const none = { facts: null, error: undefined as string | undefined };
-    const [site, wiki] = await Promise.all([
-      target.website ? fetchWebsiteFacts(target.website, fetchImpl) : Promise.resolve(none),
-      target.wikidata ? fetchWikidataFacts(target.wikidata, fetchImpl) : Promise.resolve(none),
-    ]);
+class Semaphore {
+  private active = 0;
+  private readonly waiting: Array<() => void> = [];
+
+  async use<T>(work: () => Promise<T>): Promise<T> {
+    if (this.active >= ON_DEMAND_CONCURRENCY) {
+      await new Promise<void>((resolve) => this.waiting.push(resolve));
+    }
+    this.active += 1;
+    try {
+      return await work();
+    } finally {
+      this.active -= 1;
+      this.waiting.shift()?.();
+    }
+  }
+}
+
+// R9: one process-wide bound covers every on-demand caller, including the
+// page-held screening loop. Database leases provide cross-process dedupe.
+const lookupSlots = new Semaphore();
+
+const expired = (state: ProviderFetchState | undefined, now: number): boolean =>
+  !state?.expiresAt || new Date(state.expiresAt).getTime() <= now;
+
+function dueProviders(target: LookupTarget, cached: Enrichment | undefined) {
+  const now = Date.now();
+  return {
+    website: Boolean(target.website) && expired(cached?.providerStatus?.website, now),
+    wikidata: Boolean(target.wikidata) && expired(cached?.providerStatus?.wikidata, now),
+  };
+}
+
+async function acquireLease(db: pg.Pool, osmRef: string, owner: string): Promise<boolean> {
+  await db.query(
+    `INSERT INTO enrichments (osm_ref, fetched_at, expires_at)
+     VALUES ($1, now(), now()) ON CONFLICT (osm_ref) DO NOTHING`,
+    [osmRef],
+  );
+  const claimed = await db.query(
+    `UPDATE enrichments
+        SET lease_owner = $2,
+            lease_expires_at = now() + ($3 || ' milliseconds')::interval
+      WHERE osm_ref = $1
+        AND (lease_owner IS NULL OR lease_expires_at <= now())`,
+    [osmRef, owner, String(LEASE_MS)],
+  );
+  return claimed.rowCount === 1;
+}
+
+async function persistProviderResults(
+  db: pg.Pool,
+  target: LookupTarget,
+  owner: string,
+  attempted: { website: boolean; wikidata: boolean },
+  site: { facts: WebFacts | null; error?: string },
+  wiki: { facts: WikiFacts | null; error?: string },
+): Promise<void> {
+  const client = await db.connect();
+  try {
+    await client.query("BEGIN");
+    if (attempted.website && !site.error?.includes(OFFLINE)) {
+      await client.query(
+        `UPDATE enrichments SET
+           website = CASE WHEN $3::boolean THEN $2::jsonb ELSE website END,
+           website_status = CASE WHEN $3::boolean THEN 'ok' ELSE 'error' END,
+           website_fetched_at = now(),
+           website_expires_at = now() + ($4 || ' milliseconds')::interval,
+           website_error = $5
+         WHERE osm_ref = $1 AND lease_owner = $6`,
+        [
+          target.osmRef,
+          site.facts ? JSON.stringify(site.facts) : null,
+          !site.error,
+          String(site.error ? TTL_FAIL_MS : TTL_OK_MS),
+          site.error ?? null,
+          owner,
+        ],
+      );
+    }
+    if (attempted.wikidata && !wiki.error?.includes(OFFLINE)) {
+      await client.query(
+        `UPDATE enrichments SET
+           wikidata = CASE WHEN $3::boolean THEN $2::jsonb ELSE wikidata END,
+           wikidata_status = CASE WHEN $3::boolean THEN 'ok' ELSE 'error' END,
+           wikidata_fetched_at = now(),
+           wikidata_expires_at = now() + ($4 || ' milliseconds')::interval,
+           wikidata_error = $5
+         WHERE osm_ref = $1 AND lease_owner = $6`,
+        [
+          target.osmRef,
+          wiki.facts ? JSON.stringify(wiki.facts) : null,
+          !wiki.error,
+          String(wiki.error ? TTL_FAIL_MS : TTL_OK_MS),
+          wiki.error ?? null,
+          owner,
+        ],
+      );
+    }
+    await client.query(
+      `UPDATE enrichments SET
+         fetched_at = now(),
+         expires_at = LEAST(
+           COALESCE(website_expires_at, 'infinity'::timestamptz),
+           COALESCE(wikidata_expires_at, 'infinity'::timestamptz)
+         ),
+         error = NULLIF(concat_ws('; ', website_error, wikidata_error), ''),
+         lease_owner = NULL,
+         lease_expires_at = NULL
+       WHERE osm_ref = $1 AND lease_owner = $2`,
+      [target.osmRef, owner],
+    );
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function releaseLease(db: pg.Pool, osmRef: string, owner: string): Promise<void> {
+  await db.query(
+    `UPDATE enrichments SET lease_owner = NULL, lease_expires_at = NULL
+      WHERE osm_ref = $1 AND lease_owner = $2`,
+    [osmRef, owner],
+  );
+}
+
+async function lookup(db: pg.Pool, target: LookupTarget): Promise<Enrichment | null> {
+  const initial = (await loadCached(db, [target.osmRef])).get(target.osmRef);
+  if (!Object.values(dueProviders(target, initial)).some(Boolean)) return initial ?? null;
+
+  const owner = randomUUID();
+  // R11: this lease is visible to every server process and is acquired in a
+  // short statement; no pool client or room lock is held during the network.
+  if (!(await acquireLease(db, target.osmRef, owner))) return initial ?? null;
+  try {
+    const current = (await loadCached(db, [target.osmRef])).get(target.osmRef);
+    const attempted = dueProviders(target, current);
+    if (!attempted.website && !attempted.wikidata) return current ?? null;
+
+    await lookupSlots.use(async () => {
+      const none = { facts: null, error: undefined as string | undefined };
+      const [site, wiki] = await Promise.all([
+        attempted.website
+          ? fetchWebsiteFacts(target.website!, fetchImpl)
+          : Promise.resolve(none),
+        attempted.wikidata
+          ? fetchWikidataFacts(target.wikidata!, fetchImpl)
+          : Promise.resolve(none),
+      ]);
     // A menu that is a picture gets read (menu-reader.ts); the bytes are
     // never stored, the claims are.
     if (site.facts && "menuFile" in site && site.menuFile && menuReaderEnabled()) {
@@ -103,35 +295,14 @@ async function lookup(pool: pg.Pool, target: LookupTarget): Promise<Enrichment> 
         /* an unread menu is still a menu link */
       }
     }
-    const errors = [site.error, wiki.error].filter(Boolean).join("; ");
-    const enrichment: Enrichment = {
-      osmRef: target.osmRef,
-      fetchedAt: new Date().toISOString(),
-      website: site.facts,
-      wikidata: wiki.facts,
-      error: errors || null,
-    };
-    // An offline server (tests, air-gapped demos) shares this table with a
-    // live one: its non-answers must never be cached as facts.
-    if (enrichment.error?.includes(OFFLINE)) return enrichment;
-    const ttl = enrichment.website || enrichment.wikidata ? TTL_OK_MS : TTL_FAIL_MS;
-    await pool.query(
-      `INSERT INTO enrichments (osm_ref, fetched_at, expires_at, website, wikidata, error)
-       VALUES ($1, now(), now() + ($2 || ' milliseconds')::interval, $3, $4, $5)
-       ON CONFLICT (osm_ref) DO UPDATE SET
-         fetched_at = now(), expires_at = EXCLUDED.expires_at,
-         website = EXCLUDED.website, wikidata = EXCLUDED.wikidata, error = EXCLUDED.error`,
-      [
-        target.osmRef, String(ttl),
-        enrichment.website ? JSON.stringify(enrichment.website) : null,
-        enrichment.wikidata ? JSON.stringify(enrichment.wikidata) : null,
-        enrichment.error,
-      ],
-    );
-    return enrichment;
-  })().finally(() => inFlight.delete(target.osmRef));
-  inFlight.set(target.osmRef, job);
-  return job;
+      await persistProviderResults(db, target, owner, attempted, site, wiki);
+    });
+    return (await loadCached(db, [target.osmRef])).get(target.osmRef) ?? null;
+  } finally {
+    // Offline mode deliberately does not advance provider freshness, but it
+    // must still yield the cross-process lease immediately.
+    await releaseLease(db, target.osmRef, owner);
+  }
 }
 
 /**
@@ -140,33 +311,30 @@ async function lookup(pool: pg.Pool, target: LookupTarget): Promise<Enrichment> 
  * for the next read. Targets without anything to look up are skipped.
  */
 export async function ensureEnrichments(
-  pool: pg.Pool,
+  db: pg.Pool,
   targets: LookupTarget[],
   waitMs: number,
 ): Promise<Map<string, Enrichment>> {
   const wanted = targets.filter((t) => t.website || t.wikidata);
-  const found = await loadCached(pool, wanted.map((t) => t.osmRef));
-  const missing = wanted.filter((t) => !found.has(t.osmRef));
-  if (missing.length === 0) return found;
-  const jobs = missing.map((t) => lookup(pool, t));
-  const deadline = new Promise<"timeout">((resolve) => setTimeout(() => resolve("timeout"), waitMs));
-  const settled = await Promise.race([Promise.allSettled(jobs).then(() => "done" as const), deadline]);
-  if (settled === "done") {
-    for (const j of jobs) {
-      const e = await j.catch(() => null);
-      if (e) found.set(e.osmRef, e);
-    }
-  } else {
-    // Take what finished; the rest keeps running and persists itself.
-    await Promise.all(
-      jobs.map((j) =>
-        Promise.race([j, new Promise<null>((r) => setTimeout(() => r(null), 0))]).then((e) => {
-          if (e) found.set(e.osmRef, e);
-        }),
-      ),
-    );
-  }
-  return found;
+  const found = await loadCached(db, wanted.map((t) => t.osmRef));
+  const stale = wanted.filter((target) =>
+    Object.values(dueProviders(target, found.get(target.osmRef))).some(Boolean),
+  );
+  if (stale.length === 0) return found;
+
+  const jobs = stale.map((target) => lookup(db, target));
+  // R9: the request waits only for its remaining budget. Jobs that already
+  // hold a lease continue through the same bounded queue and populate cache.
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  await Promise.race([
+    Promise.allSettled(jobs),
+    new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, Math.max(0, waitMs));
+      timer.unref?.();
+    }),
+  ]);
+  if (timer) clearTimeout(timer);
+  return loadCached(db, wanted.map((t) => t.osmRef));
 }
 
 /** Background warm-up for a fresh room's pool: bounded concurrency, fire and forget. */
@@ -177,8 +345,7 @@ export function warmEnrichments(pool: pg.Pool, targets: LookupTarget[]): void {
     while (index < queue.length) {
       const t = queue[index++];
       try {
-        const cached = await loadCached(pool, [t.osmRef]);
-        if (!cached.has(t.osmRef)) await lookup(pool, t);
+        await lookup(pool, t);
       } catch {
         /* a failed lookup is recorded on the row; nothing to raise */
       }

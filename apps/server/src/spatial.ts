@@ -18,7 +18,12 @@ import { IMPASSE_TEXT } from "./impasse.ts";
 import { presentIn } from "./presence.ts";
 import type { DataSource } from "./places.ts";
 import { loadAttestations } from "./attestations.ts";
-import { enrichmentView, ensureEnrichments, lookupTargetOf } from "./enrich/index.ts";
+import {
+  enrichmentView,
+  ensureEnrichments,
+  loadCached,
+  lookupTargetOf,
+} from "./enrich/index.ts";
 import { pool } from "./db.ts";
 
 /** How long a place panel waits for a fresh lookup before opening with what
@@ -277,6 +282,45 @@ export async function inspectCandidates(
   actor: Participant,
   candidateIds: string[],
 ): Promise<InspectCandidatesResponse> {
+  const requestDeadline = Date.now() + INSPECT_LOOKUP_WAIT_MS;
+  // R9: discover network targets without locking the room and without
+  // checking out a client. The candidate rows are deliberately re-read in a
+  // fresh transaction after enrichment, so this preflight is not the dossier
+  // consistency snapshot.
+  const roomExists = (
+    await pool.query("SELECT 1 FROM rooms WHERE id = $1", [actor.roomId])
+  ).rowCount;
+  if (!roomExists) return notFound();
+  const lookupRows = (
+    await pool.query(
+      "SELECT id, osm_ref, extras FROM candidates WHERE room_id = $1 AND id = ANY($2)",
+      [actor.roomId, candidateIds],
+    )
+  ).rows;
+  const initiallyFound = new Set(lookupRows.map((row) => row.id as string));
+  const initiallyMissing = candidateIds.find((id) => !initiallyFound.has(id));
+  if (initiallyMissing) {
+    return {
+      ok: false as const,
+      error: {
+        code: "not_found" as const,
+        message: `Unknown candidateId "${initiallyMissing}".`,
+        recovery: "Call get_spatial_context to refresh candidate IDs.",
+      },
+    };
+  }
+  const targets = lookupRows
+    .map((row) =>
+      lookupTargetOf(
+        row as { osm_ref: string | null; extras: Record<string, unknown> | null },
+      ),
+    )
+    .filter((target): target is NonNullable<typeof target> => target !== null);
+  await ensureEnrichments(pool, targets, Math.max(0, requestDeadline - Date.now()));
+
+  // R9: only this short, network-free transaction holds the room share lock.
+  // Revision, candidates, attestations and cached facts therefore describe
+  // one consistent dossier snapshot without delaying mutations on the crawl.
   return withTransaction(async (client) => {
     const room = (
       await client.query(
@@ -291,11 +335,6 @@ export async function inspectCandidates(
         [actor.roomId, candidateIds],
       )
     ).rows;
-    const attestations = await loadAttestations(client, actor.roomId);
-    const targets = rows
-      .map((r) => lookupTargetOf(r as { osm_ref: string | null; extras: Record<string, unknown> | null }))
-      .filter((t): t is NonNullable<typeof t> => t !== null);
-    const enrichments = await ensureEnrichments(pool, targets, INSPECT_LOOKUP_WAIT_MS);
     const found = new Set(rows.map((r) => r.id as string));
     const missing = candidateIds.find((id) => !found.has(id));
     if (missing) {
@@ -308,6 +347,11 @@ export async function inspectCandidates(
         },
       };
     }
+    const attestations = await loadAttestations(client, actor.roomId);
+    const refs = rows
+      .map((row) => row.osm_ref as string | null)
+      .filter((ref): ref is string => Boolean(ref));
+    const enrichments = await loadCached(client, refs);
     const dossiers: CandidateDossier[] = rows.map((r) => {
       const enrichment = r.osm_ref ? enrichments.get(r.osm_ref as string) : undefined;
       const view = enrichmentView(r.extras ?? null, enrichment);
