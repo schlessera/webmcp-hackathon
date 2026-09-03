@@ -1,12 +1,5 @@
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/design/brand/spokes-lockup-dark.svg">
-    <img src="docs/design/brand/spokes-lockup-light.svg" width="236" alt="Spokes">
-  </picture>
-</p>
-
-<p align="center">
-  <strong>Find the one place everyone can say yes to, without making everyone explain why.</strong>
+  <img src="docs/design/brand/spokes-github-banner.png" width="1280" alt="Spokes — decide together, go together. Built on WebMCP.">
 </p>
 
 <p align="center">
