@@ -106,4 +106,19 @@ describe("lookup progress", () => {
       off();
     }
   });
+
+  it("lets refinement speak for a frame a pool warm-up shares", () => {
+    beginLookups("room", ["a", "b"], { kind: "pool" });
+    beginLookups("room", ["b", "c"], { kind: "refine", label: "step-free access" });
+    expect(currentLookups("room").reason).toEqual({
+      kind: "refine",
+      label: "step-free access",
+    });
+  });
+
+  it("drops a label rather than letting one need speak for two", () => {
+    beginLookups("room", ["a"], { kind: "refine", label: "step-free access" });
+    beginLookups("room", ["b"], { kind: "refine", label: "free wifi" });
+    expect(currentLookups("room").reason).toEqual({ kind: "refine" });
+  });
 });

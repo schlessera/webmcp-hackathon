@@ -341,12 +341,44 @@ a background path, so it waits `MATRIX_TIMEOUT_MS`, 45 seconds by default,
 rather than the interactive twenty.
 
 The per-room budgets refill continuously: `REFINE_MODEL_CALLS_PER_HOUR`
-defaults to 60 model calls and `REFINE_SEARCHES_PER_HOUR` defaults to 40
-searches. `REFINE=0` disables the loop. `ENRICH_NETWORK=0` disables all of its
-outbound work. `SEARCH_PROVIDER=tavily` selects the Tavily fallback and needs
+defaults to 200 model calls and `REFINE_SEARCHES_PER_HOUR` to 150 searches.
+A room working flat out for a full hour therefore costs on the order of
+**$1.80**, almost all of it the roughly one cent each search tool call is
+billed at; the fast-tier tokens for a twelve-place tick add well under a cent.
+A room only works flat out while somebody is watching it, and the loop stops
+ten minutes after the last person leaves, so the hourly ceiling is a worst
+case rather than a running rate.
+
+The earlier ceilings of 60 and 40 were measured too low: in a 343-place room
+the search budget was gone sixteen seconds after the first need, and the loop
+then reported itself paused for the rest of the hour.
+
+An empty search bucket no longer pauses anything. The loop keeps reading site
+text and running the batch matrix, which costs no search at all and still
+answers cells and clears the queue; only the search leg goes quiet. A tick
+pauses only when the model-call bucket is empty, because without a model call
+there is nothing for the tick to run. `refine.paused` on the spatial context
+says which is true: `"budget"` when model calls ran out, `"idle"` when nobody
+is present, and `null` while the loop is working.
+
+`refine.queued` counts places still needing work for an **active** need. The
+stale-fact and background vocabulary sweeps are real work but are not counted
+there, because a number that climbs while the room sits still is a number
+nobody can trust. `REFINE=0` disables the loop. `ENRICH_NETWORK=0` disables all
+of its outbound work. `SEARCH_PROVIDER=tavily` selects the Tavily fallback and needs
 `TAVILY_API_KEY`; otherwise split search uses OpenAI Responses `web_search` on
 `NL_FAST_MODEL` with low search context. Combined mode is intrinsically an
 OpenAI Responses tool call.
+
+Every frame the loop emits carries `reason: { kind: "refine" }`, with a label
+only when one shared need is behind the whole batch. When a pool warm-up is
+running at the same time, refinement wins the frame's single reason slot: it
+is the work a person is watching, and before this a concurrent fill left every
+busy ring either labelled `pool` or unattributed. Each tick also writes one
+structured log line with its place, criterion, call, search, claim and queue
+counts and an estimated cost. That line carries counts and dollars only, never
+a place name, a criterion, or a query, because a private need must not be
+readable from a log either.
 
 An unresolved place-and-criterion cell records each spent search leg in its
 small omission sentinel. After three attempts on the same UTC day, that cell

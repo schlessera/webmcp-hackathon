@@ -4,6 +4,8 @@ import {
   buildRefinementQueue,
   buildRefinementQuery,
   exhaustRefinementBudgetsForTest,
+  exhaustRefinementSearchesForTest,
+  refinementView,
   REFINE_IDLE_STOP_MS,
   refinementActive,
   refinementBudgetSleepForTest,
@@ -166,11 +168,35 @@ describe("continuous refinement queue", () => {
   it("sleeps for refill and logs one line for a budget pause", () => {
     const log = vi.spyOn(console, "info").mockImplementation(() => undefined);
     exhaustRefinementBudgetsForTest("budget-room", 1_000);
-    const first = refinementBudgetSleepForTest("budget-room", 1, 1, 1_000);
-    const second = refinementBudgetSleepForTest("budget-room", 1, 1, 1_000);
+    const first = refinementBudgetSleepForTest("budget-room", 1, 1_000);
+    const second = refinementBudgetSleepForTest("budget-room", 1, 1_000);
     expect(first).toBeGreaterThan(0);
     expect(second).toBe(first);
     expect(log).toHaveBeenCalledTimes(1);
+    expect(refinementView("budget-room", undefined, 1_000).paused).toBe("budget");
+  });
+
+  it("keeps working on site text when only the searches run out", () => {
+    // The walk found a 343-place room out of searches 16 seconds after the
+    // first need. Searches going quiet must not stop the reading.
+    exhaustRefinementSearchesForTest("dry-room", 1_000);
+    expect(refinementBudgetSleepForTest("dry-room", 2, 1_000)).toBe(0);
+    const view = refinementView("dry-room", undefined, 1_000);
+    expect(view.budgetLeft.searches).toBe(0);
+    expect(view.budgetLeft.calls).toBeGreaterThan(0);
+    expect(view.paused).toBe(null);
+  });
+
+  it("says why a still room is still", () => {
+    process.env.ENRICH_NETWORK = "1";
+    process.env.INFER = "1";
+    process.env.OPENAI_API_KEY = "test";
+    expect(refinementView("absent-room").paused).toBe("idle");
+    startRefinement("present-room", false);
+    expect(refinementView("present-room").paused).toBe(null);
+    delete process.env.OPENAI_API_KEY;
+    delete process.env.INFER;
+    delete process.env.ENRICH_NETWORK;
   });
 
   it("stops ten minutes after the room becomes empty", () => {

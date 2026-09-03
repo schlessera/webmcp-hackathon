@@ -37,6 +37,7 @@ import { INFERABLE_KEYS, inferenceEnabled } from "../enrich/infer.ts";
 import { beginLookups, lookupPending } from "../enrich/progress.ts";
 import { onPresenceChange, presentIn } from "../presence.ts";
 import { createTokenBucket } from "../token-bucket.ts";
+import { responseMetrics } from "../nl/openai.ts";
 import {
   combinedSearch,
   search,
@@ -55,13 +56,20 @@ export const REFINE_TICK_MS = Number(process.env.REFINE_TICK_MS ?? 1_000);
 export const REFINE_IDLE_TICK_MS = Number(
   process.env.REFINE_IDLE_TICK_MS ?? 30 * REFINE_TICK_MS,
 );
+/**
+ * Per room per hour. The live walk found the old 40 searches gone 16 seconds
+ * after the first need in a 343-place room, which is not a budget, it is a
+ * stall. At roughly $0.01 a search plus fast-tier tokens these ceilings cost
+ * on the order of $1.80 an hour for a room working flat out, and a room only
+ * works flat out while someone is watching it.
+ */
 export const REFINE_MODEL_CALLS_PER_HOUR = positiveInt(
   process.env.REFINE_MODEL_CALLS_PER_HOUR,
-  60,
+  200,
 );
 export const REFINE_SEARCHES_PER_HOUR = positiveInt(
   process.env.REFINE_SEARCHES_PER_HOUR,
-  40,
+  150,
 );
 export type RefineSearchMode = "combined" | "split";
 export type RefineDomainRule = "domain-first" | "open-web-first";
@@ -131,6 +139,9 @@ interface RoomState {
   running: boolean;
   stopped: boolean;
   budgetLogged: boolean;
+  paused: "budget" | null;
+  /** Every tier, for logs only. Never the number the client renders. */
+  backlog: number;
   queued: number;
   tier1Queued: number;
   criteriaKey: string;
@@ -185,6 +196,8 @@ function stateFor(roomId: string): RoomState {
       running: false,
       stopped: false,
       budgetLogged: false,
+      paused: null,
+      backlog: 0,
       queued: 0,
       tier1Queued: 0,
       criteriaKey: "",
@@ -538,20 +551,13 @@ function modelCalls(places: number, criteria: number): number {
   return Math.ceil(places / MAX_MATRIX_PLACES) * Math.ceil(criteria / MAX_MATRIX_CRITERIA);
 }
 
-function budgetDelay(roomId: string, calls: number, searches: number, now: number): number {
-  const callDelay = modelBudget.remaining(roomId, now) >= calls
-    ? 0
-    : modelBudget.retryAfterMs(roomId, calls, now);
-  const searchDelay = searchBudget.remaining(roomId, now) >= searches
-    ? 0
-    : searchBudget.retryAfterMs(roomId, searches, now);
-  return Math.max(callDelay, searchDelay);
-}
-
 function markBudgetPause(roomId: string, state: RoomState): void {
+  state.paused = "budget";
   if (state.budgetLogged) return;
   state.budgetLogged = true;
-  console.info(`refinement paused for room ${roomId}: hourly budget exhausted`);
+  console.info(
+    `refinement paused for room ${roomId}: hourly model-call budget exhausted`,
+  );
 }
 
 async function roomPlace(roomId: string): Promise<RefinementAreaContext> {
@@ -660,25 +666,39 @@ export async function runRefinementTick(
     });
   }
   const queueCounts = refinementQueueCounts(queue);
-  state.queued = queueCounts.total;
+  // The number a person reads is work for needs they actually set. The
+  // vocabulary and stale sweeps are real work but they are background, and a
+  // count that climbs while the room sits still is a count nobody can trust.
+  state.queued = queueCounts.tier1;
   state.tier1Queued = queueCounts.tier1;
+  state.backlog = queueCounts.total;
   if (queue.length === 0) return refinementTickDelay(0);
 
-  const searchLeft = searchBudget.remaining(roomId, now);
-  const batch = queue.slice(0, Math.min(REFINE_BATCH_SIZE, Math.max(1, searchLeft)));
+  const batch = queue.slice(0, REFINE_BATCH_SIZE);
   const criteria = [...new Map(batch.flatMap((item) => item.criteria).map((criterion) => [
     criterion.id,
     criterion,
   ])).values()].filter(modelCriterion);
   const searchMode = options.searchMode ?? refineSearchMode();
   const firstCalls = modelCalls(batch.length, criteria.length);
-  const worstCalls = firstCalls + (searchMode === "combined" ? batch.length : firstCalls);
-  const delay = budgetDelay(roomId, worstCalls, criteria.length ? batch.length : 0, now);
+  // An empty search bucket is not a reason to stop. Site text plus the batch
+  // matrix costs no search at all and still moves places off the queue, so the
+  // loop keeps reading and only the search leg goes quiet. Only the model
+  // bucket can pause a tick, because without it there is nothing to run.
+  const searchLeft = searchBudget.remaining(roomId, now);
+  const canSearch = searchLeft >= batch.length;
+  const worstCalls = firstCalls +
+    (canSearch ? (searchMode === "combined" ? batch.length : firstCalls) : 0);
+  const delay = modelBudget.remaining(roomId, now) >= worstCalls
+    ? 0
+    : modelBudget.retryAfterMs(roomId, worstCalls, now);
   if (delay > 0) {
     markBudgetPause(roomId, state);
     return delay;
   }
   state.budgetLogged = false;
+  state.paused = null;
+  const spendBefore = responseMetrics();
 
   const endProgress = beginLookups(
     roomId,
@@ -715,7 +735,7 @@ export async function runRefinementTick(
     const searchRequests: RefinementSearchRequest[] = [];
     const searchedCells = new Set<string>();
     const active = activeCriteria(inputs);
-    for (const preparedPlace of prepared) {
+    for (const preparedPlace of canSearch ? prepared : []) {
       const unresolved = preparedPlace.item.criteria.filter((criterion) =>
         modelCriterion(criterion) &&
         !firstCells.has(`${preparedPlace.item.candidate.id}\u0000${criterion.id}`)
@@ -844,11 +864,9 @@ export async function runRefinementTick(
       if (item.criteria.length > 0) state.checked.add(item.candidate.id);
     }
     const batchCounts = refinementQueueCounts(batch);
-    state.queued = Math.max(0, queueCounts.total - batchCounts.total);
-    state.tier1Queued = Math.max(
-      0,
-      queueCounts.tier1 - batchCounts.tier1,
-    );
+    state.queued = Math.max(0, queueCounts.tier1 - batchCounts.tier1);
+    state.tier1Queued = state.queued;
+    state.backlog = Math.max(0, queueCounts.total - batchCounts.total);
 
     const refreshed = await loadEligibilityInputs(pool, roomId);
     const before = new Map(batch.map((item) => [
@@ -861,6 +879,15 @@ export async function runRefinementTick(
         : []
     );
     await publishInferenceChanges(pool, roomId, changed, "inference");
+    logTick(roomId, {
+      places: batch.length,
+      criteria: criteria.length,
+      searches: searchRequests.length,
+      claims: claims.length,
+      changed: changed.length,
+      queued: state.queued,
+      spend: spendBefore,
+    });
     // A tick that did work always re-ticks at the working cadence: finishing
     // a tier can open the next one, and only an empty queue may back off.
     return refinementTickDelay(1);
@@ -869,17 +896,66 @@ export async function runRefinementTick(
   }
 }
 
+/** Per-search fee charged by the built-in web-search tool, and the fast-tier
+ * token rates, both in dollars. Only used to print an estimate. */
+const SEARCH_FEE_USD = 0.01;
+const INPUT_USD_PER_TOKEN = 0.00000015;
+const OUTPUT_USD_PER_TOKEN = 0.0000006;
+
+/**
+ * One line per tick, so a walk can measure the loop instead of inferring it
+ * from the map. Counts and dollars only: no place name, no criterion text, no
+ * query. A private need must not be readable from a log either.
+ */
+function logTick(
+  roomId: string,
+  tick: {
+    places: number;
+    criteria: number;
+    searches: number;
+    claims: number;
+    changed: number;
+    queued: number;
+    spend: ReturnType<typeof responseMetrics>;
+  },
+): void {
+  const now = responseMetrics();
+  const calls = now.calls - tick.spend.calls;
+  const inputTokens = now.inputTokens - tick.spend.inputTokens;
+  const outputTokens = now.outputTokens - tick.spend.outputTokens;
+  const cost = tick.searches * SEARCH_FEE_USD +
+    inputTokens * INPUT_USD_PER_TOKEN +
+    outputTokens * OUTPUT_USD_PER_TOKEN;
+  console.info(JSON.stringify({
+    msg: "refine tick",
+    roomId,
+    places: tick.places,
+    criteria: tick.criteria,
+    calls,
+    searches: tick.searches,
+    claims: tick.claims,
+    changed: tick.changed,
+    queued: tick.queued,
+    costUsd: Number(cost.toFixed(4)),
+  }));
+}
+
 export function refinementView(
   roomId: string,
   _inputs?: EligibilityInputs,
   now = Date.now(),
 ): NonNullable<SpatialContextResult["refine"]> {
   const state = rooms.get(roomId);
+  const active = Boolean(state && !state.stopped);
   return {
-    active: Boolean(state && !state.stopped),
+    active,
     queued: state?.queued ?? 0,
     tier1Queued: state?.tier1Queued ?? 0,
     checkedToday: state?.checkedDay === utcDay(now) ? state.checked.size : 0,
+    // An out-of-budget room and an empty room both look still; only the server
+    // knows which, and the page cannot say "paused for now" honestly without
+    // being told. Running searches dry no longer pauses anything.
+    paused: !active ? "idle" : state?.paused ?? null,
     budgetLeft: {
       calls: modelBudget.remaining(roomId, now),
       searches: searchBudget.remaining(roomId, now),
@@ -898,16 +974,23 @@ export function exhaustRefinementBudgetsForTest(roomId: string, now: number): vo
   searchBudget.consume(roomId, REFINE_SEARCHES_PER_HOUR, now);
 }
 
+/** Only the model bucket can pause a tick; searches merely go quiet. */
 export function refinementBudgetSleepForTest(
   roomId: string,
   calls: number,
-  searches: number,
   now: number,
 ): number {
   const state = stateFor(roomId);
-  const delay = budgetDelay(roomId, calls, searches, now);
+  const delay = modelBudget.remaining(roomId, now) >= calls
+    ? 0
+    : modelBudget.retryAfterMs(roomId, calls, now);
   if (delay > 0) markBudgetPause(roomId, state);
   return delay;
+}
+
+/** Empty the search bucket alone, leaving model calls available. */
+export function exhaustRefinementSearchesForTest(roomId: string, now: number): void {
+  searchBudget.consume(roomId, REFINE_SEARCHES_PER_HOUR, now);
 }
 
 /** Test-only reset for timers, cursors, budgets and transient prose. */
