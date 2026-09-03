@@ -759,7 +759,7 @@ export async function runRefinementTick(
             query: buildRefinementQuery(request, placeInfo),
             // Combined mode enables web_search in this very call, so private
             // criteria are excluded from both its query and request body.
-            criteria: request.searchCriteria,
+            sharedCriteria: request.searchCriteria,
             source: domains ? "domain_search" : "open_web_search",
             ...(domains ? { domains } : {}),
           }));
