@@ -212,7 +212,7 @@ describe("whole-area pool growth", () => {
     expect(initial.pool.size).toBeGreaterThanOrEqual(POOL_SEED_SIZE);
     expect(initial.pool.size).toBeLessThanOrEqual(initial.pool.target);
 
-    const ready = await apiPost<{ ok: boolean; error?: { code: string } }>(
+    const ready = await apiPost<{ ok: boolean; revision?: number; error?: { code: string } }>(
       server.baseUrl,
       "/api/commands",
       organizerToken,
@@ -229,6 +229,7 @@ describe("whole-area pool growth", () => {
       (value) => value.pool.size === value.pool.target && !value.pool.filling,
     );
     expect(filled.pool).toMatchObject({ size: 343, target: 343, filling: false });
+    expect(filled.revision - ready.body.revision!).toBeLessThanOrEqual(2);
     expect(filled.area.poolSize).toBe(filled.pool.size);
     expect(filled.candidates).toHaveLength(filled.pool.target);
     const poolEvents = Number((await database.query(
