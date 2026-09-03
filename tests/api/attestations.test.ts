@@ -21,8 +21,10 @@ let other: TestRoom;
 interface Envelope { ok: boolean; revision?: number; effect?: string; error?: { code: string; message: string } }
 interface Dossier {
   ok: boolean;
+  revision?: number;
   candidates: Array<{
     candidateId: string;
+    mapRevision: number;
     attributes: Array<{ key: string; status: string; source: string; attestedBy?: string; note?: string }>;
   }>;
 }
@@ -139,5 +141,81 @@ describe("AttestAttribute", () => {
 
     const elsewhere = await inspect(other.tokens.org, `place_1_${other.roomId.replace("room_test_", "")}`);
     expect(attr(elsewhere.body, "lactose-free-options").status).toBe("unknown");
+  });
+
+  it("invalidates private screening whenever an attestation bumps mapRevision", async () => {
+    const declared = await command(room.tokens.joe, "SubmitRequirement", {
+      baseRevision: rev,
+      requirementId: `req_private_${room.roomId.replace("room_test_", "")}`,
+      visibility: "agent-private",
+      hardness: "hard",
+      delegation: { mode: "approval_required" },
+      scopeHint: { affects: "candidate-eligibility" },
+    });
+    expect(declared.body.ok).toBe(true);
+    rev = declared.body.revision!;
+
+    // Resolve the whole pool first so the post-bump request is specifically
+    // for the changed place rather than sharing a ten-item page with older
+    // missing verdicts.
+    const ids = (
+      await room.pool.query("SELECT id FROM candidates WHERE room_id = $1 ORDER BY id", [
+        room.roomId,
+      ])
+    ).rows.map((row) => row.id as string);
+    for (let offset = 0; offset < ids.length; offset += 10) {
+      const screened = await command(room.tokens.joe, "EvaluateCandidates", {
+        baseRevision: rev,
+        verdicts: ids.slice(offset, offset + 10).map((candidateId) => ({
+          candidateId,
+          verdict: candidateId === grill() ? "unacceptable" : "acceptable",
+        })),
+      });
+      expect(screened.body.ok).toBe(true);
+      rev = screened.body.revision!;
+    }
+    expect(
+      (await context(room.tokens.joe)).body.candidates.find((c) => c.candidateId === grill())
+        ?.eligibility,
+    ).toBe("excluded");
+    const beforeMapRevision = (await inspect(room.tokens.joe, grill())).body.candidates[0]
+      .mapRevision;
+
+    const changed = await command(room.tokens.sarah, "AttestAttribute", {
+      baseRevision: rev,
+      candidateId: grill(),
+      key: "dog-friendly",
+      status: "verified_true",
+      confidence: 0.8,
+      note: "staff confirmed it",
+    });
+    expect(changed.body.ok).toBe(true);
+    rev = changed.body.revision!;
+
+    const after = await inspect(room.tokens.joe, grill());
+    expect(after.body.candidates[0].mapRevision).toBe(beforeMapRevision + 1);
+    expect(
+      (await context(room.tokens.joe)).body.candidates.find((c) => c.candidateId === grill())
+        ?.eligibility,
+    ).toBe("uncertain");
+
+    const sync = await apiPost<{
+      ok: boolean;
+      outstanding: Array<{ type: string; candidateIds?: string[] }>;
+    }>(server.baseUrl, "/api/sync", room.tokens.joe, {});
+    expect(
+      sync.body.outstanding.find((item) => item.type === "evaluation_request")?.candidateIds,
+    ).toContain(grill());
+
+    const fresh = await command(room.tokens.joe, "EvaluateCandidates", {
+      baseRevision: rev,
+      verdicts: [{ candidateId: grill(), verdict: "acceptable" }],
+    });
+    expect(fresh.body.ok).toBe(true);
+    rev = fresh.body.revision!;
+    expect(
+      (await context(room.tokens.joe)).body.candidates.find((c) => c.candidateId === grill())
+        ?.eligibility,
+    ).toBe("eligible");
   });
 });

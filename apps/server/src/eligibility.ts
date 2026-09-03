@@ -42,6 +42,7 @@ export type Eligibility = "eligible" | "likely" | "uncertain" | "unlikely" | "ex
 
 export interface CandidateRow {
   id: string;
+  map_revision?: number;
   osm_ref?: string | null;
   name: string;
   category: string;
@@ -83,6 +84,7 @@ export interface VerdictRow {
   owner_id: string;
   candidate_id: string;
   verdict: string;
+  screened_map_revision?: number;
 }
 export interface ScopeState {
   scopeId: string;
@@ -316,7 +318,12 @@ function classify(
 
     if (req.visibility === "agent-private") {
       const verdict = verdicts.find(
-        (v) => v.owner_id === req.owner_id && v.candidate_id === candidate.id,
+        (v) =>
+          v.owner_id === req.owner_id &&
+          v.candidate_id === candidate.id &&
+          // R3: a fact revision makes every earlier private verdict stale,
+          // regardless of which path produced the changed facts.
+          v.screened_map_revision === candidate.map_revision,
       );
       if (!verdict || verdict.verdict === "needs_info") {
         pending.push({ ...owner, shared: false, text: "your private screening is pending" });

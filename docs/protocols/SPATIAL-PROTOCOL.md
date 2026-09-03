@@ -284,6 +284,16 @@ Precedence of sources when a dossier is read: the record (`osm:*`,
 then guesses (`guess:*`) into slots still unknown, then attestations
 (`agent:*`), which may dispute any of the above.
 
+`mapRevision` is the candidate fact-version boundary. Every path that changes
+the merged facts MUST increment it in the same transaction. A private
+screening verdict records the `mapRevision` it evaluated and is authoritative
+only while that value still matches. After any bump, older verdicts are ignored,
+the affected place returns to uncertain, an owner-only `evaluation_requested`
+is re-issued for each active agent-private owner, and a page-held condition is
+woken to screen the changed place again. This applies equally to attestations
+and provider-fact refreshes; fact-producing handlers do not choose whether
+private screening becomes stale.
+
 ## 9. Navigation handoff
 
 `PrepareNavigation` returns provider-agnostic links; the room stays the

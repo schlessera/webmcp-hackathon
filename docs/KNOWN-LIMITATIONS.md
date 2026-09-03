@@ -32,9 +32,6 @@ bounded, honest threat model. We list them rather than hide them.
   (route through consent when another participant's bounded-negotiable
   requirement is affected) is not implemented for the organizer. Members are
   refused outright (a POC simplification).
-- **`mapRevision` is static.** Candidate dossiers carry a `mapRevision` but no
-  fact-change path bumps it; re-screening is driven by missing/`needs_info`
-  verdicts instead. Adequate for a prepared, static dataset.
 - **No participant join/leave lifecycle.** The agreement rule quantifies over
   all seeded participant rows; `policy.expiresAt` is stored but not enforced;
   guest tokens do not expire or revoke. Fine for a time-boxed demo room.
@@ -58,6 +55,13 @@ bounded, honest threat model. We list them rather than hide them.
   `sync_required` as model input. Over-bound grant staging now advances the
   room revision through an owner-only event and replaces older confirmation
   nonces for the same subject.
+
+## Reliability findings closed in pass 2
+
+- Candidate fact revisions now version private screening verdicts. An
+  attestation increments `mapRevision`, stale verdicts stop affecting
+  eligibility, and each active private condition receives a fresh screening
+  request without exposing its content.
 
 ## Data honesty
 

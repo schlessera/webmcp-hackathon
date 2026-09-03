@@ -27,6 +27,7 @@ import {
   type ConfirmationSubject,
 } from "./confirmation.ts";
 import { buildDelta } from "./delta.ts";
+import { bumpCandidateMapRevisions } from "./candidate-revisions.ts";
 import { computeEligibility, feasibilityOf, type ScopeState } from "./eligibility.ts";
 import { impasseBracket } from "./impasse.ts";
 import { outstandingFor } from "./outstanding.ts";
@@ -709,13 +710,14 @@ async function evaluateCandidates(
       "Declare an agent-private requirement first; screening verdicts fold into it.",
     );
   }
-  const known = new Set(
+  const candidateRevisions = new Map<string, number>(
     (
-      await client.query("SELECT id FROM candidates WHERE room_id = $1", [
+      await client.query("SELECT id, map_revision FROM candidates WHERE room_id = $1", [
         actor.roomId,
       ])
-    ).rows.map((r) => r.id as string),
+    ).rows.map((r) => [r.id as string, Number(r.map_revision)]),
   );
+  const known = new Set(candidateRevisions.keys());
   const unknown = cmd.verdicts.find((v) => !known.has(v.candidateId));
   if (unknown) {
     return errorOutcome(
@@ -729,11 +731,22 @@ async function evaluateCandidates(
   ).rows[0];
   for (const v of cmd.verdicts) {
     await client.query(
-      `INSERT INTO verdicts (room_id, owner_id, candidate_id, verdict, info_needed, recorded_at_revision)
-       VALUES ($1, $2, $3, $4, $5, $6)
+      `INSERT INTO verdicts
+         (room_id, owner_id, candidate_id, verdict, info_needed,
+          recorded_at_revision, screened_map_revision)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
        ON CONFLICT (room_id, owner_id, candidate_id)
-       DO UPDATE SET verdict = $4, info_needed = $5, recorded_at_revision = $6`,
-      [actor.roomId, actor.id, v.candidateId, v.verdict, v.infoNeeded ?? null, room.revision + 1],
+       DO UPDATE SET verdict = $4, info_needed = $5,
+                     recorded_at_revision = $6, screened_map_revision = $7`,
+      [
+        actor.roomId,
+        actor.id,
+        v.candidateId,
+        v.verdict,
+        v.infoNeeded ?? null,
+        room.revision + 1,
+        candidateRevisions.get(v.candidateId),
+      ],
     );
   }
   return {
@@ -1080,6 +1093,14 @@ async function attestAttribute(
       cmd.note, cmd.sourceUrl ?? null, room.revision + 1,
     ],
   );
+  // R3: the attestation changed the candidate's merged facts. The shared
+  // revision helper couples every mapRevision bump to private re-screening,
+  // so future fact producers inherit the same invalidation discipline.
+  const screeningEvents = await bumpCandidateMapRevisions(
+    client,
+    actor.roomId,
+    [cmd.candidateId],
+  );
   const label = ATTRIBUTE_LABELS[cmd.key as keyof typeof ATTRIBUTE_LABELS] ?? cmd.key;
   const answer = cmd.status === "verified_true" ? "yes" : "no";
   return {
@@ -1098,6 +1119,7 @@ async function attestAttribute(
           confidence: cmd.confidence,
         },
       },
+      ...screeningEvents,
     ],
     effect: `Attested ${label}: ${answer} for ${candidate.name}.`,
   };
