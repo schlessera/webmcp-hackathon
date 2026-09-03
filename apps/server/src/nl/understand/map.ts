@@ -1,7 +1,9 @@
 import {
   ATTRIBUTE_VOCABULARY,
+  CUISINE_IMPLICATION_SATISFACTION_FLOOR,
   HINT_TAXONOMY,
   RANGE_SANITY,
+  implies,
   mapPreparsedConcept,
   normalizeCuisineTokens,
   type Concept,
@@ -38,6 +40,27 @@ export interface UnderstandInput {
 
 function topicOf(concept: Concept): ParsedNeed["topic"] {
   return concept.topic && HINT_TAXONOMY.includes(concept.topic) ? concept.topic : undefined;
+}
+
+/**
+ * Only these roles measure something, so only these may ask what unit a bare
+ * number meant. Stage A sometimes hangs a stray quantity on an attribute or a
+ * quality; without this gate that stray number hijacked the whole sentence
+ * into a "0 what?" clarification and the stated need was lost.
+ */
+const QUANTITY_ROLES: ReadonlySet<Concept["role"]> = new Set(["distance", "travel_time", "money"]);
+
+/**
+ * A kind value is actionable when the room's own cuisine facet can speak to
+ * it — either it is recorded, or T3.6's sourced taxonomy carries it to a
+ * recorded cuisine at verified confidence ("pizza" reaches "italian"). A value
+ * with no such path ("sushi" in a room with no Japanese places) stays unknown,
+ * and the unknown branches below ask rather than guess.
+ */
+function actionableCuisine(value: string, recorded: ReadonlySet<string>): boolean {
+  if (recorded.has(value)) return true;
+  return implies(value).some(({ cuisine, confidence }) =>
+    confidence >= CUISINE_IMPLICATION_SATISFACTION_FLOOR && recorded.has(cuisine));
 }
 
 
@@ -187,7 +210,7 @@ export function mapInterpretation(interpretation: Interpretation, input: Underst
       };
       continue;
     }
-    if (concept.unresolved === "unit" || concept.quantity?.unit === null) {
+    if (QUANTITY_ROLES.has(concept.role) && (concept.unresolved === "unit" || concept.quantity?.unit === null)) {
       clarify ??= unitClarification(input.text, concept, input.room.currency);
       continue;
     }
@@ -274,8 +297,8 @@ export function mapInterpretation(interpretation: Interpretation, input: Underst
 
     if (concept.role === "kind") {
       const normalized = [...new Set(concept.values.flatMap(normalizeCuisineTokens))];
-      const known = normalized.filter((value) => cuisines.has(value));
-      const unknown = normalized.filter((value) => !cuisines.has(value));
+      const known = normalized.filter((value) => actionableCuisine(value, cuisines));
+      const unknown = normalized.filter((value) => !actionableCuisine(value, cuisines));
       if (known.length) {
         const kind = concept.polarity === "exclude" ? "exclusion" : "inclusion";
         needs.push(parsedNeed(concept, { kind, key: "cuisine", values: known, lifetime: "session" }));

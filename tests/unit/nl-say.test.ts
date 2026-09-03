@@ -148,6 +148,90 @@ describe("say orchestration", () => {
     ]);
   });
 
+  // Golden stage-A drafts for the two families the live routing bench used to
+  // lose (`ask-*`, `kind-*`). Each fixture is the JSON the model returns for a
+  // corpus row, so stage B keeps its side of the contract without a model call.
+  it("ask-002: keeps a question a question and still carries its stated need", async () => {
+    scripted({
+      intent: "ask", confidence: 0.9, reply: null,
+      concepts: [draftConcept({
+        role: "attribute", surface: "vegan", attributeKey: "vegan-options",
+        topic: "dietary", gist: "vegan options",
+      })],
+    });
+    const out = await say("is there anything vegan?", "shared", context);
+    expect(out.intent).toBe("ask");
+    expect(out.needs.map((need) => need.payload)).toEqual([
+      { kind: "attribute", key: "vegan-options", expect: "verified_true" },
+    ]);
+    expect(out.clarify).toBeNull();
+  });
+
+  it("ask-003: routes a room move to act with nothing to submit", async () => {
+    scripted({
+      intent: "act", confidence: 0.9, reply: null,
+      concepts: [draftConcept({ role: "place", surface: "Café Einstein", gist: "café einstein" })],
+    });
+    const out = await say("put Café Einstein forward", "shared", context);
+    expect(out.intent).toBe("act");
+    expect(out.needs).toEqual([]);
+  });
+
+  it("kind-003: a dish the room's cuisines can reach becomes an exclusion, not a question", async () => {
+    scripted({
+      intent: "need", confidence: 0.9, reply: null,
+      concepts: [draftConcept({
+        role: "kind", surface: "anything but pizza", polarity: "exclude",
+        values: ["pizza"], gist: "no pizza",
+      })],
+    });
+    const out = await say("anything but pizza", "shared", context);
+    expect(out.intent).toBe("need");
+    expect(out.needs.map((need) => need.payload)).toEqual([
+      { kind: "exclusion", key: "cuisine", values: ["pizza"], lifetime: "session" },
+    ]);
+    expect(out.clarify).toBeNull();
+  });
+
+  it("kind-005: a dish the room's cuisines cannot reach asks instead of guessing", async () => {
+    scripted({
+      intent: "need", confidence: 0.9, reply: null,
+      concepts: [draftConcept({
+        role: "kind", surface: "avoid sushi", polarity: "exclude",
+        values: ["sushi"], gist: "no sushi",
+      })],
+    });
+    const out = await say("avoid sushi", "shared", context);
+    expect(out.intent).toBe("clarify");
+    expect(out.needs).toEqual([]);
+    expect(out.clarify?.question).toContain("sushi");
+  });
+
+  it("ignores a stray quantity on a concept that measures nothing", async () => {
+    scripted({
+      intent: "need", confidence: 0.9, reply: null,
+      concepts: [draftConcept({
+        role: "attribute", surface: "vegane Optionen", attributeKey: "vegan-options",
+        quantityValue: 0, quantityUnit: null, quantityBound: null, gist: "vegane optionen",
+      })],
+    });
+    const out = await say("vegane Optionen", "shared", context);
+    expect(out.intent).toBe("need");
+    expect(out.needs.map((need) => need.payload)).toEqual([
+      { kind: "attribute", key: "vegan-options", expect: "verified_true" },
+    ]);
+    expect(out.clarify).toBeNull();
+  });
+
+  it("tells the model that a question keeps its concepts and that a room move is act", async () => {
+    let request: Record<string, unknown> | undefined;
+    scripted({ intent: "other", confidence: 1, concepts: [], reply: null }, (body) => { request = body; });
+    await say("anything", "shared", context);
+    expect(request?.instructions).toContain("A question that also states a need is still ask");
+    expect(request?.instructions).toContain("intent act");
+    expect(request?.instructions).toContain("Never write 0 to mean there is no amount");
+  });
+
   it("validates absolute time windows and rejects offset-free ones", async () => {
     scripted({
       intent: "need", confidence: 1, reply: null,

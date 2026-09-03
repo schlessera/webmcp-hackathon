@@ -59,6 +59,45 @@ is available:
    second model request. Only empty or off-topic input becomes `unclear`, with
    suggestions composed from the room's facets.
 
+### What the sentence-reading step is told (2026-09-03)
+
+Two families of sentence used to be read wrong by every model tried, which
+made it a prompt problem rather than a model problem. The instructions in
+`apps/server/src/nl/say.ts` now spell both out, in English and in German.
+
+- **A question keeps its concepts.** Intent is about what the sentence does,
+  not about whether anything was stated. "Is there anything vegan?" is an
+  `ask` **and** returns the vegan concept, so the reply can answer the
+  question while the need still counts. A room move — put forward, accept,
+  veto, withdraw — is `act`. Server code still demotes `ask` to `need` when
+  the words are not interrogative, so a stated noun phrase can never hide
+  behind a question mark.
+- **A kind of place is a kind, not a quality.** Any word for what sort of
+  place or food is wanted — a cuisine, a dish, a class of venue — is a `kind`
+  concept with its values lowercase, singular and in English. Alternatives are
+  one concept with several values, and a value is never widened: sushi stays
+  sushi.
+
+Two mapping rules in `apps/server/src/nl/understand/map.ts` back this up.
+Only distance, travel time and money may ask what unit a bare number meant, so
+a stray quantity on an attribute no longer hijacks the sentence into "0 what?".
+And a kind value counts as actionable when the room's own cuisine facet can
+reach it through T3.6's sourced taxonomy, so "anything but pizza" becomes an
+exclusion in a room that records Italian places, while "avoid sushi" still
+asks when nothing on record is Japanese.
+
+Measured over the 44 model-only rows of `tests/fixtures/nl-corpus.jsonl`,
+three passes each on `z-ai/glm-5.3-flash` and one on `gpt-5.6-luna`:
+
+| Model | Before | After |
+|---|---|---|
+| `z-ai/glm-5.3-flash` | 88 / 132 (66.7 %) | 125 / 132 (94.7 %) |
+| `gpt-5.6-luna` | 37 / 44 (84.1 %) | 43 / 44 (97.7 %) |
+
+Known gap: an included kind the room's cuisines cannot reach still becomes a
+food-shaped question ("does this place serve …?"), which reads wrong for a
+venue class such as a cinema. The wording, not the routing, is what is left.
+
 ## How it reaches the page
 
 - `GET /api/meta` carries `nl: true` when the selected provider's key is set. Without it
