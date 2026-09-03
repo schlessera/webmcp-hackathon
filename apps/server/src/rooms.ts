@@ -128,10 +128,11 @@ export async function createRoom(input: CreateRoomInput): Promise<CreateRoomResu
       ],
     );
     for (const [i, p] of people.entries()) {
+      const fixture = area.fixtureOrigins[i];
       const origin = {
-        lat: center.lat,
-        lng: center.lng,
-        label: "the area centre",
+        lat: fixture?.lat ?? center.lat,
+        lng: fixture?.lng ?? center.lng,
+        label: fixture?.label ?? "the area centre",
         source: "fixture",
         updatedAt: new Date().toISOString(),
       };

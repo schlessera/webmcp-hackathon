@@ -225,7 +225,7 @@ const negotiationTools: ToolDefinition[] = [
   {
     name: "set_origin",
     description:
-      "Tell the room where you are starting from; only you and the server see the position; others see only its effect on the counts.",
+      "Set your starting position. Its label and durable value stay private; the page separately controls the off-by-default live sharing opt-in.",
     inputSchema: SetOriginInput,
     annotations: {},
   },

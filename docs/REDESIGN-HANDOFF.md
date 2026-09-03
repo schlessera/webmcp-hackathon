@@ -54,6 +54,8 @@ every wire change this session was additive; the manifest hash was regenerated.
   mark while a person is looking. *Extended 2026-09-02:* the presence frame
   also carries `viewing` (who has which place open, from the page's `viewing`
   socket message), drawn as initials peeking from behind that place's sticker.
+  *Extended 2026-09-03:* an explicit origin-sharing opt-in adds live
+  coordinates (never the label) as `positions`, drawn as person marks.
 - **D5 — dense clusters: every dot stays tappable; no re-fit, no clustering.**
 - **D6 — consent bound is exposed only where one exists** (`delegatedBound`
   on the outstanding request, from the targeted need's own `delegation.bound`).
@@ -149,25 +151,20 @@ every wire change this session was additive; the manifest hash was regenerated.
    contract still pins `exclusion.key` to the literal `"cuisine"`
    (`packages/contracts/src/commands.ts`) — a domain word on the wire; FACETS.md
    should decide whether exclusions generalise to any enum facet.
-6. **Person colours reuse the semantic hexes** (`--spoke-person-1..5` =
-   works/unsure/scope/act/…); `--spoke-person-4` is woad, which puts
-   `--spoke-act`'s colour on a fourth participant's avatar (invariant 2).
-   Rooms so far have three people. Pick a fifth-family hue or reorder before a
-   4+ person room ships.
-7. **Attribution links are 7px and have no 44px target** — invariant 11 says
+6. **Attribution links are 7px and have no 44px target** — invariant 11 says
    attribution never grows; invariant 13 says targets are 44px. Unresolved
    contradiction; left as is.
-8. **Peer rows draw no toggle** (server is owner-only) — deviation from
+7. **Peer rows draw no toggle** (server is owner-only) — deviation from
    mockup 8e, deliberate.
-9. **Idle grey does double duty** in the mockup (not arrived in the header;
+8. **Idle grey does double duty** in the mockup (not arrived in the header;
    "hasn't said" in the details stance list). Live uses it only for not
    arrived.
-10. **Presence is single-process** (`presence.ts` is an in-memory map). A
+9. **Presence is single-process** (`presence.ts` is an in-memory map). A
     multi-instance deploy needs a shared store or sticky sessions.
-11. **"Send the link" (7a) is not built**: invite secrets are minted per person
+10. **"Send the link" (7a) is not built**: invite secrets are minted per person
     and never come back to the page. Needs an organizer-only endpoint that
     mints a fresh secret if the button should exist.
-12. **ChatGPT WebMCP gate unchanged** (public deploy + origin-trial token +
+11. **ChatGPT WebMCP gate unchanged** (public deploy + origin-trial token +
     real ChatGPT run) — see PROJECT-STATUS "Planned next waves".
 
 ## Session-local artifacts (die with the session)

@@ -213,6 +213,18 @@ body { overflow: hidden; }
   background: var(--spoke-ink);
   border: 2px solid var(--spoke-ground);
 }
+/* Showing a position is a square mark, distinct from the round here-now dot
+   even without colour. */
+.avatar-sharing {
+  position: absolute;
+  left: -2px;
+  bottom: -2px;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--spoke-surface);
+  border: 1px solid var(--spoke-ink);
+}
 
 /* The debugging affordance: no border, no fill, no label (§2). */
 .drawer-open {
@@ -1773,6 +1785,31 @@ body { overflow: hidden; }
 .origin-marker[tabindex="0"] { cursor: move; }
 .origin-marker[data-editing] { touch-action: none; }
 
+/* A shared person position is never a place dot: a 26px initials squircle
+   with a surface-white halo and ink keyline, held inside a 44px wrapper. */
+.person-marker {
+  width: var(--spoke-tap-min);
+  height: var(--spoke-tap-min);
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+.person-mark-badge {
+  box-sizing: border-box;
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--spoke-radius-avatar);
+  border: 2px solid var(--spoke-surface);
+  outline: 1px solid var(--spoke-ink);
+  color: var(--spoke-surface);
+  font-family: var(--spoke-font-display);
+  font-size: var(--spoke-size-micro);
+  font-weight: var(--spoke-weight-strong);
+  line-height: 1;
+}
+
 /* ── Ledger rows (Does it fit · Where everyone stands) ─────────────────── */
 .ledger { border-top: var(--spoke-border) solid var(--spoke-line-quiet); }
 .ledger-row {
@@ -2673,6 +2710,7 @@ html, body, #root { height: 100%; overflow: hidden; }
   white-space: nowrap;
 }
 .roster-here { position: static; border: none; width: 7px; height: 7px; }
+.roster-sharing { position: static; width: 7px; height: 7px; flex: none; }
 .roster-person + .roster-person { border-top: 1px solid var(--spoke-line-ghost); }
 .origin-controls {
   padding: 0 0 8px 35px;
@@ -2680,6 +2718,40 @@ html, body, #root { height: 100%; overflow: hidden; }
   color: var(--spoke-ink-soft);
 }
 .origin-label { padding: 0 0 4px; }
+.origin-sharing {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: var(--spoke-tap-min);
+  margin-block: -2px;
+  border: none;
+  background: none;
+  padding: 8px 0;
+  color: var(--spoke-ink);
+  font: inherit;
+  font-weight: var(--spoke-weight-strong);
+  cursor: pointer;
+  white-space: normal;
+  text-align: left;
+}
+.origin-sharing:disabled { cursor: wait; opacity: var(--spoke-out-opacity); }
+.origin-sharing-box {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  border: var(--spoke-border) solid var(--spoke-ink);
+  border-radius: var(--spoke-radius-badge);
+  background: var(--spoke-surface);
+}
+.origin-sharing[aria-checked="true"] .origin-sharing-box {
+  box-shadow: inset 0 0 0 4px var(--spoke-surface);
+  background: var(--spoke-ink);
+}
+.origin-privacy {
+  max-width: 34ch;
+  padding: 2px 0 7px;
+  line-height: 1.4;
+}
 .origin-actions { display: flex; flex-wrap: wrap; gap: 4px 10px; }
 .origin-action {
   min-height: var(--spoke-tap-min);

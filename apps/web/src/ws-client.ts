@@ -28,7 +28,16 @@ export interface RealtimeCallbacks {
   onStaleBundle(): void;
   /** Who holds an open socket in the room right now, and who has which
    * place open. */
-  onPresence(present: string[], viewing: Array<{ participantId: string; candidateId: string }>): void;
+  onPresence(
+    present: string[],
+    viewing: Array<{ participantId: string; candidateId: string }>,
+    positions: Array<{
+      participantId: string;
+      lat: number;
+      lng: number;
+      updatedAt: string;
+    }>,
+  ): void;
   /** Which places the server is looking up right now (presentation only). */
   onLookups(
     pending: string[],
@@ -191,7 +200,7 @@ export function connectRealtime(
       } else if (message.type === "event") {
         callbacks.onEvents(message.revision, message.events, message.fromRevision);
       } else if (message.type === "presence") {
-        callbacks.onPresence(message.present, message.viewing ?? []);
+        callbacks.onPresence(message.present, message.viewing ?? [], message.positions ?? []);
       } else if (message.type === "lookups") {
         const pending = Array.isArray(message.pending) ? message.pending : [];
         diagnostics.log(`lookups: ${pending.length} pending${message.reason ? ` (${message.reason.kind})` : ""}`);

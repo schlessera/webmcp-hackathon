@@ -49,6 +49,10 @@ import { Landing } from "./components/Landing.tsx";
 import { provenanceLine } from "./ui/copy.ts";
 import { RevisionWatermarks } from "./revision-watermarks.ts";
 import { mergeFeed, type FeedLine } from "./feed.ts";
+import {
+  shouldSendSharedPosition,
+  type SentPosition,
+} from "./origin-sharing.ts";
 
 /**
  * The room is the whole app: one screen, no nav bar, no tab bar, no
@@ -450,10 +454,10 @@ export function App() {
             grant.expiresInMs,
           );
         },
-        onPresence(_present, viewing) {
+        onPresence(_present, viewing, positions) {
           // The roster is server truth; presence rides on it. Who has which
-          // place open is page-local presence and lands in the store as is.
-          spatial.setViewing(viewing);
+          // place open and opted-in live positions land as one ephemeral frame.
+          spatial.setPresence(viewing, positions);
           void spatial.refetch();
         },
         onLookups(pending, reason, stages) {
@@ -615,6 +619,75 @@ export function App() {
     pendingOrigin.current = null;
   }, [rawContext]);
 
+  const setOwnOrigin = useCallback(
+    async (
+      position: { lat: number; lng: number },
+      source: "device" | "stated",
+      label?: string,
+      announce = true,
+    ): Promise<boolean> => {
+      const before = spatial.state.context?.matching ?? 0;
+      if (announce) {
+        pendingOrigin.current = { before, revision: Number.POSITIVE_INFINITY };
+      }
+      const result = await run("SetOrigin", {
+        position,
+        source,
+        ...(label ? { label } : {}),
+      });
+      if (!result.ok || result.revision === undefined) {
+        if (announce) pendingOrigin.current = null;
+        return false;
+      }
+      if (announce) {
+        pendingOrigin.current = { before, revision: result.revision };
+      }
+      return true;
+    },
+    [run],
+  );
+
+  const participantId = session?.identity?.participantId;
+  const ownOrigin = rawContext?.participants.find(
+    (participant) => participant.participantId === participantId,
+  )?.origin;
+  const sharingOwnPosition = participantId !== undefined &&
+    spatialState.positions[participantId] !== undefined;
+  const setOwnOriginRef = useRef(setOwnOrigin);
+  setOwnOriginRef.current = setOwnOrigin;
+
+  // Device positions are ephemeral on the wire but overwrite the same
+  // owner-only origin row. The two independent gates keep writes to at most
+  // one per five seconds and ignore movement below fifteen metres.
+  useEffect(() => {
+    if (
+      !sharingOwnPosition ||
+      ownOrigin?.source !== "device" ||
+      typeof navigator === "undefined" ||
+      !("geolocation" in navigator)
+    ) return;
+    let previous: SentPosition | null = {
+      lat: ownOrigin.lat,
+      lng: ownOrigin.lng,
+      sentAt: Date.now(),
+    };
+    const watchId = navigator.geolocation.watchPosition(
+      (position) => {
+        const next = {
+          lat: position.coords.latitude,
+          lng: position.coords.longitude,
+        };
+        const now = Date.now();
+        if (!shouldSendSharedPosition(previous, next, now)) return;
+        previous = { ...next, sentAt: now };
+        void setOwnOriginRef.current(next, "device", "your location", false);
+      },
+      () => {},
+      { enableHighAccuracy: true, maximumAge: 5_000, timeout: 10_000 },
+    );
+    return () => navigator.geolocation.clearWatch(watchId);
+  }, [sharingOwnPosition, ownOrigin?.source]);
+
   const candidateName = useCallback(
     (candidateId: string) =>
       context?.candidates.find((c) => c.candidateId === candidateId)?.name ??
@@ -766,25 +839,6 @@ export function App() {
       active: !need.active,
     });
 
-  const setOwnOrigin = async (
-    position: { lat: number; lng: number },
-    source: "device" | "stated",
-    label?: string,
-  ): Promise<boolean> => {
-    pendingOrigin.current = { before: context?.matching ?? 0, revision: Number.POSITIVE_INFINITY };
-    const result = await run("SetOrigin", {
-      position,
-      source,
-      ...(label ? { label } : {}),
-    });
-    if (!result.ok || result.revision === undefined) {
-      pendingOrigin.current = null;
-      return false;
-    }
-    pendingOrigin.current = { before: context?.matching ?? 0, revision: result.revision };
-    return true;
-  };
-
   return (
     <div className="app">
       {offlineSince && !staleBanner && (
@@ -807,6 +861,11 @@ export function App() {
         originEditing={originEditing}
         onOriginEditingChange={setOriginEditing}
         onSetOrigin={setOwnOrigin}
+        sharedPositionIds={new Set(Object.keys(spatialState.positions))}
+        onSetOriginSharing={async (shared) => {
+          const result = await run("SetOriginSharing", { shared });
+          return result.ok;
+        }}
         onOpenDrawer={() => setDrawerOpen(true)}
       />
 
@@ -822,6 +881,7 @@ export function App() {
               committedId={committedId}
               proposedRadiusM={proposedRadiusM}
               viewing={spatialState.viewing}
+              positions={spatialState.positions}
               participants={participants}
               meId={id.participantId}
               busy={busySet}

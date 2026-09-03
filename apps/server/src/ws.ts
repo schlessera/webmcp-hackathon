@@ -141,7 +141,7 @@ export function attachWebSocket(server: Server): void {
             }
           }
           if (setViewing(connection.roomId, connection.participantId, connection.socketId, candidateId)) {
-            broadcastPresence(connection.roomId);
+            await broadcastPresence(connection.roomId);
           }
           return;
         }
@@ -235,9 +235,9 @@ export function attachWebSocket(server: Server): void {
         // newcomer only when the set actually changed (a second tab is not
         // a second person).
         if (becamePresent) {
-          broadcastPresence(participant.roomId);
+          await broadcastPresence(participant.roomId);
         } else {
-          send(socket, presenceMessage(participant.roomId));
+          send(socket, await presenceMessage(participant.roomId));
         }
         // Presentation state follows presence on every authentication. An
         // empty frame is meaningful: it clears rings left by a dropped socket.
@@ -257,7 +257,9 @@ export function attachWebSocket(server: Server): void {
       if (connection) {
         connections.delete(connection);
         if (markClosed(connection.roomId, connection.participantId, connection.socketId)) {
-          broadcastPresence(connection.roomId);
+          void broadcastPresence(connection.roomId).catch((err) => {
+            console.error("presence broadcast failed:", err);
+          });
         }
       }
     });
@@ -353,14 +355,99 @@ async function broadcast(n: CommitNotification): Promise<void> {
       events,
     });
   }
+  // Position sharing is presentation state: after its durable owner-only
+  // write commits, peers receive the latest opted-in coordinates only through
+  // the presence frame. Both moving and switching off replace the frame.
+  for (const row of rows) {
+    if (row.type !== "origin_sharing_changed") continue;
+    noteSharingChange(n.roomId, row.actor_id, row.payload?.shared === true);
+  }
+  if (rows.some((row) =>
+    row.type === "origin_updated" || row.type === "origin_sharing_changed"
+  )) {
+    await broadcastPresence(n.roomId);
+  }
 }
 
-function presenceMessage(roomId: string): ServerMessage {
-  return { type: "presence", present: [...presentIn(roomId)], viewing: viewingIn(roomId) };
+/**
+ * Who has sharing switched on, per room. Presence frames go out on every
+ * socket open, close and viewing change, and sharing is off by default — so
+ * without this the common case would pay a database round trip per frame to
+ * learn that nobody shares. Process-local, like the rest of presence: the
+ * demo runs one server. `null` means "not read yet".
+ */
+const sharers = new Map<string, Set<string>>();
+
+async function sharersIn(roomId: string): Promise<Set<string>> {
+  const known = sharers.get(roomId);
+  if (known) return known;
+  const rows = (
+    await pool.query(
+      "SELECT id FROM participants WHERE room_id = $1 AND origin_shared = true",
+      [roomId],
+    )
+  ).rows as Array<{ id: string }>;
+  const set = new Set(rows.map((row) => row.id));
+  sharers.set(roomId, set);
+  return set;
 }
 
-function broadcastPresence(roomId: string): void {
-  const message = presenceMessage(roomId);
+/** Keep the cache honest when a participant flips their own switch. */
+function noteSharingChange(roomId: string, participantId: string, shared: boolean): void {
+  const set = sharers.get(roomId);
+  if (!set) return;
+  if (shared) set.add(participantId);
+  else set.delete(participantId);
+}
+
+async function presenceMessage(roomId: string): Promise<ServerMessage> {
+  const present = [...presentIn(roomId)];
+  const positions: Array<{
+    participantId: string;
+    lat: number;
+    lng: number;
+    updatedAt: string;
+  }> = [];
+  // An empty room forgets its cache, so the next arrival re-reads the truth.
+  if (present.length === 0) sharers.delete(roomId);
+  const sharing = present.length > 0 ? await sharersIn(roomId) : new Set<string>();
+  if (present.some((id) => sharing.has(id))) {
+    const rows = (
+      await pool.query(
+        `SELECT id, origin
+           FROM participants
+          WHERE room_id = $1 AND id = ANY($2) AND origin_shared = true`,
+        [roomId, present],
+      )
+    ).rows as Array<{
+      id: string;
+      origin: { lat?: unknown; lng?: unknown; updatedAt?: unknown } | null;
+    }>;
+    for (const row of rows) {
+      if (
+        typeof row.origin?.lat === "number" && Number.isFinite(row.origin.lat) &&
+        typeof row.origin?.lng === "number" && Number.isFinite(row.origin.lng) &&
+        typeof row.origin?.updatedAt === "string"
+      ) {
+        positions.push({
+          participantId: row.id,
+          lat: row.origin.lat,
+          lng: row.origin.lng,
+          updatedAt: row.origin.updatedAt,
+        });
+      }
+    }
+  }
+  return {
+    type: "presence",
+    present,
+    viewing: viewingIn(roomId),
+    positions,
+  };
+}
+
+async function broadcastPresence(roomId: string): Promise<void> {
+  const message = await presenceMessage(roomId);
   for (const connection of connections) {
     if (connection.roomId !== roomId) continue;
     if (connection.socket.readyState !== WebSocket.OPEN) continue;

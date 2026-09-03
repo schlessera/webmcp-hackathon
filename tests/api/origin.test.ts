@@ -59,6 +59,13 @@ describe("participant origins", () => {
       .toMatchObject({ ...secretOrigin, source: "stated" });
     expect(rows.rows.find((row) => row.id === room.participantIds.org)?.origin).toBeNull();
     expect(rows.rows.find((row) => row.id === room.participantIds.joe)?.origin).toBeNull();
+    const storedEvents = await room.pool.query(
+      "SELECT payload FROM events WHERE room_id = $1 AND type = 'origin_updated'",
+      [room.roomId],
+    );
+    expect(JSON.stringify(storedEvents.rows)).not.toContain(secretOrigin.label);
+    expect(JSON.stringify(storedEvents.rows)).not.toContain(String(secretOrigin.lat));
+    expect(JSON.stringify(storedEvents.rows)).not.toContain(String(secretOrigin.lng));
 
     const navigation = await apiPost<{
       links: { googleMaps: string; appleMaps: string };
@@ -126,6 +133,69 @@ describe("participant origins", () => {
     expect(wire).not.toContain(String(secretOrigin.lat));
     expect(wire).not.toContain(String(secretOrigin.lng));
     expect(wire).not.toContain('"origin"');
+  });
+
+  it("puts opted-in coordinates, but never their label, on presence until sharing stops", async () => {
+    const participantSocket = await openRealtime(server.baseUrl, room.tokens.sarah);
+    try {
+      const before = peerSocket.frames().length;
+      const initialPresence = peerSocket.frames()
+        .map((frame) => JSON.parse(frame) as { type: string; positions?: unknown[] })
+        .filter((frame) => frame.type === "presence");
+      expect(initialPresence.every((frame) => (frame.positions ?? []).length === 0)).toBe(true);
+
+      const on = await command(room.tokens.sarah, "SetOriginSharing", {
+        baseRevision: revision,
+        shared: true,
+      });
+      expect(on.body.ok).toBe(true);
+      revision = on.body.revision!;
+
+      const deadline = Date.now() + 5000;
+      let sharedFrame: { positions?: Array<Record<string, unknown>> } | undefined;
+      while (Date.now() < deadline) {
+        sharedFrame = peerSocket.frames().slice(before)
+          .map((frame) => JSON.parse(frame) as { type: string; positions?: Array<Record<string, unknown>> })
+          .find((frame) =>
+            frame.type === "presence" &&
+            frame.positions?.some((position) =>
+              position.participantId === room.participantIds.sarah &&
+              position.lat === secretOrigin.lat &&
+              position.lng === secretOrigin.lng
+            )
+          );
+        if (sharedFrame) break;
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+      expect(sharedFrame).toBeDefined();
+      expect(JSON.stringify(sharedFrame)).not.toContain(secretOrigin.label);
+      expect(sharedFrame!.positions![0]).not.toHaveProperty("label");
+
+      const offStart = peerSocket.frames().length;
+      const off = await command(room.tokens.sarah, "SetOriginSharing", {
+        baseRevision: revision,
+        shared: false,
+      });
+      expect(off.body.ok).toBe(true);
+      revision = off.body.revision!;
+
+      let cleared = false;
+      const offDeadline = Date.now() + 5000;
+      while (Date.now() < offDeadline) {
+        cleared = peerSocket.frames().slice(offStart)
+          .map((frame) => JSON.parse(frame) as { type: string; positions?: Array<{ participantId: string }> })
+          .some((frame) =>
+            frame.type === "presence" &&
+            !frame.positions?.some((position) => position.participantId === room.participantIds.sarah)
+          );
+        if (cleared) break;
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+      expect(cleared).toBe(true);
+      expect(peerSocket.frames().slice(before).join("\n")).not.toContain(secretOrigin.label);
+    } finally {
+      participantSocket.close();
+    }
   });
 
   it("computes candidate walking time and the walk facet from the viewer's origin", async () => {

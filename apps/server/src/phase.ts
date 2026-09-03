@@ -57,6 +57,7 @@ export const PHASE_GATES: Record<CommandType, readonly Phase[]> = {
   // A starting position is the participant's own status, with the same gate
   // as readiness. Changing it never changes the shared search area.
   SetOrigin: ["setup", "gathering", "deliberation", "agreed", "arrival"],
+  SetOriginSharing: ["setup", "gathering", "deliberation", "agreed", "arrival"],
 };
 
 interface Transition {

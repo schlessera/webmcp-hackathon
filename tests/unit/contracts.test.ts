@@ -349,7 +349,12 @@ describe("contract hash and version bump policy (Gate 2)", () => {
         { type: "event", revision: 1, fromRevision: 0, events: [] },
         { type: "error", code: "invalid_message", message: "bad" },
         { type: "confirmation", kind: "agreement", subjectId: "pr", nonce: "n", expiresInMs: 1 },
-        { type: "presence", present: ["p"], viewing: [{ participantId: "p", candidateId: "c" }] },
+        {
+          type: "presence",
+          present: ["p"],
+          viewing: [{ participantId: "p", candidateId: "c" }],
+          positions: [],
+        },
         { type: "lookups", pending: ["c"], reason: { kind: "need", label: "need" } },
         { type: "facts", candidateIds: ["c"], reason: "lookup" },
       ],

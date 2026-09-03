@@ -62,6 +62,12 @@ The subtitle is **state, not metadata** — it changes with the room:
 
 Absent participants use `--spoke-person-idle`.
 
+Person identity uses its own five-hue family: cobalt, magenta, teal-ink,
+ochre-brown and plum (`--spoke-person-1..5`). None is a semantic or grey hue.
+Against the composited fallback map ground (`--spoke-surface-sunk` under the
+18% works colour wash), the five contrast ratios are 6.67:1, 5.85:1, 5.56:1,
+5.77:1 and 7.42:1 respectively.
+
 Tapping the avatar row opens a small roster card under the header — every
 person by name with "here now" / "arrived" / "not arrived yet" — so names and
 presence are reachable on touch, not only on hover. It closes on Escape, on an
@@ -148,8 +154,18 @@ The viewer's own origin is a small `data-mark="you"`: a
 `--spoke-act` because it describes private scope, not authorship. It is
 draggable only after the viewer chooses **Set where you start** in their own
 roster row. Arrow keys nudge it while that mode is active. Enabling, dragging,
-and the resulting recount never pan, fit, or re-centre the map. No peer origin
-mark is rendered because peer coordinates never reach the client.
+and the resulting recount never pan, fit, or re-centre the map. Peer coordinates
+reach the client only when that person explicitly shares on the presence
+channel; the durable label never does.
+
+### Person marks
+
+An opted-in peer position is a 26px initials badge in that person's colour:
+display face, rounded square, 2px `--spoke-surface` halo and 1px
+`--spoke-ink` outline. It has no name card and is never a circle or
+`.marker-dot`. Initials plus square geometry keep it distinct from every place
+dot in greyscale. The viewer's own **you** mark stays the scope ring and centre
+dot described above. Position frames never pan, fit or re-centre the map.
 
 ### Refinement (2026-09-03)
 
@@ -203,6 +219,12 @@ or from behind the bare dot when the place has no name card. Several
 viewers overlap by −7px like the header avatars. Never the viewer's own
 initials, never a semantic colour. It rides on the presence frame
 (`viewing`), so it is gone the moment the panel closes or the tab does.
+
+An opted-in live position rides on the same presence frame as `positions` and
+disappears when sharing stops or the person's last socket closes. This is the
+26px person mark above, not the smaller viewing badge tucked behind a place.
+The header avatar carries a small square showing mark while its position row is
+present; the round dot continues to mean here now.
 
 ### Attribution
 

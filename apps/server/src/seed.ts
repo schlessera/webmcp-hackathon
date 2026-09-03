@@ -7,6 +7,7 @@ import {
   PROTOCOL_VERSIONS,
   AGREEMENT_RULE,
   ALLOWED_VISIBILITIES,
+  areaById,
 } from "@webmcp-hackathon/contracts";
 import { haversineMeters } from "./eligibility.ts";
 
@@ -21,24 +22,22 @@ import { haversineMeters } from "./eligibility.ts";
 
 const ROOM_ID = "room_demo";
 const GOAL = "Dinner tonight in Berlin Mitte";
+const BERLIN = areaById("berlin-mitte")!;
 const PARTICIPANTS = [
   {
     id: "p_org",
     name: "Alain",
     role: "organizer",
-    origin: { lat: 52.5298, lng: 13.4014, label: "Rosenthaler Platz" },
   },
   {
     id: "p_sarah",
     name: "Sarah",
     role: "member",
-    origin: { lat: 52.5226, lng: 13.4024, label: "Hackescher Markt" },
   },
   {
     id: "p_joe",
     name: "Joe",
     role: "member",
-    origin: { lat: 52.5246, lng: 13.3947, label: "Monbijouplatz" },
   },
 ] as const;
 
@@ -174,9 +173,9 @@ await withTransaction(async (client) => {
     );
   }
 
-  for (const p of PARTICIPANTS) {
+  for (const [index, p] of PARTICIPANTS.entries()) {
     const origin = {
-      ...p.origin,
+      ...BERLIN.fixtureOrigins[index],
       source: "fixture",
       updatedAt: "2026-09-03T00:00:00.000Z",
     };
@@ -185,7 +184,11 @@ await withTransaction(async (client) => {
        VALUES ($1, $2, $3, $4, $5)
        ON CONFLICT (id) DO UPDATE SET
          display_name = EXCLUDED.display_name,
-         origin = COALESCE(participants.origin, EXCLUDED.origin)`,
+         origin = CASE
+           WHEN participants.origin IS NULL OR participants.origin->>'source' = 'fixture'
+             THEN EXCLUDED.origin
+           ELSE participants.origin
+         END`,
       [p.id, ROOM_ID, p.name, p.role, JSON.stringify(origin)],
     );
     const secret = demoInviteSecret(p.id);
