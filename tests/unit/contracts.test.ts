@@ -157,6 +157,35 @@ describe("tool schemas (lane 1)", () => {
     expect(TOOL_CONTRACT_VERSION).toBe("3");
   });
 
+  it("additively admits travel modes, referents, and USD while requiring the mode", () => {
+    const submit = ajv.compile(COMMAND_SCHEMAS.SubmitRequirement);
+    const base = {
+      baseRevision: 0,
+      visibility: "shared",
+      hardness: "hard",
+      delegation: { mode: "approval_required" },
+    };
+    expect(submit({
+      ...base,
+      payload: {
+        kind: "scope",
+        dimension: "travel_min",
+        max: 20,
+        mode: "bike",
+        referent: { kind: "landmark", landmarkId: "alexanderplatz" },
+      },
+    })).toBe(true);
+    expect(submit({
+      ...base,
+      payload: { kind: "scope", dimension: "travel_min", max: 20 },
+    })).toBe(false);
+    expect(submit({
+      ...base,
+      payload: { kind: "budget", perPersonMax: { amount: 20, currency: "USD" } },
+    })).toBe(true);
+    expect(TOOL_CONTRACT_VERSION).toBe("3");
+  });
+
   it("no tool argument accepts an actor identity", () => {
     for (const tool of TOOLS) {
       const props = (tool.inputSchema as { properties?: Record<string, unknown> })

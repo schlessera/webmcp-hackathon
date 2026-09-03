@@ -24,12 +24,38 @@ Four jobs, two model tiers, one rule for choosing between them.
 | Act on the room or answer a question about it | `apps/server/src/nl/agent.ts` | smart (`gpt-5.6-sol`) | open-ended: read state, weigh, call tools, explain. A wrong move changes a shared room. |
 | Screen places against an agent-private condition | `apps/server/src/nl/screening.ts` | smart | judging evidence against a person's private condition is where a wrong call costs most — a place wrongly ruled out never comes back. Told to prefer `needs_info` over a guess. |
 
-**The rule.** The fast tier does anything that is bounded and latency-bound:
+**The rule.** The quickest model at the lowest effort does anything that is bounded and latency-bound:
 a sentence in, a schema out, no tools, no room state changed. The smart tier
 does anything that acts through tools, judges private content against
 evidence, or answers over the room's state. Cost is never the deciding axis;
 the shape of the job is. Models are configurable (`NL_FAST_MODEL`,
 `NL_SMART_MODEL`), the split is not.
+
+This never means a paid priority processing tier. Every foreground request
+sets `service_tier: "default"`; `apps/server/src/nl/openai.ts` rejects
+`priority` and `fast` before transport. A named `flex` hook is reserved for
+later background work.
+
+## Routing a sentence
+
+Routing runs in the same order on every turn, whether or not an in-page agent
+is available:
+
+1. The shared EN+DE pre-parser in `packages/contracts` extracts quantities,
+   units, bounds, travel modes and referents. If it consumes the whole
+   sentence, code maps the concepts and no model request is made.
+2. If words remain, the quickest model at the lowest effort reads only that
+   remainder. The pre-parsed concepts are supplied as already understood and
+   must not be repeated. Its strict result is an interpretation, not a command.
+3. Server code maps every concept through the closed requirement-payload
+   union, resolves named referents in process, checks numeric ranges, composes
+   labels, and re-validates every payload with Ajv. Metres and minutes are
+   never converted into one another.
+4. Ready needs return immediately. If one concrete ambiguity remains, the
+   result is `clarify` with two or three consequence-labelled choices; choosing
+   one submits its attached needs through `SubmitRequirement` and makes no
+   second model request. Only empty or off-topic input becomes `unclear`, with
+   suggestions composed from the room's facets.
 
 ## How it reaches the page
 
@@ -39,10 +65,10 @@ the shape of the job is. Models are configurable (`NL_FAST_MODEL`,
 - `POST /api/nl/say { text, scope }` — the composer, for Shared and Private.
   The page attaches one participant-scoped idempotency key to the whole turn;
   retries replay its completed response instead of re-running model actions.
-  - `need` → `{ needs: [{ payload, topic?, gist }] }`. The **page** submits
+  - `need` → `{ needs: [{ payload, label, topic?, gist, assumed? }] }`. The **page** submits
     each through `SubmitRequirement`, so revision discipline, the `{ }`
     drawer and every server check are the same as for a typed need. The
-    `topic` the fast tier read is returned but **not** attached as a
+    `topic` the quickest model at the lowest effort read is returned but **not** attached as a
     `scopeHint.category`: disclosing a category is the owner's opt-in
     (FACETS.md §4), and the composer has no control for it yet.
   - `ask` / `act` → the smart tier runs as this participant and returns
@@ -53,7 +79,10 @@ the shape of the job is. Models are configurable (`NL_FAST_MODEL`,
     turn. If a later model/read step fails, completed actions still return,
     `partial: true` names the failure category, and the reply offers retry.
     There is no chat pane (SPOKES-UI §9).
-  - `unclear` → a card saying what would help.
+  - `clarify` → `{ needs, clarify: { question, choices, allowFreeText, said } }`.
+    The page submits `needs` immediately and asks only about the unresolved
+    part. Choice payloads use the ordinary command path and never call a model.
+  - `unclear` → a card saying what was heard, with three room-derived choices.
 - `POST /api/nl/condition { text }` — the composer in **Agent only** scope.
   The condition is held in memory (`apps/server/src/nl/holder.ts`), never in
   a table or an event. The room receives a content-free agent-private
@@ -62,7 +91,7 @@ the shape of the job is. Models are configurable (`NL_FAST_MODEL`,
   commit in the room. A restart forgets held conditions; the declaration then
   stays pending (uncertain) until it is said again. Nothing is guessed.
 
-## Time resolution in the fast tier
+## Time resolution using the quickest model at the lowest effort
 
 The router receives the room area's IANA timezone and the current local
 date/time with that area's numeric UTC offset. The request clock is captured
@@ -90,7 +119,7 @@ with the area's numeric offset and `end > start`; the server drops a malformed
 time need instead of turning it into free text.
 
 The client does not parse natural-language dates, weekdays, meals, or clock
-times. When the fast tier is unavailable, its one exact time fallback is
+times. When the quickest model at the lowest effort is unavailable, its one exact time fallback is
 `open now`, which becomes the browser's current instant through two hours
 later with the typed words preserved as `phrase`. Every other time sentence
 uses the existing honest `text` fallback.

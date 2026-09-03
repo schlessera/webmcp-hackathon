@@ -1,5 +1,13 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { ATTRIBUTE_LABELS, ATTRIBUTE_VOCABULARY } from "@webmcp-hackathon/contracts";
+import {
+  ATTRIBUTE_LABELS,
+  ATTRIBUTE_VOCABULARY,
+  NEARNESS_DEFAULT,
+  PRICE_WORDS,
+  mapPreparsedConcept,
+  preparse,
+  type Concept,
+} from "@webmcp-hackathon/contracts";
 import { nlCondition, nlSay } from "../api.ts";
 import { diagnostics } from "../diagnostics-store.ts";
 import { shouldPreserveNlText } from "../nl-result.ts";
@@ -68,6 +76,16 @@ function isoWithLocalOffset(date: Date): string {
  * There is no domain parsing beyond the labels the server itself supplied.
  */
 export function payloadFromText(text: string, facets: Facet[]): Payload {
+  const parsed = preparse(text, { currency: roomCurrency(facets) });
+  if (parsed.preparsedWhole) {
+    const payload = parsed.concepts
+      .map((concept) => mapPreparsedConcept(concept, {
+        currency: roomCurrency(facets),
+        transport: ["walk"],
+      }))
+      .find(Boolean);
+    if (payload) return payload;
+  }
   const t = text.trim().toLowerCase();
 
   for (const facet of facets) {
@@ -114,6 +132,48 @@ export function payloadFromText(text: string, facets: Facet[]): Payload {
   return { kind: "text", text: text.trim().slice(0, 200) };
 }
 
+function roomCurrency(facets: Facet[]): "EUR" | "USD" {
+  return facets.find((facet) => facet.key === "price-level")?.unit === "USD" ? "USD" : "EUR";
+}
+
+function offlineAssumption(
+  concept: Concept,
+  currency: "EUR" | "USD",
+  hasOwnOrigin: boolean,
+): string | undefined {
+  if (
+    !hasOwnOrigin &&
+    (concept.role === "distance" || concept.role === "travel_time") &&
+    concept.referent?.kind !== "named"
+  ) return "measured from the area centre until you set where you start";
+  if (concept.gist === "close by") return NEARNESS_DEFAULT.assumed;
+  const priceWords = Object.values(PRICE_WORDS).flat();
+  if (concept.role === "money" && priceWords.includes(concept.surface.toLocaleLowerCase())) {
+    const symbol = currency === "EUR" ? "€" : "$";
+    return `read as under ${symbol}${concept.quantity?.value ?? 0}`;
+  }
+  return undefined;
+}
+
+function preparsedPayloads(
+  text: string,
+  facets: Facet[],
+  hasOwnOrigin: boolean,
+): Array<{ payload: Payload; assumed?: string }> | null {
+  const currency = roomCurrency(facets);
+  const parsed = preparse(text, { currency });
+  if (!parsed.preparsedWhole) return null;
+  const payloads = parsed.concepts.flatMap((concept) => {
+    const payload = mapPreparsedConcept(concept, { currency, transport: ["walk"] });
+    const assumed = offlineAssumption(concept, currency, hasOwnOrigin);
+    return payload ? [{
+      payload: payload as Payload,
+      ...(assumed ? { assumed } : {}),
+    }] : [];
+  });
+  return payloads.length === parsed.concepts.length && payloads.length > 0 ? payloads : null;
+}
+
 /** A facet pill → the command that states it as a need (FACETS.md §1). */
 export function payloadFromFacet(facet: Facet, value?: string): Payload | null {
   if (facet.type === "boolean" && ATTRIBUTE_KEYS.has(facet.key)) {
@@ -136,8 +196,15 @@ export function payloadFromFacet(facet: Facet, value?: string): Payload | null {
 
 interface SayResult {
   ok: boolean;
-  intent?: "need" | "ask" | "act" | "unclear";
-  needs?: Array<{ payload: Payload; topic?: string; gist: string }>;
+  intent?: "need" | "ask" | "act" | "clarify" | "unclear";
+  needs?: Array<{ payload: Payload; label: string; topic?: string; gist: string; assumed?: string }>;
+  clarify?: {
+    question: string;
+    choices: Array<{ id: string; label: string; needs: Array<{ payload: Payload; label: string; topic?: string; gist: string; assumed?: string }> }>;
+    allowFreeText: boolean;
+    said: string;
+  } | null;
+  suggestions?: Array<{ id: string; label: string; needs: Array<{ payload: Payload; label: string; topic?: string; gist: string; assumed?: string }> }>;
   reply?: string | null;
   choices?: Array<{ label: string; payload: Payload }>;
   actions?: Array<{ tool: string; ok: boolean; effect: string }>;
@@ -152,14 +219,16 @@ interface Props {
   activeNeeds: ActiveNeed[];
   /** In-scope places, for "updating 40 places…". */
   placeCount: number;
+  hasOwnOrigin: boolean;
   disabled: boolean;
   run(type: string, input: Record<string, unknown>): Promise<CommandEnvelope>;
 }
 
-export function Composer({ facets, activeNeeds, placeCount, disabled, run }: Props) {
+export function Composer({ facets, activeNeeds, placeCount, hasOwnOrigin, disabled, run }: Props) {
   const [scope, setScope] = useState<Visibility>("shared");
   const [scopeOpen, setScopeOpen] = useState(false);
   const [text, setText] = useState("");
+  const [clarifyOf, setClarifyOf] = useState<{ said: string; question: string } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const nlAvailable = useSyncExternalStore(
     (cb) => diagnostics.subscribe(cb),
@@ -173,6 +242,19 @@ export function Composer({ facets, activeNeeds, placeCount, disabled, run }: Pro
     (cb) => spatial.subscribe(cb),
     () => spatial.state.agentPhase,
   );
+  const composerPrefill = useSyncExternalStore(
+    (cb) => spatial.subscribe(cb),
+    () => spatial.state.composerPrefill,
+  );
+
+  useEffect(() => {
+    if (!composerPrefill) return;
+    setText(composerPrefill.text);
+    setClarifyOf(composerPrefill.question
+      ? { said: composerPrefill.text, question: composerPrefill.question }
+      : null);
+    requestAnimationFrame(() => inputRef.current?.focus({ preventScroll: true }));
+  }, [composerPrefill]);
 
   const stated = useMemo(
     () => new Set(activeNeeds.map((n) => n.label.toLowerCase())),
@@ -256,8 +338,8 @@ export function Composer({ facets, activeNeeds, placeCount, disabled, run }: Pro
   // and the composer offers no way to give it yet.
   // The row exists on the brief from this moment (SPOKES-UI §4, pending):
   // in the person's words until the room brings the real one.
-  const submitPayload = async (payload: Payload | null, said: string) => {
-    const localId = spatial.beginPendingNeed(said, scope);
+  const submitPayload = async (payload: Payload | null, said: string, assumed?: string) => {
+    const localId = spatial.beginPendingNeed(said, scope, assumed);
     const result = await run("SubmitRequirement", {
       visibility: scope,
       hardness: "hard",
@@ -278,10 +360,11 @@ export function Composer({ facets, activeNeeds, placeCount, disabled, run }: Pro
     agentOnly ? COPY.pendingAgentOnly : sentence.trim().slice(0, 80);
 
   /** A pill or a sentence without an agent: the label match, then the bus. */
-  const submitPlain = (payload: Payload | null, said: string) => {
+  const submitPlain = (payload: Payload | null, said: string, assumed?: string) => {
     if (disabled) return;
-    void submitPayload(payload, said);
+    void submitPayload(payload, said, assumed);
     setText("");
+    setClarifyOf(null);
   };
 
   /** A sentence with an agent: route it, then act on what came back. */
@@ -304,7 +387,7 @@ export function Composer({ facets, activeNeeds, placeCount, disabled, run }: Pro
         setText("");
         return;
       }
-      const result = (await nlSay(trimmed, scope)) as SayResult;
+      const result = (await nlSay(trimmed, scope, undefined, clarifyOf ?? undefined)) as SayResult;
       const preserveForRetry = shouldPreserveNlText(result);
       if (!result.ok) {
         // R7: a failed question/action may already have committed an earlier
@@ -324,9 +407,12 @@ export function Composer({ facets, activeNeeds, placeCount, disabled, run }: Pro
       if (result.intent === "need") {
         spatial.setAgentBusy(true, "applying");
         for (const need of result.needs ?? []) {
-          await submitPayload(need.payload, need.gist || saidLabel(trimmed));
+          await submitPayload(need.payload, need.label || need.gist || saidLabel(trimmed), need.assumed);
         }
       } else if (result.intent === "ask" || result.intent === "act") {
+        for (const need of result.needs ?? []) {
+          await submitPayload(need.payload, need.label || need.gist || saidLabel(trimmed), need.assumed);
+        }
         spatial.pushAgentReply({
           text: result.reply ?? "",
           actions: result.actions ?? [],
@@ -337,28 +423,43 @@ export function Composer({ facets, activeNeeds, placeCount, disabled, run }: Pro
           diagnostics.log(`agent partial (${result.failureCategory ?? "unknown"}); text preserved for retry`);
           return;
         }
+      } else if (result.intent === "clarify" && result.clarify) {
+        spatial.setAgentBusy(true, "applying");
+        for (const need of result.needs ?? []) {
+          await submitPayload(need.payload, need.label || need.gist || saidLabel(trimmed), need.assumed);
+        }
+        spatial.pushAgentReply({
+          text: result.clarify.question,
+          actions: [],
+          answer: true,
+          scope: scope === "application-private" ? "application-private" : "shared",
+          clarify: result.clarify,
+        });
       } else {
+        const suggestions = result.suggestions ?? [];
         spatial.pushAgentReply({
           text: result.reply ?? COPY.agentUnclear,
           actions: [],
           answer: true,
-          ...(result.choices?.length
-            ? {
-                choices: result.choices.slice(0, 3).map((choice) => ({
-                  ...choice,
-                  visibility: scope as "shared" | "application-private",
-                })),
-              }
+          scope: scope === "application-private" ? "application-private" : "shared",
+          ...(suggestions.length
+            ? { clarify: { question: result.reply ?? COPY.agentUnclear, choices: suggestions, allowFreeText: true, said: trimmed } }
             : {}),
         });
       }
       setText("");
+      setClarifyOf(null);
     } finally {
       spatial.setAgentBusy(false);
     }
   };
 
   const submitText = () => {
+    const offline = !agentOnly ? preparsedPayloads(text, facets, hasOwnOrigin) : null;
+    if (offline) {
+      for (const need of offline) submitPlain(need.payload, saidLabel(text), need.assumed);
+      return;
+    }
     if (nlAvailable) return void submitSentence(text);
     submitPlain(agentOnly ? null : payloadFromText(text, facets), saidLabel(text));
   };

@@ -160,6 +160,23 @@ words: "Your agent could not finish that. Your words are still here so you can
 try again." Never silently reinterpret a failed question or instruction as a
 new need.
 
+## Clarifying a sentence
+
+A clarification names the concrete gap as a short question: `20 what?`,
+`500 m from where?`, `Which Alexanderplatz?`, or
+`No sushi — closest on record:`. It never says the agent failed to understand.
+
+Choice labels state consequences: `€20 per person`, `20 min walk`,
+`within 500 m of where you start`, `a place in the room`, `somewhere else`.
+They use sentence case, no exclamation marks, no protocol words, and no more
+than 60 characters. Say `need`, never `filter`.
+
+Safe guesses are applied and echoed under the row as `read as … · change`:
+`read as 10 min walk`, `read as under €15`, or
+`measured from the area centre`. The recovery action is always
+`Say it differently`; it restores the person's original words and focuses the
+composer.
+
 ---
 
 ## Empty & error states
@@ -242,4 +259,3 @@ ring and the line disappear; nothing lingers. "Fetching", "processing",
 
 The place panel says which stage a place is in: "waiting its turn…",
 "reading what the place publishes…", "checking it against your needs…".
-

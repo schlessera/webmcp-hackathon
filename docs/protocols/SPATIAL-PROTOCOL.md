@@ -134,9 +134,12 @@ These are the `payload` shapes the negotiation envelope carries when
 
 // Scope predicate
 { "kind": "scope", "dimension": "walk_min", "max": 15, "referent": { "kind": "landmark", "landmarkId": "node/42" } }
+{ "kind": "scope", "dimension": "walk_min", "max": 15 }
+{ "kind": "scope", "dimension": "travel_min", "max": 20, "mode": "bike" }
 
 // Budget
 { "kind": "budget", "perPersonMax": { "amount": 18, "currency": "EUR" } }
+{ "kind": "budget", "perPersonMax": { "amount": 20, "currency": "USD" } }
 
 // Absolute opening-hours window; both instants carry the area's UTC offset
 { "kind": "time", "window": { "start": "2026-09-04T12:00:00+02:00", "end": "2026-09-04T14:00:00+02:00" }, "phrase": "tomorrow for lunch" }
@@ -145,6 +148,11 @@ These are the `payload` shapes the negotiation envelope carries when
 { "kind": "exclusion", "key": "cuisine", "values": ["italian"], "lifetime": "session" }
 { "kind": "inclusion", "key": "cuisine", "values": ["asian", "vietnamese"], "lifetime": "session" }
 ```
+
+`travel_min` requires `mode` (`walk`, `bike`, `car`, or `transit`). Walk,
+bike and car use the shared straight-line speed conventions; transit remains
+pending until a travel-time source exists. Budgets are compared only in the
+area's currency, so a currency mismatch is pending rather than exclusion.
 
 ### 5.2 Delegation bounds
 

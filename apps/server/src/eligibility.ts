@@ -2,8 +2,10 @@ import type pg from "pg";
 import type { Feasibility } from "@webmcp-hackathon/contracts";
 import {
   ATTRIBUTE_LABELS,
+  AREAS,
   CUISINE_IMPLICATION_SATISFACTION_FLOOR,
   PRICE_LEVEL_EUR,
+  TRAVEL_SPEED_M_PER_MIN,
   DISH_TOKENS,
   areaById,
   coversWindow,
@@ -109,6 +111,13 @@ export interface RequirementRow {
     expect?: string;
     dimension?: string;
     max?: number;
+    mode?: "walk" | "bike" | "car" | "transit";
+    referent?:
+      | { kind: "self" | "scopeCenter" }
+      | { kind: "candidate"; candidateId: string }
+      | { kind: "participant"; participantId: string }
+      | { kind: "point"; lat: number; lng: number; label?: string }
+      | { kind: "landmark"; landmarkId: string };
     values?: string[];
     text?: string;
     window?: { start?: string; end?: string };
@@ -298,8 +307,6 @@ export async function loadScope(
   return (row?.scope as ScopeState) ?? null;
 }
 
-const WALK_SPEED_M_PER_MIN = 4500 / 60;
-
 /** Minutes on foot from a supplied origin. Recomputed on every read: the
  * seeded walk_min is only a last-resort compatibility fallback. */
 export function walkMinutesFrom(
@@ -308,7 +315,7 @@ export function walkMinutesFrom(
   fallback: number,
 ): number {
   if (!center) return fallback;
-  return Math.max(1, Math.round(haversineMeters(location, center) / WALK_SPEED_M_PER_MIN));
+  return Math.max(1, Math.round(haversineMeters(location, center) / TRAVEL_SPEED_M_PER_MIN.walk));
 }
 
 export interface EligibilityInputs {
@@ -675,6 +682,22 @@ export function classifyCandidate(
               peerText,
             });
           }
+        } else if (p.dimension === "travel_min" && typeof p.max === "number") {
+          const speed = p.mode ? TRAVEL_SPEED_M_PER_MIN[p.mode] : undefined;
+          if (p.mode === "transit") {
+            pending.push({ ...owner, text: "transit time not on record" });
+          } else if (!origin || !speed) {
+            pending.push({ ...owner, text: "distance not on record" });
+          } else {
+            const minutes = Math.max(1, Math.round(haversineMeters(candidate.location, origin) / speed));
+            if (minutes > p.max) {
+              return excluded(candidate, {
+                ...owner,
+                text: `${minutes} min by ${p.mode} from you`,
+                peerText: "too far for one person",
+              });
+            }
+          }
         } else {
           pending.push({ ...owner, text: "distance not on record" });
         }
@@ -686,7 +709,10 @@ export function classifyCandidate(
         const band =
           PRICE_LEVEL_EUR[candidate.price_level as keyof typeof PRICE_LEVEL_EUR];
         const max = p.perPersonMax?.amount;
-        if (band === undefined || typeof max !== "number") {
+        const areaCurrency = AREAS.find((area) => area.timezone === timezone)?.currency ?? "EUR";
+        if (p.perPersonMax?.currency && p.perPersonMax.currency !== areaCurrency) {
+          pending.push({ ...owner, text: "budget currency does not match this area" });
+        } else if (band === undefined || typeof max !== "number") {
           pending.push({ ...owner, text: "price not on record" });
         } else if (band > max) {
           return excluded(candidate, {

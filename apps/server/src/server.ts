@@ -644,13 +644,21 @@ app.post("/api/nl/say", async (req) => {
     try {
       const context = await spatialContext(actor);
       if (!context.ok) return context;
-      const routed = await say(text, scope, context);
+      const rawClarify = (req.body as { clarifyOf?: unknown }).clarifyOf as
+        | { said?: unknown; question?: unknown }
+        | undefined;
+      const clarifyOf = rawClarify && typeof rawClarify.said === "string" && typeof rawClarify.question === "string"
+        && rawClarify.said.length <= 300 && rawClarify.question.length <= 120
+        ? { said: rawClarify.said, question: rawClarify.question }
+        : undefined;
+      const routed = await say(text, scope, context, new Date(), clarifyOf, actor.id);
       let result: Record<string, unknown>;
       if (routed.intent === "ask" || routed.intent === "act") {
         const outcome = await runAgent(actor, text, heldFor(actor.id));
         result = {
           ok: true,
           intent: routed.intent,
+          ...(routed.needs.length ? { needs: routed.needs } : {}),
           reply: outcome.reply,
           actions: outcome.actions,
           // R7: additive page-private fields preserve already committed steps
@@ -665,8 +673,9 @@ app.post("/api/nl/say", async (req) => {
           ok: true,
           intent: routed.intent,
           needs: routed.needs,
+          clarify: routed.clarify,
+          ...(routed.suggestions ? { suggestions: routed.suggestions } : {}),
           reply: routed.reply,
-          ...(routed.choices?.length ? { choices: routed.choices } : {}),
           meta: { route: routed.meta },
         };
       }

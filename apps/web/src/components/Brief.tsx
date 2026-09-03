@@ -1,6 +1,6 @@
 import { useRef } from "react";
 import type { ProjectedEvent } from "@webmcp-hackathon/contracts";
-import type { AgentReply, PendingNeed } from "../spatial-store.ts";
+import { spatial, type AgentReply, type PendingNeed } from "../spatial-store.ts";
 import type {
   ActiveNeed,
   CommandEnvelope,
@@ -315,7 +315,17 @@ export function NeedsSection({
               data-testid="need-provisional"
               aria-busy="true"
             >
-              <span className="need-label">{n.label}</span>
+              <span className="need-label">
+                {n.label}
+                {n.assumed && (
+                  <span className="need-looked">
+                    {" "}· {n.assumed} ·{" "}
+                    <button className="btn-text" onClick={() => spatial.prefillComposer(n.label)}>
+                      {COPY.clarifyChange}
+                    </button>
+                  </span>
+                )}
+              </span>
               <span className="need-pending">
                 <i className="busy-ring row-busy" aria-hidden="true" />
                 {n.committedAt === null ? "saying it…" : checkingText(busyCount)}
@@ -600,13 +610,15 @@ export function AgentReplies({
   replies,
   onDismiss,
   onChoose,
+  onRephrase,
 }: {
   replies: AgentReply[];
   onDismiss(id: string): void;
   onChoose(
-    replyId: string,
-    choice: NonNullable<AgentReply["choices"]>[number],
+    reply: AgentReply,
+    choice: NonNullable<AgentReply["clarify"]>["choices"][number],
   ): void;
+  onRephrase(reply: AgentReply): void;
 }) {
   if (replies.length === 0) return null;
   return (
@@ -620,14 +632,19 @@ export function AgentReplies({
         >
           <div className="card-kicker" data-tone="act">Your agent</div>
           <div className="card-body" data-testid="agent-reply-text">{r.text}</div>
-          {r.choices && r.choices.length > 0 && (
-            <div className="reply-choices" data-testid="agent-reply-choices">
-              {r.choices.map((choice, index) => (
+          {r.clarify && (
+            <div
+              className="reply-choices"
+              role="group"
+              aria-label={r.clarify.question}
+              data-testid="clarify-choices"
+            >
+              {r.clarify.choices.map((choice) => (
                 <button
                   type="button"
                   className="pill"
-                  key={`${choice.label}-${index}`}
-                  onClick={() => onChoose(r.id, choice)}
+                  key={choice.id}
+                  onClick={() => onChoose(r, choice)}
                 >
                   {choice.label}
                 </button>
@@ -645,9 +662,15 @@ export function AgentReplies({
             </div>
           )}
           <div className="card-actions">
-            <button className="btn-text" data-testid="agent-reply-dismiss" onClick={() => onDismiss(r.id)}>
-              Got it
-            </button>
+            {r.clarify ? (
+              <button className="btn-text" data-testid="clarify-rephrase" onClick={() => onRephrase(r)}>
+                {COPY.clarifyRephrase}
+              </button>
+            ) : (
+              <button className="btn-text" data-testid="agent-reply-dismiss" onClick={() => onDismiss(r.id)}>
+                Got it
+              </button>
+            )}
           </div>
         </div>
       ))}

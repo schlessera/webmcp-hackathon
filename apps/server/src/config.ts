@@ -30,11 +30,13 @@ export const config = {
   /**
    * Natural-language surface (docs/NL-AGENT.md). Absent key: the composer
    * falls back to its label matching and the page never shows an agent card.
-   * Two tiers, chosen per job — never per request size:
-   *  - fast: bounded, schema-shaped, latency-bound work (routing a sentence,
-   *    turning it into a need payload);
+   * Two model choices, chosen per job — never per request size:
+   *  - the quickest model at the lowest effort: bounded, schema-shaped,
+   *    latency-bound work (routing a sentence, turning it into a need payload);
    *  - smart: anything that acts on the room through tools, judges a person's
    *    private condition against evidence, or answers a question about state.
+   * "Quickest" never means a paid priority processing tier: nl/openai.ts
+   * sets service_tier=default and rejects priority/fast values before fetch.
    */
   openaiApiKey: process.env.OPENAI_API_KEY ?? "",
   parallelApiKey: process.env.PARALLEL_API_KEY ?? "",

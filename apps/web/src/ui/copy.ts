@@ -325,6 +325,11 @@ export const COPY = {
   photoCredit: (credit: string, license: string) => `photo · ${credit} · ${license} ↗`,
   pendingAgentOnly: "a condition your agent holds",
   agentUnclear: "Say what would rule a place in or out, or ask about the room.",
+  clarifyRephrase: "Say it differently",
+  clarifyChange: "change",
+  clarifyReadAs: (reading: string) => `read as ${reading}`,
+  clarifyRoomPlace: "A place in the room",
+  clarifyElsewhere: "Somewhere else",
   agentHolds: "Your agent holds it. The room learns only that a condition exists.",
   agentRetry: "Your agent could not finish that. Your words are still here so you can try again.",
   startLede:
