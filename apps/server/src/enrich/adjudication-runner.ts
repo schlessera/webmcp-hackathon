@@ -44,6 +44,7 @@ export interface RunAdjudicationOptions {
   now?: number;
   /** The room's existing refinement model-call bucket. */
   consumeModelCall: (roomId: string, now: number) => boolean;
+  signal?: AbortSignal;
 }
 
 export interface RunAdjudicationResult {
@@ -186,6 +187,7 @@ export async function adjudicateLikelyForRoom(
   options: RunAdjudicationOptions,
 ): Promise<RunAdjudicationResult> {
   if (!inferenceEnabled()) return { calls: 0, cells: 0, changed: [] };
+  if (options.signal?.aborted) return { calls: 0, cells: 0, changed: [] };
   const now = options.now ?? Date.now();
   const inputs = options.inputs ?? await loadEligibilityInputs(pool, roomId);
   const cells = cellsFor(inputs, options, now);
@@ -205,6 +207,7 @@ export async function adjudicateLikelyForRoom(
   try {
     const scheduled: Promise<void>[] = [];
     for (const batch of batchesByPlaces(cells)) {
+      if (options.signal?.aborted) break;
       const keys = batch.map((cell) => `${cell.osmRef}\u0000${cell.criterionId}\u0000${cell.evidenceHash}`);
       const admitted = batch.filter((_, index) => !inFlight.has(keys[index]));
       if (admitted.length === 0) continue;
@@ -213,6 +216,7 @@ export async function adjudicateLikelyForRoom(
         `${cell.osmRef}\u0000${cell.criterionId}\u0000${cell.evidenceHash}`
       )) inFlight.add(key);
       const run = async (): Promise<void> => {
+        if (options.signal?.aborted) return;
         const started = Date.now();
         try {
           const result = await adjudicateCells(

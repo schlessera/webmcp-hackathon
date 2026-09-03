@@ -1001,10 +1001,14 @@ async function scheduledLookup(
   return pipelineScheduler.enqueue(
     { ...base, dedupeKey: pipelineDedupeKey(base) },
     async (route, _attempt, deadlineSignal): Promise<DispatchResult<LookupPass>> => {
-      const combinedSignal = signal && deadlineSignal
-        ? AbortSignal.any([signal, deadlineSignal])
-        : signal ?? deadlineSignal;
-      if (combinedSignal?.aborted) throw new DOMException("prefetch cancelled", "AbortError");
+      // A superseded open abandons queued/future legs, but a site read that
+      // already owns the interactive slot is allowed to finish into cache.
+      if (signal?.aborted) throw new DOMException("prefetch cancelled", "AbortError");
+      const dispatchSignal = intent === "interactive" && priority === 0
+        ? deadlineSignal
+        : signal && deadlineSignal
+          ? AbortSignal.any([signal, deadlineSignal])
+          : signal ?? deadlineSignal;
       return {
         value: await lookup(
           db,
@@ -1013,7 +1017,7 @@ async function scheduledLookup(
           route,
           reuseFreshPage,
           siteOnly,
-          combinedSignal,
+          dispatchSignal,
         ),
         actualRoute: route ?? "direct",
       };

@@ -96,7 +96,7 @@ export class PipelineVolumeModel {
     this.state(roomId).paused = paused;
   }
 
-  snapshot(roomId: string): Omit<PipelineMessage, "type" | "stages" | "reset" | "reason"> {
+  snapshot(roomId: string): Omit<PipelineMessage, "type" | "stages" | "stalled" | "reset" | "reason"> {
     const room = this.rooms.get(roomId);
     const outstanding = { fetch: 0, process: 0 };
     const inFlight = { fetch: 0, process: 0 };

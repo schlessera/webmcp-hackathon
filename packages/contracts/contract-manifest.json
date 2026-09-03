@@ -1,6 +1,6 @@
 {
   "toolContractVersion": "3",
-  "sha256": "6f1990f859e4ffa61295a30153572749d6d7aa6c5dde7cbbdc87c82f2f4633ed",
+  "sha256": "8621d67a4cc9cc3bf6c8309bba226fbb778dc2c1faa5acd7c10b66cfc562328a",
   "manifest": {
     "capabilityManifest": {
       "agreement": {
@@ -3121,6 +3121,12 @@
                 },
                 "type": "array"
               },
+              "stalled": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
               "total": {
                 "type": "number"
               },
@@ -3147,6 +3153,30 @@
                 },
                 "type": "array"
               },
+              "completionReason": {
+                "anyOf": [
+                  {
+                    "const": "budget",
+                    "type": "string"
+                  },
+                  {
+                    "const": "error",
+                    "type": "string"
+                  },
+                  {
+                    "const": "floor",
+                    "type": "string"
+                  },
+                  {
+                    "const": "aborted",
+                    "type": "string"
+                  },
+                  {
+                    "const": "complete",
+                    "type": "string"
+                  }
+                ]
+              },
               "costUsd": {
                 "type": "number"
               },
@@ -3162,6 +3192,14 @@
               },
               "reason": {
                 "anyOf": [
+                  {
+                    "const": "budget",
+                    "type": "string"
+                  },
+                  {
+                    "const": "error",
+                    "type": "string"
+                  },
                   {
                     "const": "confirmation",
                     "type": "string"
@@ -3181,11 +3219,23 @@
                   {
                     "const": "interactive",
                     "type": "string"
+                  },
+                  {
+                    "const": "floor",
+                    "type": "string"
+                  },
+                  {
+                    "const": "aborted",
+                    "type": "string"
                   }
                 ]
               },
               "stage": {
                 "anyOf": [
+                  {
+                    "const": "queued",
+                    "type": "string"
+                  },
                   {
                     "const": "site",
                     "type": "string"
@@ -3213,6 +3263,10 @@
                     },
                     "stage": {
                       "anyOf": [
+                        {
+                          "const": "queued",
+                          "type": "string"
+                        },
                         {
                           "const": "site",
                           "type": "string"

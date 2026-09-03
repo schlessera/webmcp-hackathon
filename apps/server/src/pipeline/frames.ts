@@ -24,6 +24,7 @@ interface StageEntry {
 interface FrameRoom {
   entries: Map<string, StageEntry>;
   sentStages: Map<string, PipelineStage>;
+  stalled: Set<string>;
   timer?: ReturnType<typeof setTimeout>;
   lastPipeline?: string;
   lastLookups?: string;
@@ -43,7 +44,17 @@ export class PipelineFrames {
   update(item: PipelineItem, stage: PipelineStage | null, reason?: FrameReason): void {
     const room = this.state(item.roomId);
     if (stage === null) room.entries.delete(item.dedupeKey);
-    else room.entries.set(item.dedupeKey, { item, stage, reason: this.safeReason(reason) });
+    else {
+      room.stalled.delete(item.candidateId);
+      room.entries.set(item.dedupeKey, { item, stage, reason: this.safeReason(reason) });
+    }
+    this.schedule(item.roomId, room.quiet);
+  }
+
+  /** Remember deadline failures until that candidate is admitted again. */
+  stall(item: PipelineItem): void {
+    const room = this.state(item.roomId);
+    room.stalled.add(item.candidateId);
     this.schedule(item.roomId, room.quiet);
   }
 
@@ -59,6 +70,7 @@ export class PipelineFrames {
     return {
       type: "pipeline",
       ...this.volume.snapshot(roomId),
+      stalled: [...(room?.stalled ?? [])].sort(),
       stages: [...stages].map(([candidateId, stage]) => ({ candidateId, stage })),
       reset: true,
       ...(stages.size && reason ? { reason } : {}),
@@ -97,7 +109,7 @@ export class PipelineFrames {
   private state(roomId: string): FrameRoom {
     let room = this.rooms.get(roomId);
     if (!room) {
-      room = { entries: new Map(), sentStages: new Map(), quiet: true };
+      room = { entries: new Map(), sentStages: new Map(), stalled: new Set(), quiet: true };
       this.rooms.set(roomId, room);
     }
     return room;
@@ -126,6 +138,7 @@ export class PipelineFrames {
     const pipeline: PipelineMessage = {
       type: "pipeline",
       ...this.volume.snapshot(roomId),
+      stalled: [...room.stalled].sort(),
       stages: delta,
       reset: false,
       ...(stages.size && reason ? { reason } : {}),

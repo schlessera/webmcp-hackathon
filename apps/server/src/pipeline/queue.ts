@@ -217,10 +217,7 @@ export class PipelineQueue {
       const next = ranking.get(entry.item.dedupeKey) ??
         ranking.get(entry.item.candidateId) ?? ranking.get(entry.item.osmRef);
       if (next === undefined || next === entry.item.priority) continue;
-      const nextPool = next === 0 &&
-          (entry.item.kind === "fetch.site" || entry.item.kind === "fetch.asset")
-        ? "direct"
-        : entry.item.predictedPool;
+      const nextPool = entry.item.predictedPool;
       this.move(entry, next, nextPool);
       entry.item.priority = next;
       entry.item.predictedPool = nextPool;

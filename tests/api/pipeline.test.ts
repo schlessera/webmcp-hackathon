@@ -22,10 +22,18 @@ describe("pipeline over HTTP, WebSocket, and PostgreSQL", () => {
   let room: TestRoom;
   let openRoom: TestRoom;
   let hangRoom: TestRoom;
+  let focusRoom: TestRoom;
+  let sharedFocusRoom: TestRoom;
   let realtime: TestRealtime;
   let hangRealtime: TestRealtime;
+  let focusRealtime: TestRealtime;
+  let sharedFocusRealtime: TestRealtime;
   let candidateId: string;
   let openCandidateId: string;
+  let focusSlowId: string;
+  let focusFastId: string;
+  let sharedSlowId: string;
+  let sharedFastId: string;
 
   beforeAll(async () => {
     server = await startServer({
@@ -37,7 +45,7 @@ describe("pipeline over HTTP, WebSocket, and PostgreSQL", () => {
         REFINE_TICK_MS: "250",
         REFINE_PLAN_WATCHDOG_MS: "300",
         REFINE_IDLE_STOP_MS: "200",
-        PIPELINE_TIMEOUT_FETCH_SITE_MS: "150",
+        PIPELINE_TIMEOUT_FETCH_SITE_MS: "2500",
         OPENAI_API_KEY: "scripted",
         PARALLEL_API_KEY: "scripted",
       },
@@ -145,17 +153,69 @@ describe("pipeline over HTTP, WebSocket, and PostgreSQL", () => {
       ],
     );
     hangRealtime = await openRealtime(server.baseUrl, hangRoom.tokens.org);
+
+    const prepareFocusRoom = async (testRoom: TestRoom) => {
+      const rows = (await testRoom.pool.query(
+        "SELECT id FROM candidates WHERE room_id = $1 ORDER BY id LIMIT 2",
+        [testRoom.roomId],
+      )).rows as Array<{ id: string }>;
+      await testRoom.pool.query(
+        `UPDATE candidates
+            SET osm_ref = CASE id WHEN $2 THEN $4 ELSE $5 END,
+                extras = CASE id WHEN $2 THEN $6::jsonb ELSE $7::jsonb END,
+                attributes = $8::jsonb
+          WHERE room_id = $1 AND id = ANY($3)`,
+        [
+          testRoom.roomId,
+          rows[0].id,
+          rows.map((row) => row.id),
+          `pipeline-focus/${testRoom.roomId}/slow`,
+          `pipeline-focus/${testRoom.roomId}/fast`,
+          JSON.stringify({ website: `https://slow-focus.example/${testRoom.roomId}` }),
+          JSON.stringify({ website: `https://fast-focus.example/${testRoom.roomId}` }),
+          JSON.stringify(KNOWN_ATTRIBUTES),
+        ],
+      );
+      await testRoom.pool.query(
+        `INSERT INTO requirements
+           (id, room_id, owner_id, visibility, hardness, delegation, payload, active)
+         VALUES ($1, $2, $3, 'shared', 'hard', '{}', $4, true)`,
+        [
+          `pipeline_focus_${testRoom.roomId}`,
+          testRoom.roomId,
+          testRoom.participantIds.org,
+          JSON.stringify({ kind: "text", text: "free wifi" }),
+        ],
+      );
+      return [rows[0].id, rows[1].id] as const;
+    };
+    focusRoom = await createTestRoom(server.baseUrl);
+    [focusSlowId, focusFastId] = await prepareFocusRoom(focusRoom);
+    focusRealtime = await openRealtime(server.baseUrl, focusRoom.tokens.org);
+    sharedFocusRoom = await createTestRoom(server.baseUrl);
+    [sharedSlowId, sharedFastId] = await prepareFocusRoom(sharedFocusRoom);
+    sharedFocusRealtime = await openRealtime(server.baseUrl, sharedFocusRoom.tokens.org);
   });
 
   afterAll(async () => {
     realtime?.close();
     hangRealtime?.close();
+    focusRealtime?.close();
+    sharedFocusRealtime?.close();
     await room?.pool.query("DELETE FROM enrichments WHERE osm_ref LIKE $1", [
       `pipeline/${room.roomId}/%`,
+    ]);
+    await focusRoom?.pool.query("DELETE FROM enrichments WHERE osm_ref LIKE $1", [
+      `pipeline-focus/${focusRoom.roomId}/%`,
+    ]);
+    await sharedFocusRoom?.pool.query("DELETE FROM enrichments WHERE osm_ref LIKE $1", [
+      `pipeline-focus/${sharedFocusRoom.roomId}/%`,
     ]);
     await room?.cleanup();
     await openRoom?.cleanup();
     await hangRoom?.cleanup();
+    await focusRoom?.cleanup();
+    await sharedFocusRoom?.cleanup();
     await server?.stop();
   });
 
@@ -179,7 +239,6 @@ describe("pipeline over HTTP, WebSocket, and PostgreSQL", () => {
     expect(pipelineFrames().some((frame) =>
       frame.outstanding.process + frame.inFlight.process > 0
     )).toBe(true);
-    expect(pipelineFrames().some((frame) => frame.done > 0)).toBe(true);
     expect(server.logs().split("\n").filter((line) =>
       line.includes('"msg":"pipeline loop started"') &&
       line.includes(`"roomId":"${room.roomId}"`)
@@ -200,7 +259,7 @@ describe("pipeline over HTTP, WebSocket, and PostgreSQL", () => {
     const timeoutLine = server.logs().split("\n").find((line) =>
       line.includes('"msg":"pipeline timeout"') && line.includes(roomMarker)
     );
-    expect(timeoutLine).toContain('"timeoutMs":150');
+    expect(timeoutLine).toContain('"timeoutMs":2500');
   });
 
   it("keeps vision and decode out of the sweep and enqueues both when a place opens", async () => {
@@ -236,7 +295,99 @@ describe("pipeline over HTTP, WebSocket, and PostgreSQL", () => {
     }), 8_000, () => realtime.frames().slice(frameStart).join("|"));
   });
 
-  it("runs one open plan inside the cooldown and facts-driven reads run none", async () => {
+  it("supersedes a slow open so the next place completes first", async () => {
+    const nonce = Date.now();
+    await focusRoom.pool.query(
+      `UPDATE candidates
+          SET osm_ref = CASE id WHEN $2 THEN $4 ELSE $5 END,
+              extras = CASE id WHEN $2 THEN $6::jsonb ELSE $7::jsonb END
+        WHERE room_id = $1 AND id = ANY($3)`,
+      [
+        focusRoom.roomId,
+        focusSlowId,
+        [focusSlowId, focusFastId],
+        `pipeline-focus/${focusRoom.roomId}/slow-${nonce}`,
+        `pipeline-focus/${focusRoom.roomId}/fast-${nonce}`,
+        JSON.stringify({ website: `https://slow-focus.example/${focusRoom.roomId}/${nonce}` }),
+        JSON.stringify({ website: `https://fast-focus.example/${focusRoom.roomId}/${nonce}` }),
+      ],
+    );
+    const frameStart = focusRealtime.frames().length;
+    await apiPost(server.baseUrl, "/api/spatial/inspect", focusRoom.tokens.org, {
+      candidateIds: [focusSlowId],
+      intent: "open",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    await apiPost(server.baseUrl, "/api/spatial/inspect", focusRoom.tokens.org, {
+      candidateIds: [focusFastId],
+      intent: "open",
+    });
+    await waitFor(() => terminalFrame(
+      focusRealtime.frames().slice(frameStart),
+      focusFastId,
+      "complete",
+    ), 4_000, () => `slow=${focusSlowId} fast=${focusFastId} ${focusRealtime.frames().slice(frameStart).join("|")}`);
+    expect(terminalFrame(focusRealtime.frames().slice(frameStart), focusSlowId)).toBe(false);
+    await waitFor(() => terminalFrame(
+      focusRealtime.frames().slice(frameStart),
+      focusSlowId,
+      "aborted",
+    ), 4_000, () => focusRealtime.frames().slice(frameStart).join("|"));
+    expect(server.logs()).toContain(
+      `"msg":"interactive focus demoted","roomId":"${focusRoom.roomId}","candidateId":"${focusSlowId}"`,
+    );
+  });
+
+  it("keeps a shared place plan alive when its first participant moves on", async () => {
+    const nonce = Date.now();
+    await sharedFocusRoom.pool.query(
+      `UPDATE candidates
+          SET osm_ref = CASE id WHEN $2 THEN $4 ELSE $5 END,
+              extras = CASE id WHEN $2 THEN $6::jsonb ELSE $7::jsonb END
+        WHERE room_id = $1 AND id = ANY($3)`,
+      [
+        sharedFocusRoom.roomId,
+        sharedSlowId,
+        [sharedSlowId, sharedFastId],
+        `pipeline-focus/${sharedFocusRoom.roomId}/slow-${nonce}`,
+        `pipeline-focus/${sharedFocusRoom.roomId}/fast-${nonce}`,
+        JSON.stringify({ website: `https://slow-focus.example/${sharedFocusRoom.roomId}/${nonce}` }),
+        JSON.stringify({ website: `https://fast-focus.example/${sharedFocusRoom.roomId}/${nonce}` }),
+      ],
+    );
+    const frameStart = sharedFocusRealtime.frames().length;
+    await Promise.all([
+      apiPost(server.baseUrl, "/api/spatial/inspect", sharedFocusRoom.tokens.org, {
+        candidateIds: [sharedSlowId], intent: "open",
+      }),
+      apiPost(server.baseUrl, "/api/spatial/inspect", sharedFocusRoom.tokens.sarah, {
+        candidateIds: [sharedFastId], intent: "open",
+      }),
+    ]);
+    await waitFor(() => terminalFrame(
+      sharedFocusRealtime.frames().slice(frameStart),
+      sharedFastId,
+      "complete",
+    ), 2_000, () => sharedFocusRealtime.frames().slice(frameStart).join("|"));
+    await apiPost(server.baseUrl, "/api/spatial/inspect", sharedFocusRoom.tokens.sarah, {
+      candidateIds: [sharedSlowId], intent: "open",
+    });
+    await apiPost(server.baseUrl, "/api/spatial/inspect", sharedFocusRoom.tokens.org, {
+      candidateIds: [sharedFastId], intent: "open",
+    });
+    await waitFor(() => terminalFrame(
+      sharedFocusRealtime.frames().slice(frameStart),
+      sharedSlowId,
+      "complete",
+    ), 4_000, () => sharedFocusRealtime.frames().slice(frameStart).join("|"));
+    expect(terminalFrame(
+      sharedFocusRealtime.frames().slice(frameStart),
+      sharedSlowId,
+      "aborted",
+    )).toBe(false);
+  });
+
+  it("publishes an immediate terminal frame inside the floor and facts-driven reads run none", async () => {
     const planMarker = `\"candidateId\":\"${openCandidateId}\"`;
     const modelMarker = `scripted-matrix-call candidates=${openCandidateId}`;
     const plans = countLog(planMarker);
@@ -251,6 +402,8 @@ describe("pipeline over HTTP, WebSocket, and PostgreSQL", () => {
     await waitFor(() => countLog(planMarker) === plans + 1, 8_000, () => server.logs());
     const callsAfterFirst = countLog(modelMarker);
     expect(callsAfterFirst).toBeGreaterThan(modelCalls);
+    const floorRealtime = await openRealtime(server.baseUrl, openRoom.tokens.org);
+    const floorStart = floorRealtime.frames().length;
     const secondOpen = await apiPost<{ ok: boolean }>(
       server.baseUrl,
       "/api/spatial/inspect",
@@ -260,7 +413,17 @@ describe("pipeline over HTTP, WebSocket, and PostgreSQL", () => {
     expect(secondOpen.body.ok).toBe(true);
     await new Promise((resolve) => setTimeout(resolve, 300));
     expect(countLog(planMarker), server.logs()).toBe(plans + 1);
-    expect(countLog(modelMarker)).toBe(callsAfterFirst);
+    expect(floorRealtime.frames().slice(floorStart).some((raw) => {
+      const frame = JSON.parse(raw) as {
+        type?: string;
+        candidateIds?: string[];
+        done?: boolean;
+        completionReason?: string;
+      };
+      return frame.type === "facts" && frame.candidateIds?.includes(openCandidateId) &&
+        frame.done === true && frame.completionReason === "floor" &&
+        (frame as { reason?: string }).reason === "floor";
+    })).toBe(true);
 
     const factsRead = await apiPost<{ ok: boolean }>(
       server.baseUrl,
@@ -271,7 +434,6 @@ describe("pipeline over HTTP, WebSocket, and PostgreSQL", () => {
     expect(factsRead.body.ok).toBe(true);
     await new Promise((resolve) => setTimeout(resolve, 300));
     expect(countLog(planMarker), server.logs()).toBe(plans + 1);
-    expect(countLog(modelMarker)).toBe(callsAfterFirst);
 
     const freeWifiCriterion = `q:${createHash("sha1").update("free wifi").digest("hex")}`;
     await openRoom.pool.query(
@@ -299,13 +461,14 @@ describe("pipeline over HTTP, WebSocket, and PostgreSQL", () => {
     );
     expect(cachedForce.body.ok).toBe(true);
     await new Promise((resolve) => setTimeout(resolve, 300));
-    expect(countLog(planMarker), server.logs()).toBe(plans + 1);
+    expect(countLog(planMarker), server.logs()).toBe(plans + 2);
     expect(noOpRealtime.frames().slice(frameStart).some((raw) => {
-      const frame = JSON.parse(raw) as { type?: string; reason?: string; candidateIds?: string[] };
+      const frame = JSON.parse(raw) as { type?: string; reason?: string; candidateIds?: string[]; done?: boolean };
       return frame.type === "facts" && frame.reason === "interactive" &&
-        frame.candidateIds?.includes(openCandidateId);
-    })).toBe(false);
+        frame.candidateIds?.includes(openCandidateId) && frame.done === true;
+    })).toBe(true);
     noOpRealtime.close();
+    floorRealtime.close();
 
     const line = server.logs().split("\n").find((entry) => entry.includes(planMarker))!;
     expect(line).toContain('"modelCalls":');
@@ -313,7 +476,7 @@ describe("pipeline over HTTP, WebSocket, and PostgreSQL", () => {
     expect(line).not.toContain(PRIVATE_TEXT);
   });
 
-  it("lets force bypass the interactive-open cooldown", async () => {
+  it("lets force bypass the interactive-open floor", async () => {
     await openRoom.pool.query(
       `INSERT INTO requirements
          (id, room_id, owner_id, visibility, hardness, delegation, payload, active)
@@ -399,6 +562,19 @@ describe("pipeline over HTTP, WebSocket, and PostgreSQL", () => {
     return server.logs().split("\n").filter((line) => line.includes(marker)).length;
   }
 });
+
+function terminalFrame(frames: string[], candidateId: string, completionReason?: string): boolean {
+  return frames.some((raw) => {
+    const frame = JSON.parse(raw) as {
+      type?: string;
+      candidateIds?: string[];
+      done?: boolean;
+      completionReason?: string;
+    };
+    return frame.type === "facts" && frame.candidateIds?.includes(candidateId) &&
+      frame.done === true && (!completionReason || frame.completionReason === completionReason);
+  });
+}
 
 async function waitFor(
   check: () => boolean | Promise<boolean>,

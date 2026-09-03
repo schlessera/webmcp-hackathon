@@ -1,4 +1,5 @@
 export type PoolName =
+  | "interactive"
   | "proxy"
   | "direct"
   | "search"
@@ -98,6 +99,7 @@ export class PipelinePool {
 export type PipelinePools = Record<PoolName, PipelinePool>;
 
 export const RESERVED_PRIORITY_ZERO: Readonly<Record<PoolName, number>> = {
+  interactive: 0,
   proxy: 0,
   direct: 2,
   search: 1,
@@ -111,6 +113,7 @@ export function createPipelinePools(
   reservations: Partial<Record<PoolName, number>> = {},
 ): PipelinePools {
   const limits: Record<PoolName, number> = {
+    interactive: boundedEnv("POOL_INTERACTIVE", 3),
     proxy: boundedEnv("POOL_PROXY", 8, 8, 12),
     direct: boundedEnv("POOL_DIRECT", 4),
     search: boundedEnv("POOL_SEARCH", 4),

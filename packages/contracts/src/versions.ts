@@ -27,6 +27,9 @@
 // Protocol fixes then added optional verdict `screenedMapRevision` and a
 // sync-specific 8K result allowance; both only add accepted input/room for
 // existing output, so TOOL_CONTRACT_VERSION remains v3 (X1/X2).
+// Interactive-lane progress later added `PipelineMessage.stalled`, the
+// `queued` interactive stage, and a terminal `completionReason`. These are
+// additive presentation fields, so the version remains v3.
 // No callable field or tool was removed, so the additive policy keeps v3.
 export const TOOL_CONTRACT_VERSION = "3";
 

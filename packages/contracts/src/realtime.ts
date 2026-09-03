@@ -129,6 +129,8 @@ export interface PipelineMessage {
   total: number;
   etaMs?: number;
   paused?: "budget" | "idle" | null;
+  /** Candidates with at least one item that exceeded its dispatch deadline. */
+  stalled?: string[];
   /** Optional per-place stage deltas (`null`: the place left the pipeline). */
   stages?: Array<{ candidateId: string; stage: PipelineStage | null }>;
   /** True when `stages` is the whole set, not a delta. */
@@ -144,7 +146,16 @@ export interface PipelineMessage {
 export interface FactsMessage {
   type: "facts";
   candidateIds: string[];
-  reason: "lookup" | "inference" | "pool" | "confirmation" | "interactive";
+  reason:
+    | "lookup"
+    | "inference"
+    | "pool"
+    | "confirmation"
+    | "interactive"
+    | "floor"
+    | "budget"
+    | "aborted"
+    | "error";
   /**
    * The open fast track (reason "interactive", one candidate): which step
    * just landed — the place's site, the needs judgement, the photos, a web
@@ -156,8 +167,10 @@ export interface FactsMessage {
   done?: boolean;
   steps?: Array<{ stage: InteractiveStage; ms?: number }>;
   costUsd?: number;
+  /** Why an admitted open ended when it did. */
+  completionReason?: "complete" | "floor" | "budget" | "aborted" | "error";
 }
-export type InteractiveStage = "site" | "needs" | "photos" | "web";
+export type InteractiveStage = "queued" | "site" | "needs" | "photos" | "web";
 /**
  * Application-level keepalive, every few seconds to every authenticated
  * socket. Browsers answer protocol pings silently, so the page cannot see

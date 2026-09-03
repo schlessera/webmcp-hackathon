@@ -173,6 +173,17 @@ fake push. ChatGPT receives the semantic delta when it next invokes a tool.
 
 ## Asynchronous personal agents
 
+## Interactive lane
+
+Opening a place admits its fetch, search, and model work to a dedicated
+three-slot pool (`POOL_INTERACTIVE` overrides the limit), independent of the
+background sweep. Focus is participant-local: moving to another place demotes
+queued work for the old place and abandons its remaining model/search legs,
+unless another participant is still focused there; an in-flight site read may
+finish into cache. Opens run once per place and needs epoch with a 60-second
+floor (`force` bypasses it), stream queued/site/needs/photos/web progress, and
+spend separate hourly model and search budgets.
+
 A ChatGPT conversation participating through WebMCP is not a continuously
 running daemon. The application therefore stores a bounded delegation policy:
 

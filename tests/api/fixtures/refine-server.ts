@@ -17,11 +17,15 @@ pipelineScheduler.onEnqueue((item) => {
 });
 
 setEnrichFetch(async (url) => {
-  console.info(`scripted-site-fetch ${new URL(url).hostname}`);
-  if (new URL(url).hostname === "hang-forever.example") {
+  const parsedUrl = new URL(url);
+  console.info(`scripted-site-fetch ${parsedUrl.hostname}`);
+  if (parsedUrl.hostname === "hang-forever.example") {
     return new Promise<Response>(() => undefined);
   }
   if (url.endsWith("/robots.txt")) return new Response("", { status: 200 });
+  if (parsedUrl.hostname === "slow-focus.example") {
+    await new Promise((resolve) => setTimeout(resolve, 1_500));
+  }
   if (url.includes("/venue-") && url.endsWith(".png")) {
     return new Response(SCRIPTED_IMAGE, {
       status: 200,

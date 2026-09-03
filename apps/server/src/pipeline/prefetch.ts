@@ -1,6 +1,6 @@
 export const PREFETCH_LIMIT = 2;
 export const PREFETCH_OPEN_WINDOW_MS = 5_000;
-export const INTERACTIVE_OPEN_COOLDOWN_MS = 10 * 60_000;
+export const INTERACTIVE_OPEN_FLOOR_MS = 60_000;
 
 export interface PrefetchContext {
   signal: AbortSignal;
@@ -27,7 +27,7 @@ export class PrefetchManager {
   readonly limit: number;
   readonly openWindowMs: number;
   private readonly entries = new Map<string, PrefetchEntry>();
-  private readonly interactiveOpenedAt = new Map<string, number>();
+  private readonly interactiveOpened = new Map<string, { needsEpoch: number; at: number }>();
   private readonly queue: QueuedPrefetch[] = [];
   private active = 0;
 
@@ -60,22 +60,24 @@ export class PrefetchManager {
   }
 
   /**
-   * Admit at most one interactive open plan for a room/place in the cooldown
-   * window. `force` is the explicit person's "Look again" escape hatch.
+   * Admit one plan per room/place/need epoch, never more often than the floor.
+   * `force` is the explicit person's "Look again" escape hatch.
    * The timestamp is taken on admission so two requests racing before either
    * has reached its first await still collapse to one plan.
    */
   admitInteractiveOpen(
     key: string,
-    options: { force?: boolean; now?: number } = {},
+    options: { force?: boolean; now?: number; needsEpoch?: number } = {},
   ): boolean {
     this.opened(key);
     const now = options.now ?? Date.now();
-    const previous = this.interactiveOpenedAt.get(key);
-    if (!options.force && previous !== undefined && now - previous < INTERACTIVE_OPEN_COOLDOWN_MS) {
-      return false;
+    const needsEpoch = options.needsEpoch ?? 0;
+    const previous = this.interactiveOpened.get(key);
+    if (!options.force && previous) {
+      if (now - previous.at < INTERACTIVE_OPEN_FLOOR_MS) return false;
+      if (previous.needsEpoch === needsEpoch) return false;
     }
-    this.interactiveOpenedAt.set(key, now);
+    this.interactiveOpened.set(key, { needsEpoch, at: now });
     return true;
   }
 
@@ -95,7 +97,7 @@ export class PrefetchManager {
       entry.controller.abort();
     }
     this.entries.clear();
-    this.interactiveOpenedAt.clear();
+    this.interactiveOpened.clear();
     this.queue.length = 0;
     this.active = 0;
   }

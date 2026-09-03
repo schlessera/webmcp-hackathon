@@ -28,7 +28,7 @@ import {
 import { refreshAssetsThroughPipeline } from "../../apps/server/src/pipeline/stages/assets.ts";
 import { InteractiveBudget } from "../../apps/server/src/pipeline/interactive.ts";
 import {
-  INTERACTIVE_OPEN_COOLDOWN_MS,
+  INTERACTIVE_OPEN_FLOOR_MS,
   PrefetchManager,
 } from "../../apps/server/src/pipeline/prefetch.ts";
 import { judge } from "../../apps/server/src/pipeline/stages/judge.ts";
@@ -55,7 +55,7 @@ const NO_RESERVATIONS = {
   "image-decode": 0,
 } as const;
 const testPools = (limits: Parameters<typeof createPipelinePools>[0]) =>
-  createPipelinePools(limits, NO_RESERVATIONS);
+  createPipelinePools({ interactive: limits.interactive ?? limits.direct ?? 1, ...limits }, NO_RESERVATIONS);
 
 function item(
   candidateId: string,
@@ -319,7 +319,7 @@ describe("refinement pipeline", () => {
 
     await vi.waitFor(() => expect(started).toHaveLength(8));
     expect(started.filter((id) => id.startsWith("free-"))).toHaveLength(6);
-    expect(scheduler.pools.direct.inFlight).toBe(8);
+    expect(scheduler.pools.interactive.inFlight).toBe(8);
     crowdedReleased = true;
     for (const release of releases) release.resolve(1);
     scheduler.notifyHostGateReleased("crowded.example");
@@ -400,6 +400,7 @@ describe("refinement pipeline", () => {
     expect(signal?.aborted).toBe(true);
     expect(scheduler.pools.direct.inFlight).toBe(0);
     expect(scheduler.volume.snapshot("room-a").inFlight.fetch).toBe(0);
+    expect(scheduler.frames.currentPipeline("room-a").stalled).toEqual(["never"]);
     await expect(plan).resolves.toBe(REFINE_TICK_MS);
   });
 
@@ -441,6 +442,62 @@ describe("refinement pipeline", () => {
     expect(routes).toEqual([
       { route: "proxy", attempt: 0 },
     ]);
+  });
+
+  it("isolates every interactive kind from bulk pools and honours its limit", async () => {
+    const pools = testPools({
+      interactive: 3,
+      direct: 1,
+      proxy: 1,
+      search: 1,
+      "llm-matrix": 1,
+      vision: 1,
+      "image-decode": 1,
+    });
+    const scheduler = new PipelineScheduler({
+      pools,
+      routeFor: () => "direct",
+      hostGateOpen: () => true,
+    });
+    const bulkSite = controlled<void>();
+    const bulkJudge = controlled<void>();
+    const siteJob = scheduler.enqueue(item("bulk-site"), async () => ({
+      value: await bulkSite.promise,
+      actualRoute: "direct",
+    }));
+    const judgeJob = scheduler.enqueue(item("bulk-judge", {
+      kind: "process.judge",
+      host: undefined,
+      purpose: undefined,
+    }), async () => ({ value: await bulkJudge.promise, actualRoute: "direct" }));
+    await vi.waitFor(() => {
+      expect(pools.direct.inFlight).toBe(1);
+      expect(pools["llm-matrix"].inFlight).toBe(1);
+    });
+
+    const releases = Array.from({ length: 4 }, () => controlled<void>());
+    const started: string[] = [];
+    const kinds = ["fetch.site", "process.judge", "fetch.search", "process.adjudicate"] as const;
+    const jobs = kinds.map((kind, index) => scheduler.enqueue(item(`open-${index}`, {
+      kind,
+      intent: "interactive",
+      priority: 0,
+      ...(kind.startsWith("process.") ? { host: undefined, purpose: undefined } : {}),
+    }), async () => {
+      started.push(kind);
+      await releases[index].promise;
+      return { value: index, actualRoute: "direct" as const };
+    }));
+    await vi.waitFor(() => expect(started).toHaveLength(3));
+    expect(pools.interactive.inFlight).toBe(3);
+    expect(pools.interactive.maxInFlight).toBe(3);
+    releases[0].resolve();
+    await vi.waitFor(() => expect(started).toHaveLength(4));
+    for (const release of releases.slice(1)) release.resolve();
+    bulkSite.resolve();
+    bulkJudge.resolve();
+    await Promise.all([...jobs, siteJob, judgeJob]);
+    expect(pools.interactive.maxInFlight).toBe(3);
   });
 
   it("keeps reserved direct slots free through a fifty-item background saturation", async () => {
@@ -563,16 +620,29 @@ describe("refinement pipeline", () => {
     manager.reset();
   });
 
-  it("admits one interactive open per cooldown and lets force bypass it", () => {
+  it("admits one interactive open per needs epoch with a sixty-second floor", () => {
     const manager = new PrefetchManager();
-    expect(manager.admitInteractiveOpen("room\0place", { now: 1_000 })).toBe(true);
-    expect(manager.admitInteractiveOpen("room\0place", { now: 61_000 })).toBe(false);
-    expect(manager.admitInteractiveOpen("room\0place", { now: 61_000, force: true })).toBe(true);
+    expect(manager.admitInteractiveOpen("room\0place", { now: 1_000, needsEpoch: 1 })).toBe(true);
     expect(manager.admitInteractiveOpen("room\0place", {
-      now: 61_000 + INTERACTIVE_OPEN_COOLDOWN_MS - 1,
+      now: 1_000 + INTERACTIVE_OPEN_FLOOR_MS - 1,
+      needsEpoch: 2,
     })).toBe(false);
     expect(manager.admitInteractiveOpen("room\0place", {
-      now: 61_000 + INTERACTIVE_OPEN_COOLDOWN_MS,
+      now: 1_000 + INTERACTIVE_OPEN_FLOOR_MS,
+      needsEpoch: 1,
+    })).toBe(false);
+    expect(manager.admitInteractiveOpen("room\0place", {
+      now: 1_000 + INTERACTIVE_OPEN_FLOOR_MS,
+      needsEpoch: 2,
+    })).toBe(true);
+    expect(manager.admitInteractiveOpen("room\0place", {
+      now: 1_000 + 2 * INTERACTIVE_OPEN_FLOOR_MS,
+      needsEpoch: 2,
+    })).toBe(false);
+    expect(manager.admitInteractiveOpen("room\0place", {
+      now: 1_000 + 2 * INTERACTIVE_OPEN_FLOOR_MS,
+      needsEpoch: 2,
+      force: true,
     })).toBe(true);
     manager.reset();
   });
@@ -787,11 +857,11 @@ describe("refinement pipeline", () => {
     });
     const otherRelease = controlled<number>();
     const started: string[] = [];
-    const fullJob = scheduler.enqueue(item("full-item", { roomId: "full", intent: "interactive" }), async () => {
+    const fullJob = scheduler.enqueue(item("full-item", { roomId: "full" }), async () => {
       started.push("full");
       return { value: 1, actualRoute: "direct" };
     });
-    const otherJob = scheduler.enqueue(item("other-item", { roomId: "other", intent: "interactive" }), async () => {
+    const otherJob = scheduler.enqueue(item("other-item", { roomId: "other" }), async () => {
       started.push("other");
       await otherRelease.promise;
       return { value: 1, actualRoute: "direct" };

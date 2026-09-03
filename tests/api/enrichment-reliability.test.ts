@@ -151,10 +151,10 @@ describe("R11 provider-specific enrichment cache", () => {
 });
 
 describe("R9 inspect enrichment bounds", () => {
-  it("admits place lookups through the global direct pipeline pool", async () => {
-    const directLimit = pipelineScheduler.pools.direct.limit;
+  it("admits place lookups through the dedicated interactive pipeline pool", async () => {
+    const interactiveLimit = pipelineScheduler.pools.interactive.limit;
     const targets: RoomLookupTarget[] = Array.from(
-      { length: directLimit + 2 },
+      { length: interactiveLimit + 2 },
       (_, index) => ({
         candidateId: `pipeline_bounded_${index}_${room.roomId}`,
         osmRef: uniqueRef(`bounded-${index}`),
@@ -183,7 +183,7 @@ describe("R9 inspect enrichment bounds", () => {
     setEnrichFetch(async (url) => {
       active += 1;
       maximum = Math.max(maximum, active);
-      if (maximum === directLimit) saturated();
+      if (maximum === interactiveLimit) saturated();
       await gate;
       active -= 1;
       return String(url).endsWith("/robots.txt") ? new Response("", { status: 404 }) : html();
@@ -194,7 +194,7 @@ describe("R9 inspect enrichment bounds", () => {
       keys: [],
     });
     await reachedLimit;
-    expect(maximum).toBe(directLimit);
+    expect(maximum).toBe(interactiveLimit);
     const leased = Number(
       (
         await room.pool.query(
@@ -205,10 +205,10 @@ describe("R9 inspect enrichment bounds", () => {
       ).rows[0].count,
     );
     // X4: queued jobs must not spend their two-minute lease while waiting.
-    expect(leased).toBe(directLimit);
+    expect(leased).toBe(interactiveLimit);
     release();
     await work;
-    expect(maximum).toBe(directLimit);
+    expect(maximum).toBe(interactiveLimit);
   });
 
   it("does not hold the room lock or a DB client while a slow lookup reaches the request deadline", async () => {

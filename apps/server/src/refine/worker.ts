@@ -93,6 +93,14 @@ export const REFINE_SEARCHES_PER_HOUR = positiveInt(
   process.env.REFINE_SEARCHES_PER_HOUR,
   150,
 );
+export const INTERACTIVE_MODEL_CALLS_PER_HOUR = positiveInt(
+  process.env.INTERACTIVE_MODEL_CALLS_PER_HOUR,
+  120,
+);
+export const INTERACTIVE_SEARCHES_PER_HOUR = positiveInt(
+  process.env.INTERACTIVE_SEARCHES_PER_HOUR,
+  60,
+);
 export type RefineDomainRule = "domain-first" | "open-web-first";
 export const MAX_REFINE_QUERY_CHARS = 400;
 const HOUR_MS = 60 * 60_000;
@@ -108,6 +116,14 @@ const modelBudget = createTokenBucket({
 });
 const searchBudget = createTokenBucket({
   capacity: REFINE_SEARCHES_PER_HOUR,
+  windowMs: HOUR_MS,
+});
+const interactiveModelBudget = createTokenBucket({
+  capacity: INTERACTIVE_MODEL_CALLS_PER_HOUR,
+  windowMs: HOUR_MS,
+});
+const interactiveSearchBudget = createTokenBucket({
+  capacity: INTERACTIVE_SEARCHES_PER_HOUR,
   windowMs: HOUR_MS,
 });
 
@@ -128,7 +144,6 @@ interface RoomState {
   providerChecked: Set<string>;
   checkedDay: string;
   checked: Set<string>;
-  priorityZeroEpoch: number;
   calls: number;
   searches: number;
   costUsd: number;
@@ -217,7 +232,6 @@ function stateFor(roomId: string): RoomState {
       providerChecked: new Set(),
       checkedDay: utcDay(),
       checked: new Set(),
-      priorityZeroEpoch: -1,
       calls: 0,
       searches: 0,
       costUsd: 0,
@@ -472,13 +486,9 @@ async function planPipelineRoom(roomId: string): Promise<void> {
       queueMicrotask(() => schedulePipelinePlan(roomId, delay));
       return;
     }
-    const priorityZero = state.cursorEpoch > 0 && state.priorityZeroEpoch !== state.cursorEpoch;
-    if (priorityZero) state.priorityZeroEpoch = state.cursorEpoch;
-    const ranking = new Map<string, PipelineItem["priority"]>(queue.map((planned, index) => [
+    const ranking = new Map<string, PipelineItem["priority"]>(queue.map((planned) => [
       planned.candidate.id,
-      priorityZero && planned.tier === 1 && index < REFINE_BATCH_SIZE
-        ? 0 as const
-        : planned.tier,
+      planned.tier,
     ]));
     pipelineLatestPlans.set(roomId, {
       epoch: state.cursorEpoch,
@@ -647,6 +657,8 @@ export interface RefinementSearchPolicy {
   providerName?: SearchProviderId;
   /** Parallel output is licensed to one room, so its cache key requires this. */
   roomId?: string;
+  /** A focused open may be superseded while queued or between legs. */
+  signal?: AbortSignal;
   /** Scheduler context for the room plan that owns this search. */
   pipeline?: {
     roomId: string;
@@ -792,8 +804,13 @@ export async function searchRefinementPlaces(
     const item = { ...base, dedupeKey: pipelineDedupeKey(base) };
     return pipelineScheduler.enqueue(
       item,
-      async (_route, _attempt, signal): Promise<DispatchResult<RefinementSearchResponse>> => ({
-        value: await one(request, signal),
+      async (_route, _attempt, deadlineSignal): Promise<DispatchResult<RefinementSearchResponse>> => ({
+        value: await one(
+          request,
+          policy.signal && deadlineSignal
+            ? AbortSignal.any([policy.signal, deadlineSignal])
+            : policy.signal ?? deadlineSignal,
+        ),
         actualRoute: "direct",
       }),
       { present: presentIn(policy.pipeline!.roomId).size > 0 },
@@ -821,10 +838,21 @@ export async function searchInteractiveCandidate(
   roomId: string,
   candidateId: string,
   budget: InteractiveBudget,
-): Promise<{ searched: boolean; paidSearch: boolean; modelCall: boolean; changed: string[] }> {
+  signal?: AbortSignal,
+  onSearch?: () => void,
+): Promise<{
+  searched: boolean;
+  paidSearch: boolean;
+  modelCall: boolean;
+  budgetRefused: boolean;
+  changed: string[];
+}> {
+  const empty = { searched: false, paidSearch: false, modelCall: false, budgetRefused: false, changed: [] };
+  if (signal?.aborted) return empty;
   const inputs = await loadEligibilityInputs(pool, roomId);
+  if (signal?.aborted) return empty;
   const candidate = inputs.candidates.find((entry) => entry.id === candidateId);
-  if (!candidate?.osm_ref) return { searched: false, paidSearch: false, modelCall: false, changed: [] };
+  if (!candidate?.osm_ref) return empty;
   const active = activeCriteria(inputs);
   const unresolved = [...active.values()]
     .map((entry) => entry.criterion)
@@ -833,14 +861,14 @@ export async function searchInteractiveCandidate(
   if (unresolved.length > MAX_MATRIX_CRITERIA) wakeRefinement(roomId);
   const interactiveCriteria = unresolved.slice(0, MAX_MATRIX_CRITERIA);
   const searchCriteria = interactiveCriteria.filter((criterion) => searchableCriterion(criterion, active));
-  if (searchCriteria.length === 0) return { searched: false, paidSearch: false, modelCall: false, changed: [] };
+  if (searchCriteria.length === 0) return empty;
   if (!process.env.PARALLEL_API_KEY) {
     wakeRefinement(roomId);
-    return { searched: false, paidSearch: false, modelCall: false, changed: [] };
+    return empty;
   }
-  if (!budget.take("search") || !searchBudget.consume(roomId, 1, Date.now())) {
+  if (!budget.take("search") || !interactiveSearchBudget.consume(roomId, 1, Date.now())) {
     wakeRefinement(roomId);
-    return { searched: false, paidSearch: false, modelCall: false, changed: [] };
+    return { ...empty, budgetRefused: true };
   }
   const area = await roomPlace(roomId);
   const request: RefinementSearchRequest = {
@@ -854,19 +882,22 @@ export async function searchInteractiveCandidate(
     criteria: interactiveCriteria,
     searchCriteria,
   };
+  onSearch?.();
   const [found] = await searchRefinementPlaces([request], area, parallelSearchProvider.search, {
     cacheDb: pool,
     providerName: "parallel",
     roomId,
+    signal,
     pipeline: { roomId, needsEpoch: stateFor(roomId).cursorEpoch, priority: 0, intent: "interactive" },
   });
+  if (signal?.aborted) return empty;
   const paidSearch = Boolean(process.env.PARALLEL_API_KEY && found && !found.cacheHit);
   if (!found || found.results.length === 0) {
-    return { searched: true, paidSearch, modelCall: false, changed: [] };
+    return { ...empty, searched: true, paidSearch };
   }
-  if (!budget.take("model") || !modelBudget.consume(roomId, 1, Date.now())) {
+  if (!budget.take("model") || !interactiveModelBudget.consume(roomId, 1, Date.now())) {
     wakeRefinement(roomId);
-    return { searched: true, paidSearch, modelCall: false, changed: [] };
+    return { ...empty, searched: true, paidSearch, budgetRefused: true };
   }
   const place = {
     candidateId,
@@ -923,7 +954,7 @@ export async function searchInteractiveCandidate(
   const updated = refreshed.candidates.find((entry) => entry.id === candidateId);
   const changed = updated && stableAttributeHash(updated.attributes as never) !== before ? [candidateId] : [];
   await publishInferenceChanges(pool, roomId, changed, "interactive", "web");
-  return { searched: true, paidSearch, modelCall: true, changed };
+  return { searched: true, paidSearch, modelCall: true, budgetRefused: false, changed };
 }
 
 function modelCalls(places: number, criteria: number): number {
@@ -1640,6 +1671,16 @@ export function consumeRefinementModelCall(roomId: string, now = Date.now()): bo
   return modelBudget.consume(roomId, 1, now);
 }
 
+/** Interactive model calls never spend the background sweep's allowance. */
+export function consumeInteractiveModelCall(roomId: string, now = Date.now()): boolean {
+  return interactiveModelBudget.consume(roomId, 1, now);
+}
+
+/** Current process-local need-plan generation, used by open-plan admission. */
+export function refinementNeedsEpoch(roomId: string): number {
+  return rooms.get(roomId)?.cursorEpoch ?? 0;
+}
+
 export function exhaustRefinementBudgetsForTest(roomId: string, now: number): void {
   modelBudget.consume(roomId, REFINE_MODEL_CALLS_PER_HOUR, now);
   searchBudget.consume(roomId, REFINE_SEARCHES_PER_HOUR, now);
@@ -1670,6 +1711,8 @@ export function resetRefinement(): void {
   clearPipelineCells();
   modelBudget.reset();
   searchBudget.reset();
+  interactiveModelBudget.reset();
+  interactiveSearchBudget.reset();
   pipelinePlanning.clear();
   pipelineLatestPlans.clear();
   pipelineScheduler.reset();

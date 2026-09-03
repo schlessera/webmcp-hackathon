@@ -79,7 +79,8 @@ function positiveTimeout(value: string | undefined, fallback: number): number {
   return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
 }
 
-function poolForKind(item: PipelineItem, route?: OutboundRoute): PoolName {
+export function poolForKind(item: PipelineItem, route?: OutboundRoute): PoolName {
+  if (item.intent === "interactive") return "interactive";
   if (item.kind === "fetch.search") return "search";
   if (item.kind === "fetch.site" || item.kind === "fetch.asset") return route ?? "direct";
   if (item.kind === "process.vision") return "vision";
@@ -186,18 +187,12 @@ export class PipelineScheduler {
         first = await withSignal(dispatch(route, 0, signal), signal);
       } catch (error) {
         if (planned.intent !== "interactive" || route !== "direct" || !blockShapedError(error)) throw error;
-        const retried = await this.pools.proxy.submit(
-          () => withSignal(dispatch("proxy", 1, signal), signal),
-          planned.priority,
-        );
+        const retried = await withSignal(dispatch("proxy", 1, signal), signal);
         this.routeCompletions[retried.actualRoute] += 1;
         return retried.value;
       }
       if (planned.intent === "interactive" && route === "direct" && blockShaped(first)) {
-        const retried = await this.pools.proxy.submit(
-          () => withSignal(dispatch("proxy", 1, signal), signal),
-          planned.priority,
-        );
+        const retried = await withSignal(dispatch("proxy", 1, signal), signal);
         this.routeCompletions[retried.actualRoute] += 1;
         return retried.value;
       }
@@ -370,7 +365,10 @@ export class PipelineScheduler {
   }
 
   private eligible = (item: PipelineItem): boolean => {
-    if (item.kind.startsWith("fetch.") && !this.ready.canAdmitFetch(item.roomId)) return false;
+    if (
+      item.kind.startsWith("fetch.") && item.priority !== 0 &&
+      item.intent !== "interactive" && !this.ready.canAdmitFetch(item.roomId)
+    ) return false;
     return !item.host || this.gateOpen(item.host);
   };
 
@@ -418,11 +416,7 @@ export class PipelineScheduler {
     const item = entry.item;
     const tracked = this.batches.get(item.dedupeKey) ?? [item];
     const route = this.dispatchRoute(item);
-    const actualPool = this.pools[
-      item.priority === 0 && (item.kind === "fetch.site" || item.kind === "fetch.asset")
-        ? "direct"
-        : poolForKind(item, route)
-    ];
+    const actualPool = this.pools[poolForKind(item, route)];
     for (const trackedItem of tracked) {
       this.inFlight.set(trackedItem.dedupeKey, trackedItem);
       this.volume.start(trackedItem);
@@ -440,6 +434,9 @@ export class PipelineScheduler {
         this.queue.settle(entry, value);
       },
       (error) => {
+        if (error instanceof PipelineTimeoutError) {
+          for (const trackedItem of tracked) this.frames.stall(trackedItem);
+        }
         this.cleanup(item);
         this.queue.settle(entry, undefined, error);
       },

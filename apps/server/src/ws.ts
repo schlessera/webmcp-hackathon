@@ -3,6 +3,7 @@ import { WebSocketServer, WebSocket } from "ws";
 import {
   TOOL_CONTRACT_VERSION,
   type AuthMessage,
+  type LookupsMessage,
   type PreviewingMessage,
   type ViewingMessage,
   type ServerMessage,
@@ -14,9 +15,9 @@ import { onCommit, type CommitNotification } from "./commit-notifications.ts";
 import { pendingConfirmations, reissueConfirmation } from "./confirmation.ts";
 import { projectEvent } from "./projection.ts";
 import { markClosed, markOpen, presentIn, setViewing, viewingIn } from "./presence.ts";
-import { currentLookups, onFacts, onLookupProgress } from "./enrich/progress.ts";
+import { currentLookups as currentProgressLookups, onFacts, onLookupProgress } from "./enrich/progress.ts";
 import { pipelineScheduler } from "./pipeline/scheduler.ts";
-import { openCandidate, previewCandidate } from "./spatial.ts";
+import { clearInteractiveFocus, openCandidate, previewCandidate } from "./spatial.ts";
 import { prefetchKey, prefetchManager } from "./pipeline/prefetch.ts";
 import { noteRefinementPresence } from "./refine/worker.ts";
 
@@ -31,6 +32,7 @@ interface Connection {
 let nextSocketId = 0;
 
 const connections = new Set<Connection>();
+const lastMergedLookups = new Map<string, string>();
 
 const PING_INTERVAL_MS = Number(process.env.WS_PING_INTERVAL_MS ?? 30_000);
 const PONG_TIMEOUT_MS = Number(process.env.WS_PONG_TIMEOUT_MS ?? 45_000);
@@ -150,7 +152,11 @@ export function attachWebSocket(server: Server): void {
             await broadcastPresence(connection.roomId);
           }
           if (candidateId !== null) {
-            void openCandidate(connection.roomId, candidateId).catch(() => undefined);
+            void openCandidate(connection.roomId, candidateId, {
+              participantId: connection.participantId,
+            }).catch(() => undefined);
+          } else {
+            clearInteractiveFocus(connection.participantId, connection.roomId);
           }
           return;
         }
@@ -279,7 +285,7 @@ export function attachWebSocket(server: Server): void {
         }
         // Presentation state follows presence on every authentication. An
         // empty frame is meaningful: it clears rings left by a dropped socket.
-        send(socket, currentLookups(participant.roomId));
+        send(socket, mergedLookups(participant.roomId));
         send(socket, pipelineScheduler.frames.currentPipeline(participant.roomId));
       })().catch((err) => {
         // Unauthenticated input must never take the server down.
@@ -298,7 +304,11 @@ export function attachWebSocket(server: Server): void {
           prefetchManager.cancel(prefetchKey(connection.roomId, connection.previewedCandidateId));
         }
         connections.delete(connection);
-        if (markClosed(connection.roomId, connection.participantId, connection.socketId)) {
+        const becameAbsent = markClosed(connection.roomId, connection.participantId, connection.socketId);
+        if (!viewingIn(connection.roomId).some((row) => row.participantId === connection!.participantId)) {
+          clearInteractiveFocus(connection.participantId, connection.roomId);
+        }
+        if (becameAbsent) {
           void broadcastPresence(connection.roomId).catch((err) => {
             console.error("presence broadcast failed:", err);
           });
@@ -320,10 +330,47 @@ export function attachWebSocket(server: Server): void {
       console.error("ordered room broadcast failed:", err);
     });
   };
-  onLookupProgress(enqueueRoomMessage);
+  const enqueueMergedLookups = (roomId: string) => {
+    const message = mergedLookups(roomId);
+    const encoded = JSON.stringify(message);
+    if (lastMergedLookups.get(roomId) === encoded) return;
+    lastMergedLookups.set(roomId, encoded);
+    enqueueRoomMessage(roomId, message);
+  };
+  onLookupProgress(enqueueMergedLookups);
   pipelineScheduler.frames.onPipeline(enqueueRoomMessage);
-  pipelineScheduler.frames.onLookups(enqueueRoomMessage);
+  pipelineScheduler.frames.onLookups(enqueueMergedLookups);
   onFacts(enqueueRoomMessage);
+}
+
+/** One broadcast owner merges legacy lookup spans with scheduler stages. */
+function mergedLookups(roomId: string): LookupsMessage {
+  const sources = [
+    currentProgressLookups(roomId),
+    pipelineScheduler.frames.currentLookups(roomId),
+  ];
+  const rank = { queued: 0, fetching: 1, processing: 2 } as const;
+  const stages = new Map<string, "queued" | "fetching" | "processing">();
+  for (const source of sources) {
+    for (const candidateId of source.pending) {
+      if (!stages.has(candidateId)) stages.set(candidateId, "queued");
+    }
+    for (const row of source.stages ?? []) {
+      const previous = stages.get(row.candidateId);
+      if (!previous || rank[row.stage] > rank[previous]) stages.set(row.candidateId, row.stage);
+    }
+  }
+  const rows = [...stages].sort(([a], [b]) => a.localeCompare(b))
+    .map(([candidateId, stage]) => ({ candidateId, stage }));
+  const reasons = sources.filter((source) => source.pending.length > 0).map((source) => source.reason);
+  const encoded = new Set(reasons.map((reason) => JSON.stringify(reason)));
+  const reason = encoded.size === 1 ? reasons[0] : undefined;
+  return {
+    type: "lookups",
+    pending: rows.map((row) => row.candidateId),
+    stages: rows,
+    ...(rows.length > 0 && reason ? { reason } : {}),
+  };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
