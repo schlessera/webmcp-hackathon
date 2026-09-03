@@ -158,6 +158,41 @@ function countChanged(before: Map<string, string> | null, after: Map<string, str
   return changed;
 }
 
+function dossierStatusSignature(dossier: CandidateDossier): string {
+  return JSON.stringify({
+    attributes: dossier.attributes.map((attribute) => [
+      attribute.key,
+      attribute.status,
+      attribute.value,
+      attribute.source,
+    ]),
+    needs: dossier.needs?.map((need) => [
+      need.requirementId,
+      need.verdict,
+      need.confidence,
+      need.why,
+    ]),
+  });
+}
+
+function cssDurationMs(value: string): number {
+  const trimmed = value.trim();
+  const amount = Number.parseFloat(trimmed);
+  if (!Number.isFinite(amount)) return 0;
+  return trimmed.endsWith("ms") ? amount : trimmed.endsWith("s") ? amount * 1000 : 0;
+}
+
+/** External facts are links only when their absolute URL is safe to open. */
+function safeHttpUrl(value: string | null | undefined): string | null {
+  if (!value) return null;
+  try {
+    const protocol = new URL(value).protocol;
+    return protocol === "http:" || protocol === "https:" ? value : null;
+  } catch {
+    return null;
+  }
+}
+
 export function PlaceDetails({
   candidate,
   proposal,
@@ -172,7 +207,13 @@ export function PlaceDetails({
   onClose,
   run,
 }: Props) {
-  const [dossier, setDossier] = useState<CandidateDossier | null>(null);
+  const [loadedDossier, setDossier] = useState<CandidateDossier | null>(null);
+  const dossier = loadedDossier?.candidateId === candidate.candidateId ? loadedDossier : null;
+  const dossierRef = useRef<CandidateDossier | null>(dossier);
+  dossierRef.current = dossier;
+  const [factsSettlingCandidate, setFactsSettlingCandidate] = useState<string | null>(null);
+  const handledFactsNonce = useRef(0);
+  const settleTimer = useRef<number | null>(null);
   /* A facts frame naming this place re-reads the dossier in place — the
      rows update, the panel does not blank. */
   const factsNonce = factsFrame.ids.includes(candidate.candidateId) ? factsFrame.nonce : 0;
@@ -201,13 +242,37 @@ export function PlaceDetails({
 
   useEffect(() => {
     let cancelled = false;
+    let frame: number | null = null;
     void (async () => {
       const result = (await spatialInspectRaw({
         candidateIds: [candidate.candidateId],
       })) as { ok?: boolean; candidates?: CandidateDossier[] };
       if (!cancelled && result.ok && result.candidates?.[0]) {
         const next = result.candidates[0];
-        setDossier(next);
+        const current = dossierRef.current;
+        const factsChanged =
+          factsNonce > 0 &&
+          handledFactsNonce.current !== factsNonce &&
+          current !== null &&
+          dossierStatusSignature(current) !== dossierStatusSignature(next);
+        if (factsNonce > 0) handledFactsNonce.current = factsNonce;
+        const applyDossier = () => {
+          if (!cancelled) setDossier(next);
+        };
+        if (factsChanged) {
+          setFactsSettlingCandidate(candidate.candidateId);
+          frame = requestAnimationFrame(applyDossier);
+          if (settleTimer.current !== null) window.clearTimeout(settleTimer.current);
+          const settleMs = cssDurationMs(
+            getComputedStyle(document.documentElement).getPropertyValue("--spoke-dur-settle"),
+          );
+          settleTimer.current = window.setTimeout(() => {
+            setFactsSettlingCandidate(null);
+            settleTimer.current = null;
+          }, settleMs);
+        } else {
+          applyDossier();
+        }
         if (awaitingDiff.current) {
           awaitingDiff.current = false;
           setLookupChanged(countChanged(factsBefore.current, factSignatures(next)));
@@ -217,6 +282,7 @@ export function PlaceDetails({
     })();
     return () => {
       cancelled = true;
+      if (frame !== null) cancelAnimationFrame(frame);
     };
   }, [candidate.candidateId, factsNonce, needSignature, refreshNonce]);
   // A different place: the old dossier must not read as this one's.
@@ -224,9 +290,20 @@ export function PlaceDetails({
     setDossier(null);
     setLookupPhase("idle");
     setLookupChanged(0);
+    setFactsSettlingCandidate(null);
+    if (settleTimer.current !== null) {
+      window.clearTimeout(settleTimer.current);
+      settleTimer.current = null;
+    }
     factsBefore.current = null;
     awaitingDiff.current = false;
   }, [candidate.candidateId]);
+  useEffect(
+    () => () => {
+      if (settleTimer.current !== null) window.clearTimeout(settleTimer.current);
+    },
+    [],
+  );
   const lookingUp = busy || dossier?.lookupPending === true;
 
   useEffect(() => {
@@ -301,7 +378,9 @@ export function PlaceDetails({
       answer: answerOf(v),
       note: attr?.note,
       source: attr && attr.status !== "unknown" ? sourceOf(attr) : undefined,
-      sourceUrl: attr && attr.status !== "unknown" ? attr.sourceUrl : undefined,
+      sourceUrl: attr && attr.status !== "unknown"
+        ? safeHttpUrl(attr.sourceUrl) ?? undefined
+        : undefined,
     };
   });
   /* No verdicts yet (the dossier is still loading): every stated need is a
@@ -339,9 +418,11 @@ export function PlaceDetails({
       (inVocabulary(a.key) || (a.value !== undefined && a.value !== null)),
   );
   // A question the room asked (`q:`) shows only with its label — a peer's
-  // private question arrives without one and stays out of the record (§5).
-  const known = facts.filter((a) => a.status !== "unknown" && (!a.key.startsWith("q:") || a.label));
-  const unknownCount = facts.length - known.length;
+  // private question arrives without one and stays out of both the record
+  // and its unknown count (§5). Its opaque key can therefore never surface.
+  const visibleFacts = facts.filter((a) => !a.key.startsWith("q:") || Boolean(a.label));
+  const known = visibleFacts.filter((a) => a.status !== "unknown");
+  const unknownCount = visibleFacts.length - known.length;
   const factLabel = (a: DossierAttribute) => {
     const label =
       a.label ??
@@ -408,9 +489,18 @@ export function PlaceDetails({
     : null;
   const recentlyLookedUp =
     lookupPhase === "done" || (minutesSinceLookup !== null && minutesSinceLookup < 10);
+  const safeLinks = (dossier?.links ?? []).flatMap((link) => {
+    const href = safeHttpUrl(link.url);
+    return href ? [{ ...link, href }] : [];
+  });
 
   return (
-    <aside className="details" data-testid="place-details" aria-label={candidate.name}>
+    <aside
+      className="details"
+      data-facts-settling={factsSettlingCandidate === candidate.candidateId || undefined}
+      data-testid="place-details"
+      aria-label={candidate.name}
+    >
       <div className="details-nav">
         <button className="btn-text tap-wide" data-testid="details-close" onClick={onClose}>
           Close
@@ -576,15 +666,15 @@ export function PlaceDetails({
           </div>
         )}
 
-        {dossier?.links && dossier.links.length > 0 && (
+        {safeLinks.length > 0 && (
           <div className="details-group details-links" data-testid="links">
             {/* Server labels, verbatim; a link is a fact about the place, not
                 chrome, and opens outside the room. */}
-            {dossier.links.map((l) => (
+            {safeLinks.map((l) => (
               <a
                 key={l.kind + l.url}
                 className="details-link"
-                href={l.url}
+                href={l.href}
                 target="_blank"
                 rel="noopener noreferrer"
                 title={sourceLabel(l.source)}
@@ -600,37 +690,40 @@ export function PlaceDetails({
             <div className="group-heading">Also on record</div>
             {/* Server order, verbatim. No invented icons, no reordering. */}
             <div className="fact-row" data-testid="facts">
-              {known.map((a) => (
-                <span
-                  className="fact attr-row"
-                  data-status={a.status}
-                  key={a.key}
-                  title={a.note ? `${sourceOf(a)}: ${a.note}` : sourceOf(a)}
-                >
-                  {factLabel(a)}
-                  {a.status === "likely_true" && a.key !== "price-level" && (
-                    <span className="fact-note"> · likely</span>
-                  )}
-                  {a.status === "likely_false" && <span className="fact-note"> · unlikely</span>}
-                  {a.status === "verified_false" && a.key.startsWith("q:") && (
-                    <span className="fact-note"> · no</span>
-                  )}
-                  {a.key.startsWith("q:") && a.note && (
-                    <span className="fact-note"> · “{a.note}”</span>
-                  )}
-                  {a.sourceUrl && (
-                    <a
-                      className="fact-cite"
-                      href={a.sourceUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      data-testid="fact-cite"
-                    >
-                      {citationLabel(a.sourceUrl)}
-                    </a>
-                  )}
-                </span>
-              ))}
+              {known.map((a) => {
+                const sourceUrl = safeHttpUrl(a.sourceUrl);
+                return (
+                  <span
+                    className="fact attr-row"
+                    data-status={a.status}
+                    key={a.key}
+                    title={a.note ? `${sourceOf(a)}: ${a.note}` : sourceOf(a)}
+                  >
+                    {factLabel(a)}
+                    {a.status === "likely_true" && a.key !== "price-level" && (
+                      <span className="fact-note"> · likely</span>
+                    )}
+                    {a.status === "likely_false" && <span className="fact-note"> · unlikely</span>}
+                    {a.status === "verified_false" && a.key.startsWith("q:") && (
+                      <span className="fact-note"> · no</span>
+                    )}
+                    {a.key.startsWith("q:") && a.note && (
+                      <span className="fact-note"> · “{a.note}”</span>
+                    )}
+                    {sourceUrl && (
+                      <a
+                        className="fact-cite"
+                        href={sourceUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        data-testid="fact-cite"
+                      >
+                        {citationLabel(sourceUrl)}
+                      </a>
+                    )}
+                  </span>
+                );
+              })}
               {unknownCount > 0 && (
                 <span className="fact-unknown" data-testid="facts-unknown">
                   {unknownCount} not on record

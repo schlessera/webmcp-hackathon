@@ -94,7 +94,8 @@ export function sourceLabel(source: string): string {
     // infer:<model>:<bucket> — the bucket is where the evidence came from.
     const bucket = source.split(":")[2] ?? "";
     if (bucket === "open_web_search") return "found on the web";
-    if (bucket === "domain_search") return "found on the place's site";
+    if (bucket === "domain_search") return "found by searching the place's site";
+    if (bucket === "venue_site") return "read on the place's own site";
     if (bucket === "menu") return "read from the menu";
     if (bucket === "name_category") return "a guess from the kind of place";
     return "a guess from what the place publishes";
