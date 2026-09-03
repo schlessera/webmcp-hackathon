@@ -449,7 +449,7 @@ describe("need-triggered lookup and realtime facts", () => {
          location = CASE id WHEN $2 THEN '{"lat":52.5,"lng":13.4}'::jsonb WHEN $3 THEN '{"lat":53.5,"lng":13.4}'::jsonb ELSE '{"lat":52.5001,"lng":13.4}'::jsonb END,
          attributes = CASE id WHEN $4 THEN '[{"key":"wheelchair-accessible","status":"verified_true","source":"osm:wheelchair","confidence":0.8}]'::jsonb ELSE '[{"key":"wheelchair-accessible","status":"unknown","source":"osm:wheelchair","confidence":0}]'::jsonb END,
          osm_ref = 'node/' || id,
-         extras = jsonb_build_object('website', 'https://' || id || '.example/')
+         extras = jsonb_build_object('website', 'https://93.184.216.34/' || id)
        WHERE room_id = $1`,
       [room.roomId, alpha, beta, gamma],
     );

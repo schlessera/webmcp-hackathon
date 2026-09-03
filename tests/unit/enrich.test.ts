@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   clip,
   extractAnchors,
+  fetchWebsiteFacts,
   hoursFromSpecification,
+  isPublicAddress,
   parseWebsite,
   pickMenuLink,
   priceRangeToLevel,
@@ -31,6 +33,58 @@ describe("robots.txt", () => {
     expect(robotsAllows("User-agent: *\nDisallow: /private/", "/")).toBe(true);
     expect(robotsAllows("User-agent: Googlebot\nDisallow: /", "/")).toBe(true);
     expect(robotsAllows("", "/")).toBe(true);
+  });
+});
+
+describe("website network boundary", () => {
+  it.each([
+    "0.0.0.0",
+    "10.1.2.3",
+    "100.64.0.1",
+    "127.0.0.1",
+    "169.254.169.254",
+    "172.16.0.1",
+    "192.168.1.1",
+    "::1",
+    "fc00::1",
+    "fe80::1",
+    "::ffff:127.0.0.1",
+  ])("rejects non-public address %s", (address) => {
+    expect(isPublicAddress(address)).toBe(false);
+  });
+
+  it("accepts public IPv4 and IPv6 addresses", () => {
+    expect(isPublicAddress("93.184.216.34")).toBe(true);
+    expect(isPublicAddress("2606:2800:220:1:248:1893:25c8:1946")).toBe(true);
+  });
+
+  it("rejects a private initial target before invoking the transport", async () => {
+    let calls = 0;
+    const result = await fetchWebsiteFacts("http://169.254.169.254/latest/meta-data", async () => {
+      calls += 1;
+      return new Response("should not be fetched");
+    });
+    expect(result.facts).toBeNull();
+    expect(result.error).toContain("non-public network target");
+    expect(calls).toBe(0);
+  });
+
+  it("rejects a redirect to loopback before issuing the redirected request", async () => {
+    const fetched: string[] = [];
+    const result = await fetchWebsiteFacts("https://93.184.216.34/venue", async (url) => {
+      fetched.push(url);
+      if (url.endsWith("/robots.txt")) return new Response("", { status: 200 });
+      return new Response(null, {
+        status: 302,
+        headers: { location: "http://127.0.0.1/private" },
+      });
+    });
+    expect(result.facts).toBeNull();
+    expect(result.error).toContain("non-public network target");
+    expect(fetched).toEqual([
+      "https://93.184.216.34/robots.txt",
+      "https://93.184.216.34/venue",
+    ]);
   });
 });
 

@@ -1,3 +1,5 @@
+import { lookup as resolveHost } from "node:dns/promises";
+
 /**
  * A place's own website as a source (docs/ENRICHMENT-SOURCES.md, S2).
  *
@@ -56,10 +58,90 @@ const UA =
   "spokes-enrich/0.2 (+https://github.com/schlessera/webmcp-hackathon; reads what a venue publishes about itself)";
 const TIMEOUT_MS = 8000;
 const MAX_HTML = 1_500_000;
+const MAX_REDIRECTS = 5;
 
 const FOOD_TYPES = /Restaurant|Cafe|CoffeeShop|Bar|Pub|Bakery|Brewery|Winery|FoodEstablishment|IceCreamShop|FastFood|Distillery/;
 const BUSINESS_TYPES = /LocalBusiness|Organization|Store|EntertainmentBusiness|LodgingBusiness|Hotel/;
 const PAGE_TYPES = /^(WebPage|WebSite)$/;
+
+function publicIpv4(address: string): boolean {
+  const parts = address.split(".").map(Number);
+  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) {
+    return false;
+  }
+  const [a, b, c] = parts;
+  return !(
+    a === 0 ||
+    a === 10 ||
+    a === 127 ||
+    (a === 100 && b >= 64 && b <= 127) ||
+    (a === 169 && b === 254) ||
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 0 && (c === 0 || c === 2)) ||
+    (a === 192 && b === 88 && c === 99) ||
+    (a === 192 && b === 168) ||
+    (a === 198 && (b === 18 || b === 19)) ||
+    (a === 198 && b === 51 && c === 100) ||
+    (a === 203 && b === 0 && c === 113) ||
+    a >= 224
+  );
+}
+
+/** True only for globally routable unicast addresses. */
+export function isPublicAddress(address: string): boolean {
+  if (address.includes(".")) {
+    const mapped = address.toLowerCase().match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/)?.[1];
+    return publicIpv4(mapped ?? address);
+  }
+  const value = address.toLowerCase();
+  if (!value.includes(":")) return false;
+  if (value === "::" || value === "::1") return false;
+  const mappedHex = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(value);
+  if (mappedHex) {
+    const high = Number.parseInt(mappedHex[1], 16);
+    const low = Number.parseInt(mappedHex[2], 16);
+    return publicIpv4(
+      `${high >> 8}.${high & 0xff}.${low >> 8}.${low & 0xff}`,
+    );
+  }
+  if (value.startsWith("::")) return false;
+  const first = Number.parseInt(value.split(":")[0] || "0", 16);
+  if (!Number.isFinite(first)) return false;
+  if ((first & 0xfe00) === 0xfc00) return false; // unique-local fc00::/7
+  if ((first & 0xffc0) === 0xfe80) return false; // link-local fe80::/10
+  if ((first & 0xff00) === 0xff00) return false; // multicast ff00::/8
+  if (/^2001:db8(?::|$)/.test(value)) return false; // documentation
+  return true;
+}
+
+async function assertPublicTarget(target: URL): Promise<void> {
+  const hostname = target.hostname.replace(/^\[|\]$/g, "");
+  const addresses = await resolveHost(hostname, { all: true, verbatim: true });
+  if (addresses.length === 0 || addresses.some(({ address }) => !isPublicAddress(address))) {
+    throw new Error("non-public network target");
+  }
+}
+
+async function fetchPublic(
+  target: URL,
+  init: RequestInit,
+  fetchImpl: FetchLike,
+): Promise<Response> {
+  let current = target;
+  for (let redirects = 0; redirects <= MAX_REDIRECTS; redirects += 1) {
+    await assertPublicTarget(current);
+    const response = await fetchImpl(current.toString(), { ...init, redirect: "manual" });
+    if (![301, 302, 303, 307, 308].includes(response.status)) return response;
+    const location = response.headers.get("location");
+    if (!location) return response;
+    if (redirects === MAX_REDIRECTS) throw new Error("too many redirects");
+    current = new URL(location, current);
+    if (current.protocol !== "http:" && current.protocol !== "https:") {
+      throw new Error("redirected to a non-fetchable URL");
+    }
+  }
+  throw new Error("too many redirects");
+}
 
 /** Minimal robots.txt: the `*` group's Disallow lines against the path. */
 export function robotsAllows(robots: string, path: string): boolean {
@@ -402,10 +484,10 @@ export function parseWebsite(html: string, url: string, fetchedAt: string): WebF
 const headers = { "user-agent": UA, accept: "text/html,application/xhtml+xml,application/pdf;q=0.5" };
 
 async function fetchAllowed(target: URL, fetchImpl: FetchLike): Promise<boolean> {
-  const robots = await fetchImpl(`${target.origin}/robots.txt`, {
+  const robots = await fetchPublic(new URL("/robots.txt", target.origin), {
     headers,
     signal: AbortSignal.timeout(TIMEOUT_MS),
-  }).catch(() => null);
+  }, fetchImpl).catch(() => null);
   if (!robots || !robots.ok) return true;
   const text = (await robots.text()).slice(0, 100_000);
   return robotsAllows(text, target.pathname || "/");
@@ -437,11 +519,10 @@ export async function fetchWebsiteFacts(
   }
   try {
     if (!(await fetchAllowed(target, fetchImpl))) return { facts: null, error: "robots.txt disallows" };
-    const res = await fetchImpl(target.toString(), {
+    const res = await fetchPublic(target, {
       headers,
-      redirect: "follow",
       signal: AbortSignal.timeout(TIMEOUT_MS),
-    });
+    }, fetchImpl);
     if (!res.ok) return { facts: null, error: `HTTP ${res.status}` };
     const type = res.headers.get("content-type") ?? "";
     if (!/html|xml/.test(type)) return { facts: null, error: `not HTML (${type.split(";")[0]})` };
@@ -463,7 +544,7 @@ async function followMenu(facts: WebFacts, fetchImpl: FetchLike): Promise<MenuFi
     const menu = new URL(facts.menuUrl!);
     // Same origin was already cleared by robots; a third-party host gets its own check.
     if (menu.host !== new URL(facts.url).host && !(await fetchAllowed(menu, fetchImpl))) return undefined;
-    const res = await fetchImpl(menu.toString(), { headers, redirect: "follow", signal: AbortSignal.timeout(TIMEOUT_MS) });
+    const res = await fetchPublic(menu, { headers, signal: AbortSignal.timeout(TIMEOUT_MS) }, fetchImpl);
     if (!res.ok) return undefined;
     // A redirect that lands on the homepage or another site is not the menu.
     if (res.url) {
@@ -500,7 +581,7 @@ async function followMenu(facts: WebFacts, fetchImpl: FetchLike): Promise<MenuFi
     if (picture) {
       facts.menuKind = "image";
       facts.menuFileUrl = picture;
-      const img = await fetchImpl(picture, { headers: { ...headers, accept: "image/*" }, redirect: "follow", signal: AbortSignal.timeout(TIMEOUT_MS) }).catch(() => null);
+      const img = await fetchPublic(new URL(picture), { headers: { ...headers, accept: "image/*" }, signal: AbortSignal.timeout(TIMEOUT_MS) }, fetchImpl).catch(() => null);
       const imgType = img?.headers.get("content-type") ?? "";
       if (img?.ok && /^image\//.test(imgType)) return await fileOf("image", picture, imgType, img);
       return undefined;

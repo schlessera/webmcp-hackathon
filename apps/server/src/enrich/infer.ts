@@ -101,6 +101,16 @@ export function normalizeEvidence(text: string): string {
   return text.replace(/\s+/g, " ").trim();
 }
 
+/** Evidence is display/context data, never markup or an instruction channel. */
+export function sanitizeInferenceNote(text: string): string {
+  return normalizeEvidence(
+    text
+      .replace(/<[^>]*>/g, " ")
+      .replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]/g, " ")
+      .replace(/[`{}\[\]<>]/g, " "),
+  );
+}
+
 function evidencePools(input: InferInput): Record<EvidenceSource, string[]> {
   return {
     name_category: [input.name, input.category, ...(input.cuisine ?? [])]
@@ -175,6 +185,8 @@ export function claimsFromAnswer(
     if (evidence.length < 12 || (evidence.match(WORDS)?.length ?? 0) < 2) continue;
     if (echoesAttributeQuestion(key as InferableKey, evidence)) continue;
     if (!pools[evidenceSource].some((text) => hasWholeSpan(text, evidence))) continue;
+    const safeEvidence = sanitizeInferenceNote(evidence);
+    if (!safeEvidence) continue;
     const rawConfidence = Number(raw.confidence);
     if (!Number.isFinite(rawConfidence) || rawConfidence <= 0) continue;
     const confidence = Math.min(rawConfidence, INFERENCE_CONFIDENCE_CAPS[evidenceSource]);
@@ -185,7 +197,7 @@ export function claimsFromAnswer(
       key: key as InferableKey,
       lean: raw.lean,
       confidence,
-      evidence,
+      evidence: safeEvidence,
       source: `infer:${model}`,
       ...(key === "price-level" ? { value } : {}),
     });
@@ -257,7 +269,7 @@ export function applyInferredAttributes<T extends AttributeLike>(
       source: claim.source,
       observedAt: claim.observedAt,
       confidence: claim.confidence,
-      note: claim.evidence,
+      note: sanitizeInferenceNote(claim.evidence),
     };
     if (existing) Object.assign(existing, patch);
     else out.push({ key, ...patch } as T);

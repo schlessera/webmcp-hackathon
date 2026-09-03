@@ -168,6 +168,8 @@ their precedence. The server drops a claim unless its evidence is at least 12
 characters and two words, appears at whole-word boundaries in the exact input
 bucket the model named, and is not just the attribute key or label. Whitespace
 runs are collapsed to one ASCII space on both sides before that comparison.
+Control and markup characters are stripped before the note is stored; notes
+are fenced as untrusted venue data whenever a tool result enters agent context.
 
 The model's stated confidence is capped in code:
 
