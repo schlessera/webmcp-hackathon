@@ -358,11 +358,46 @@ describe("Commons image metadata", () => {
     )).toBe(false);
     expect(commonsGeosearchNameMatches("Cafe", "File:Nearby cafe.jpg")).toBe(false);
 
+    // Three wrong pictures from a live Berlin run, each now refused.
+    // A category is the photographer's filing, not their subject.
+    expect(commonsGeosearchNameMatches(
+      "Grimm Café",
+      "File:(20250217) Berlin 04.jpg",
+      ["Category:Jacob und Wilhelm Grimm Zentrum"],
+    )).toBe(false);
+    // A token inside a hyphenated compound belongs to a different name: this
+    // is a university library, not the café next door.
+    expect(commonsGeosearchNameMatches(
+      "Grimm Café",
+      "File:Mitte Planckstraße Jacob-und Wilhelm-Grimm-Zentrum.JPG",
+    )).toBe(false);
+    // Scattered tokens must not let a long title borrow a name.
+    expect(commonsGeosearchNameMatches(
+      "Nhat Long",
+      "File:Long walk past the Nhat gallery.jpg",
+    )).toBe(false);
+
+    // The true positives from the same run all survive.
+    for (const [name, title] of [
+      ["Bar Tausend", "File:Bar Tausend Berlin.jpg"],
+      ["Café im Bode-Museum", "File:Bode Museum, Berlin, Germany Feb 15, 2018.jpeg"],
+      ["Café im Bode-Museum", "File:Café im Bode-Museum innen.jpg"],
+      ["Keyser Soze", "File:Keyser Soze sidewalk terrace, Berlin, 2017.jpg"],
+      ["Nhat Long", "File:Nhat Long restaurant in Berlin.jpg"],
+      ["Sophieneck", "File:Berlin - Sophieneck (Sophia Corner).jpg"],
+      ["Pizza Hut", "File:Oven-Baked Pasta, Pizza Hut Berlin Oranienburger Strasse.jpg"],
+    ] as Array<[string, string]>) {
+      expect([name, commonsGeosearchNameMatches(name, title)]).toEqual([name, true]);
+    }
+
     const matching = doc("CC BY-SA 4.0") as any;
-    matching.query.pages[0].title = "File:Street scene.jpg";
+    matching.query.pages[0].title = "File:Cafe Einstein street scene.jpg";
     matching.query.pages[0].categories = [{ title: "Category:Cafe Einstein Berlin" }];
     expect(parseCommonsGeosearchImageInfo(matching, "Café Einstein")).toHaveLength(1);
     expect(parseCommonsGeosearchImageInfo(matching, "Café Kranzler")).toEqual([]);
+    // Category alone can corroborate, never carry.
+    matching.query.pages[0].title = "File:Street scene.jpg";
+    expect(parseCommonsGeosearchImageInfo(matching, "Café Einstein")).toEqual([]);
   });
 
   it("queries Commons namespace 6 within 40 m and resolves only named CC hits", async () => {

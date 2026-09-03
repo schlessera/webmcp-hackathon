@@ -164,10 +164,23 @@ more than eight candidates are considered:
 
 The first three sources are curated: a person associated the image with the
 record/place, or Commons metadata locates and names it. A nearby Commons file
-is still accepted only when its file title or one of its categories carries
-the place name after case, punctuation and diacritics are normalised. All
-meaningful name words must match; generic words such as `cafe`, `restaurant`,
-`bar` and `hotel` do not count. A random nearby file is therefore rejected.
+is accepted only when its **file title** carries the place name after case,
+punctuation and diacritics are normalised. A random nearby file is therefore
+rejected, and so are three narrower mistakes a live Berlin run produced:
+
+- **A category cannot carry a match.** A category is where a photographer
+  filed a picture, not what it shows. A file named `(20250217) Berlin 04.jpg`
+  filed under a category mentioning "Grimm" was served as the photo of a place
+  called Grimm Café. Categories may corroborate a title match, never replace it.
+- **The name words must be contiguous.** Scattered word hits let a long title
+  borrow a name it does not carry.
+- **A hyphenated compound is a different name.** "Grimm" inside
+  `Jacob-und Wilhelm-Grimm-Zentrum` is a university library, not the café next
+  door. A compound carrying one of the name's words plus a word the name does
+  not have is rejected.
+
+Generic words such as `cafe`, `restaurant`, `bar` and `hotel` never count
+towards a match on their own.
 Accepted geosearch images retain the existing Commons Creative Commons
 licence and artist checks and read `photo near this place · <credit>`.
 

@@ -155,22 +155,49 @@ export function normalizeCommonsName(value: string): string {
     .replace(/\s+/g, " ");
 }
 
-/** A nearby file is curated only when its title/category names this place.
- * Require every non-generic name token; a shared word such as "cafe" alone
- * is never evidence that the photographer meant this POI. */
+/**
+ * A nearby file is curated only when its own **title** names this place.
+ *
+ * Three rules, each paid for by a wrong picture found in a live Berlin run:
+ *
+ * 1. Only the title counts. A category is the photographer's filing, not their
+ *    subject: a file called "(20250217) Berlin 04.jpg" filed under a category
+ *    mentioning "Grimm" was served as the photo of a place called "Grimm Café".
+ * 2. The name tokens must appear **contiguously**. Scattered word hits let a
+ *    long title borrow a name it does not carry.
+ * 3. A token sitting inside a hyphenated compound is a different name. "Grimm"
+ *    in "Jacob-und Wilhelm-Grimm-Zentrum" is a university library, not the café
+ *    next door.
+ *
+ * `categories` is still accepted so a caller can pass what it has; it may
+ * corroborate a title match but can never carry one on its own.
+ */
 export function commonsGeosearchNameMatches(
   placeName: string,
   title: string,
-  categories: string[] = [],
+  _categories: string[] = [],
 ): boolean {
   const wanted = normalizeCommonsName(placeName)
     .split(" ")
     .filter((token) => token.length >= 3 && !COMMON_PLACE_WORDS.has(token));
   if (wanted.length === 0) return false;
-  return [title, ...categories].some((value) => {
-    const words = new Set(normalizeCommonsName(value.replace(/^Category:|^File:/i, "")).split(" "));
-    return wanted.every((token) => words.has(token));
-  });
+  const bare = title.replace(/^Category:|^File:/i, "");
+  const words = normalizeCommonsName(bare).split(" ");
+  const phrase = wanted.join(" ");
+  const contiguous = words.some((_, i) =>
+    i + wanted.length <= words.length &&
+    words.slice(i, i + wanted.length).join(" ") === phrase
+  );
+  if (!contiguous) return false;
+  // A hyphenated compound that carries one of our tokens *plus* a word we did
+  // not ask for is a different name wearing the same word.
+  const wantedSet = new Set(wanted);
+  for (const compound of bare.match(/[\p{L}\p{N}]+(?:-[\p{L}\p{N}]+)+/gu) ?? []) {
+    const parts = normalizeCommonsName(compound).split(" ").filter(Boolean);
+    if (!parts.some((part) => wantedSet.has(part))) continue;
+    if (parts.some((part) => !wantedSet.has(part) && !COMMON_PLACE_WORDS.has(part))) return false;
+  }
+  return true;
 }
 
 /** Pure parser for the second geosearch request: name gate first, then the
