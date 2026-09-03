@@ -202,7 +202,8 @@ the prefix through the first closing `section`, `main` or `article`, all
 within 256 KiB and 40 image tags). Declared width/height or `srcset`
 descriptors determine the largest; common lazy-source attributes are resolved
 when `src` is a data placeholder. If the page has no semantic top-block close,
-the bounded prefix itself is the fallback region. First document order breaks
+the bounded prefix itself is the fallback region. Pre-main utility sections
+are skipped when a semantic `main` exists. First document order breaks
 an absence of dimensions. Every site candidate is rejected
 before download when its extension or declared type is SVG, ICO or GIF, or
 when its URL path, alt text or class has a word-like match for `flag`, `icon`,

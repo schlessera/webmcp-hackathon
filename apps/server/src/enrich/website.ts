@@ -550,7 +550,16 @@ export function extractImageCandidates(html: string, pageUrl: string): WebsiteIm
   const bounded = html.slice(0, 256_000);
   const headerRanges = [...bounded.matchAll(/<header\b[^>]*>[\s\S]*?<\/header\s*>/gi)]
     .map((match) => [match.index, match.index + match[0].length] as const);
-  const firstTopClose = /<\/(?:section|main|article)\s*>/i.exec(bounded);
+  // Skip pre-main utility blocks (cookie/alert sections): when <main> exists,
+  // its first closing section/article/main is the page's top content block.
+  const mainOpen = /<main\b[^>]*>/i.exec(bounded);
+  const topSearchStart = mainOpen?.index ?? 0;
+  const relativeTopClose = /<\/(?:section|main|article)\s*>/i.exec(
+    bounded.slice(topSearchStart),
+  );
+  const firstTopClose = relativeTopClose
+    ? { index: topSearchStart + relativeTopClose.index, 0: relativeTopClose[0] }
+    : undefined;
   // Pages with no semantic top-block close fall back to the bounded prefix
   // itself; this is the old first-fold approximation, not an unbounded scan.
   const prefixEnd = firstTopClose
@@ -576,18 +585,27 @@ export function extractImageCandidates(html: string, pageUrl: string): WebsiteIm
       attributeOf(attrs, "data-src"),
       attributeOf(attrs, "data-lazy-src"),
       attributeOf(attrs, "data-original"),
+      attributeOf(attrs, "data-origsrc"),
       attributeOf(attrs, "data-src2"),
       attributeOf(attrs, "data-src1"),
     ];
-    const url = rawChoices.map((raw) => imageUrl(pageUrl, raw)).find(Boolean);
-    if (!url || !websiteImageCandidateAllowed({
-      url,
+    const metadata = {
       alt: attributeOf(attrs, "alt"),
       className: attributeOf(attrs, "class"),
       declaredType: attributeOf(attrs, "type"),
-    })) continue;
-    const width = Number.parseFloat(attributeOf(attrs, "width") ?? "0");
-    const height = Number.parseFloat(attributeOf(attrs, "height") ?? "0");
+    };
+    const url = rawChoices
+      .map((raw) => imageUrl(pageUrl, raw))
+      .find((resolved) => resolved && websiteImageCandidateAllowed({ url: resolved, ...metadata }));
+    if (!url) continue;
+    const width = Math.max(
+      Number.parseFloat(attributeOf(attrs, "width") ?? "0"),
+      Number.parseFloat(attributeOf(attrs, "data-width") ?? "0"),
+    );
+    const height = Math.max(
+      Number.parseFloat(attributeOf(attrs, "height") ?? "0"),
+      Number.parseFloat(attributeOf(attrs, "data-height") ?? "0"),
+    );
     const descriptors = srcsetChoices.filter((item) => item[2] && item[3]);
     const widthDescriptor = Math.max(0, ...descriptors.filter((item) => item[3].toLowerCase() === "w")
       .map((item) => Number(item[2])));

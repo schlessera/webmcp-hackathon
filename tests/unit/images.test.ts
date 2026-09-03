@@ -122,6 +122,18 @@ describe("place image candidate extraction", () => {
     })]);
   });
 
+  it("uses the first main content block rather than a pre-main utility section", () => {
+    const candidates = extractImageCandidates(`
+      <section hidden><img src="/notice.jpg" width="100" height="100"></section>
+      <main><section><img src="/spacer.gif" data-origsrc="/venue-large.jpg" data-width="1200" height="800"></section></main>
+      <section><img src="/gallery.jpg" width="2000" height="1200"></section>
+    `, "https://place.example/");
+    expect(candidates).toEqual([expect.objectContaining({
+      url: "https://place.example/venue-large.jpg",
+      source: "web:page-image:place.example",
+    })]);
+  });
+
   it("uses companion social-image alt text to reject disguised chrome", () => {
     expect(extractImageCandidates(
       '<meta property="og:image" content="/media/123.png"><meta property="og:image:alt" content="English flag">',
