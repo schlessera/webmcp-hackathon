@@ -1,5 +1,11 @@
 # Data Attribution
 
+The root [MIT license](../../../LICENSE) covers the project's source code.
+Geographic data derived from OpenStreetMap is © OpenStreetMap contributors and
+is available under the Open Database License (ODbL). The ODbL terms apply to
+that database content independently of the source-code license. Dataset-specific
+sources and notices follow.
+
 ## berlin-mitte-venues.json
 
 Venue names, locations, categories, opening hours, and real-world attribute
