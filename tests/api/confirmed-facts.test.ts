@@ -174,6 +174,8 @@ describe("permanent confirmed facts", () => {
       candidateId: firstId,
       criterionId,
       lean: true,
+      note: sentence,
+      sourceUrl: `https://example.org/check?q=${encodeURIComponent(sentence)}`,
     });
     expect(confirmed.body.ok).toBe(true);
     revision = confirmed.body.revision!;
@@ -183,6 +185,8 @@ describe("permanent confirmed facts", () => {
       [osmRef, criterionId],
     )).rows[0];
     expect(stored.criterion_id).toBe(criterionId);
+    expect(stored.note).toBeNull();
+    expect(stored.source_url).toBeNull();
     expect(JSON.stringify(stored)).not.toContain(sentence);
 
     const owner = JSON.stringify((await inspect(room.tokens.sarah, firstId)).body);

@@ -328,8 +328,9 @@ shows both the record and the named confirmer.
 Only a vocabulary key or `q:<40 lowercase hex>` is storable. An `open:*`
 absolute window is rejected because it becomes meaningless later; synthetic
 value criteria and raw question sentences are rejected too. For a private
-question, the permanent row stores only the `q:` hash (plus the lean and
-ordinary provenance fields), never its sentence or label. The owner may see
+question, the permanent row stores only the `q:` hash, lean, confirmer name/id,
+origin room and timestamp; `note` and `source_url` are forced to null, so they
+cannot be used to smuggle the sentence into shared storage. The owner may see
 the answer alongside the label recovered from their requirement. A peer or a
 participant in another room receives neither that label nor the opaque `q:`
 row. Its shared event says only “a question”. A shared question may put its

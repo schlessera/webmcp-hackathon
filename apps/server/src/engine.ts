@@ -1477,26 +1477,39 @@ function confirmableCriterion(criterionId: string): boolean {
     QUESTION_CRITERION.test(criterionId);
 }
 
-/** Event copy may carry a question only when that question was shared. */
-async function confirmedCriterionLabel(
+/** Event/storage privacy for question criteria. A matching private need makes
+ * optional free-form confirmation metadata non-storable, even when a caller
+ * tries to repeat the sentence there. */
+async function confirmedCriterionPresentation(
   client: pg.PoolClient,
   actor: Participant,
   criterionId: string,
-): Promise<string> {
+): Promise<{ label: string; privateQuestion: boolean }> {
   const vocabulary = ATTRIBUTE_LABELS[criterionId as keyof typeof ATTRIBUTE_LABELS];
-  if (vocabulary) return vocabulary;
+  if (vocabulary) return { label: vocabulary, privateQuestion: false };
   const requirements = (
     await client.query(
-      `SELECT payload, visibility FROM requirements
-        WHERE room_id = $1 AND NOT withdrawn AND visibility = 'shared'`,
+      `SELECT payload, visibility, owner_id FROM requirements
+        WHERE room_id = $1 AND NOT withdrawn`,
       [actor.roomId],
     )
-  ).rows as Array<{ payload: Record<string, unknown>; visibility: string }>;
+  ).rows as Array<{
+    payload: Record<string, unknown> | null;
+    visibility: string;
+    owner_id: string;
+  }>;
+  let sharedLabel: string | undefined;
+  let privateQuestion = false;
   for (const requirement of requirements) {
     const criterion = criterionFor(requirement.payload as never);
-    if (criterion?.id === criterionId) return criterion.label;
+    if (criterion?.id !== criterionId) continue;
+    if (requirement.visibility === "shared") sharedLabel = criterion.label;
+    else if (requirement.owner_id === actor.id) privateQuestion = true;
   }
-  return "a question";
+  return {
+    label: sharedLabel ?? "a question",
+    privateQuestion,
+  };
 }
 
 interface ConfirmFactCmd {
@@ -1585,6 +1598,7 @@ async function confirmFact(
   }
   const candidate = await confirmedCandidate(client, actor, cmd.candidateId);
   if ("events" in candidate) return candidate;
+  const presentation = await confirmedCriterionPresentation(client, actor, cmd.criterionId);
   await client.query(
     `INSERT INTO confirmed_facts
        (osm_ref, criterion_id, lean, note, source_url, confirmed_by_name,
@@ -1599,15 +1613,15 @@ async function confirmFact(
       candidate.osm_ref,
       cmd.criterionId,
       cmd.lean,
-      cmd.note ?? null,
-      cmd.sourceUrl ?? null,
+      presentation.privateQuestion ? null : (cmd.note ?? null),
+      presentation.privateQuestion ? null : (cmd.sourceUrl ?? null),
       actor.displayName,
       actor.id,
       actor.roomId,
     ],
   );
   const bumped = await bumpConfirmedFactCandidates(client, actor, candidate);
-  const label = await confirmedCriterionLabel(client, actor, cmd.criterionId);
+  const label = presentation.label;
   return {
     events: [
       {
@@ -1672,7 +1686,7 @@ async function unconfirmFact(
     [candidate.osm_ref, cmd.criterionId],
   );
   const bumped = await bumpConfirmedFactCandidates(client, actor, candidate);
-  const label = await confirmedCriterionLabel(client, actor, cmd.criterionId);
+  const label = (await confirmedCriterionPresentation(client, actor, cmd.criterionId)).label;
   return {
     events: [
       {
