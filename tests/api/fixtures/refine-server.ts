@@ -23,7 +23,11 @@ setTransport(async (body) => {
         }],
       };
     }
-    const text = "Free wireless internet is available";
+    // The real Responses shape: the annotation covers the inline marker, and
+    // the evidence is the statement that runs up to it.
+    const statement = "Free wireless internet is available";
+    const marker = ` ([${name}.example](https://${name}.example/connectivity))`;
+    const text = `${statement}.${marker}`;
     return {
       output: [
         { type: "web_search_call", id: `search_${name}`, action: { type: "search" } },
@@ -34,7 +38,7 @@ setTransport(async (body) => {
             text,
             annotations: [{
               type: "url_citation",
-              start_index: 0,
+              start_index: statement.length + 1,
               end_index: text.length,
               url: `https://${name}.example/connectivity`,
               title: `${name} connectivity`,

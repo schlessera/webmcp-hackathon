@@ -33,6 +33,59 @@ function safeHttpUrl(value: string): string | null {
   }
 }
 
+/**
+ * Responses annotates an answer with the *inline citation marker* — the
+ * `([domain](url))` group — not with the sentence that marker supports. Taking
+ * the annotated span verbatim therefore yields a bare link, which can never be
+ * evidence for anything. The supported statement is the prose that runs up to
+ * the marker, so that is what a snippet is: the text since the previous
+ * citation, with the markers and emphasis removed so a quoted span matches.
+ */
+export function citedSpans(
+  text: string,
+  citations: Array<{ url: string; title?: string; start?: number; end?: number }>,
+): SearchResult[] {
+  const ordered = citations
+    .filter((citation) => Number.isInteger(citation.start) && Number.isInteger(citation.end))
+    .sort((a, b) => a.start! - b.start! || a.end! - b.end!);
+  const found = new Map<string, SearchResult>();
+  let readFrom = 0;
+  for (const citation of ordered) {
+    const url = safeHttpUrl(citation.url);
+    const start = citation.start!;
+    const end = citation.end!;
+    if (start < 0 || end < start || end > text.length) continue;
+    const before = readableSpan(text.slice(Math.min(readFrom, start), start));
+    readFrom = Math.max(readFrom, end);
+    if (!url || !before) continue;
+    const existing = found.get(url);
+    // Several markers can follow one statement; keep the fullest reading.
+    if (existing && existing.snippet.length >= before.length) continue;
+    found.set(url, { url, title: citation.title?.trim() || url, snippet: before });
+  }
+  if (found.size === 0) {
+    // An answer with no positioned annotation still carries its sources.
+    const whole = readableSpan(text);
+    for (const citation of citations) {
+      const url = safeHttpUrl(citation.url);
+      if (url && whole) found.set(url, { url, title: citation.title?.trim() || url, snippet: whole });
+    }
+  }
+  return [...found.values()];
+}
+
+/** Citation markers and emphasis are the model's own punctuation, not the
+ * source's words; a span carrying them can never be quoted back verbatim. */
+function readableSpan(raw: string): string {
+  const cleaned = raw
+    .replace(/\(\[[^\]]*\]\([^)]*\)\)/g, " ")
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/[*_`#]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return cleaned.length >= 12 ? cleaned.slice(0, 1_200) : "";
+}
+
 export const openAiSearchProvider: SearchProvider = {
   async search(query, opts = {}) {
     const domains = cleanDomains(opts.domains);
@@ -52,26 +105,9 @@ export const openAiSearchProvider: SearchProvider = {
       include: ["web_search_call.action.sources"],
       reasoning: "none",
       maxOutputTokens: 1_200,
-      timeoutMs: 20_000,
+      timeoutMs: 30_000,
     });
-    const text = reply.text ?? "";
-    const found = new Map<string, SearchResult>();
-    for (const citation of reply.citations ?? []) {
-      const url = safeHttpUrl(citation.url);
-      if (!url) continue;
-      if (!Number.isInteger(citation.start) || !Number.isInteger(citation.end)) continue;
-      const start = citation.start!;
-      const end = citation.end!;
-      if (start < 0 || end <= start || end > text.length) continue;
-      const snippet = text.slice(start, end).replace(/\s+/g, " ").trim();
-      if (!snippet) continue;
-      found.set(url, {
-        url,
-        title: citation.title?.trim() || url,
-        snippet,
-      });
-    }
-    return [...found.values()];
+    return citedSpans(reply.text ?? "", reply.citations ?? []);
   },
 };
 

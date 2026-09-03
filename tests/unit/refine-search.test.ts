@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  citedSpans,
   openAiSearchProvider,
   setSearchFetch,
   tavilySearchProvider,
@@ -12,8 +13,15 @@ afterEach(() => {
 });
 
 describe("refinement web search", () => {
-  it("uses one low-context domain search and keeps only cited spans", async () => {
+  it("uses one low-context domain search and reads the statement a marker cites", async () => {
     let wire: Record<string, unknown> | undefined;
+    // Responses annotates the inline "([domain](url))" marker, never the
+    // sentence it supports, so the evidence is the prose that runs up to it.
+    const text = "Free wireless internet is available. ([place.example](https://place.example/visit))" +
+      "\n\nThe terrace seats forty. ([other.example](https://other.example/terrace))";
+    const firstMarker = text.indexOf(" ([place.example");
+    const firstMarkerEnd = text.indexOf("))") + 2;
+    const secondMarker = text.indexOf(" ([other.example");
     setTransport(async (body) => {
       wire = body;
       return {
@@ -23,10 +31,11 @@ describe("refinement web search", () => {
             type: "message",
             content: [{
               type: "output_text",
-              text: "Free wireless internet is available. Unsupported prose.",
+              text,
               annotations: [
-                { type: "url_citation", start_index: 0, end_index: 35, url: "https://place.example/visit", title: "Visit" },
-                { type: "url_citation", start_index: 200, end_index: 220, url: "https://bad.example" },
+                { type: "url_citation", start_index: firstMarker, end_index: firstMarkerEnd, url: "https://place.example/visit", title: "Visit" },
+                { type: "url_citation", start_index: secondMarker, end_index: text.length, url: "https://other.example/terrace" },
+                { type: "url_citation", start_index: 4, end_index: 2, url: "ftp://nope.example" },
               ],
             }],
           },
@@ -35,11 +44,18 @@ describe("refinement web search", () => {
     });
     expect(await openAiSearchProvider.search("Alpha Berlin free wifi", {
       domains: ["place.example"],
-    })).toEqual([{
-      url: "https://place.example/visit",
-      title: "Visit",
-      snippet: "Free wireless internet is available",
-    }]);
+    })).toEqual([
+      {
+        url: "https://place.example/visit",
+        title: "Visit",
+        snippet: "Free wireless internet is available.",
+      },
+      {
+        url: "https://other.example/terrace",
+        title: "https://other.example/terrace",
+        snippet: "The terrace seats forty.",
+      },
+    ]);
     expect(wire).toMatchObject({
       tools: [{
         type: "web_search",
@@ -49,6 +65,23 @@ describe("refinement web search", () => {
       include: ["web_search_call.action.sources"],
       store: false,
     });
+  });
+
+  it("never returns a bare citation marker as evidence", () => {
+    const text = "([place.example](https://place.example/visit))";
+    expect(citedSpans(text, [
+      { url: "https://place.example/visit", start: 0, end: text.length },
+    ])).toEqual([]);
+  });
+
+  it("falls back to the whole answer when no marker is positioned", () => {
+    expect(citedSpans("Free wireless internet is available.", [
+      { url: "https://place.example/visit", title: "Visit" },
+    ])).toEqual([{
+      url: "https://place.example/visit",
+      title: "Visit",
+      snippet: "Free wireless internet is available.",
+    }]);
   });
 
   it("maps Tavily results onto the same thin interface", async () => {

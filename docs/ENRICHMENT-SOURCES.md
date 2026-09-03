@@ -260,7 +260,10 @@ span, confidence and status validation, plus its `sourceUrl`. Search queries,
 snippets and raw responses are not stored. An abstention remains unknown and
 may leave only an omission sentinel. Any web-derived fact shown to a person
 must carry a visible, clickable citation. A citation without a usable exact
-span is dropped rather than paraphrased.
+span is dropped rather than paraphrased. The provider annotates the inline
+citation marker rather than the sentence it supports, so a snippet is the
+prose running up to that marker, with markers and emphasis removed. The
+annotated span itself is a bare link and is never evidence.
 
 ## Sources evaluated and not used
 
