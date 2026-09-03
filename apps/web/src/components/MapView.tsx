@@ -1462,11 +1462,12 @@ export function MapView({
      place someone opened (the panel says that). */
   const busyCount = busy.size;
   const refine = context.refine;
-  /* `queued` currently includes work beyond the active tier. Do not promise
-     a count the remaining hourly search budget cannot reach. */
-  const reachableRefineQueue =
-    refine && refine.queued <= refine.budgetLeft.searches ? refine.queued : 0;
-  const shownRefineQueue = refine?.paused != null ? 0 : reachableRefineQueue;
+  /* Places still needing work for a need someone actually stated. The server
+     now excludes the background vocabulary and stale-fact sweeps from this,
+     so it is a count the room can act on rather than the whole queue. While
+     anything is paused there is no honest tail to show at all. */
+  const shownRefineQueue =
+    refine && refine.paused == null ? refine.tier1Queued ?? refine.queued : 0;
   const lookupLine =
     busyCount > 0 && busyReason?.kind !== "place"
       ? busyReason?.kind === "refine"

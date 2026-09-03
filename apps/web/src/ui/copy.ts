@@ -91,8 +91,12 @@ export function sourceLabel(source: string): string {
   if (source.startsWith("guess:")) return "a guess from the kind of place";
   if (source.startsWith("menu:")) return "read from the menu";
   if (source.startsWith("infer:")) {
-    // infer:<model>:<bucket> — the bucket is where the evidence came from.
-    const bucket = source.split(":")[2] ?? "";
+    // infer:<model>:<bucket>[:combined] — the bucket is where the evidence
+    // came from. A combined claim is the model's own account of pages the
+    // server never read, so it may not borrow the wording of one it did.
+    const parts = source.split(":");
+    const bucket = parts[2] ?? "";
+    if (parts[3] === "combined") return "found by a web search";
     if (bucket === "open_web_search") return "found on the web";
     if (bucket === "domain_search") return "found by searching the place's site";
     if (bucket === "venue_site") return "read on the place's own site";
@@ -244,13 +248,21 @@ export function provenanceLine(area: {
  * (the search provider's terms make the citation mandatory; the room's own
  * rule makes it useful). Host only, never the path: the path is the link.
  */
-export function citationLabel(url: string): string {
+export function citationLabel(url: string, read = true): string {
   try {
     const host = new URL(url).hostname.replace(/^www\./, "");
-    return `from ${host}`;
+    // "from <host>" says the fact came off that page. For a combined search
+    // the server never opened it, so the link is offered as somewhere to
+    // look, not as the thing that was read.
+    return read ? `from ${host}` : `a page at ${host}`;
   } catch {
-    return "from the source";
+    return read ? "from the source" : "a page the room did not read";
   }
+}
+
+/** A claim the model assembled from a search, not from a page the server read. */
+export function isCombinedClaim(source: string | undefined): boolean {
+  return source?.startsWith("infer:") === true && source.split(":")[3] === "combined";
 }
 
 export const COPY = {
