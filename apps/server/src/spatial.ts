@@ -28,6 +28,7 @@ import {
 } from "./enrich/index.ts";
 import { lookupPending } from "./enrich/progress.ts";
 import { pool } from "./db.ts";
+import { refinementView } from "./refine/worker.ts";
 
 /** How long a place panel waits for a fresh lookup before opening with what
  * is cached. The lookup keeps running and lands for the next read. */
@@ -270,6 +271,7 @@ export async function spatialContext(
           }
         : {}),
       pool: { size: poolSize, cap: POOL_CAP, explorable },
+      refine: refinementView(actor.roomId, inputs),
       feasibility: feasibilityOf(rows),
       total: bundle.total,
       matching: bundle.matching,

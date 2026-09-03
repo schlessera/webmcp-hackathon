@@ -392,7 +392,7 @@ async function releaseLease(db: pg.Pool, osmRef: string, owner: string): Promise
   );
 }
 
-interface LookupPass {
+export interface LookupPass {
   enrichment: Enrichment | null;
   /** Present only when this call fetched the website successfully. */
   pageText?: WebsiteTransientText;
@@ -457,6 +457,15 @@ async function lookup(db: pg.Pool, target: LookupTarget, force = false): Promise
   });
   // A full queue is load shedding, not a failed fact read: return stale data.
   return completed === undefined ? { enrichment: initial ?? null } : completed;
+}
+
+/** The refinement worker's one provider pass for a place. The transient text
+ * stays on this return value only and is never accepted by a persistence API. */
+export function readRefinementSource(
+  db: pg.Pool,
+  target: LookupTarget,
+): Promise<LookupPass> {
+  return lookup(db, target, true);
 }
 
 /**
@@ -937,7 +946,21 @@ async function runLookupNow(
     return evaluation.before === after ? [] : [evaluation.row.id];
   });
   if (changed.length > 0) {
-    const notification = await withTransaction(async (client) => {
+    await publishInferenceChanges(pool, roomId, changed, inferenceChanged ? "inference" : "lookup");
+  }
+  return changed;
+}
+
+/** One revision/facts publication path for lookup and refinement writes. */
+export async function publishInferenceChanges(
+  pool: pg.Pool,
+  roomId: string,
+  candidateIds: string[],
+  reason: "inference" | "lookup" = "inference",
+): Promise<string[]> {
+  const changed = [...new Set(candidateIds)].sort();
+  if (changed.length === 0) return [];
+  const notification = await withTransaction(async (client) => {
       const room = (
         await client.query(
           "SELECT revision FROM rooms WHERE id = $1 FOR UPDATE",
@@ -962,17 +985,12 @@ async function runLookupNow(
       }
       return { roomId, revision, storedRevisions, confirmations: [] };
     });
-    if (notification) {
-      // X7: the registry is cycle-free, so the committed revision enters the
-      // ordered broadcast queue synchronously before a later command can.
-      notifyCommit(notification);
-    }
-    publishFacts(roomId, {
-      type: "facts",
-      candidateIds: [...changed].sort(),
-      reason: inferenceChanged ? "inference" : "lookup",
-    });
+  if (notification) {
+    // X7: the registry is cycle-free, so the committed revision enters the
+    // ordered broadcast queue synchronously before a later command can.
+    notifyCommit(notification);
   }
+  publishFacts(roomId, { type: "facts", candidateIds: changed, reason });
   return changed;
 }
 

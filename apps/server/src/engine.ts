@@ -57,6 +57,7 @@ import {
 } from "./places.ts";
 import { warmEnrichments, type RoomLookupTarget } from "./enrich/index.ts";
 import { notifyCommit } from "./commit-notifications.ts";
+import { wakeRefinement } from "./refine/worker.ts";
 export {
   notifyCommit,
   onCommit,
@@ -152,6 +153,8 @@ interface HandlerOutcome {
     label: string;
     visibility: SubmitRequirementCmd["visibility"];
   };
+  /** An active criterion changed and the continuous queue must be re-ranked. */
+  refine?: boolean;
 }
 
 /** Thrown inside the command transaction so failures ROLL BACK any writes a
@@ -389,6 +392,7 @@ export async function submitCommand(
       revision,
       confirm: outcome.confirm,
       lookup: outcome.lookup,
+      refine: outcome.refine ?? false,
       warmTargets: outcome.warmTargets ?? [],
       replayed: false as const,
     };
@@ -436,6 +440,7 @@ export async function submitCommand(
     storedRevisions: result.storedRevisions,
     confirmations,
   });
+  if (result.refine) wakeRefinement(actor.roomId);
   if (result.lookup) {
     // The command is already durable. Lookup selection and every downstream
     // fetch/model failure are intentionally detached from command success.
@@ -760,6 +765,7 @@ async function submitRequirement(
   return {
     events,
     effect: `Requirement ${existing ? "updated" : "recorded"}.`,
+    refine: Boolean(criterion),
     ...(criterion
       ? {
           lookup: {
@@ -887,6 +893,7 @@ async function setRequirementActive(
       },
     ],
     effect: cmd.active ? "Need reapplied." : "Need set aside.",
+    refine: Boolean(criterion),
     ...(cmd.active && criterion
       ? {
           lookup: {
