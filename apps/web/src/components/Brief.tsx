@@ -150,6 +150,7 @@ function NeedRow({
             </span>
           )}
       </span>
+      <span className="need-badges">
       {(need.likely ?? 0) > 0 && (
         <span className="badge" data-kind="likely">
           {need.likely} likely
@@ -176,6 +177,7 @@ function NeedRow({
       ) : (
         <span className="need-delta">{ruledOutLabel(need.ruledOut)}</span>
       )}
+      </span>
     </button>
   );
 }
