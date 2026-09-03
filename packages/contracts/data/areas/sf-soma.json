@@ -17,7 +17,7 @@
     -122.355
    ]
   },
-  "builtAt": "2026-09-03T00:40:48.925Z",
+  "builtAt": "2026-09-03T07:25:19.996Z",
   "builtWith": "scripts/build-area-snapshot.mjs",
   "center": {
    "lat": 37.7845,
@@ -13072,6 +13072,7 @@
     "outdoor_seating": "no",
     "website": "https://www.ihg.com/intercontinental/hotels/us/en/san-francisco/sfoha/hoteldetail/top-of-the-mark",
     "contact:instagram": "topofthemarksf",
+    "wikimedia_commons": "Category:Top of the Mark",
     "wikidata": "Q7824679"
    }
   },
@@ -13304,6 +13305,7 @@
     "opening_hours:url": "https://www.fairmont.com/san-francisco/dining/tonga-room-hurricane-bar/",
     "website": "https://www.fairmont.com/san-francisco/dining/tonga-room-hurricane-bar/",
     "phone": "+1 415 7725000",
+    "wikimedia_commons": "File:Cmglee Tonga Room and Hurricane Bar.jpg",
     "wikidata": "Q7820969",
     "addr:street": "Mason Street",
     "addr:housenumber": "950",
@@ -21442,6 +21444,7 @@
     "internet_access": "yes",
     "website": "https://caffetrieste.com/",
     "phone": "+1-415-392-6739",
+    "wikimedia_commons": "Category:Caffe Trieste",
     "wikidata": "Q5017151",
     "addr:street": "Vallejo Street",
     "addr:housenumber": "601",
@@ -24580,6 +24583,7 @@
     "website:menu": "https://originaljoes.com/north-beach/menu/",
     "contact:instagram": "originaljoessf",
     "phone": "+1 415 7754877",
+    "wikimedia_commons": "Category:Original Joe's",
     "wikidata": "Q7102546",
     "addr:street": "Union Street",
     "addr:housenumber": "601",
@@ -26444,6 +26448,7 @@
     "takeaway": "yes",
     "website": "https://www.pier23cafe.com",
     "phone": "+1-415-362-5125",
+    "image": "https://www.instagram.com/p/CKpDIndBe3P",
     "addr:street": "The Embarcadero",
     "addr:housenumber": "Pier 23",
     "addr:postcode": "94111",
@@ -36402,7 +36407,8 @@
     "opening_hours:url": "https://paletteteahouse.com/",
     "website": "https://paletteteahouse.com/",
     "contact:instagram": "paletteteahouse",
-    "phone": "+1 415 3478888"
+    "phone": "+1 415 3478888",
+    "wikimedia_commons": "Category:Palette Tea House"
    }
   },
   {
@@ -36663,6 +36669,7 @@
     "website:menu": "https://www.barriosf.com/ghirardelli-square-menus/",
     "contact:instagram": "barrio_sf",
     "phone": "+1 415 7412000",
+    "wikimedia_commons": "Category:Barrio (San Francisco restaurant)",
     "addr:street": "North Point Street",
     "addr:housenumber": "900",
     "addr:postcode": "94109",
@@ -48013,6 +48020,7 @@
     "amenity": "bar",
     "name": "Golden Gate Yacht Club",
     "contact:instagram": "goldengateyachtclub",
+    "wikimedia_commons": "Category:Golden Gate Yacht Club",
     "wikidata": "Q611962",
     "addr:street": "Yacht Road",
     "addr:housenumber": "1",
@@ -49771,6 +49779,7 @@
     "website": "https://www.stfyc.com/",
     "contact:instagram": "https://www.instagram.com/stfyc",
     "phone": "+1-415-563-6363",
+    "wikimedia_commons": "Category:St. Francis Yacht Club",
     "wikidata": "Q7588038",
     "addr:street": "Marina Boulevard",
     "addr:housenumber": "700",
@@ -55108,7 +55117,8 @@
    },
    "tags": {
     "amenity": "cafe",
-    "name": "Academy Cafe"
+    "name": "Academy Cafe",
+    "wikimedia_commons": "Category:California Academy of Sciences Cafe"
    }
   },
   {
@@ -57003,7 +57013,8 @@
    "tags": {
     "amenity": "cafe",
     "name": "Tea House",
-    "cuisine": "japanese"
+    "cuisine": "japanese",
+    "wikimedia_commons": "Category:Tea house in Japanese Tea Garden (San Francisco)"
    }
   },
   {
@@ -59265,6 +59276,7 @@
     "internet_access": "wlan",
     "website": "https://presidio.gov/places/round-house-cafe",
     "phone": "+1-415-603-0366",
+    "wikimedia_commons": "File:Roundhouse Cafe.jpg",
     "wikidata": "Q16255441",
     "addr:street": "Golden Gate Bridge",
     "addr:postcode": "94129",
