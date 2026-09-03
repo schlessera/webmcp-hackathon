@@ -17,7 +17,7 @@ Three sources ship, all server-side, all evidence-labelled:
 | # | source | licence | gives | how |
 |---|---|---|---|---|
 | S1 | OpenStreetMap's own long tail | ODbL | menu URL, opening-hours page, Instagram, description, vegan / gluten-free / halal, takeaway, delivery, Wikidata id | more tags kept in the snapshot (`KEPT_TAGS`); no request at all |
-| S2 | the place's own website | the venue's | schema.org facts (cuisine, price range, hours, accessibility, self-published rating, menu, reservations), menu link discovery, one-line description | one fetch per place, robots.txt honoured, cached 7 days, parsed facts only |
+| S2 | the place's own website | the venue's | schema.org facts (cuisine, price range, hours, accessibility, self-published rating, menu, reservations), menu link discovery, one-line description; selected visible text for same-pass inference only | one homepage fetch plus an optional menu follow, robots.txt honoured; parsed facts cached 7 days, page text held only in memory for that lookup pass |
 | S3 | Wikidata | CC0 | description, Wikipedia article, official site, awards (Michelin star, Bib Gourmand) | one entity fetch for places carrying a `wikidata` tag, cached 7 days |
 
 Ratings from review platforms are **not** available under our constraints
@@ -154,38 +154,74 @@ redistributable, no attribution obligation (we attribute anyway).
 ## Inference: evidence-backed likely facts
 
 When the record, looked-up web facts and the small deterministic guess table
-still leave a requested attribute unknown, the server may ask the fast NL
-model for a lean. The input is limited to the place name, category, cuisine
-tokens, OSM/Wikidata descriptions, parsed website facts and description, and
-menu words/readings already gathered by the enrichment layer. The output key
-must be one of the dossier's boolean attributes or `price-level` (band 1–4).
+still leave an active criterion unknown, the server may ask the fast NL model
+for a lean. A criterion can be a vocabulary key or a normalized free-text
+question. The input is limited to the place name, category, cuisine
+tokens, OSM/Wikidata descriptions, parsed website facts and description,
+menu words/readings, and — only when this lookup just fetched them — selected
+visible text from the homepage and followed menu page. That transient text is
+title, meta description, headings, paragraphs and list items after scripts,
+styles, navigation and footer are stripped, capped separately at 6,000
+characters per page. A cache-only read has no page text to replay.
 
 Inference is never verification. Every accepted claim is merged through the
 graded status path as `likely_true` or `likely_false`, with source
-`infer:<model>` and its evidence span in `note`. It fills only a slot that is
+`infer:<model>:<source-bucket>` and its evidence span in `note`. It fills only a slot that is
 still `unknown`; record, web, deterministic guess and attested facts keep
 their precedence. The server drops a claim unless its evidence is at least 12
-characters and two words, appears at whole-word boundaries in the exact input
-bucket the model named, and is not just the attribute key or label. Whitespace
-runs are collapsed to one ASCII space on both sides before that comparison.
-Control and markup characters are stripped before the note is stored; notes
-are fenced as untrusted venue data whenever a tool result enters agent context.
+characters and two words, appears case-insensitively at whole-word boundaries
+in the exact input bucket the model named, and is not just the attribute key
+or label. Whitespace runs are collapsed to one ASCII space on both sides before
+that comparison. Control and markup characters are stripped before the note is
+stored; notes are fenced as untrusted venue data whenever a tool result enters
+agent context.
 
-The model's stated confidence is capped in code:
+The model's stated confidence is capped by the evidence ladder in “Batched
+evaluation” below.
 
-| evidence used | maximum confidence |
-|---|---:|
-| name, category or cuisine token only | 0.45 |
-| OSM/Wikidata description or parsed website text | 0.60 |
-| menu words or a prior menu reading | 0.69 |
-
-Accepted claims are cached per attribute key in `enrichments.inferred` for
-seven days. A requested key the model omits gets a 24-hour omission sentinel,
+Accepted claims are cached per criterion in `enrichments.inferred` for seven
+days. A requested criterion the model omits gets a 24-hour omission sentinel,
 so reopening a place does not pay for the same unsupported question forever.
 Inference is completely off when `ENRICH_NETWORK=0`, when
 `OPENAI_API_KEY` is absent, or when `INFER=0`; those paths make no model call
 and write no inference cache entry. Menu image reading remains a separate
 smart-tier job.
+
+### Batched evaluation
+
+Live lookups evaluate a matrix rather than calling the model once per place:
+one strict-schema call carries many places and every open criterion, including
+free-text questions. Each returned cell names its `candidateId`, `criterionId`
+and source index. `abstain` is the expected answer where the cited material
+does not support a lean and creates no fact. Before storing any other cell, the
+server checks that its evidence is a verbatim, case-insensitive,
+whitespace-normalized span from that exact place and source, contains at least
+12 characters and two words, and is not an echo of the criterion.
+
+The hard call limits are **12 places × 8 criteria** and **6,000 text
+characters per place**. Larger matrices split on both axes and their validated
+results merge; an answer is never truncated to fit. For each place, empty text
+is removed and sources are ordered shortest first. Whole shorter sources are
+kept before the longest source, which is last and is the first/only source
+shortened when the 6,000-character aggregate budget is exhausted.
+
+Model confidence is an input to `Math.min`, never authority:
+
+| evidence source bucket | maximum confidence |
+|---|---:|
+| OSM tag / source record | not a model claim |
+| venue-site fetch (homepage or menu text) | 0.60 |
+| domain-scoped web search | 0.55 |
+| open-web search | 0.50 |
+| name or category only | 0.45 |
+
+Every accepted value passes through `graded()` and therefore stays likely,
+never verified. Matrix results for all places are written with one bulk
+`INSERT … ON CONFLICT` statement. Question facts use their `q:<sha1>` key and
+retain both normalized `question` text and reader-facing `label` beside the
+lean, confidence, evidence, source and observation time. Any web-derived fact
+shown to a reader carries a visible, clickable `sourceUrl`; uncited web output
+does not qualify as reader-facing evidence.
 
 ## Sources evaluated and not used
 
@@ -205,13 +241,16 @@ smart-tier job.
 
 ## How it lands in a room
 
-- `enrichments` (migrations 010 and 013), keyed by OSM ref and shared by every
+- `enrichments` (migrations 010, 013 and 015), keyed by OSM ref and shared by every
   room that holds the place. Website and Wikidata each carry their own fetch
   status, error and expiry. A successful provider value is kept for seven
   days; a transient failure preserves that provider's last good value and
   retries only that provider after about one hour. A short database lease per
   OSM ref prevents separate server processes from refreshing the same place at
-  once.
+  once. Website and menu HTML never enter this row: selected text lives only
+  as a sibling of the fetched facts on the in-memory return value, reaches the
+  inference validator during that same pass, and is then discarded. Only a
+  validated short evidence span may survive inside an inferred claim.
 - **When**: a new room's pool is warmed in the background (4 at a time);
   `inspect_candidates` (the place panel, or an agent) waits up to 3.5 s for
   a fresh lookup and otherwise opens with what is cached, the lookup
@@ -242,4 +281,5 @@ smart-tier job.
   are not looked up.
 - Parsing `openingHoursSpecification` objects into the hours table (only the
   `openingHours` string form is read, and only to `unverified`).
-- Reading a menu's contents. The link is offered; the text stays the venue's.
+- Persisting or returning full homepage/menu text. It remains the venue's and
+  is held only long enough to validate same-pass inference evidence.

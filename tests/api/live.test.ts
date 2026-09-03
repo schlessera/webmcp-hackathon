@@ -193,6 +193,84 @@ describe("look_up_places route and dossier privacy", () => {
 });
 
 describe("need-triggered lookup and realtime facts", () => {
+  it("a forced lookup validates a claim from transient page text without persisting that page", async () => {
+    vi.stubEnv("ENRICH_NETWORK", "1");
+    vi.stubEnv("INFER", "1");
+    vi.stubEnv("OPENAI_API_KEY", "test");
+    const candidateId = `place_b_${room.roomId.slice("room_test_".length)}`;
+    const osmRef = `node/transient-${room.roomId}`;
+    const website = "https://transient.example/";
+    const marker = "TRANSIENT-PAGE-MARKER";
+    await room.pool.query(
+      `UPDATE candidates SET osm_ref = $2, extras = $3::jsonb,
+         attributes = '[{"key":"dog-friendly","status":"unknown","source":"osm:dog","confidence":0}]'::jsonb
+       WHERE id = $1`,
+      [candidateId, osmRef, JSON.stringify({ website })],
+    );
+    setEnrichFetch(async (url) => {
+      if (url.endsWith("/robots.txt")) return new Response("", { status: 404 });
+      return new Response(
+        `<html><body><p>${marker} DOGS ARE WELCOME throughout our courtyard.</p></body></html>`,
+        { status: 200, headers: { "content-type": "text/html" } },
+      );
+    });
+    let modelInput: Record<string, unknown> | undefined;
+    setTransport(async (body) => {
+      const message = (body.input as Array<{ content: string }>)[0];
+      modelInput = JSON.parse(message.content) as Record<string, unknown>;
+      return {
+        output: [{
+          type: "message",
+          content: [{
+            type: "output_text",
+            text: JSON.stringify({
+              claims: [{
+                candidateId,
+                criterionId: "dog-friendly",
+                lean: "yes",
+                confidence: 0.9,
+                evidence: "dogs are welcome throughout",
+                sourceIndex: 0,
+              }],
+            }),
+          }],
+        }],
+      };
+    });
+
+    await lookupNow(room.pool, room.roomId, [{ candidateId, osmRef, website }], {
+      keys: ["dog-friendly"],
+      force: true,
+    });
+
+    expect(modelInput).toMatchObject({
+      places: [expect.objectContaining({
+        candidateId,
+        texts: [expect.objectContaining({
+          source: "web",
+          text: expect.stringContaining(`${marker} DOGS ARE WELCOME throughout our courtyard.`),
+        })],
+      })],
+    });
+    const stored = (
+      await room.pool.query(
+        `SELECT website, inferred, row_to_json(enrichments)::text AS serialized
+           FROM enrichments WHERE osm_ref = $1`,
+        [osmRef],
+      )
+    ).rows[0];
+    expect(stored.inferred["dog-friendly"]).toMatchObject({
+      lean: "yes",
+      confidence: 0.6,
+      evidence: "dogs are welcome throughout",
+      source: expect.stringMatching(/^infer:/),
+    });
+    expect(stored.website).not.toHaveProperty("pageText");
+    expect(stored.website).not.toHaveProperty("homepage");
+    expect(stored.website).not.toHaveProperty("menu");
+    expect(stored.serialized).not.toContain(marker);
+  });
+
   it("deduplicates concurrent lookup work by room, candidate and key set", async () => {
     vi.stubEnv("ENRICH_NETWORK", "1");
     vi.stubEnv("INFER", "1");
@@ -318,12 +396,15 @@ describe("need-triggered lookup and realtime facts", () => {
       return new Response("<html></html>", { status: 200, headers: { "content-type": "text/html" } });
     });
     let modelCalls = 0;
-    setTransport(async () => {
+    setTransport(async (body) => {
       modelCalls += 1;
+      const matrix = JSON.parse((body.input as Array<{ content: string }>)[0].content) as {
+        places: Array<{ candidateId: string; texts: Array<{ text: string }> }>;
+      };
       const claims =
         modelCalls === 1
           ? []
-          : [{ key: "delivery", lean: "yes", confidence: 0.9, evidence: "deliver across the district every evening", evidenceSource: "description_website", value: null }];
+          : [{ candidateId: matrix.places[0].candidateId, criterionId: "delivery", lean: "yes", confidence: 0.9, evidence: "deliver across the district every evening", sourceIndex: matrix.places[0].texts.findIndex((text) => text.text.includes("deliver across")) }];
       return { output: [{ type: "message", content: [{ type: "output_text", text: JSON.stringify({ claims }) }] }] };
     });
     const target = { candidateId, osmRef, website };
@@ -400,7 +481,7 @@ describe("need-triggered lookup and realtime facts", () => {
       if (url.endsWith("/robots.txt")) return new Response("", { status: 200 });
       throw new Error("site down");
     });
-    setTransport(async () => ({
+    setTransport(async (body) => ({
       output: [
         {
           type: "message",
@@ -410,12 +491,12 @@ describe("need-triggered lookup and realtime facts", () => {
               text: JSON.stringify({
                 claims: [
                   {
-                    key: "dog-friendly",
+                    candidateId: (JSON.parse((body.input as Array<{ content: string }>)[0].content) as { places: Array<{ candidateId: string }> }).places[0].candidateId,
+                    criterionId: "dog-friendly",
                     lean: "yes",
                     confidence: 0.9,
                     evidence,
-                    evidenceSource: "description_website",
-                    value: null,
+                    sourceIndex: 0,
                   },
                 ],
               }),

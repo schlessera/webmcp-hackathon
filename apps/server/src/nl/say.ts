@@ -2,6 +2,7 @@ import {
   ATTRIBUTE_LABELS,
   ATTRIBUTE_VOCABULARY,
   HINT_TAXONOMY,
+  normalizeCuisineTokens,
   type Facet,
   type SpatialContextResult,
 } from "@webmcp-hackathon/contracts";
@@ -177,7 +178,9 @@ export async function say(
       });
     } else if (n.kind === "exclusion" || n.kind === "inclusion") {
       const source = n.kind === "exclusion" ? n.excludeValues : n.includeValues;
-      const values = (source ?? []).filter((v) => cuisines.has(v)).slice(0, 8);
+      const values = [...new Set((source ?? []).flatMap((value) =>
+        normalizeCuisineTokens(value).filter((token) => cuisines.has(token)),
+      ))].slice(0, 8);
       if (values.length) {
         needs.push({
           ...base,

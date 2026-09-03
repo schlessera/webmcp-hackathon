@@ -1,17 +1,37 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type pg from "pg";
-import { normalizeStatus, type DossierLink, type LookupsMessage } from "@webmcp-hackathon/contracts";
-import { createHash } from "node:crypto";
-import { fetchWebsiteFacts, type FetchLike, type WebFacts } from "./website.ts";
+import {
+  ATTRIBUTE_LABELS,
+  ATTRIBUTE_VOCABULARY,
+  criterionFor,
+  graded,
+  normalizeQuestion,
+  normalizeStatus,
+  type Criterion,
+  type DossierLink,
+  type LookupsMessage,
+} from "@webmcp-hackathon/contracts";
+import {
+  fetchWebsiteFacts,
+  type FetchLike,
+  type WebFacts,
+  type WebsiteFetchResult,
+  type WebsiteTransientText,
+} from "./website.ts";
 import { fetchWikidataFacts, type WikiFacts } from "./wikidata.ts";
 import { menuReaderEnabled, readMenu } from "./menu-reader.ts";
 import {
   applyInferredAttributes,
-  inferAttributes,
   inferenceEnabled,
-  INFERABLE_KEYS,
+  sanitizeInferenceNote,
   type StoredInference,
 } from "./infer.ts";
+import {
+  evaluateMatrix,
+  type EvaluateMatrixInput,
+  type EvaluatedInference,
+  type MatrixInferenceTextSource,
+} from "./evaluate.ts";
 import { applyGuesses } from "../guess.ts";
 import { applyAttestations, loadAttestations } from "../attestations.ts";
 import { bumpCandidateMapRevisions } from "../candidate-revisions.ts";
@@ -35,7 +55,8 @@ import { notifyCommit } from "../commit-notifications.ts";
  *   `osm:*`, `curated:*` and `agent:*`, so the ledger can say where each
  *   fact came from.
  * - Everything stored is a parsed fact, a URL or a one-line description;
- *   no page text, no review text.
+ *   page text exists only on the fresh lookup's in-memory return path to
+ *   inference, never in Enrichment, a dossier or a log.
  */
 
 export interface Enrichment {
@@ -43,7 +64,7 @@ export interface Enrichment {
   fetchedAt: string;
   website: WebFacts | null;
   wikidata: WikiFacts | null;
-  inferred?: Record<string, StoredInference>;
+  inferred?: Record<string, StoredCriterionInference>;
   inferredAt?: string | null;
   error: string | null;
   providerStatus?: {
@@ -51,6 +72,26 @@ export interface Enrichment {
     wikidata: ProviderFetchState;
   };
 }
+
+export type StoredCriterionInference =
+  | StoredInference
+  | {
+      key: string;
+      lean: "yes" | "no";
+      confidence: number;
+      evidence: string;
+      source: string;
+      observedAt: string;
+      sourceUrl?: string;
+      question?: string;
+      label?: string;
+    }
+  | {
+      omitted: true;
+      observedAt: string;
+      question?: string;
+      label?: string;
+    };
 
 export interface ProviderFetchState {
   status: "never" | "ok" | "error";
@@ -114,7 +155,7 @@ interface Row {
   expires_at: Date;
   website: WebFacts | null;
   wikidata: WikiFacts | null;
-  inferred: Record<string, StoredInference>;
+  inferred: Record<string, StoredCriterionInference>;
   inferred_at: Date | null;
   error: string | null;
   website_status: ProviderFetchState["status"];
@@ -351,38 +392,51 @@ async function releaseLease(db: pg.Pool, osmRef: string, owner: string): Promise
   );
 }
 
-async function lookup(db: pg.Pool, target: LookupTarget, force = false): Promise<Enrichment | null> {
+interface LookupPass {
+  enrichment: Enrichment | null;
+  /** Present only when this call fetched the website successfully. */
+  pageText?: WebsiteTransientText;
+}
+
+async function lookup(db: pg.Pool, target: LookupTarget, force = false): Promise<LookupPass> {
   const initial = (await loadCached(db, [target.osmRef])).get(target.osmRef);
-  if (!Object.values(dueProviders(target, initial, force)).some(Boolean)) return initial ?? null;
+  if (!Object.values(dueProviders(target, initial, force)).some(Boolean)) {
+    return { enrichment: initial ?? null };
+  }
 
   // X4: queue before acquiring the cross-process lease. A bounded waiter can
   // never consume lease lifetime while another lookup owns all network slots.
   const completed = await lookupSlots.use(async () => {
     const beforeLease = (await loadCached(db, [target.osmRef])).get(target.osmRef);
     if (!Object.values(dueProviders(target, beforeLease, force)).some(Boolean)) {
-      return beforeLease ?? null;
+      return { enrichment: beforeLease ?? null };
     }
     const owner = randomUUID();
     // R11: this lease is visible to every server process and is acquired in a
     // short statement; no pool client or room lock is held during the network.
-    if (!(await acquireLease(db, target.osmRef, owner))) return beforeLease ?? null;
+    if (!(await acquireLease(db, target.osmRef, owner))) {
+      return { enrichment: beforeLease ?? null };
+    }
     try {
       const current = (await loadCached(db, [target.osmRef])).get(target.osmRef);
       const attempted = dueProviders(target, current, force);
-      if (!attempted.website && !attempted.wikidata) return current ?? null;
+      if (!attempted.website && !attempted.wikidata) {
+        return { enrichment: current ?? null };
+      }
 
-      const none = { facts: null, error: undefined as string | undefined };
+      const noSite: WebsiteFetchResult = { facts: null };
+      const noWiki: { facts: WikiFacts | null; error?: string } = { facts: null };
       const [site, wiki] = await Promise.all([
         attempted.website
           ? fetchInjectedWebsiteFacts(target.website!)
-          : Promise.resolve(none),
+          : Promise.resolve(noSite),
         attempted.wikidata
           ? fetchWikidataFacts(target.wikidata!, fetchImpl)
-          : Promise.resolve(none),
+          : Promise.resolve(noWiki),
       ]);
       // A menu that is a picture gets read (menu-reader.ts); the bytes are
       // never stored, the claims are.
-      if (site.facts && "menuFile" in site && site.menuFile && menuReaderEnabled()) {
+      if (site.facts && site.menuFile && menuReaderEnabled()) {
         try {
           const reading = await readMenu(site.menuFile);
           if (reading) site.facts.menuReading = reading;
@@ -391,7 +445,10 @@ async function lookup(db: pg.Pool, target: LookupTarget, force = false): Promise
         }
       }
       await persistProviderResults(db, target, owner, attempted, site, wiki);
-      return (await loadCached(db, [target.osmRef])).get(target.osmRef) ?? null;
+      return {
+        enrichment: (await loadCached(db, [target.osmRef])).get(target.osmRef) ?? null,
+        ...(site.pageText ? { pageText: site.pageText } : {}),
+      };
     } finally {
       // Offline mode deliberately does not advance provider freshness, but it
       // must still yield the cross-process lease immediately.
@@ -399,7 +456,7 @@ async function lookup(db: pg.Pool, target: LookupTarget, force = false): Promise
     }
   });
   // A full queue is load shedding, not a failed fact read: return stale data.
-  return completed === undefined ? initial ?? null : completed;
+  return completed === undefined ? { enrichment: initial ?? null } : completed;
 }
 
 /**
@@ -440,6 +497,8 @@ export interface RoomLookupTarget extends LookupTarget {
 
 export interface LookupNowOptions {
   keys?: string[];
+  /** Criterion-aware callers carry questions without flattening them to keys. */
+  criteria?: Criterion[];
   reason?: NonNullable<LookupsMessage["reason"]>;
   /**
    * "Look again": a provider whose last good read is older than
@@ -477,7 +536,10 @@ function mergedForLookup(
   const enriched = applyEnrichmentAttributes(normalised, enrichment);
   // Same order as eligibility.ts mergedAttributes: inference before the
   // kind-of-place rules, so a quoted span is never shadowed by a rule.
-  const inferred = applyInferredAttributes(enriched, enrichment?.inferred);
+  const inferred = applyInferredAttributes(
+    enriched,
+    enrichment?.inferred as Record<string, StoredInference> | undefined,
+  );
   const guessed = applyGuesses(row.category, inferred, observedAt);
   return applyAttestations(row.id, guessed, attestations);
 }
@@ -491,12 +553,27 @@ export function stableAttributeHash(attributes: AttributeLike[]): string {
   return createHash("sha256").update(JSON.stringify(factual)).digest("hex");
 }
 
-function inferenceTexts(row: LookupCandidateRow, enrichment: Enrichment | undefined) {
-  const texts: Array<{ source: "osm" | "web" | "menu" | "wikidata"; text: string }> = [];
+export function inferenceTexts(
+  row: LookupCandidateRow,
+  enrichment: Enrichment | undefined,
+  transient?: WebsiteTransientText,
+) {
+  const texts: Array<{
+    source: MatrixInferenceTextSource;
+    text: string;
+    url?: string;
+  }> = [];
   const osmDescription = row.extras?.description?.text;
   if (osmDescription) texts.push({ source: "osm", text: osmDescription });
   const web = enrichment?.website;
-  if (web?.description) texts.push({ source: "web", text: web.description });
+  if (web?.description) texts.push({ source: "web", text: web.description, url: web.url });
+  if (transient?.homepage) {
+    texts.push({
+      source: "web",
+      text: transient.homepage,
+      ...(row.extras?.website ?? web?.url ? { url: row.extras?.website ?? web?.url } : {}),
+    });
+  }
   if (web) {
     // Only what the place itself wrote may serve as evidence. Facts the
     // server already parsed into slots (price band, wheelchair, hours) are
@@ -505,16 +582,31 @@ function inferenceTexts(row: LookupCandidateRow, enrichment: Enrichment | undefi
     const facts = [
       web.cuisine?.length ? `Cuisine: ${web.cuisine.join(", ")}` : "",
     ].filter(Boolean);
-    if (facts.length) texts.push({ source: "web", text: facts.join(". ") });
+    if (facts.length) texts.push({ source: "web", text: facts.join(". "), url: web.url });
     const menu = [
       ...(web.menuMentions ?? []).map((key) => `${key} mentioned on the menu`),
       ...(web.menuReading?.claims ?? []).map((claim) => claim.evidence),
       ...(web.menuReading?.cuisine ?? []),
     ].filter(Boolean);
-    if (menu.length) texts.push({ source: "menu", text: menu.join(". ") });
+    if (menu.length) {
+      texts.push({ source: "menu", text: menu.join(". "), url: web.menuUrl ?? web.url });
+    }
+  }
+  if (transient?.menu) {
+    texts.push({
+      source: "menu",
+      text: transient.menu,
+      ...(web?.menuUrl ?? web?.url ?? row.extras?.website
+        ? { url: web?.menuUrl ?? web?.url ?? row.extras?.website }
+        : {}),
+    });
   }
   if (enrichment?.wikidata?.description) {
-    texts.push({ source: "wikidata", text: enrichment.wikidata.description });
+    texts.push({
+      source: "wikidata",
+      text: enrichment.wikidata.description,
+      ...(enrichment.wikidata.wikipedia ? { url: enrichment.wikidata.wikipedia } : {}),
+    });
   }
   return texts;
 }
@@ -526,30 +618,74 @@ function cuisineTokens(attributes: AttributeLike[]): string[] {
     : [];
 }
 
-async function saveInferences(
-  pool: pg.Pool,
-  osmRef: string,
-  claims: Awaited<ReturnType<typeof inferAttributes>>,
-  requested: string[],
-  observedAt: string,
+export interface InferenceBatchWrite {
+  osmRef: string;
+  criteria: Criterion[];
+  claims: EvaluatedInference[];
+  observedAt: string;
+}
+
+/** One statement persists every place in a model batch, including explicit
+ * omission markers. Questions retain both stable machine text and reader copy. */
+export async function saveInferences(
+  pool: Pick<pg.Pool, "query">,
+  writes: InferenceBatchWrite[],
 ): Promise<void> {
-  if (requested.length === 0 || !inferenceEnabled()) return;
-  const claimed = new Set<string>(claims.map((claim) => claim.key));
-  const inferred: Record<string, StoredInference> = Object.fromEntries([
-    ...claims.map((claim) => [claim.key, { ...claim, observedAt }] as const),
-    ...requested
-      .filter((key) => !claimed.has(key))
-      .map((key) => [key, { omitted: true as const, observedAt }] as const),
-  ]);
-  const ttl = claims.length > 0 ? TTL_INFER_MS : TTL_OMITTED_MS;
+  const rows = writes.filter((write) => write.criteria.length > 0);
+  if (rows.length === 0) return;
+  const refs: string[] = [];
+  const ttls: string[] = [];
+  const payloads: string[] = [];
+  for (const write of rows) {
+    const claimed = new Map(write.claims.map((claim) => [claim.criterionId, claim]));
+    const inferred: Record<string, StoredCriterionInference> = {};
+    for (const criterion of write.criteria) {
+      const key = criterion.kind === "key" ? criterion.key : criterion.id;
+      const claim = claimed.get(criterion.id);
+      if (claim) {
+        inferred[key] = {
+          key,
+          lean: claim.lean,
+          confidence: claim.confidence,
+          evidence: claim.evidence,
+          source: claim.source,
+          observedAt: claim.observedAt,
+          ...(claim.sourceUrl ? { sourceUrl: claim.sourceUrl } : {}),
+          ...(criterion.kind === "question"
+            ? { question: normalizeQuestion(criterion.text), label: criterion.label }
+            : {}),
+        };
+      } else {
+        inferred[key] = {
+          omitted: true,
+          observedAt: write.observedAt,
+          ...(criterion.kind === "question"
+            ? { question: normalizeQuestion(criterion.text), label: criterion.label }
+            : {}),
+        };
+      }
+    }
+    refs.push(write.osmRef);
+    ttls.push(String(write.claims.length > 0 ? TTL_INFER_MS : TTL_OMITTED_MS));
+    payloads.push(JSON.stringify(inferred));
+  }
   await pool.query(
     `INSERT INTO enrichments
        (osm_ref, fetched_at, expires_at, website, wikidata, inferred, inferred_at, error)
-     VALUES ($1, now(), now() + ($2 || ' milliseconds')::interval, NULL, NULL, $3, now(), NULL)
+     SELECT batch.osm_ref,
+            now(),
+            now() + (batch.ttl_ms || ' milliseconds')::interval,
+            NULL,
+            NULL,
+            batch.inferred,
+            now(),
+            NULL
+       FROM unnest($1::text[], $2::text[], $3::jsonb[])
+            AS batch(osm_ref, ttl_ms, inferred)
      ON CONFLICT (osm_ref) DO UPDATE SET
        inferred = enrichments.inferred || EXCLUDED.inferred,
        inferred_at = now()`,
-    [osmRef, String(ttl), JSON.stringify(inferred)],
+    [refs, ttls, payloads],
   );
 }
 
@@ -575,11 +711,20 @@ export function lookupNow(
     ).values(),
   ];
   if (tracked.length === 0) return Promise.resolve([]);
-  const keys = [...new Set(options.keys ?? [...INFERABLE_KEYS])]
-    .filter((key) => (INFERABLE_KEYS as readonly string[]).includes(key))
+  const keys = [...new Set(options.keys ?? [...ATTRIBUTE_VOCABULARY])]
+    .filter((key) => (ATTRIBUTE_VOCABULARY as readonly string[]).includes(key))
     .sort();
+  const criteria = [
+    ...new Map((options.criteria ?? []).map((criterion) => [criterion.id, criterion])).values(),
+  ];
   const keyFor = (target: RoomLookupTarget) =>
-    JSON.stringify([roomId, target.candidateId, keys, options.force === true]);
+    JSON.stringify([
+      roomId,
+      target.candidateId,
+      keys,
+      criteria.map((criterion) => criterion.id).sort(),
+      options.force === true,
+    ]);
   const existingJobs: Promise<string[]>[] = [];
   const fresh: RoomLookupTarget[] = [];
   for (const target of tracked) {
@@ -596,7 +741,7 @@ export function lookupNow(
       options.reason,
     );
     const freshKeys = fresh.map(keyFor);
-    const job = runLookupNow(pool, roomId, fresh, { ...options, keys }).finally(() => {
+    const job = runLookupNow(pool, roomId, fresh, { ...options, keys, criteria }).finally(() => {
       endProgress();
       for (const key of freshKeys) {
         if (lookupNowInFlight.get(key) === job) lookupNowInFlight.delete(key);
@@ -632,62 +777,66 @@ async function runLookupNow(
   });
   if (actionable.length === 0) return [];
 
-  const attestations = await loadAttestations(pool, roomId);
-  const requested = [...new Set(options.keys ?? [...INFERABLE_KEYS])].filter((key) =>
-    (INFERABLE_KEYS as readonly string[]).includes(key),
-  );
-  const changed: string[] = [];
-  let inferenceChanged = false;
+  const [attestations, requirementRows, initialCache] = await Promise.all([
+    loadAttestations(pool, roomId),
+    pool.query(
+      `SELECT payload FROM requirements
+        WHERE room_id = $1 AND NOT withdrawn AND active IS NOT FALSE`,
+      [roomId],
+    ),
+    loadCached(pool, actionable.map((row) => row.osm_ref!).filter(Boolean)),
+  ]);
+  const activeCriteria = new Map<string, Criterion>();
+  for (const criterion of options.criteria ?? []) activeCriteria.set(criterion.id, criterion);
+  for (const row of requirementRows.rows as Array<{ payload: unknown }>) {
+    const criterion = criterionFor(row.payload as never);
+    if (criterion) activeCriteria.set(criterion.id, criterion);
+  }
+
+  interface CandidateEvaluation {
+    row: LookupCandidateRow;
+    current?: Enrichment;
+    observedAt: string;
+    before: string;
+    base?: AttributeLike[];
+    texts?: ReturnType<typeof inferenceTexts>;
+    openCriteria?: Criterion[];
+  }
+  const evaluations = new Map<string, CandidateEvaluation>();
   let cursor = 0;
   const worker = async () => {
     while (cursor < actionable.length) {
       const row = actionable[cursor++];
       const target = targetById.get(row.id)!;
       const observedAt = new Date().toISOString();
+      let current = initialCache.get(row.osm_ref!);
+      const evaluation: CandidateEvaluation = {
+        row,
+        current,
+        observedAt,
+        before: stableAttributeHash(mergedForLookup(row, current, attestations, observedAt)),
+      };
+      evaluations.set(row.id, evaluation);
       try {
-        let current = (await loadCached(pool, [row.osm_ref!])).get(row.osm_ref!);
-        const before = stableAttributeHash(mergedForLookup(row, current, attestations, observedAt));
+        let transientText: WebsiteTransientText | undefined;
 
         // Provider freshness is independent: lookup retries only the due leg,
         // retains last-known-good facts, and preserves a failed leg's TTL.
         if (target.website || target.wikidata) {
-          await lookup(pool, target, options.force === true);
-          current = (await loadCached(pool, [row.osm_ref!])).get(row.osm_ref!);
+          const pass = await lookup(pool, target, options.force === true);
+          current = pass.enrichment ?? undefined;
+          transientText = pass.pageText;
         }
-
-        if (inferenceEnabled() && requested.length > 0) {
-          const base = applyGuesses(
-            row.category,
-            applyEnrichmentAttributes(
-              (row.attributes ?? []).map((attribute) => normalizeStatus(attribute)),
-              current,
-            ),
-            observedAt,
-          );
-          // Only slots the record leaves unknown are ever inferred. Without
-          // force, a key inferred (or found unsupported) before is left
-          // alone; with force every requested key is asked again and the
-          // stored answer for it replaced.
-          const unknown = requested.filter((key) => {
-            if (base.find((attribute) => attribute.key === key)?.status !== "unknown") return false;
-            return options.force === true || !current?.inferred?.[key];
-          });
-          if (unknown.length > 0) {
-            const claims = await inferAttributes({
-              name: row.name,
-              category: row.category,
-              cuisine: cuisineTokens(base),
-              texts: inferenceTexts(row, current),
-              keys: unknown,
-            });
-            await saveInferences(pool, row.osm_ref!, claims, unknown, observedAt);
-            if (claims.length > 0) inferenceChanged = true;
-            current = (await loadCached(pool, [row.osm_ref!])).get(row.osm_ref!);
-          }
-        }
-
-        const after = stableAttributeHash(mergedForLookup(row, current, attestations, observedAt));
-        if (before !== after) changed.push(row.id);
+        evaluation.current = current;
+        evaluation.base = applyGuesses(
+          row.category,
+          applyEnrichmentAttributes(
+            (row.attributes ?? []).map((attribute) => normalizeStatus(attribute)),
+            current,
+          ),
+          observedAt,
+        );
+        evaluation.texts = inferenceTexts(row, current, transientText);
       } catch {
         // A lookup is opportunistic. One broken site/model/database row must
         // not fail the caller or prevent the rest of the batch completing.
@@ -697,6 +846,96 @@ async function runLookupNow(
   await Promise.all(
     Array.from({ length: Math.min(WARM_CONCURRENCY, actionable.length) }, () => worker()),
   );
+
+  const criteria = new Map(activeCriteria);
+  for (const evaluation of evaluations.values()) {
+    for (const key of options.keys ?? ATTRIBUTE_VOCABULARY) {
+      if (!(ATTRIBUTE_VOCABULARY as readonly string[]).includes(key)) continue;
+      const attr = evaluation.base?.find((attribute) => attribute.key === key);
+      if (attr?.status !== "unknown") continue;
+      criteria.set(key, {
+        id: key,
+        kind: "key",
+        key,
+        label: ATTRIBUTE_LABELS[key as keyof typeof ATTRIBUTE_LABELS] ?? key,
+      });
+    }
+  }
+
+  const matrixPlaces: EvaluateMatrixInput["places"] = [];
+  const matrixCriteria = new Map<string, Criterion>();
+  for (const evaluation of evaluations.values()) {
+    if (!evaluation.base || !evaluation.texts) continue;
+    const openCriteria = [...criteria.values()].filter((criterion) => {
+      const key = criterion.kind === "key" ? criterion.key : criterion.id;
+      const attr = evaluation.base!.find((attribute) => attribute.key === key);
+      if (attr && attr.status !== "unknown") return false;
+      if (!attr && criterion.kind === "key" && !activeCriteria.has(criterion.id)) return false;
+      return options.force === true || !evaluation.current?.inferred?.[key];
+    });
+    evaluation.openCriteria = openCriteria;
+    if (openCriteria.length === 0) continue;
+    for (const criterion of openCriteria) matrixCriteria.set(criterion.id, criterion);
+    matrixPlaces.push({
+      candidateId: evaluation.row.id,
+      osmRef: evaluation.row.osm_ref!,
+      name: evaluation.row.name,
+      category: evaluation.row.category,
+      cuisine: cuisineTokens(evaluation.base),
+      texts: evaluation.texts,
+    });
+  }
+
+  let inferenceChanged = false;
+  if (matrixPlaces.length > 0 && matrixCriteria.size > 0 && inferenceEnabled()) {
+    try {
+      const openByCandidate = new Map(
+        [...evaluations.values()].map((evaluation) => [
+          evaluation.row.id,
+          new Set((evaluation.openCriteria ?? []).map((criterion) => criterion.id)),
+        ]),
+      );
+      const claims = (await evaluateMatrix({
+        places: matrixPlaces,
+        criteria: [...matrixCriteria.values()],
+      })).filter((claim) => openByCandidate.get(claim.candidateId)?.has(claim.criterionId));
+      await saveInferences(
+        pool,
+        [...evaluations.values()].flatMap((evaluation) =>
+          evaluation.openCriteria?.length
+            ? [{
+                osmRef: evaluation.row.osm_ref!,
+                criteria: evaluation.openCriteria,
+                claims: claims.filter((claim) => claim.candidateId === evaluation.row.id),
+                observedAt: evaluation.observedAt,
+              }]
+            : [],
+        ),
+      );
+      inferenceChanged = claims.length > 0;
+      const refreshed = await loadCached(
+        pool,
+        [...evaluations.values()].map((evaluation) => evaluation.row.osm_ref!).filter(Boolean),
+      );
+      for (const evaluation of evaluations.values()) {
+        evaluation.current = refreshed.get(evaluation.row.osm_ref!);
+      }
+    } catch {
+      // Model and persistence work are opportunistic; provider facts still land.
+    }
+  }
+
+  const changed = [...evaluations.values()].flatMap((evaluation) => {
+    const after = stableAttributeHash(
+      mergedForLookup(
+        evaluation.row,
+        evaluation.current,
+        attestations,
+        evaluation.observedAt,
+      ),
+    );
+    return evaluation.before === after ? [] : [evaluation.row.id];
+  });
   if (changed.length > 0) {
     const notification = await withTransaction(async (client) => {
       const room = (
@@ -752,11 +991,14 @@ export function warmEnrichments(
 
 export interface AttributeLike {
   key: string;
+  label?: string;
   status: string;
   value?: string | number;
   source?: string;
   observedAt?: string;
   confidence?: number;
+  note?: string;
+  sourceUrl?: string;
 }
 
 /** A slot a looked-up fact may fill: nothing, a gap, or a mere guess. */
@@ -768,73 +1010,104 @@ export function applyEnrichmentAttributes<T extends AttributeLike>(
   attributes: T[],
   enrichment: Enrichment | undefined,
 ): T[] {
-  const web = enrichment?.website;
-  if (!web) return attributes;
-  const source = `web:${web.host}`;
-  const observedAt = web.fetchedAt;
+  const hasQuestionInference = Object.entries(enrichment?.inferred ?? {}).some(
+    ([key, stored]) => key.startsWith("q:") && !("omitted" in stored),
+  );
+  if (!enrichment?.website && !hasQuestionInference) return attributes;
   const out = attributes.map((a) => ({ ...a }));
   const at = (key: string) => out.find((a) => a.key === key);
+  const web = enrichment?.website;
   const set = (key: string, patch: Partial<AttributeLike>) => {
     const existing = at(key);
-    if (existing) Object.assign(existing, patch, { source, observedAt });
-    else out.push({ key, ...patch, source, observedAt } as T);
+    if (existing) Object.assign(existing, patch);
+    else out.push({ key, ...patch } as T);
   };
-  if (web.cuisine?.length && fillable(at("cuisine"))) {
-    set("cuisine", { status: "verified_true", value: web.cuisine.join(";"), confidence: 0.7 });
+  if (web) {
+    const source = `web:${web.host}`;
+    const observedAt = web.fetchedAt;
+    const setWeb = (key: string, patch: Partial<AttributeLike>) =>
+      set(key, { ...patch, source, observedAt });
+    if (web.cuisine?.length && fillable(at("cuisine"))) {
+      setWeb("cuisine", { status: "verified_true", value: web.cuisine.join(";"), confidence: 0.7 });
+    }
+    if (web.priceLevel && fillable(at("price-level"))) {
+      setWeb("price-level", { status: "verified_true", value: web.priceLevel, confidence: 0.6 });
+    }
+    if (web.wheelchair !== undefined && fillable(at("wheelchair-accessible"))) {
+      setWeb("wheelchair-accessible", {
+        status: web.wheelchair ? "verified_true" : "verified_false",
+        confidence: 0.7,
+      });
+    }
+    // A word on the menu page is evidence, not a verdict (§8.2): a likely fact
+    // at modest confidence, so the room sees there is something to check and
+    // the engine reads the place as likely, never as in.
+    for (const key of web.menuMentions ?? []) {
+      const existing = at(key);
+      if (!existing || existing.status === "unknown") {
+        setWeb(key, { status: "likely_true", value: "mentioned on the menu", confidence: 0.6 });
+      }
+    }
+    // What a model read off a menu picture: a guess with its confidence,
+    // capped below verified (menu-reader.ts), labelled as read, evidence kept.
+    const reading = web.menuReading;
+    if (reading?.legible) {
+      const readSource = `menu:${web.host}`;
+      for (const c of reading.claims) {
+        const existing = at(c.key);
+        if (existing && existing.status !== "unknown" && !existing.source?.startsWith("guess:")) continue;
+        const patch = {
+          status: (c.lean === "yes" ? "likely_true" : "likely_false") as string,
+          value: c.evidence ? `menu: ${c.evidence}` : "read from the menu",
+          confidence: c.confidence,
+          source: readSource,
+          observedAt: reading.readAt,
+        };
+        if (existing) Object.assign(existing, patch);
+        else out.push({ key: c.key, ...patch } as T);
+      }
+      if (reading.cuisine.length && fillable(at("cuisine"))) {
+        const existing = at("cuisine");
+        const patch = { status: "likely_true", value: reading.cuisine.join(";"), confidence: 0.6, source: readSource, observedAt: reading.readAt };
+        if (existing) Object.assign(existing, patch);
+        else out.push({ key: "cuisine", ...patch } as T);
+      }
+      if (reading.priceLevel && fillable(at("price-level"))) {
+        const existing = at("price-level");
+        const patch = { status: "likely_true", value: reading.priceLevel, confidence: 0.5, source: readSource, observedAt: reading.readAt };
+        if (existing) Object.assign(existing, patch);
+        else out.push({ key: "price-level", ...patch } as T);
+      }
+    }
+    if (web.hours?.length && (at("hours")?.status === "unknown" || at("hours")?.status === "likely_true")) {
+      // A pill, not a timetable: the first rules, capped, as published.
+      const value = web.hours.slice(0, 3).join("; ");
+      setWeb("hours", { status: "likely_true", value: value.length > 80 ? `${value.slice(0, 79)}…` : value, confidence: 0.6 });
+    }
   }
-  if (web.priceLevel && fillable(at("price-level"))) {
-    set("price-level", { status: "verified_true", value: web.priceLevel, confidence: 0.6 });
-  }
-  if (web.wheelchair !== undefined && fillable(at("wheelchair-accessible"))) {
-    set("wheelchair-accessible", {
-      status: web.wheelchair ? "verified_true" : "verified_false",
-      confidence: 0.7,
+
+  for (const [key, stored] of Object.entries(enrichment?.inferred ?? {})) {
+    if (!key.startsWith("q:") || "omitted" in stored || !fillable(at(key))) continue;
+    const questionStored = stored as {
+      lean: "yes" | "no";
+      confidence: number;
+      evidence: string;
+      source: string;
+      observedAt: string;
+      sourceUrl?: string;
+      question?: string;
+      label?: string;
+    };
+    const confidence = Math.min(questionStored.confidence, 0.6);
+    set(key, {
+      label: questionStored.label ?? questionStored.question ?? key,
+      status: graded(questionStored.lean === "yes", confidence),
+      source: questionStored.source,
+      observedAt: questionStored.observedAt,
+      confidence,
+      note: sanitizeInferenceNote(questionStored.evidence),
+      ...(questionStored.sourceUrl ? { sourceUrl: questionStored.sourceUrl } : {}),
     });
-  }
-  // A word on the menu page is evidence, not a verdict (§8.2): a likely fact
-  // at modest confidence, so the room sees there is something to check and
-  // the engine reads the place as likely, never as in.
-  for (const key of web.menuMentions ?? []) {
-    const existing = at(key);
-    if (!existing || existing.status === "unknown") {
-      set(key, { status: "likely_true", value: "mentioned on the menu", confidence: 0.6 });
-    }
-  }
-  // What a model read off a menu picture: a guess with its confidence,
-  // capped below verified (menu-reader.ts), labelled as read, evidence kept.
-  const reading = web.menuReading;
-  if (reading?.legible) {
-    const readSource = `menu:${web.host}`;
-    for (const c of reading.claims) {
-      const existing = at(c.key);
-      if (existing && existing.status !== "unknown" && !existing.source?.startsWith("guess:")) continue;
-      const patch = {
-        status: (c.lean === "yes" ? "likely_true" : "likely_false") as string,
-        value: c.evidence ? `menu: ${c.evidence}` : "read from the menu",
-        confidence: c.confidence,
-        source: readSource,
-        observedAt: reading.readAt,
-      };
-      if (existing) Object.assign(existing, patch);
-      else out.push({ key: c.key, ...patch } as T);
-    }
-    if (reading.cuisine.length && fillable(at("cuisine"))) {
-      const existing = at("cuisine");
-      const patch = { status: "likely_true", value: reading.cuisine.join(";"), confidence: 0.6, source: readSource, observedAt: reading.readAt };
-      if (existing) Object.assign(existing, patch);
-      else out.push({ key: "cuisine", ...patch } as T);
-    }
-    if (reading.priceLevel && fillable(at("price-level"))) {
-      const existing = at("price-level");
-      const patch = { status: "likely_true", value: reading.priceLevel, confidence: 0.5, source: readSource, observedAt: reading.readAt };
-      if (existing) Object.assign(existing, patch);
-      else out.push({ key: "price-level", ...patch } as T);
-    }
-  }
-  if (web.hours?.length && (at("hours")?.status === "unknown" || at("hours")?.status === "likely_true")) {
-    // A pill, not a timetable: the first rules, capped, as published.
-    const value = web.hours.slice(0, 3).join("; ");
-    set("hours", { status: "likely_true", value: value.length > 80 ? `${value.slice(0, 79)}…` : value, confidence: 0.6 });
   }
   return out;
 }

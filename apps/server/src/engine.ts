@@ -18,7 +18,11 @@ import {
   type FailureEnvelope,
   type SuccessEnvelope,
   type ToolResult,
+  type Criterion,
   ATTRIBUTE_LABELS,
+  criterionFor,
+  implies,
+  normalizeCuisineTokens,
 } from "@webmcp-hackathon/contracts";
 import { pool, withTransaction } from "./db.ts";
 import type { Participant } from "./auth.ts";
@@ -145,9 +149,9 @@ interface HandlerOutcome {
   /** The committed scope changed its circle; resume whole-area filling. */
   poolFill?: boolean;
   error?: FailureEnvelope;
-  /** An attribute need that should start an opportunistic lookup after commit. */
+  /** A criterion-bearing need that should start an opportunistic lookup after commit. */
   lookup?: {
-    key: string;
+    criterion: Criterion;
     label: string;
     visibility: SubmitRequirementCmd["visibility"];
   };
@@ -441,7 +445,7 @@ export async function submitCommand(
     // fetch/model failure are intentionally detached from command success.
     void triggerNeedLookup(
       actor.roomId,
-      result.lookup.key,
+      result.lookup.criterion,
       result.lookup.label,
       result.lookup.visibility,
     ).catch((err) => {
@@ -457,17 +461,41 @@ export async function submitCommand(
 
 async function triggerNeedLookup(
   roomId: string,
-  key: string,
+  criterion: Criterion,
   label: string,
   visibility: SubmitRequirementCmd["visibility"],
 ): Promise<void> {
   const inputs = await loadEligibilityInputs(pool, roomId);
+  const cuisineValues = criterion.kind === "key" && criterion.key === "cuisine"
+    ? normalizeCuisineTokens(
+        inputs.requirements.flatMap((requirement) => {
+          const payload = requirement.payload;
+          return requirement.active !== false &&
+            (payload?.kind === "inclusion" || payload?.kind === "exclusion") &&
+            payload.key === "cuisine"
+            ? payload.values ?? []
+            : [];
+        }),
+      )
+    : [];
   const unknown = inScope(inputs.candidates, inputs.scope)
-    .filter(
-      (candidate) =>
-        (candidate.attributes.find((attribute) => attribute.key === key)?.status ?? "unknown") ===
-        "unknown",
-    )
+    .filter((candidate) => {
+      const key = criterion.kind === "key" ? criterion.key : criterion.id;
+      const attribute = candidate.attributes.find((item) => item.key === key);
+      if (criterion.kind === "question") return (attribute?.status ?? "unknown") === "unknown";
+      if (criterion.key !== "cuisine") return (attribute?.status ?? "unknown") === "unknown";
+      const recorded = typeof attribute?.value === "string"
+        ? normalizeCuisineTokens(attribute.value)
+        : [];
+      if (recorded.length > 0 && attribute?.status !== "unknown") return false;
+      // Some snapshots use a dish as their category. A taxonomy implication
+      // already supplies cuisine evidence, so those places are not lookup gaps.
+      return !normalizeCuisineTokens(candidate.category).some(
+        (token) =>
+          cuisineValues.includes(token) ||
+          implies(token).some(({ cuisine }) => cuisineValues.includes(cuisine)),
+      );
+    })
     .sort((a, b) => a.walk_min - b.walk_min || a.id.localeCompare(b.id))
     .slice(0, 24);
   const targets = unknown.flatMap((candidate) => {
@@ -475,7 +503,8 @@ async function triggerNeedLookup(
     return target ? [{ candidateId: candidate.id, ...target }] : [];
   });
   await lookupNow(pool, roomId, targets, {
-    keys: [key],
+    keys: criterion.kind === "key" ? [criterion.key] : [],
+    criteria: [criterion],
     reason: {
       kind: "need",
       ...(visibility === "shared" ? { label } : {}),
@@ -732,18 +761,18 @@ async function submitRequirement(
       ...(cmd.note ? { note: cmd.note } : {}),
     },
   });
+  const criterion = criterionFor(cmd.payload as never);
   return {
     events,
     effect: `Requirement ${existing ? "updated" : "recorded"}.`,
-    ...(cmd.payload?.kind === "attribute"
+    ...(criterion
       ? {
           lookup: {
-            key: String(cmd.payload.key),
+            criterion,
             visibility: cmd.visibility,
-            label:
-              cmd.payload.expect === "verified_false"
+            label: cmd.payload?.kind === "attribute" && cmd.payload.expect === "verified_false"
                 ? `no ${ATTRIBUTE_LABELS[cmd.payload.key as keyof typeof ATTRIBUTE_LABELS] ?? cmd.payload.key}`
-                : ATTRIBUTE_LABELS[cmd.payload.key as keyof typeof ATTRIBUTE_LABELS] ?? String(cmd.payload.key),
+                : criterion.label,
           },
         }
       : {}),
@@ -845,6 +874,7 @@ async function setRequirementActive(
       [actor.roomId, cmd.requirementId],
     );
   }
+  const criterion = criterionFor(row.payload as never);
   return {
     events: [
       {
@@ -862,15 +892,14 @@ async function setRequirementActive(
       },
     ],
     effect: cmd.active ? "Need reapplied." : "Need set aside.",
-    ...(cmd.active && row.payload?.kind === "attribute"
+    ...(cmd.active && criterion
       ? {
           lookup: {
-            key: String(row.payload.key),
+            criterion,
             visibility: row.visibility,
-            label:
-              row.payload.expect === "verified_false"
+            label: row.payload?.kind === "attribute" && row.payload.expect === "verified_false"
                 ? `no ${ATTRIBUTE_LABELS[row.payload.key as keyof typeof ATTRIBUTE_LABELS] ?? row.payload.key}`
-                : ATTRIBUTE_LABELS[row.payload.key as keyof typeof ATTRIBUTE_LABELS] ?? String(row.payload.key),
+                : criterion.label,
           },
         }
       : {}),

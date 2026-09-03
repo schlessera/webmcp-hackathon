@@ -140,6 +140,11 @@ describe("facets describe what is askable about the current set", () => {
     expect(cuisine.type).toBe("enum");
     expect(cuisine.counts.unknown).toBe(6);
     expect(cuisine.values!.find((v) => v.value === "italian")!.count).toBe(3);
+    // Buckets are disjoint and add up to the set, so a reader can total them;
+    // implications widen `values`, never the counts.
+    const c = cuisine.counts;
+    expect((c.yes ?? 0) + (c.likely ?? 0) + (c.unlikely ?? 0) + (c.no ?? 0) + c.unknown)
+      .toBe(31);
     expect(cuisine.values!.map((v) => v.count)).toEqual(
       [...cuisine.values!.map((v) => v.count)].sort((a, b) => b - a),
     );
@@ -154,6 +159,21 @@ describe("facets describe what is askable about the current set", () => {
     );
     const tokens = facetFor(multi, "cuisine").values!.map((v) => v.value);
     expect(tokens.sort()).toEqual(["italian", "pizza"]);
+  });
+
+  it("publishes implied and likely cuisine values for fast-tier routing", () => {
+    const cuisine = facetFor(computeFacets([
+      { ...candidates[0], id: "pizza", attributes: [{ key: "cuisine", status: "verified_true", value: "pizza" }] },
+      { ...candidates[0], id: "thai", attributes: [{ key: "cuisine", status: "likely_true", value: "thai" }] },
+    ], null), "cuisine");
+    expect(cuisine.values).toEqual(expect.arrayContaining([
+      { value: "italian", label: "Italian", count: 1 },
+      { value: "thai", label: "Thai", count: 1 },
+      { value: "asian", label: "Asian", count: 1 },
+    ]));
+    // The Thai place rests on a guess, the pizza place on the record: one each,
+    // and "asian"/"italian" reach the value list only by implication.
+    expect(cuisine.counts).toMatchObject({ yes: 1, likely: 1, unknown: 0 });
   });
 
   it("measures walking time from the CURRENT scope centre, and omits it without one", () => {
@@ -198,11 +218,13 @@ describe("activeNeeds carry the counterfactual deltas the brief rows show", () =
     // verified as lacking it. It only makes places unsure, which is exactly
     // what "unverified is not a failure" means numerically.
     const veg = joe.activeNeeds.find((n) => n.id === "req_1")!;
+    expect(veg.criterionId).toBe("vegetarian-options");
     expect(veg.ruledOut).toBe(0);
     expect(veg.unknown).toBe(9);
 
     expect(joe.activeNeeds.find((n) => n.id === "req_3")!.ruledOut).toBe(3); // italian
     expect(joe.activeNeeds.find((n) => n.id === "req_4")!.ruledOut).toBe(1); // over €15
+    expect(joe.activeNeeds.find((n) => n.id === "req_4")).not.toHaveProperty("criterionId");
   });
 
   it("wouldReturn equals the actually recomputed set, never an estimate", () => {
@@ -353,7 +375,7 @@ describe("setting a need aside", () => {
 });
 
 describe("free text needs", () => {
-  it("leave every place unverified and rule none out", () => {
+  it("produce no facet but retain a question criterion and real counts", () => {
     const text = req({ kind: "text", text: "somewhere the kids can run" });
     const bundle = computeFacetsBundle(inputsAt(1400, [text]), "p_org");
     expect(bundle.matching).toBe(0);
@@ -361,5 +383,7 @@ describe("free text needs", () => {
     expect(need.ruledOut).toBe(0);
     expect(need.unknown).toBe(bundle.total);
     expect(need.label).toBe("somewhere the kids can run");
+    expect(need.criterionId).toMatch(/^q:[0-9a-f]{40}$/);
+    expect(bundle.facets.some((facet) => facet.key === need.criterionId)).toBe(false);
   });
 });

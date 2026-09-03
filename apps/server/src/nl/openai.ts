@@ -17,6 +17,12 @@ export interface FunctionTool {
   strict?: boolean;
 }
 
+export interface WebSearchTool {
+  type: "web_search";
+  filters?: { allowed_domains: string[] };
+  search_context_size?: "low" | "medium" | "high";
+}
+
 /** A user turn may carry an image or a file beside its text (menu reader). */
 export type ContentPart =
   | { type: "input_text"; text: string }
@@ -34,7 +40,9 @@ export interface Call {
   input: InputItem[];
   /** Strict JSON schema the answer must satisfy. */
   schema?: { name: string; schema: unknown };
-  tools?: FunctionTool[];
+  tools?: Array<FunctionTool | WebSearchTool>;
+  /** Extra built-in-tool output fields requested from Responses. */
+  include?: string[];
   reasoning?: "none" | "minimal" | "low" | "medium" | "high";
   maxOutputTokens?: number;
   timeoutMs?: number;
@@ -52,6 +60,10 @@ export interface Reply {
   toolCalls: ToolCall[];
   /** Raw output items, re-fed verbatim on the next turn of a tool loop. */
   outputItems: unknown[];
+  /** URL citations carried by output_text annotations. */
+  citations?: Array<{ url: string; title?: string; start?: number; end?: number }>;
+  /** Raw built-in search call items, also retained in outputItems for re-feed. */
+  webSearchCalls?: unknown[];
   ms: number;
   model: string;
 }
@@ -115,6 +127,7 @@ export async function respond(call: Call): Promise<Reply> {
     };
   }
   if (call.tools?.length) body.tools = call.tools;
+  if (call.include) body.include = call.include;
   if (call.reasoning) body.reasoning = { effort: call.reasoning };
   if (call.maxOutputTokens) body.max_output_tokens = call.maxOutputTokens;
 
@@ -127,11 +140,22 @@ export async function respond(call: Call): Promise<Reply> {
   const output = raw.output ?? [];
   const texts: string[] = [];
   const toolCalls: ToolCall[] = [];
+  const citations: NonNullable<Reply["citations"]> = [];
+  const webSearchCalls: unknown[] = [];
   for (const item of output) {
     if (item.type === "message") {
       for (const part of (item.content as Array<Record<string, unknown>>) ?? []) {
         if (part.type === "output_text" && typeof part.text === "string") {
           texts.push(part.text);
+          for (const annotation of (part.annotations as Array<Record<string, unknown>>) ?? []) {
+            if (annotation.type !== "url_citation" || typeof annotation.url !== "string") continue;
+            citations.push({
+              url: annotation.url,
+              ...(typeof annotation.title === "string" ? { title: annotation.title } : {}),
+              ...(typeof annotation.start_index === "number" ? { start: annotation.start_index } : {}),
+              ...(typeof annotation.end_index === "number" ? { end: annotation.end_index } : {}),
+            });
+          }
         }
       }
     } else if (item.type === "function_call") {
@@ -140,12 +164,16 @@ export async function respond(call: Call): Promise<Reply> {
         name: String(item.name),
         arguments: String(item.arguments ?? "{}"),
       });
+    } else if (item.type === "web_search_call") {
+      webSearchCalls.push(item);
     }
   }
   return {
     text: texts.length ? texts.join("\n") : null,
     toolCalls,
     outputItems: output,
+    ...(citations.length ? { citations } : {}),
+    ...(webSearchCalls.length ? { webSearchCalls } : {}),
     ms: Date.now() - started,
     model: call.model,
   };

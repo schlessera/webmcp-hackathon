@@ -261,6 +261,8 @@ export interface Facet {
  */
 export interface ActiveNeed {
   id: string;
+  /** Fact lookup identity; absent for deterministic budget and scope needs. */
+  criterionId?: string;
   /** Server-composed, viewer-authorized. */
   label: string;
   /** How many in-scope places this need ALONE rules out. */
@@ -412,6 +414,8 @@ export interface CandidateDossier {
   awards?: Array<{ label: string; source: string }>;
   attributes: Array<{
     key: string;
+    /** Reader-facing name for a non-vocabulary fact, such as the question a lookup answered. */
+    label?: string;
     value?: string | number;
     status: string;
     source: string;

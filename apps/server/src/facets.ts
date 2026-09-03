@@ -9,6 +9,9 @@ import {
   ATTRIBUTE_LABELS,
   ATTRIBUTE_VOCABULARY,
   PRICE_LEVEL_EUR,
+  criterionFor,
+  implies,
+  normalizeCuisineTokens,
 } from "@webmcp-hackathon/contracts";
 import {
   classifyAll,
@@ -118,8 +121,10 @@ export function computeFacetsBundle(
     if (req.owner_id === viewerId || req.visibility === "shared") {
       const suppressed = req.id === suppressRequirementId;
       const stillActive = isActive(req) && !suppressed;
+      const criterion = criterionFor(req.payload as never);
       activeNeeds.push({
         id: req.id,
+        ...(criterion ? { criterionId: criterion.id } : {}),
         label: labelForRequirement(req, req.owner_id === viewerId),
         ruledOut,
         unknown: alone.filter(
@@ -216,22 +221,41 @@ export function computeFacets(
   return facets;
 }
 
-/** Multi-valued OSM tags ("pizza;italian") count once per token, the same
- * tokenization the cuisine exclusion predicate matches on. */
+/** Exact values and sourced implications share the enum value list, while
+ * the facet's graded counts keep implications and inferred cuisine separate. */
 function cuisineFacet(candidates: CandidateRow[]): Facet | null {
   const counts = new Map<string, number>();
+  let yes = 0;
+  let likely = 0;
+  let unlikely = 0;
+  let no = 0;
   let unknown = 0;
   for (const c of candidates) {
     const attr = c.attributes?.find((a) => a.key === "cuisine");
-    const tokens =
-      attr?.status === "verified_true" && typeof attr.value === "string"
-        ? attr.value.split(";").map((t) => t.trim()).filter(Boolean)
-        : [];
+    const positive = attr?.status === "verified_true" || attr?.status === "likely_true";
+    const tokens = positive && typeof attr.value === "string" ? normalizeCuisineTokens(attr.value) : [];
     if (tokens.length === 0) {
-      unknown += 1;
+      if (attr?.status === "likely_false") unlikely += 1;
+      else if (attr?.status === "verified_false") no += 1;
+      else unknown += 1;
       continue;
     }
-    for (const t of tokens) counts.set(t, (counts.get(t) ?? 0) + 1);
+    const exact = new Set(tokens);
+    const implied = new Set(tokens.flatMap((token) => implies(token).map((row) => row.cuisine)));
+    for (const value of exact) counts.set(value, (counts.get(value) ?? 0) + 1);
+    for (const value of implied) {
+      if (!exact.has(value)) counts.set(value, (counts.get(value) ?? 0) + 1);
+    }
+    // Buckets stay disjoint: one place lands in exactly one of them, so a
+    // reader can add them up. Implied values still widen `values`, which is
+    // what routing a sentence like "Italian" reads.
+    if (attr?.status === "verified_true") {
+      yes += 1;
+    } else if (attr?.status === "likely_true") {
+      likely += 1;
+    } else if (attr?.status === "likely_false") unlikely += 1;
+    else if (attr?.status === "verified_false") no += 1;
+    else unknown += 1;
   }
   if (counts.size === 0) return null;
   const values: FacetValueCount[] = [...counts.entries()]
@@ -242,7 +266,13 @@ function cuisineFacet(candidates: CandidateRow[]): Facet | null {
     label: labelForKey("cuisine"),
     type: "enum",
     values,
-    counts: { unknown },
+    counts: {
+      yes,
+      ...(likely ? { likely } : {}),
+      ...(unlikely ? { unlikely } : {}),
+      no,
+      unknown,
+    },
   };
 }
 

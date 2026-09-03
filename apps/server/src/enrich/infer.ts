@@ -79,10 +79,13 @@ export const INFERENCE_SCHEMA = {
 
 export const INFERENCE_PROMPT = [
   "Extract cautious, evidence-backed venue attribute inferences for a planning tool.",
-  "Return at most one claim for each requested key, and omit a key when the supplied material does not support a lean. Omission is correct and expected; do not fill every key.",
+  "Return one claim for each requested key when the supplied material supports a cautious lean; otherwise omit that key.",
+  "Abstain rather than inventing: every claim needs direct support in the supplied material, and omission remains the correct result when that support is absent.",
   "Only use requested keys. Boolean keys use lean=yes or lean=no and value=null. For price-level, value must be a band from 1 (cheap) to 4 (expensive); omit it unless that band is supported.",
   "evidence must be a verbatim substring copied from the supplied name, category, cuisine tokens, or texts. Never paraphrase it.",
   "evidenceSource must identify where that exact span occurs: name_category for name/category/cuisine, description_website for osm/web/wikidata text, or menu for menu text.",
+  "Use each text item's source field, not what its prose resembles: source=web/osm/wikidata requires description_website, and only source=menu permits menu.",
+  "An explicitly described service, facility, or menu item may support lean=yes. Lean=no requires explicit negative wording; silence, missing navigation labels, or a single item without the feature is not negative evidence.",
   "confidence is the probability that the attribute genuinely holds, from 0 to 1. It will be capped by the server. Never claim that an inference is verified.",
   "Output only the JSON object required by the schema.",
 ].join("\n");
@@ -131,12 +134,14 @@ const WORD_CHARACTER = /[\p{L}\p{N}]/u;
 const WORDS = /[\p{L}\p{N}]+/gu;
 
 function hasWholeSpan(text: string, evidence: string): boolean {
+  const haystack = text.toLocaleLowerCase();
+  const needle = evidence.toLocaleLowerCase();
   let from = 0;
   for (;;) {
-    const at = text.indexOf(evidence, from);
+    const at = haystack.indexOf(needle, from);
     if (at < 0) return false;
-    const before = text.slice(0, at);
-    const after = text.slice(at + evidence.length);
+    const before = haystack.slice(0, at);
+    const after = haystack.slice(at + needle.length);
     const leftIsWord = WORD_CHARACTER.test([...before].at(-1) ?? "");
     const rightIsWord = WORD_CHARACTER.test([...after][0] ?? "");
     if (!leftIsWord && !rightIsWord) return true;
