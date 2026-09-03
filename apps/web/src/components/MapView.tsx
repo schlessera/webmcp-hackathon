@@ -17,6 +17,7 @@ import type {
 } from "../spatial-types.ts";
 import type { LookupReason, PipelineStage, PipelineView } from "../spatial-store.ts";
 import { COPY, initials, numberWord, personColor, stillWorkVerb, tiltFor } from "../ui/copy.ts";
+import { HoverCard } from "./HoverCard.tsx";
 
 /**
  * The shared map.
@@ -393,6 +394,59 @@ export function MapView({
   const selectionDispatches = useRef(0);
   selectedIdRef.current = selectedId;
   candidatesRef.current = candidates;
+  // Hover card: which place a fine pointer rests on (or keyboard focus sits
+  // on), and where its dot is inside the band. Only places with an image.
+  const [hover, setHover] = useState<{ id: string; x: number; y: number } | null>(null);
+  const hoverTimer = useRef<number | null>(null);
+  const finePointer = useMemo(
+    () => typeof window !== "undefined" && typeof window.matchMedia === "function"
+      ? window.matchMedia("(pointer: fine)").matches
+      : false,
+    [],
+  );
+  const clearHover = useCallback(() => {
+    if (hoverTimer.current !== null) {
+      window.clearTimeout(hoverTimer.current);
+      hoverTimer.current = null;
+    }
+    setHover((h) => (h ? null : h));
+  }, []);
+  /** Show after 120 ms so a cursor crossing dots does not flicker cards. */
+  const scheduleHover = useCallback((id: string, x: number, y: number) => {
+    if (hoverTimer.current !== null) window.clearTimeout(hoverTimer.current);
+    hoverTimer.current = window.setTimeout(() => {
+      hoverTimer.current = null;
+      setHover({ id, x, y });
+    }, 120);
+  }, []);
+  /** Where a place's dot is inside the band, from the map projection. */
+  const bandPointOf = useCallback((candidateId: string): { x: number; y: number } | null => {
+    const map = mapRef.current;
+    const c = candidates.find((cand) => cand.candidateId === candidateId);
+    if (!map || !c) return null;
+    const p = map.project([c.location.lng, c.location.lat]);
+    return { x: p.x, y: p.y };
+  }, [candidates]);
+  const hoverableId = useCallback(
+    (candidateId: string | null): string | null =>
+      candidateId && candidates.some((c) => c.candidateId === candidateId && c.image)
+        ? candidateId
+        : null,
+    [candidates],
+  );
+  const hoverFor = useCallback((candidateId: string | null) => {
+    const id = hoverableId(candidateId);
+    if (!id) {
+      clearHover();
+      return;
+    }
+    const point = bandPointOf(id);
+    if (!point) return;
+    scheduleHover(id, point.x, point.y);
+  }, [bandPointOf, clearHover, hoverableId, scheduleHover]);
+  useEffect(() => () => {
+    if (hoverTimer.current !== null) window.clearTimeout(hoverTimer.current);
+  }, []);
   onSelectRef.current = onSelect;
   const dispatchSelect = useCallback((candidateId: string | null) => {
     selectionDispatches.current += 1;
@@ -1746,19 +1800,32 @@ export function MapView({
           viewportSettled();
         }}
         onMoveEnd={viewportSettled}
+        onMoveStart={clearHover}
+        onDragStart={clearHover}
         onMouseMove={(event) => {
-          // The place under the pointer, resolved the way a tap is (card box
-          // first, then the nearest dot): a prefetch hint the socket
-          // debounces. Never during a drag — a button held down is a pan,
-          // and GL dots sliding under the pointer are not an intent.
+          // One resolver for two consumers: the place under the pointer,
+          // resolved the way a tap is (card box first, then the nearest
+          // dot), feeds the prefetch hint the socket debounces AND the
+          // hover card (GL dots have no DOM element to hover; a DOM marker
+          // handles its own hover). Never during a drag — a button held
+          // down is a pan, and GL dots sliding under the pointer are not an
+          // intent.
           if (event.originalEvent.buttons !== 0) return;
+          const overMarker = Boolean(
+            (event.originalEvent.target as Element | null)?.closest?.(".maplibregl-marker"),
+          );
           const map = mapRef.current;
           const mapRect = map?.getContainer().getBoundingClientRect();
           const clientX = (mapRect?.left ?? 0) + event.point.x;
           const clientY = (mapRect?.top ?? 0) + event.point.y;
-          onPreview(cardAt(clientX, clientY) ?? nearestTo(clientX, clientY));
+          const under = cardAt(clientX, clientY) ?? nearestTo(clientX, clientY);
+          onPreview(under);
+          if (finePointer && !overMarker) hoverFor(under);
         }}
-        onMouseOut={() => onPreview(null)}
+        onMouseOut={() => {
+          onPreview(null);
+          clearHover();
+        }}
         onClick={(event) => {
           // A marker handles its own tap. Maplibre binds click on the canvas
           // container that markers are appended into, so without this the map
@@ -2145,8 +2212,14 @@ export function MapView({
                 tabIndex={0}
                 onMouseEnter={() => onPreview(c.candidateId)}
                 onMouseLeave={() => onPreview(null)}
-                onFocus={() => onPreview(c.candidateId)}
-                onBlur={() => onPreview(null)}
+                onFocus={() => {
+                  onPreview(c.candidateId);
+                  hoverFor(c.candidateId);
+                }}
+                onBlur={() => {
+                  onPreview(null);
+                  clearHover();
+                }}
                 aria-label={`${c.name} — ${STATE_LABEL[state]}${
                   busy.has(c.candidateId) ? ", being looked up" : ""
                 }${
@@ -2154,6 +2227,11 @@ export function MapView({
                     ? `, ${viewers.map((v) => v.p.displayName).join(" and ")} looking`
                     : ""
                 }`}
+                onPointerEnter={(e) => {
+                  if (!finePointer || e.pointerType !== "mouse") return;
+                  hoverFor(cardAt(e.clientX, e.clientY) ?? c.candidateId);
+                }}
+                onPointerLeave={clearHover}
                 onClick={(e) => {
                   e.stopPropagation();
                   // A drawn name card owns every tap in its box, even where
@@ -2288,6 +2366,20 @@ export function MapView({
         )}
       </Map>
       )}
+      {hover && (() => {
+        const c = candidates.find((cand) => cand.candidateId === hover.id);
+        const rect = mapRef.current?.getContainer().getBoundingClientRect();
+        return c?.image ? (
+          <HoverCard
+            name={c.name}
+            image={c.image}
+            x={hover.x}
+            y={hover.y}
+            bandWidth={rect?.width ?? 0}
+            bandHeight={rect?.height ?? 0}
+          />
+        ) : null;
+      })()}
 
       <ul className="sr-only candidate-keyboard-list" aria-label="Places on the map">
         {keyboardList}

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { ATTRIBUTE_LABELS, PRICE_LEVEL_EUR } from "@webmcp-hackathon/contracts";
+import { blurhashDataUrl } from "../ui/blurhash.ts";
 import { placeImageBlob, spatialInspectRaw, spatialLookupRaw } from "../api.ts";
 import type { InteractiveStage } from "../spatial-store.ts";
 
@@ -201,8 +202,14 @@ function PlacePhoto({ image, alt }: { image: DossierImage; alt: string }) {
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
   }, [image.url]);
+  const placeholder = blurhashDataUrl(image.blurhash);
   return (
-    <div className="details-photo-frame" ref={frame}>
+    <div
+      className="details-photo-frame"
+      ref={frame}
+      data-placeholder={placeholder && !src ? "true" : undefined}
+      style={placeholder ? { backgroundImage: `url(${placeholder})` } : undefined}
+    >
       <img
         src={src}
         alt={alt}
@@ -688,6 +695,35 @@ export function PlaceDetails({
       </div>
 
       <div className="details-body">
+        {/* Before the dossier lands the summary already says whether a
+            photo exists: the band's box is reserved from first paint with
+            the blurhash painted, so nothing below shifts when the bytes
+            arrive. Unknown but being looked up: a thin quiet band that only
+            collapses once the lookup ends without a photo. */}
+        {photos.length === 0 && !dossier && candidate.image && (
+          <div className="details-photo" data-testid="photo-band" data-reserved="true">
+            <div
+              className="details-photo-band"
+              data-count={1}
+            >
+              <div
+                className="details-photo-frame"
+                data-placeholder="true"
+                style={
+                  blurhashDataUrl(candidate.image.blurhash)
+                    ? { backgroundImage: `url(${blurhashDataUrl(candidate.image.blurhash)})` }
+                    : undefined
+                }
+              />
+            </div>
+          </div>
+        )}
+        {photos.length === 0 && dossier && !candidate.image && lookingUp && (
+          <div className="details-photo-looking" data-testid="photo-looking" role="status">
+            <i className="busy-ring row-busy" aria-hidden="true" />
+            {COPY.lookingForPhoto}
+          </div>
+        )}
         {photos.length > 0 && (
           <div className="details-photo" data-testid="photo-band">
             <div

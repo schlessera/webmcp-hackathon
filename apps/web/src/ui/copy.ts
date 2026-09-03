@@ -331,6 +331,7 @@ export const COPY = {
   readingRecord: "reading the record…",
   recordRead: "what the record says",
   photoFromPlaceSite: "from the place's site ↗",
+  lookingForPhoto: "looking for a photo…",
   photoFromOpenStreetMap: "photo · from OpenStreetMap ↗",
   photoNearPlace: (credit: string) => `photo near this place · ${credit} ↗`,
   photoCredit: (credit: string, license: string) => `photo · ${credit} · ${license} ↗`,
