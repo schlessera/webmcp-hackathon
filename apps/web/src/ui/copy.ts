@@ -155,6 +155,26 @@ const DAY_SHORT: Record<string, string> = {
 };
 const DAY_ORDER = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
 
+/** The one normalisation the hours share: a weekday the lines can draw, or
+ * nothing. Anything else the record carries — a holiday, a season, a typo —
+ * is neither drawn nor counted. */
+function dayKey(day: string): string | null {
+  const key = day.toLowerCase().slice(0, 3);
+  return DAY_ORDER.includes(key) ? key : null;
+}
+
+/** How much of the week the record actually carries, for the fold's count.
+ * A schedule row is not a day: split shifts and overnight ranges give a day
+ * several rows, and counting rows claims a ten-day week. At most seven. */
+export function hoursDays(hours: Array<{ day: string }>): number {
+  const days = new Set<string>();
+  for (const h of hours) {
+    const day = dayKey(h.day);
+    if (day !== null) days.add(day);
+  }
+  return days.size;
+}
+
 /**
  * Opening hours as lines: consecutive days with the same times fold into a
  * range ("Mon–Fri 9:00–18:00"). Data in, words out; nothing domain-shaped.
@@ -164,8 +184,8 @@ export function hoursLines(
 ): Array<{ days: string; times: string }> {
   const byDay = new Map<string, string[]>();
   for (const h of hours) {
-    const day = h.day.toLowerCase().slice(0, 3);
-    if (!DAY_ORDER.includes(day)) continue;
+    const day = dayKey(h.day);
+    if (day === null) continue;
     const list = byDay.get(day) ?? [];
     list.push(`${h.open}–${h.close}`);
     byDay.set(day, list);

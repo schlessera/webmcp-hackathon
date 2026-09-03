@@ -416,7 +416,9 @@ Facts from OpenStreetMap.         ← one sources line for the whole panel
   `tap-44`. Facts that arrive update their rows in place; the first render
   never looks final.
 - **The two folds.** "Where and when" keeps the open-now line, the address
-  and the phone; the per-day rows sit behind `hours for 7 days on record`.
+  and the phone; the per-day rows sit behind `hours for 7 days on record`,
+  which counts weekdays the lines can draw, never schedule rows — a split
+  shift or an overnight range is one day, and seven is the ceiling.
   "Also on record" shows only `12 on record · 3 not on record` until it is
   asked to open. Both start closed, both are absolute counts and never an
   instruction, and neither hides that the facts exist.

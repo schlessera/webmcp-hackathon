@@ -21,6 +21,7 @@ import {
   COPY,
   attributeValue,
   confidenceWord,
+  hoursDays,
   hoursLines,
   initials,
   numberWord,
@@ -734,7 +735,6 @@ export function PlaceDetails({
       data-facts-settling={factsSettlingCandidate === candidate.candidateId || undefined}
       data-testid="place-details"
       aria-label={candidate.name}
-      aria-busy={working || undefined}
     >
       {/* One element top-left with two faces, never both. Busy names the
           step the panel is on; idle is the way to ask for a fresh read.
@@ -783,7 +783,11 @@ export function PlaceDetails({
         </button>
       </div>
 
-      <div className="details-body">
+      {/* The incomplete region is the body, not the panel. aria-busy on the
+          root would enclose the nav's live status, and a status inside a busy
+          subtree can be held back until busy clears — the stage lines would
+          then arrive all at once, after they stopped being true. */}
+      <div className="details-body" aria-busy={working || undefined}>
         {/* Before the dossier lands the summary already says whether a
             photo exists: the band's box is reserved from first paint with
             the blurhash painted, so nothing below shifts when the bytes
@@ -1024,7 +1028,7 @@ export function PlaceDetails({
                   aria-controls="details-hours"
                   onClick={() => setHoursOpen((open) => !open)}
                 >
-                  {COPY.hoursOnRecord(dossier.hours?.length ?? hours.length)}
+                  {COPY.hoursOnRecord(hoursDays(dossier.hours ?? []))}
                 </button>
                 <div className="ledger" id="details-hours" hidden={!hoursOpen}>
                   {hours.map((h) => (

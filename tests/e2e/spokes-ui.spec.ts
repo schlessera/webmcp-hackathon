@@ -2018,7 +2018,11 @@ test("place details read the server's verdicts, address and hours, and say when 
             hours: [
               { day: "mon", open: "09:00", close: "18:00" },
               { day: "tue", open: "09:00", close: "18:00" },
+              // A split Saturday and a day the lines cannot draw: five
+              // schedule rows over three weekdays.
               { day: "sat", open: "10:00", close: "14:00" },
+              { day: "sat", open: "18:00", close: "22:00" },
+              { day: "holiday", open: "12:00", close: "16:00" },
             ],
             address: "Schiffbauerdamm 12, 10117 Berlin",
             phone: "+49 30 123456",
@@ -2093,6 +2097,8 @@ test("place details read the server's verdicts, address and hours, and say when 
   await expect(whereWhen.locator(".details-phone")).toHaveAttribute("href", "tel:+4930123456");
   // The week is folded behind its count until asked for.
   await expect(whereWhen.locator(".hours-row").first()).toBeHidden();
+  // Five schedule rows, three weekdays: a split shift is not an extra day,
+  // and a day the lines cannot draw is neither drawn nor counted.
   await expect(whereWhen.getByTestId("hours-summary")).toHaveText("hours for 3 days on record");
   await whereWhen.getByTestId("hours-summary").click();
   await expect(whereWhen.locator(".hours-row")).toHaveCount(2);
@@ -2115,6 +2121,13 @@ test("place details read the server's verdicts, address and hours, and say when 
   socket.send({ type: "lookups", pending: ["place_24"], reason: { kind: "place" } });
   await expect(details.getByTestId("details-lookup")).toHaveAttribute("data-state", "busy");
   await expect(details.getByTestId("details-lookup")).toHaveText("looking it up…");
+  // The live status sits outside every aria-busy region, or assistive tech
+  // may hold each stage line back until the lookup ends.
+  const statusInsideBusy = await details
+    .getByTestId("details-lookup")
+    .evaluate((el) => el.closest('[aria-busy="true"]') !== null);
+  expect(statusInsideBusy).toBe(false);
+  await expect(details.locator('.details-body[aria-busy="true"]')).toHaveCount(1);
   // One element, two faces: while it is busy there is nothing to press.
   await expect(details.getByTestId("details-lookup-btn")).toHaveCount(0);
   socket.send({ type: "lookups", pending: [] });
