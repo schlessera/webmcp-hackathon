@@ -959,6 +959,8 @@ export interface LookupNowOptions {
   budget?: InteractiveBudget;
   consumeModelCall?: (roomId: string, now: number) => boolean;
   publishInteractiveStages?: boolean;
+  /** Rechecked immediately before every interactive facts publication. */
+  shouldPublishInteractiveStage?: () => boolean;
   onInteractiveStage?: (stage: "site" | "images") => void;
   maxCriteria?: number;
   deferExcess?: () => void;
@@ -1599,6 +1601,9 @@ async function runLookupNow(
   options: LookupNowOptions,
 ): Promise<string[]> {
   const intent = options.intent ?? "background";
+  const shouldPublishInteractiveStage = () =>
+    options.publishInteractiveStages &&
+    (options.shouldPublishInteractiveStage?.() ?? true);
   // Interactive reads should benefit from listings immediately. Pool warm-up
   // is debounced below so its many incremental batches still cause one room-
   // wide request after the pool settles.
@@ -1721,7 +1726,7 @@ async function runLookupNow(
         );
         evaluation.texts = inferenceTexts(row, current, transientText);
         evaluation.imageCandidates = passCandidates;
-        if (options.publishInteractiveStages) {
+        if (shouldPublishInteractiveStage()) {
           publishFacts(roomId, {
             type: "facts",
             candidateIds: [row.id],
@@ -1883,7 +1888,7 @@ async function runLookupNow(
       // Model and persistence work are opportunistic; provider facts still land.
     }
   }
-  if (options.publishInteractiveStages) {
+  if (shouldPublishInteractiveStage()) {
     publishFacts(roomId, {
       type: "facts",
       candidateIds: actionable.map((row) => row.id),
@@ -1910,7 +1915,7 @@ async function runLookupNow(
         options.signal,
       );
       evaluation.current = (await loadCached(pool, [evaluation.row.osm_ref!])).get(evaluation.row.osm_ref!);
-      if (options.publishInteractiveStages) {
+      if (shouldPublishInteractiveStage()) {
         publishFacts(roomId, {
           type: "facts",
           candidateIds: [evaluation.row.id],
@@ -1939,6 +1944,7 @@ async function runLookupNow(
       changed,
       options.publishInteractiveStages ? "interactive" : inferenceChanged ? "inference" : "lookup",
       options.publishInteractiveStages ? "needs" : undefined,
+      options.publishInteractiveStages ? options.shouldPublishInteractiveStage : undefined,
     );
   }
   const finalImageVersions = await loadImageVersions(
@@ -1955,12 +1961,14 @@ async function runLookupNow(
   if (imageOnly.length > 0) {
     // An image does not change eligibility or invalidate private screening,
     // so it needs a facts frame but no room/map revision bump.
-    publishFacts(roomId, {
-      type: "facts",
-      candidateIds: imageOnly,
-      reason: options.publishInteractiveStages ? "interactive" : "lookup",
-      ...(options.publishInteractiveStages ? { stage: "photos" as const } : {}),
-    });
+    if (!options.publishInteractiveStages || shouldPublishInteractiveStage()) {
+      publishFacts(roomId, {
+        type: "facts",
+        candidateIds: imageOnly,
+        reason: options.publishInteractiveStages ? "interactive" : "lookup",
+        ...(options.publishInteractiveStages ? { stage: "photos" as const } : {}),
+      });
+    }
   }
   return [...new Set([
     ...changed,
@@ -1987,6 +1995,7 @@ export async function publishInferenceChanges(
   candidateIds: string[],
   reason: FactsMessage["reason"] = "inference",
   stage?: FactsMessage["stage"],
+  shouldPublish: () => boolean = () => true,
 ): Promise<string[]> {
   const changed = [...new Set(candidateIds)].sort();
   if (changed.length === 0) return [];
@@ -2020,12 +2029,14 @@ export async function publishInferenceChanges(
     // ordered broadcast queue synchronously before a later command can.
     notifyCommit(notification);
   }
-  publishFacts(roomId, {
-    type: "facts",
-    candidateIds: changed,
-    reason,
-    ...(stage ? { stage } : {}),
-  });
+  if (shouldPublish()) {
+    publishFacts(roomId, {
+      type: "facts",
+      candidateIds: changed,
+      reason,
+      ...(stage ? { stage } : {}),
+    });
+  }
   return changed;
 }
 

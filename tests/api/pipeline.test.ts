@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createHash } from "node:crypto";
 import { createServer as createHttpServer, type ServerResponse } from "node:http";
 import {
@@ -51,7 +51,7 @@ describe("pipeline over HTTP, WebSocket, and PostgreSQL", () => {
         REFINE_IDLE_STOP_MS: "200",
         OPENAI_API_KEY: "scripted",
         PARALLEL_API_KEY: "scripted",
-        POOL_INTERACTIVE: "1",
+        POOL_INTERACTIVE: "2",
         SLOW_FOCUS_GATE_URL: focusGate.url,
       },
     });
@@ -216,6 +216,14 @@ describe("pipeline over HTTP, WebSocket, and PostgreSQL", () => {
     sharedFocusRealtime = await openRealtime(server.baseUrl, sharedFocusRoom.tokens.org);
   });
 
+  beforeEach(() => {
+    focusGate?.reset();
+  });
+
+  afterEach(() => {
+    focusGate?.release();
+  });
+
   afterAll(async () => {
     realtime?.close();
     hangRealtime?.close();
@@ -359,19 +367,103 @@ describe("pipeline over HTTP, WebSocket, and PostgreSQL", () => {
       focusSlowId,
       "complete",
     )).toBe(false);
-    await waitFor(() => terminalFrame(
-      focusRealtime.frames().slice(frameStart),
-      focusSlowId,
-      "aborted",
-    ), 4_000, () => focusRealtime.frames().slice(frameStart).join("|"));
+    expect(focusRealtime.frames().slice(frameStart).some((raw) => {
+      const frame = JSON.parse(raw) as { candidateIds?: string[]; done?: boolean };
+      return frame.candidateIds?.includes(focusSlowId) && frame.done === true;
+    })).toBe(false);
     const abandoned = server.logs().split("\n").find((line) =>
       line.includes(`"msg":"interactive focus abandoned"`) &&
       line.includes(`"roomId":"${focusRoom.roomId}"`) &&
       line.includes(`"candidateId":"${focusSlowId}"`)
     );
-    // The only slow item owns the pool slot by this point. Its abort, rather
-    // than a queued drop, is what lets the fast open finish with the gate shut.
+    // The slow item owns a pool slot by this point. It was actively aborted,
+    // rather than dropped before dispatch.
     expect(abandoned).toContain('"dropped":0');
+  });
+
+  it("suppresses an old A terminal frame after rapid A to B to A focus", async () => {
+    try {
+      const nonce = Date.now();
+      await focusRoom.pool.query(
+        `UPDATE candidates
+            SET osm_ref = CASE id WHEN $2 THEN $4 ELSE $5 END,
+                extras = CASE id WHEN $2 THEN $6::jsonb ELSE $7::jsonb END
+          WHERE room_id = $1 AND id = ANY($3)`,
+        [
+          focusRoom.roomId,
+          focusSlowId,
+          [focusSlowId, focusFastId],
+          `pipeline-focus/${focusRoom.roomId}/stale-${nonce}`,
+          `pipeline-focus/${focusRoom.roomId}/middle-${nonce}`,
+          JSON.stringify({ website: `https://stale-focus.example/${focusRoom.roomId}/${nonce}` }),
+          JSON.stringify({ website: `https://fast-focus.example/${focusRoom.roomId}/${nonce}` }),
+        ],
+      );
+      const frameStart = focusRealtime.frames().length;
+      const frames = () => focusRealtime.frames().slice(frameStart);
+      const queuedCount = (candidateId: string) => frames().filter((raw) => {
+        const frame = JSON.parse(raw) as {
+          type?: string;
+          candidateIds?: string[];
+          reason?: string;
+          stage?: string;
+        };
+        return frame.type === "facts" && frame.candidateIds?.includes(candidateId) &&
+          frame.reason === "interactive" && frame.stage === "queued";
+      }).length;
+      const terminalFrames = (candidateId: string) => frames().filter((raw) => {
+        const frame = JSON.parse(raw) as { type?: string; candidateIds?: string[]; done?: boolean };
+        return frame.type === "facts" && frame.candidateIds?.includes(candidateId) && frame.done === true;
+      });
+
+      await apiPost(server.baseUrl, "/api/spatial/inspect", focusRoom.tokens.org, {
+        candidateIds: [focusSlowId], intent: "open", force: true,
+      });
+      await focusGate.waitForWaiter();
+      await waitFor(() => queuedCount(focusSlowId) === 1, 4_000, () => frames().join("|"));
+
+      await apiPost(server.baseUrl, "/api/spatial/inspect", focusRoom.tokens.org, {
+        candidateIds: [focusFastId], intent: "open", force: true,
+      });
+      await waitFor(() => terminalFrame(
+        frames(),
+        focusFastId,
+        "complete",
+      ), 4_000, () => frames().join("|"));
+
+      const queuedBeforeReopen = queuedCount(focusSlowId);
+      await apiPost(server.baseUrl, "/api/spatial/inspect", focusRoom.tokens.org, {
+        candidateIds: [focusSlowId], intent: "open", force: true,
+      });
+      await waitFor(
+        () => queuedCount(focusSlowId) === queuedBeforeReopen + 1,
+        4_000,
+        () => frames().join("|"),
+      );
+
+      const terminalsBeforeRelease = terminalFrames(focusSlowId).length;
+      expect(terminalsBeforeRelease).toBe(0);
+
+      focusGate.release();
+      await waitFor(() => terminalFrames(focusSlowId).length === 1, 8_000, () => frames().join("|"));
+      await new Promise((resolve) => setTimeout(resolve, 300));
+
+      const finalTerminals = terminalFrames(focusSlowId);
+      expect(finalTerminals).toHaveLength(1);
+      expect(frames().some((raw) => {
+        const frame = JSON.parse(raw) as {
+          type?: string;
+          candidateIds?: string[];
+          done?: boolean;
+          completionReason?: string;
+        };
+        return frame.type === "facts" && frame.candidateIds?.includes(focusSlowId) &&
+          frame.done === true && frame.completionReason === "aborted";
+      })).toBe(false);
+    } finally {
+      focusGate.release();
+      focusGate.reset();
+    }
   });
 
   it("keeps a shared place plan alive when its first participant moves on", async () => {
@@ -662,7 +754,9 @@ async function createFocusGate(): Promise<{
     },
     release() {
       released = true;
-      for (const response of [...waiting]) response.writeHead(204).end();
+      const responses = [...waiting];
+      waiting.clear();
+      for (const response of responses) response.writeHead(204).end();
     },
     waitForWaiter() {
       if (waiting.size > 0) return Promise.resolve();

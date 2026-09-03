@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createRequire } from "node:module";
 import type { Criterion, PipelineMessage } from "@webmcp-hackathon/contracts";
+import type { EligibilityInputs } from "../../apps/server/src/eligibility.ts";
+import {
+  adjudicateLikelyForRoom,
+  resetAdjudicationForTest,
+} from "../../apps/server/src/enrich/adjudication-runner.ts";
 import { setTransport } from "../../apps/server/src/nl/openai.ts";
 import {
   resetOutboundStateForTests,
@@ -95,6 +100,7 @@ afterEach(() => {
   setTransport(null);
   setOutboundTransportForTests(null);
   resetOutboundStateForTests();
+  resetAdjudicationForTest();
   pipelineScheduler.reset();
 });
 
@@ -182,6 +188,108 @@ describe("refinement pipeline", () => {
     releases[2].resolve(2);
     await Promise.all(jobs);
     expect(scheduler.pools["llm-matrix"].maxInFlight).toBe(2);
+  });
+
+  it("releases adjudication keys when a queued batch is dropped", async () => {
+    vi.stubEnv("ENRICH_NETWORK", "1");
+    vi.stubEnv("INFER", "1");
+    vi.stubEnv("OPENAI_API_KEY", "test");
+    const releases = Array.from(
+      { length: pipelineScheduler.pools.interactive.limit },
+      () => controlled<number>(),
+    );
+    const blockers = releases.map((release, index) => pipelineScheduler.enqueue(
+      item(`adjudication-blocker-${index}`, {
+        roomId: `blocker-room-${index}`,
+        kind: "process.adjudicate",
+        intent: "interactive",
+        priority: 0,
+        host: undefined,
+        purpose: undefined,
+      }),
+      async () => ({ value: await release.promise, actualRoute: "direct" }),
+    ));
+    await vi.waitFor(() => {
+      expect(pipelineScheduler.pools.interactive.inFlight).toBe(releases.length);
+    });
+
+    const evidence = "Dogs are explicitly welcome in the dining room.";
+    const sourceUrl = "https://drop-adjudication.example/dogs";
+    const adjudicationInputs = {
+      candidates: [{
+        id: "drop-candidate",
+        osm_ref: "node/drop-candidate",
+        name: "Drop Candidate",
+        category: "restaurant",
+        walk_min: 1,
+        location: { lat: 0, lng: 0 },
+        extras: { website: "https://drop-adjudication.example" },
+        attributes: [{ key: "dog-friendly", status: "likely_true", confidence: 0.6 }],
+      }],
+      requirements: [{
+        id: "drop-need",
+        owner_id: "participant",
+        visibility: "shared",
+        hardness: "hard",
+        payload: { kind: "attribute", key: "dog-friendly", expect: "verified_true" },
+        withdrawn: false,
+        active: true,
+      }],
+      verdicts: [],
+      scope: null,
+      enrichments: new Map([["node/drop-candidate", {
+        osmRef: "node/drop-candidate",
+        fetchedAt: new Date().toISOString(),
+        website: null,
+        wikidata: null,
+        inferred: {
+          "dog-friendly": {
+            key: "dog-friendly",
+            lean: "yes",
+            confidence: 0.6,
+            evidence,
+            context: evidence,
+            pageTitle: "Dogs",
+            publisherNames: ["Drop Candidate"],
+            source: "infer:test:venue_site",
+            sourceUrl,
+            observedAt: new Date().toISOString(),
+            explicit: true,
+          },
+        },
+        error: null,
+      }]]),
+    } as EligibilityInputs;
+    const options = {
+      mode: "on_demand" as const,
+      candidateIds: ["drop-candidate"],
+      inputs: adjudicationInputs,
+      consumeModelCall: () => true,
+    };
+    const first = adjudicateLikelyForRoom({} as never, "drop-room", options);
+    const rejected = first.catch((error: unknown) => error);
+    await vi.waitFor(() => {
+      expect(pipelineScheduler.queue.roomItems("drop-room").some(
+        (entry) => entry.kind === "process.adjudicate",
+      )).toBe(true);
+    });
+    expect(pipelineScheduler.dropQueued(
+      "drop-room",
+      (entry) => entry.kind === "process.adjudicate",
+    )).toHaveLength(1);
+    expect(await rejected).toBeInstanceOf(OutOfScopePipelineItemError);
+
+    for (const release of releases) release.resolve(0);
+    await Promise.all(blockers);
+    let modelCalls = 0;
+    setTransport(async () => {
+      modelCalls += 1;
+      return {
+        output: [{ type: "message", content: [{ type: "output_text", text: "{}" }] }],
+      };
+    });
+    await adjudicateLikelyForRoom({} as never, "drop-room", options);
+    expect(modelCalls).toBe(1);
   });
 
   it("keeps direct site occupancy full while a slow proxied asset downloads", async () => {

@@ -149,6 +149,9 @@ describe("continuous refinement over the API", () => {
     const gammaSearches = () => server.logs().split("\n").filter((line) =>
       line.includes("parallel-search-request") && line.includes("Gamma Berlin free wifi")
     ).length;
+    const roomTickCount = () => server.logs().split("\n").filter((line) =>
+      line.includes('"msg":"pipeline tick"') && line.includes(`"roomId":"${room.roomId}"`)
+    ).length;
     expect(gammaSearches()).toBe(1);
     const requirementId = `need_refine_${room.roomId}`;
     const toggle = async (active: boolean) => {
@@ -165,12 +168,21 @@ describe("continuous refinement over the API", () => {
       expect(changed.body.ok).toBe(true);
     };
     for (let pass = 0; pass < 2; pass += 1) {
+      const ticksBeforeInactive = roomTickCount();
       await toggle(false);
+      await waitFor(() => roomTickCount() > ticksBeforeInactive, 8_000);
       await toggle(true);
       await new Promise((resolve) => setTimeout(resolve, 1_200));
       expect(gammaSearches()).toBe(1);
     }
     const gammaRef = `refine/${room.roomId}/gamma`;
+    await waitFor(async () => {
+      const entry = (await room.pool.query(
+        "SELECT inferred->$2 AS entry FROM enrichments WHERE osm_ref = $1",
+        [gammaRef, key],
+      )).rows[0]?.entry as Record<string, unknown> | undefined;
+      return entry !== undefined && !Object.hasOwn(entry, "searchAttempts");
+    }, 8_000);
     const attempt = (await room.pool.query(
       "SELECT inferred->$2 AS entry FROM enrichments WHERE osm_ref = $1",
       [gammaRef, key],

@@ -130,6 +130,8 @@ const interactiveSearchBudget = createTokenBucket({
 interface RoomState {
   timer?: ReturnType<typeof setTimeout>;
   idleTimer?: ReturnType<typeof setTimeout>;
+  /** A wake that arrived while this room's planner was inside an await. */
+  pendingWake: boolean;
   /** Invalidates settle callbacks from older watchdog generations. */
   planGeneration: number;
   /** Bumped by every wake. A batch that finishes after its epoch moved must not
@@ -153,6 +155,7 @@ interface RoomState {
 
 const rooms = new Map<string, RoomState>();
 const pipelinePlanning = new Set<string>();
+let pipelinePlanWorkForTest: ((roomId: string) => Promise<void>) | undefined;
 const pipelineLatestPlans = new Map<string, {
   epoch: number;
   items: Map<string, RefinementQueueItem>;
@@ -224,6 +227,7 @@ function stateFor(roomId: string): RoomState {
   let state = rooms.get(roomId);
   if (!state) {
     state = {
+      pendingWake: false,
       planGeneration: 0,
       cursorEpoch: 0,
       stopped: false,
@@ -469,6 +473,7 @@ export function wakeRefinement(roomId: string): void {
   state.providerChecked.clear();
   if (state.timer) clearTimeout(state.timer);
   state.timer = undefined;
+  if (pipelinePlanning.has(roomId)) state.pendingWake = true;
   schedulePipelinePlan(roomId);
 }
 
@@ -489,6 +494,10 @@ async function planPipelineRoom(roomId: string): Promise<void> {
   pipelinePlanning.add(roomId);
   const generation = ++state.planGeneration;
   try {
+    if (pipelinePlanWorkForTest) {
+      await pipelinePlanWorkForTest(roomId);
+      return;
+    }
     let inputs = await loadEligibilityInputs(pool, roomId);
     const proactive = await adjudicateLikelyForRoom(pool, roomId, {
       mode: "proactive",
@@ -623,6 +632,10 @@ async function planPipelineRoom(roomId: string): Promise<void> {
     queueMicrotask(() => schedulePipelinePlan(roomId, REFINE_TICK_MS));
   } finally {
     pipelinePlanning.delete(roomId);
+    if (rooms.get(roomId) === state && !state.stopped && state.pendingWake) {
+      state.pendingWake = false;
+      schedulePipelinePlan(roomId);
+    }
     logPipelineTick(roomId, state);
   }
 }
@@ -1813,6 +1826,13 @@ export function exhaustRefinementSearchesForTest(roomId: string, now: number): v
   searchBudget.consume(roomId, REFINE_SEARCHES_PER_HOUR, now);
 }
 
+/** Replace only the awaited planner body so scheduling races can be pinned. */
+export function setRefinementPlanWorkForTest(
+  work: ((roomId: string) => Promise<void>) | undefined,
+): void {
+  pipelinePlanWorkForTest = work;
+}
+
 /** Test-only reset for timers, cursors, budgets and scheduler state. */
 export function resetRefinement(): void {
   for (const roomId of [...rooms.keys()]) stopRefinement(roomId);
@@ -1821,6 +1841,7 @@ export function resetRefinement(): void {
   searchBudget.reset();
   interactiveModelBudget.reset();
   interactiveSearchBudget.reset();
+  pipelinePlanWorkForTest = undefined;
   pipelinePlanning.clear();
   pipelineLatestPlans.clear();
   pipelineScheduler.reset();

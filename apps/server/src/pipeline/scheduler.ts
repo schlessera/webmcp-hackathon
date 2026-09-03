@@ -47,6 +47,8 @@ export interface SchedulerOptions {
 
 type EnqueueOptions = {
   present?: boolean;
+  /** Runs only if queued work is discarded before its callback starts. */
+  onDrop?: () => void;
   reason?: NonNullable<LookupsMessage["reason"]> & {
     visibility?: "shared" | "application-private" | "agent-private";
   };
@@ -138,6 +140,7 @@ export class PipelineScheduler {
   private pumpRuns = 0;
   private readonly inFlight = new Map<string, PipelineItem>();
   private readonly batches = new Map<string, PipelineItem[]>();
+  private readonly batchDropCallbacks = new Map<string, Set<() => void>>();
   private readonly roomEpochs = new Map<string, number>();
   private readonly routeCompletions: Record<OutboundRoute, number> = { direct: 0, proxy: 0 };
   private readonly enqueueListeners = new Set<EnqueueListener>();
@@ -259,6 +262,9 @@ export class PipelineScheduler {
       options.present === false ? 1 : 4,
     );
     if (queued.inserted) {
+      if (options.onDrop) {
+        this.batchDropCallbacks.set(representative.dedupeKey, new Set([options.onDrop]));
+      }
       for (const entry of plannedItems) {
         for (const listener of this.enqueueListeners) listener(entry);
       }
@@ -292,6 +298,10 @@ export class PipelineScheduler {
           this.volume.start(entry);
           this.frames.update(entry, "processing", options.reason);
         }
+      } else if (options.onDrop) {
+        const callbacks = this.batchDropCallbacks.get(representative.dedupeKey) ?? new Set();
+        callbacks.add(options.onDrop);
+        this.batchDropCallbacks.set(representative.dedupeKey, callbacks);
       }
     }
     return queued.promise as Promise<T>;
@@ -326,6 +336,11 @@ export class PipelineScheduler {
     const dropped = this.queue.changeNeeds(roomId, needsEpoch, activeCriterionIds);
     for (const item of dropped) {
       const tracked = this.batches.get(item.dedupeKey) ?? [item];
+      const dropCallbacks = this.batchDropCallbacks.get(item.dedupeKey);
+      this.batchDropCallbacks.delete(item.dedupeKey);
+      if (dropCallbacks) {
+        for (const callback of dropCallbacks) callback();
+      }
       for (const entry of tracked) {
         this.volume.drop(entry);
         this.frames.update(entry, null);
@@ -392,10 +407,14 @@ export class PipelineScheduler {
   }
 
   reset(): void {
+    for (const callbacks of this.batchDropCallbacks.values()) {
+      for (const callback of callbacks) callback();
+    }
     this.queue.clear();
     this.frames.reset();
     this.inFlight.clear();
     this.batches.clear();
+    this.batchDropCallbacks.clear();
     this.roomEpochs.clear();
     this.pumpRuns = 0;
     this.routeCompletions.direct = 0;
@@ -472,6 +491,7 @@ export class PipelineScheduler {
   private launch(entry: QueuedPipelineItem): void {
     const item = entry.item;
     const tracked = this.batches.get(item.dedupeKey) ?? [item];
+    this.batchDropCallbacks.delete(item.dedupeKey);
     const route = this.dispatchRoute(item);
     const actualPool = this.pools[poolForKind(item, route)];
     for (const trackedItem of tracked) {
@@ -534,6 +554,11 @@ export class PipelineScheduler {
 
   private cleanup(item: PipelineItem, dropped = false): void {
     const tracked = this.batches.get(item.dedupeKey) ?? [item];
+    const dropCallbacks = this.batchDropCallbacks.get(item.dedupeKey);
+    this.batchDropCallbacks.delete(item.dedupeKey);
+    if (dropped && dropCallbacks) {
+      for (const callback of dropCallbacks) callback();
+    }
     for (const trackedItem of tracked) {
       this.inFlight.delete(trackedItem.dedupeKey);
       if (dropped) this.volume.drop(trackedItem);

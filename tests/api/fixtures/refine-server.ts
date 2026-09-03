@@ -11,6 +11,7 @@ const sharp = createRequire(new URL("../../../apps/server/package.json", import.
 const SCRIPTED_IMAGE = await sharp({
   create: { width: 640, height: 480, channels: 3, background: "navy" },
 }).png().toBuffer();
+const heldStaleFocusUrls = new Set<string>();
 
 pipelineScheduler.onEnqueue((item) => {
   console.info(`pipeline-enqueue ${item.kind} ${item.candidateId} priority=${item.priority}`);
@@ -27,6 +28,14 @@ setEnrichFetch(async (url, init) => {
     const gateUrl = process.env.SLOW_FOCUS_GATE_URL;
     if (!gateUrl) throw new Error("SLOW_FOCUS_GATE_URL is required for slow-focus.example");
     await fetch(gateUrl, { signal: init?.signal });
+  }
+  if (parsedUrl.hostname === "stale-focus.example" && !heldStaleFocusUrls.has(url)) {
+    heldStaleFocusUrls.add(url);
+    const gateUrl = process.env.SLOW_FOCUS_GATE_URL;
+    if (!gateUrl) throw new Error("SLOW_FOCUS_GATE_URL is required for stale-focus.example");
+    // Hold only the first transport for this unique test URL. A replacement
+    // generation for the same place legitimately attaches to this page work.
+    await fetch(gateUrl);
   }
   if (url.includes("/venue-") && url.endsWith(".png")) {
     return new Response(SCRIPTED_IMAGE, {

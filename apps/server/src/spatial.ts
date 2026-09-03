@@ -69,6 +69,7 @@ const INSPECT_LOOKUP_WAIT_MS = 3000;
 interface InteractivePlan {
   controller: AbortController;
   promise: Promise<void>;
+  generation: number;
 }
 interface InteractiveFocus {
   roomId: string;
@@ -79,8 +80,20 @@ interface InteractiveFocus {
 const interactiveInFlight = new Map<string, InteractivePlan>();
 const interactiveFocus = new Map<string, InteractiveFocus>();
 const interactivePlanGenerations = new Map<string, number>();
+let nextInteractivePlanGeneration = 0;
 
 function abandonInteractive(focus: InteractiveFocus): void {
+  const key = prefetchKey(focus.roomId, focus.candidateId);
+  const plan = interactiveInFlight.get(key);
+  // Invalidate before either operation below can settle the plan. A later
+  // open of the same candidate gets a distinct generation, so the abandoned
+  // callback can never publish into that replacement plan.
+  if (
+    plan?.controller === focus.controller &&
+    interactivePlanGenerations.get(key) === plan.generation
+  ) {
+    interactivePlanGenerations.delete(key);
+  }
   const dropped = pipelineScheduler.dropQueued(
     focus.roomId,
     (item) => item.intent === "interactive" && item.candidateId === focus.candidateId,
@@ -186,9 +199,15 @@ function runInteractiveTarget(
     publishInteractive(roomId, target.candidateId, { done: true, completionReason: "floor" });
     return Promise.resolve();
   }
-  const generation = (interactivePlanGenerations.get(key) ?? 0) + 1;
+  const generation = ++nextInteractivePlanGeneration;
   interactivePlanGenerations.set(key, generation);
-  publishInteractive(roomId, target.candidateId, { stage: "queued" });
+  const publishCurrent = (
+    detail: Parameters<typeof publishInteractive>[2],
+  ): void => {
+    if (interactivePlanGenerations.get(key) !== generation) return;
+    publishInteractive(roomId, target.candidateId, detail);
+  };
+  publishCurrent({ stage: "queued" });
   const budget = new InteractiveBudget(() => wakeRefinement(roomId));
   const before = responseMetrics();
   const steps: NonNullable<FactsMessage["steps"]> = [];
@@ -222,6 +241,8 @@ function runInteractiveTarget(
       siteOnly: true,
       onlyUnclassifiedImages: true,
       publishInteractiveStages: true,
+      shouldPublishInteractiveStage: () =>
+        interactivePlanGenerations.get(key) === generation,
       onInteractiveStage: (stage) => {
         beginStage(stage === "images" ? "photos" : "site");
       },
@@ -275,7 +296,7 @@ function runInteractiveTarget(
       controller.signal,
       () => {
         beginStage("web");
-        publishInteractive(roomId, target.candidateId, { stage: "web" });
+        publishCurrent({ stage: "web" });
       },
     ).catch((error) => {
       if (controller.signal.aborted) throw error;
@@ -320,19 +341,19 @@ function runInteractiveTarget(
           ? "error"
           : "complete";
     if (interactivePlanGenerations.get(key) === generation) {
-      interactivePlanGenerations.delete(key);
       if (completionReason === "complete") {
         prefetchManager.completeInteractiveOpen(key, { needsEpoch });
       } else {
         prefetchManager.clearInteractiveOpen(key);
       }
+      publishCurrent({
+        done: true,
+        steps,
+        costUsd: roundedCostUsd,
+        completionReason,
+      });
+      interactivePlanGenerations.delete(key);
     }
-    publishInteractive(roomId, target.candidateId, {
-      done: true,
-      steps,
-      costUsd: roundedCostUsd,
-      completionReason,
-    });
     console.info(JSON.stringify({
       msg: "interactive open cost",
       roomId,
@@ -345,7 +366,7 @@ function runInteractiveTarget(
       budget: usage,
     }));
   });
-  interactiveInFlight.set(key, { controller, promise: job });
+  interactiveInFlight.set(key, { controller, promise: job, generation });
   return job;
 }
 

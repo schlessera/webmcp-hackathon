@@ -17,10 +17,12 @@ import {
   REFINE_IDLE_TICK_MS,
   REFINE_TICK_MS,
   resetRefinement,
+  setRefinementPlanWorkForTest,
   startRefinement,
   noteRefinementPresence,
   searchRefinementPlaces,
   refinementSearchDomains,
+  wakeRefinement,
 } from "../../apps/server/src/refine/worker.ts";
 import { beginLookups, resetProgress } from "../../apps/server/src/enrich/progress.ts";
 import { pipelineScheduler } from "../../apps/server/src/pipeline/scheduler.ts";
@@ -223,6 +225,39 @@ describe("continuous refinement queue", () => {
     expect(refinementPlanDelay(1)).toBe(REFINE_TICK_MS);
     expect(refinementPlanDelay(0)).toBe(REFINE_IDLE_TICK_MS);
     expect(REFINE_IDLE_TICK_MS).toBeGreaterThan(REFINE_TICK_MS);
+  });
+
+  it("schedules a new plan tick when a wake arrives during planning", async () => {
+    vi.useFakeTimers();
+    process.env.ENRICH_NETWORK = "1";
+    process.env.INFER = "1";
+    process.env.OPENAI_API_KEY = "test";
+    let releaseFirst!: () => void;
+    const firstPlan = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    let ticks = 0;
+    setRefinementPlanWorkForTest(async () => {
+      ticks += 1;
+      if (ticks === 1) await firstPlan;
+    });
+
+    expect(startRefinement("wake-during-plan")).toBe(true);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(ticks).toBe(1);
+    wakeRefinement("wake-during-plan");
+    expect(ticks).toBe(1);
+
+    releaseFirst();
+    await Promise.resolve();
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(ticks).toBe(2);
+
+    vi.useRealTimers();
+    delete process.env.OPENAI_API_KEY;
+    delete process.env.INFER;
+    delete process.env.ENRICH_NETWORK;
   });
 
   it("routes concurrent room searches through the shared search pool", async () => {

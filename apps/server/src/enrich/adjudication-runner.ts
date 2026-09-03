@@ -280,6 +280,11 @@ export async function adjudicateLikelyForRoom(
       scheduled.push(pipelineScheduler.enqueueBatch(items, run, {
         present: presentIn(roomId).size > 0,
         reason: options.mode === "proactive" ? { kind: "refine" } : { kind: "place" },
+        onDrop: () => {
+          for (const key of admitted.map((cell) =>
+            `${cell.osmRef}\u0000${cell.criterionId}\u0000${cell.evidenceHash}`
+          )) inFlight.delete(key);
+        },
       }));
     }
     await Promise.all(scheduled);
