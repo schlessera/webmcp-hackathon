@@ -90,9 +90,9 @@ effect, never the cause.
 
 ## How we implemented WebMCP
 
-- **17 tools** registered imperatively on `document.modelContext` at page load
+- **19 tools** registered imperatively on `document.modelContext` at page load
   (static surface — ChatGPT's in-app browser binds tools at page level), 9
-  negotiation + 7 spatial, each a single narrow function with closed enum
+  negotiation + 10 spatial, each a single narrow function with closed enum
   schemas, `readOnlyHint`/`untrustedContentHint` annotations, and capped result
   budgets. The page is fully usable without WebMCP.
 - **Two application protocols over the WebMCP substrate**, taught to the agent by
@@ -136,8 +136,8 @@ TypeScript monorepo (pnpm). Fastify + Postgres event log with per-participant
 projections and a WebSocket realtime channel; React + Vite front end with
 MapLibre GL and keyless OpenFreeMap vector tiles; TypeBox single-source
 contracts with a hashed contract-manifest gate. Place data is a one-time
-OpenStreetMap extract of Berlin Mitte (ODbL). 152 automated tests across unit,
-three-user API and three-browser Playwright lanes (72 unit, 73 API, 7 Playwright
+OpenStreetMap extract of Berlin Mitte (ODbL). 344 automated tests across unit,
+three-user API and three-browser Playwright lanes (210 unit, 123 API, 11 Playwright
 tests that drive the redesigned client in isolated browser contexts).
 
 ## Try it
