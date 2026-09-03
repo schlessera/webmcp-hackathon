@@ -273,6 +273,8 @@ export interface DossierExtras {
   wikimediaCommons?: string;
   address?: string;
   phone?: string;
+  /** OSM's published brand label, retained for first-party provenance checks. */
+  brand?: string;
 }
 
 function addressFromTags(tags: Record<string, string | undefined>): string | undefined {
@@ -353,6 +355,7 @@ export function dossierFromTags(
       ...(tags.wikimedia_commons ? { wikimediaCommons: tags.wikimedia_commons } : {}),
       ...(address ? { address } : {}),
       ...(phone ? { phone: phone.slice(0, 80) } : {}),
+      ...(tags.brand ? { brand: tags.brand.slice(0, 120) } : {}),
     },
   };
 }

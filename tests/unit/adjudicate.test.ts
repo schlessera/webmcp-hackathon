@@ -112,6 +112,14 @@ describe("focused evidence adjudication", () => {
     // identity establishes the chain as its own publisher.
     expect(validatedPublisher("chain", cell())).toBe("chain");
     expect(validatedPublisher("venue", cell({ publisherNames: [] }))).toBe("unknown");
+    expect(validatedPublisher("chain", cell({
+      place: {
+        name: "Burgergrill Alexanderplatz",
+        category: "restaurant",
+        website: "https://different-osm-website.example/berlin",
+        brand: "HANS IM GLÜCK",
+      },
+    }))).toBe("chain");
   });
 
   it("never downgrades or flips an existing verified fact", () => {

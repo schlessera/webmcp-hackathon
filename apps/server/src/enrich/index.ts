@@ -771,6 +771,7 @@ interface LookupCandidateRow {
     description?: { text?: string };
     website?: string;
     wikidata?: string;
+    brand?: string;
   } | null;
 }
 

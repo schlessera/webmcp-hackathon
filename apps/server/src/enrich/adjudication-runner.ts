@@ -131,6 +131,7 @@ function cellsFor(
           name: candidate.name,
           category: candidate.category,
           ...(candidate.extras?.website ? { website: candidate.extras.website } : {}),
+          ...(candidate.extras?.brand ? { brand: candidate.extras.brand } : {}),
         },
         evidence: claim.evidence,
         context: material.context,

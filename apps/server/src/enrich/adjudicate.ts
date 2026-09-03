@@ -30,7 +30,7 @@ export interface AdjudicationCell {
     question?: string;
     values?: string[];
   };
-  place: { name: string; category: string; website?: string };
+  place: { name: string; category: string; website?: string; brand?: string };
   evidence: string;
   context: string;
   pageTitle: string;
@@ -145,7 +145,8 @@ export function validatedPublisher(
   if (stated === "third_party" || stated === "unknown") return stated;
   const ownDomain = registrableDomainMatches(cell.url, cell.place.website);
   const namedOwnPublisher = cell.publisherNames.some((name) =>
-    publisherNameMatchesPlace(name, cell.place.name)
+    publisherNameMatchesPlace(name, cell.place.name) ||
+    Boolean(cell.place.brand && publisherNameMatchesPlace(name, cell.place.brand))
   );
   return ownDomain || namedOwnPublisher ? stated : "unknown";
 }
