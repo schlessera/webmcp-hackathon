@@ -25,6 +25,7 @@ describe("continuous refinement over the API", () => {
         INFER: "1",
         REFINE: "1",
         REFINE_TICK_MS: "500",
+        REFINE_IDLE_STOP_MS: "200",
         OPENAI_API_KEY: "test",
       },
     });
@@ -115,6 +116,10 @@ describe("continuous refinement over the API", () => {
     }).filter((frame) => frame.type === "lookups" && Boolean(frame.pending?.length));
     expect(lookupFrames.some((frame) => frame.reason?.kind === "refine")).toBe(true);
     expect(lookupFrames.some((frame) => frame.reason?.label === "free wifi")).toBe(true);
+
+    realtime.close();
+    await waitFor(async () => !(await context()).refine.active, 2_000);
+    expect((await context()).refine.active).toBe(false);
   });
 
   async function context(): Promise<{

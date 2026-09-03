@@ -37,7 +37,10 @@ import { createTokenBucket } from "../token-bucket.ts";
 import { search, type SearchResult } from "./search.ts";
 
 export const REFINE_BATCH_SIZE = MAX_MATRIX_PLACES;
-export const REFINE_IDLE_STOP_MS = 10 * 60_000;
+export const REFINE_IDLE_STOP_MS = positiveInt(
+  process.env.REFINE_IDLE_STOP_MS,
+  10 * 60_000,
+);
 export const REFINE_TICK_MS = Number(process.env.REFINE_TICK_MS ?? 1_000);
 export const REFINE_MODEL_CALLS_PER_HOUR = positiveInt(
   process.env.REFINE_MODEL_CALLS_PER_HOUR,
