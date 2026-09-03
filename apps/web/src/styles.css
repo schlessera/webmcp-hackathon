@@ -1988,6 +1988,9 @@ body { overflow: hidden; }
   gap: 12px;
   color: var(--spoke-ink);
 }
+.start-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.start-brand { display: inline-flex; align-items: center; gap: 7px; font-family: var(--spoke-font-display); font-weight: var(--spoke-weight-display); font-size: var(--spoke-size-title); }
+.start-back { padding: 6px 12px; min-height: var(--spoke-tap-min); }
 .start-title {
   margin: 8px 0 0;
   font-family: var(--spoke-font-display);

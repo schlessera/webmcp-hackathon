@@ -822,6 +822,7 @@ export function Landing({ onStart }: Props) {
           <h2 className="ld-wire-h" id="ld-w6">
             Where the facts come from
           </h2>
+          <div className="ld-table-wrap">
           <table className="ld-table">
             <thead>
               <tr>
@@ -838,7 +839,7 @@ export function Landing({ onStart }: Props) {
               </tr>
               <tr>
                 <td>The place&rsquo;s own website</td>
-                <td>the venue&rsquo;s; parsed facts only, robots honoured, cached 7 days</td>
+                <td>the place&rsquo;s; parsed facts only, robots honoured, cached 7 days</td>
                 <td>schema.org facts, a menu link, a one-line description</td>
               </tr>
               <tr>
@@ -853,6 +854,7 @@ export function Landing({ onStart }: Props) {
               </tr>
             </tbody>
           </table>
+          </div>
           <p className="ld-read-ink ld-small">
             No third-party call is ever made from a participant&rsquo;s browser;
             a place API called from the page would hand every person&rsquo;s IP

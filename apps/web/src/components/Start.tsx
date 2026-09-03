@@ -18,6 +18,8 @@ import { Wordmark } from "./Wordmark.tsx";
 
 interface Props {
   onOpen(inviteSecret: string): void;
+  /** Present when the picker was reached from the landing page. */
+  onBack?(): void;
 }
 
 function inviteUrl(inviteSecret: string): string {
@@ -85,7 +87,7 @@ function AreaCard({
   );
 }
 
-export function Start({ onOpen }: Props) {
+export function Start({ onOpen, onBack }: Props) {
   const [areas, setAreas] = useState<AreaSummary[] | null>(null);
   const [areaId, setAreaId] = useState<string | null>(null);
   const [you, setYou] = useState("Alex");
@@ -179,7 +181,16 @@ export function Start({ onOpen }: Props) {
 
   return (
     <div className="start" data-testid="start">
-      <Wordmark />
+      <div className="start-top">
+        <span className="start-brand">
+          <Wordmark />
+        </span>
+        {onBack && (
+          <button type="button" className="btn start-back" data-testid="start-back" onClick={onBack}>
+            Back
+          </button>
+        )}
+      </div>
       <h1 className="start-title">Open a room</h1>
       <p className="start-lede">{COPY.startLede}</p>
 

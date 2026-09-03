@@ -10,7 +10,6 @@ import type { ProjectedEvent } from "@webmcp-hackathon/contracts";
 import { newIdempotencyKey, submitCommand, syncSession } from "./api.ts";
 import {
   clearSession,
-  currentToken,
   establishSession,
   inviteSecretFromFragment,
   type SessionState,
@@ -136,28 +135,34 @@ function writeLastSeen(roomId: string, revision: number): void {
 }
 
 /**
- * Someone arriving at `/` with no invite in the hash, no stored session and
- * no agent surface flag is a visitor, not a participant: they get the
- * landing page, and "Start a room" (`#start`) opens the area picker. Decided
- * before the session resolves so the first paint is the page, not a splash.
+ * The front door keys on the hash, re-read on every hashchange and popstate:
+ * `#invite=` is a room, `#start` is the area picker, anything else is the
+ * landing page. A room is rendered only while its invite is in the hash, so
+ * Back from a freshly opened room returns to the picker and then to the
+ * landing instead of leaving the room mounted under a stale URL. An agent
+ * surface flag (`?surface=`) without an invite keeps going straight to the
+ * picker. Decided before the session resolves so the first paint is the
+ * page, not a splash.
  */
-function coldArrival(): boolean {
-  return (
-    !inviteSecretFromFragment() &&
-    !currentToken() &&
-    !new URLSearchParams(window.location.search).has("surface")
-  );
+type Door = "room" | "start" | "landing";
+function frontDoor(): Door {
+  if (inviteSecretFromFragment()) return "room";
+  if (window.location.hash === "#start") return "start";
+  if (new URLSearchParams(window.location.search).has("surface")) return "start";
+  return "landing";
 }
-const frontDoor = (): "landing" | "start" =>
-  window.location.hash === "#start" ? "start" : "landing";
 
 export function App() {
   const [session, setSession] = useState<SessionState | null>(null);
-  const [door, setDoor] = useState<"landing" | "start">(frontDoor);
+  const [door, setDoor] = useState<Door>(frontDoor);
   useEffect(() => {
-    const onHash = () => setDoor(frontDoor());
-    window.addEventListener("hashchange", onHash);
-    return () => window.removeEventListener("hashchange", onHash);
+    const onNav = () => setDoor(frontDoor());
+    window.addEventListener("hashchange", onNav);
+    window.addEventListener("popstate", onNav);
+    return () => {
+      window.removeEventListener("hashchange", onNav);
+      window.removeEventListener("popstate", onNav);
+    };
   }, []);
   const [revision, setRevision] = useState<number>(0);
   const [feed, setFeed] = useState<FeedLine[]>([]);
@@ -604,12 +609,29 @@ export function App() {
     [feed, away],
   );
 
-  if (door === "landing" && !session?.identity && coldArrival()) {
+  if (door === "landing") {
     return (
       <Landing
         onStart={() => {
           window.location.hash = "start";
           setDoor("start");
+        }}
+      />
+    );
+  }
+  if (door === "start") {
+    return (
+      <Start
+        onOpen={(inviteSecret) => {
+          clearSession();
+          window.location.assign(`/#invite=${inviteSecret}`);
+          window.location.reload();
+        }}
+        onBack={() => {
+          // Clear `#start` without leaving a `#` behind, then render the
+          // landing; a popstate from a real Back lands in the same handler.
+          window.history.pushState(null, "", window.location.pathname + window.location.search);
+          setDoor("landing");
         }}
       />
     );

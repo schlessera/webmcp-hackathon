@@ -65,6 +65,51 @@ test("the root is the landing page, and Start a room opens the picker", async ()
 
   await page.goBack();
   await expect(page.getByTestId("landing")).toBeVisible();
+  await expect(page.getByTestId("map-region")).toHaveCount(0);
+
+  // The picker's own Back clears #start and shows the landing.
+  await page.getByTestId("landing-start").click();
+  await expect(page.getByTestId("start")).toBeVisible();
+  await page.getByTestId("start-back").click();
+  await expect(page.getByTestId("landing")).toBeVisible();
+  expect(new URL(page.url()).hash).toBe("");
+  await context.close();
+});
+
+test("Back from a room opened via the picker returns to the picker, then the landing", async () => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const page = await context.newPage();
+  await page.goto(`${BASE}/`);
+  await page.getByTestId("landing-start").click();
+  await expect(page.getByTestId("start")).toBeVisible();
+  // Enter an existing room the way the picker does (assign + reload), so the
+  // history holds landing → #start → #invite=.
+  await page.evaluate((secret) => {
+    window.location.assign(`/#invite=${secret}`);
+  }, room.inviteSecrets.joe);
+  await page.reload();
+  await expect(page.getByTestId("map-region")).toBeVisible({ timeout: 15000 });
+  await page.goBack();
+  await expect(page.getByTestId("start")).toBeVisible();
+  await expect(page.getByTestId("map-region")).toHaveCount(0);
+  await page.goBack();
+  await expect(page.getByTestId("landing")).toBeVisible();
+  await expect(page.getByTestId("map-region")).toHaveCount(0);
+  await context.close();
+});
+
+test("nothing on the landing forces a sideways scroll at 360", async () => {
+  const context = await browser.newContext({ viewport: { width: 360, height: 780 } });
+  const page = await context.newPage();
+  await page.goto(`${BASE}/`);
+  await expect(page.getByTestId("landing")).toBeVisible();
+  const widths = await page.evaluate(() => {
+    const doc = document.scrollingElement!;
+    const l = document.querySelector(".landing")!;
+    return { doc: [doc.scrollWidth, doc.clientWidth], landing: [l.scrollWidth, l.clientWidth] };
+  });
+  expect(widths.doc[0]).toBe(widths.doc[1]);
+  expect(widths.landing[0]).toBe(widths.landing[1]);
   await context.close();
 });
 
