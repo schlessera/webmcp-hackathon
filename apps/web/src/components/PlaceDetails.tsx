@@ -934,6 +934,52 @@ export function PlaceDetails({
           </div>
         )}
 
+        {/* Who has moved, on one line. The badge is the header's own
+            avatar geometry, so a person looks the same everywhere; the
+            corner mark is the map's dot vocabulary, so stance survives
+            greyscale. Silence is the dashed ghost ring, never a greyed
+            badge — nobody having said anything is a state, not absence
+            (§4). Looking now is a second mark, because a person can be
+            looking and silent at once (§2). */}
+        <div className="details-group">
+          <div className="group-heading">Where everyone stands</div>
+          <div className="stands" data-testid="stands">
+            {participants.map((p, i) => {
+              const stance = stanceOf(p.participantId);
+              const you = p.participantId === meId;
+              const looking = !you && viewing[p.participantId] === candidate.candidateId;
+              const mark: Mark = stance === "accept" ? "in" : stance === "veto" ? "veto" : "silent";
+              const sentence =
+                (stance === "accept"
+                  ? `${you ? "You are" : `${p.displayName} is`} in`
+                  : stance === "veto"
+                    ? `${you ? "You" : p.displayName} ruled it out`
+                    : `${you ? "You haven't" : `${p.displayName} hasn't`} said`) +
+                (looking ? " · looking now" : "");
+              return (
+                <span className="stand" data-stance={stance} title={sentence} key={p.participantId}>
+                  <span
+                    className="stand-badge"
+                    style={{ background: personColor(i) }}
+                    aria-hidden="true"
+                  >
+                    {initials(p.displayName)}
+                  </span>
+                  <i className="mark stand-mark" data-mark={mark} aria-hidden="true" />
+                  {looking && (
+                    <i
+                      className="stand-looking-mark"
+                      data-testid={`looking-${p.participantId}`}
+                      aria-hidden="true"
+                    />
+                  )}
+                  <span className="sr-only">{sentence}</span>
+                </span>
+              );
+            })}
+          </div>
+        </div>
+
         {whereWhen && (
           <div className="details-group" data-testid="where-when">
             <div className="group-heading">Where and when</div>
@@ -1061,41 +1107,6 @@ export function PlaceDetails({
           </div>
         )}
 
-        <div className="details-group">
-          <div className="group-heading">Where everyone stands</div>
-          <div className="ledger">
-            {participants.map((p, i) => {
-              const stance = stanceOf(p.participantId);
-              const you = p.participantId === meId;
-              const looking = !you && viewing[p.participantId] === candidate.candidateId;
-              const mark: Mark = stance === "accept" ? "in" : stance === "veto" ? "veto" : "silent";
-              return (
-                <div className="ledger-row stand-row" data-stance={stance} key={p.participantId}>
-                  <span
-                    className="stand-avatar"
-                    style={{ background: personColor(i) }}
-                    aria-hidden="true"
-                  >
-                    {initials(p.displayName)}
-                  </span>
-                  <span className="ledger-label stand-text">
-                    {stance === "accept"
-                      ? `${you ? "You are" : `${p.displayName} is`} in`
-                      : stance === "veto"
-                        ? `${you ? "You" : p.displayName} ruled it out`
-                        : `${you ? "You haven't" : `${p.displayName} hasn't`} said`}
-                    {looking && (
-                      <span className="stand-looking" data-testid={`looking-${p.participantId}`}>
-                        {" "}· looking now
-                      </span>
-                    )}
-                  </span>
-                  <i className="mark" data-mark={mark} aria-hidden="true" />
-                </div>
-              );
-            })}
-          </div>
-        </div>
       </div>
 
       <div className="details-actions">

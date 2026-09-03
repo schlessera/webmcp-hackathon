@@ -2001,23 +2001,44 @@ body { overflow: hidden; }
   padding-top: 10px;
 }
 
-.stand-avatar {
+/* Where everyone stands: one line of people, not a row each. The badge is
+   the header's own 26px geometry so a person looks the same everywhere; the
+   marks ride the corners the way presence does on the header avatar. */
+.stands {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+.stand {
+  position: relative;
+  display: inline-flex;
   flex: none;
-  width: 20px; height: 20px;
-  border-radius: var(--spoke-radius-badge);
+}
+.stand-badge {
+  width: 26px; height: 26px;
+  border-radius: var(--spoke-radius-avatar);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 9px;
+  font-size: var(--spoke-size-micro);
   font-weight: var(--spoke-weight-strong);
   color: var(--spoke-surface);
   background: var(--spoke-person-1);
+  flex: none;
 }
-.stand-row[data-stance="none"] .ledger-label { color: var(--spoke-ink-faint); }
-.stand-looking {
-  font-weight: var(--spoke-weight-quiet);
-  font-size: var(--spoke-size-meta);
-  color: var(--spoke-ink-soft);
+/* Stance in one corner, presence in another: two meanings, two marks (§2). */
+.stand-mark {
+  position: absolute;
+  right: -3px; bottom: -3px;
+}
+.stand-looking-mark {
+  position: absolute;
+  left: -2px; top: -2px;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--spoke-ink);
+  border: 2px solid var(--spoke-surface);
 }
 
 .details-actions {
