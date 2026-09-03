@@ -2,6 +2,7 @@ import { TOOL_CONTRACT_VERSION } from "@webmcp-hackathon/contracts";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { createServer as createNetServer } from "node:net";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import pg from "pg";
@@ -22,21 +23,23 @@ export async function resetApiCacheState(
 }
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
-let serverSequence = 0;
 
-/** Give each Vitest worker a disjoint slice of the test port range. Random
- * selection allowed two parallel suites to choose the same port; worse, a
- * readiness probe could then succeed against the other suite's server. */
-function nextServerPort(): number {
-  const rawWorkerId = process.env.VITEST_POOL_ID ?? process.env.VITEST_WORKER_ID;
-  const parsedWorkerId = Number(rawWorkerId);
-  const workerId = Number.isSafeInteger(parsedWorkerId) && parsedWorkerId > 0
-    ? parsedWorkerId
-    : process.pid;
-  const workerLane = (workerId - 1) % 32;
-  const port = 42_000 + workerLane * 32 + serverSequence;
-  serverSequence = (serverSequence + 1) % 32;
-  return port;
+/** Let the kernel allocate a free port. Fixed worker slices collide when
+ * independent API lanes run concurrently in separate repository worktrees. */
+function nextServerPort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const reservation = createNetServer();
+    reservation.once("error", reject);
+    reservation.listen(0, "0.0.0.0", () => {
+      const address = reservation.address();
+      if (!address || typeof address === "string") {
+        reservation.close();
+        reject(new Error("could not reserve an API test port"));
+        return;
+      }
+      reservation.close((error) => error ? reject(error) : resolve(address.port));
+    });
+  });
 }
 
 export interface TestServer {
@@ -53,7 +56,7 @@ export interface TestServerOptions {
 
 /** Spawn a real server process, capturing its log output for invariant checks. */
 export async function startServer(options: TestServerOptions = {}): Promise<TestServer> {
-  const port = nextServerPort();
+  const port = await nextServerPort();
   let captured = "";
   const child: ChildProcess = spawn(
     "node",
@@ -228,6 +231,9 @@ export async function createTestRoom(
       body: JSON.stringify({ inviteSecret: secrets[m.key] }),
     });
     const body = await response.json();
+    if (!response.ok || typeof body.participantToken !== "string") {
+      throw new Error(`invite exchange failed (${response.status}): ${JSON.stringify(body)}`);
+    }
     tokens[m.key] = body.participantToken;
     participantIds[m.key] = body.participantId;
   }

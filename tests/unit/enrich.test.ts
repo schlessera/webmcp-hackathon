@@ -363,7 +363,7 @@ describe("what the crawl of 1,400 sites taught the parser", () => {
 describe("clip", () => {
   it("cuts at a sentence, else a word, never mid-word", () => {
     expect(clip("Short.", 20)).toBe("Short.");
-    expect(clip("First sentence here. Second sentence follows and runs long.", 30)).toBe("First sentence here.");
+    expect(clip("First sentence here. Second sentence follows and runs long.", 30)).toBe("First sentence here. Second…");
     expect(clip("no sentence boundary in this long text at all really", 25)).toBe("no sentence boundary in…");
   });
 });
