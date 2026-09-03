@@ -1,11 +1,19 @@
+import { VERIFIED_CONFIDENCE_FLOOR } from "./status.ts";
+
 /** A sourced, directional cuisine implication from grounding T3.6. */
 export interface CuisineRule {
   from: string;
   implies: string;
   confidence: number;
-  source: "osm-cooccurrence" | "wikidata-p2012" | "overture-hierarchy" | "both";
+  source: "osm-cooccurrence" | "wikidata-p2012" | "wikidata-p279" | "overture-hierarchy" | "both";
   evidence: string;
 }
+
+/**
+ * An implication can satisfy an inclusion only when its path is as confident
+ * as verified evidence. Anything below the verified floor remains a guess.
+ */
+export const CUISINE_IMPLICATION_SATISFACTION_FLOOR = VERIFIED_CONFIDENCE_FLOOR;
 
 /**
  * T3.6's four evidence blocks. Dish rules require a dominant OSM pairing, a
@@ -46,6 +54,10 @@ export const CUISINE_RULES: readonly CuisineRule[] = [
   { from: "yakitori", implies: "japanese", confidence: 0.8, source: "wikidata-p2012", evidence: "Wikidata P2012 single-cuisine result" },
   { from: "kimchi", implies: "korean", confidence: 0.8, source: "wikidata-p2012", evidence: "Wikidata P2012 single-cuisine result" },
   { from: "injera", implies: "ethiopian", confidence: 0.8, source: "wikidata-p2012", evidence: "Wikidata P2012 single-cuisine result" },
+
+  // Connective regional edges: direct Wikidata subclass statements.
+  { from: "valencian", implies: "spanish", confidence: 0.9, source: "wikidata-p279", evidence: "wd:Q1223242 P279 -> Q622512" },
+  { from: "arab", implies: "middle_eastern", confidence: 0.9, source: "wikidata-p279", evidence: "wd:Q623970 P279 -> Q1547037" },
 
   // National -> regional roll-up: Overture v1.18 hierarchy (22).
   { from: "chinese", implies: "asian", confidence: 0.95, source: "overture-hierarchy", evidence: "[eat_and_drink,restaurant,asian_restaurant,chinese_restaurant]" },

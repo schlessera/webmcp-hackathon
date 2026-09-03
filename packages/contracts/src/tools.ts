@@ -305,7 +305,8 @@ const spatialTools: ToolDefinition[] = [
     name: "attest_attribute",
     description:
       "Record what you found out about a place: a fact the record marks " +
-      "unknown or likely in inspect_candidates. Say what you checked in note " +
+      "unknown or likely in inspect_candidates, including a q:<sha1> question criterion. " +
+      "Say what you checked in note " +
       "and how sure you are (confidence 0-1; below 0.7 it is recorded as " +
       "likely, not verified). Over an unknown fact your attestation lets the " +
       "room rule on it, labelled with your name; one that contradicts a " +

@@ -2,6 +2,7 @@ import type pg from "pg";
 import type { Feasibility } from "@webmcp-hackathon/contracts";
 import {
   ATTRIBUTE_LABELS,
+  CUISINE_IMPLICATION_SATISFACTION_FLOOR,
   PRICE_LEVEL_EUR,
   DISH_TOKENS,
   areaById,
@@ -38,8 +39,10 @@ const labelOf = (key: string | undefined): string =>
  * - budget compares perPersonMax against the PRICE_LEVEL_EUR band for the
  *   candidate's price level;
  * - cuisine predicates normalize OSM multi-values and use the sourced
- *   implication taxonomy. Implications may add a place but never rule one
- *   out; missing cuisine evidence stays uncertain;
+ *   implication taxonomy. An implication at or above the verified evidence
+ *   floor may satisfy an inclusion; below that it remains a guess.
+ *   Implications may add a place but never rule one out; missing cuisine
+ *   evidence stays uncertain;
  * - agent-private declarations consult recorded screening verdicts:
  *   unacceptable -> excluded, missing/needs_info -> uncertain;
  * - free-text needs read the stable question criterion in the dossier;
@@ -75,6 +78,7 @@ export interface CandidateRow {
     source?: string;
     confidence?: number;
     attestedBy?: string;
+    explicit?: boolean;
   }>;
   /** Parsed OSM hours stored with the candidate record. */
   hours?: DossierHours[];
@@ -574,11 +578,12 @@ function classify(
         if (lean === null) {
           pending.push({ ...owner, text: `${label} not known` });
         } else {
-          // A question is verified only by a person's attestation. Inference
-          // and web evidence remain likely even if malformed stored data says
-          // verified, so a model can never silently acquire decisive force.
           const attested = Boolean(attr?.attestedBy);
-          if (isVerified(status) && attested) {
+          const explicitOwnSite =
+            attr?.explicit === true &&
+            attr.source?.startsWith("web:") === true &&
+            (attr.confidence ?? 0) >= 0.7;
+          if (isVerified(status) && (attested || explicitOwnSite)) {
             if (lean) satisfied.push({ ...owner, text: label });
             else return excluded(candidate, { ...owner, text: `${label} is not confirmed` });
           } else {
@@ -594,6 +599,26 @@ function classify(
       }
       case "inclusion": {
         if (p.key === "cuisine") {
+          const criterion = criterionFor(p as never);
+          const direct = criterion
+            ? candidate.attributes.find((attribute) => attribute.key === criterion.id)
+            : undefined;
+          const directLean = leans(direct?.status ?? "unknown");
+          if (directLean !== null) {
+            const label = criterion?.label ?? "serves the requested cuisine";
+            if (isVerified(direct!.status)) {
+              if (directLean) satisfied.push({ ...owner, text: label });
+              else return excluded(candidate, { ...owner, text: `does not ${label}` });
+            } else {
+              likely.push({
+                ...owner,
+                lean: directLean,
+                confidence: direct?.confidence ?? 0.5,
+                text: `${label} ${directLean ? "likely" : "unlikely"}`,
+              });
+            }
+            break;
+          }
           const attr = candidate.attributes.find((a) => a.key === "cuisine");
           const known = attr?.status === "verified_true" || attr?.status === "likely_true";
           const tokens =
@@ -615,7 +640,10 @@ function classify(
             } else {
               return excluded(candidate, { ...owner, text: `does not serve ${wanted || "the requested cuisine"}` });
             }
-          } else if (attr?.status === "likely_true" || (!hit.exact && hit.confidence < 0.7)) {
+          } else if (
+            attr?.status === "likely_true" ||
+            (!hit.exact && hit.confidence < CUISINE_IMPLICATION_SATISFACTION_FLOOR)
+          ) {
             likely.push({
               ...owner,
               lean: true,
@@ -630,36 +658,98 @@ function classify(
             satisfied.push({ ...owner, text: cuisineEvidence(hit) });
           }
         } else {
-          pending.push({ ...owner, text: "cuisine not known" });
+          pending.push({ ...owner, text: `${labelOf(p.key)} not known` });
         }
         break;
       }
       case "exclusion": {
         if (p.key === "cuisine") {
+          const criterion = criterionFor(p as never);
+          const direct = criterion
+            ? candidate.attributes.find((attribute) => attribute.key === criterion.id)
+            : undefined;
+          const directLean = leans(direct?.status ?? "unknown");
+          if (directLean !== null) {
+            const label = criterion?.label ?? "serves the avoided cuisine";
+            if (isVerified(direct!.status)) {
+              if (directLean) return excluded(candidate, { ...owner, text: label });
+              satisfied.push({ ...owner, text: `does not ${label}` });
+            } else {
+              likely.push({
+                ...owner,
+                lean: !directLean,
+                confidence: direct?.confidence ?? 0.5,
+                text: `${label} ${directLean ? "likely" : "unlikely"}`,
+              });
+            }
+            break;
+          }
           const attr = candidate.attributes.find((a) => a.key === "cuisine");
-          const tokens =
-            typeof attr?.value === "string"
-              ? normalizeCuisineTokens(attr.value)
-              : normalizeCuisineTokens(candidate.category);
+          const fact = attr ? normalizeStatus(attr) : undefined;
+          const tokens = typeof fact?.value === "string" ? normalizeCuisineTokens(fact.value) : [];
           const hit = cuisineHit(tokens, p.values);
-          if (hit) {
-            if (attr?.status === "likely_true" || !hit.exact) {
+          const wanted = normalizeCuisineTokens(p.values ?? []).map(humanizeCuisine).join(" or ");
+          if (!fact) {
+            const categoryHit = cuisineHit(normalizeCuisineTokens(candidate.category), p.values);
+            if (categoryHit) {
+              // Category is suggestive fallback data, never decisive cuisine
+              // evidence — even when its token is an exact match.
+              likely.push({
+                ...owner,
+                lean: false,
+                confidence: 0.5 * categoryHit.confidence,
+                text: `category suggests ${humanizeCuisine(categoryHit.wanted)}`,
+              });
+            } else {
+              pending.push({ ...owner, text: "cuisine not known" });
+            }
+          } else if (fact.status === "verified_true") {
+            if (!hit && tokens.length === 0) {
+              pending.push({ ...owner, text: "cuisine not known" });
+            } else if (hit?.exact) {
+              return excluded(candidate, { ...owner, text: cuisineEvidence(hit) });
+            } else if (hit) {
               // An implication may add a place to a set but must never rule
               // one out. Even high-confidence implied exclusions stay unlikely.
               likely.push({
                 ...owner,
                 lean: false,
-                confidence: (attr?.status === "likely_true" ? attr.confidence ?? 0.5 : 1) * hit.confidence,
-                text: attr?.status === "likely_true"
-                  ? `likely serves ${humanizeCuisine(hit.wanted)}`
-                  : cuisineEvidence(hit),
+                confidence: hit.confidence,
+                text: cuisineEvidence(hit),
               });
-            } else {
-              return excluded(candidate, { ...owner, text: cuisineEvidence(hit) });
             }
+          } else if (fact.status === "likely_true") {
+            if (tokens.length === 0) {
+              pending.push({ ...owner, text: "cuisine not known" });
+            } else {
+              likely.push({
+                ...owner,
+                lean: !hit,
+                confidence: fact.confidence * (hit?.confidence ?? 1),
+                text: hit
+                  ? `likely serves ${humanizeCuisine(hit.wanted)}`
+                  : `likely does not serve ${wanted || "the avoided cuisine"}`,
+              });
+            }
+          } else if (hit?.exact && fact.status === "verified_false") {
+            satisfied.push({
+              ...owner,
+              text: `does not serve ${humanizeCuisine(hit.wanted)}`,
+            });
+          } else if (hit?.exact && fact.status === "likely_false") {
+            likely.push({
+              ...owner,
+              lean: true,
+              confidence: fact.confidence,
+              text: `likely does not serve ${humanizeCuisine(hit.wanted)}`,
+            });
+          } else {
+            // Unknown values and negative facts about some other or narrower
+            // cuisine do not answer this exclusion.
+            pending.push({ ...owner, text: "cuisine not known" });
           }
         } else {
-          pending.push({ ...owner, text: "cuisine not known" });
+          pending.push({ ...owner, text: `${labelOf(p.key)} not known` });
         }
         break;
       }

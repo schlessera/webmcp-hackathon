@@ -187,7 +187,8 @@ export async function respond(call: Call): Promise<Reply> {
         if (part.type === "output_text" && typeof part.text === "string") {
           const textOffset = texts.reduce((total, text) => total + text.length, 0) + texts.length;
           texts.push(part.text);
-          for (const annotation of (part.annotations as Array<Record<string, unknown>>) ?? []) {
+          const annotations = Array.isArray(part.annotations) ? part.annotations : [];
+          for (const annotation of annotations as Array<Record<string, unknown>>) {
             if (annotation.type !== "url_citation" || typeof annotation.url !== "string") continue;
             citations.push({
               url: annotation.url,

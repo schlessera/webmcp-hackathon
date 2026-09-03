@@ -30,13 +30,16 @@ export interface InferInput {
 }
 
 export interface InferredClaim {
-  key: InferableKey;
+  key: string;
   lean: "yes" | "no";
   confidence: number;
   evidence: string;
   source: string;
-  /** Only price-level carries a value: a provider-neutral band from 1–4. */
-  value?: number;
+  /** Price carries a band; value-specific matrix criteria may carry their tokens. */
+  value?: string | number;
+  /** Matrix-only provenance: direct statement rather than indirect inference. */
+  explicit?: boolean;
+  sourceUrl?: string;
 }
 
 export type StoredInference =
@@ -249,6 +252,8 @@ interface AttributeLike {
   observedAt?: string;
   confidence?: number;
   note?: string;
+  sourceUrl?: string;
+  explicit?: boolean;
 }
 
 /** Inference runs after record → web → guess and fills only a remaining unknown. */
@@ -259,15 +264,17 @@ export function applyInferredAttributes<T extends AttributeLike>(
   if (!inferred || Object.keys(inferred).length === 0) return attributes;
   const out = attributes.map((attribute) => ({ ...attribute }));
   for (const [key, claim] of Object.entries(inferred)) {
-    if (!(INFERABLE_KEYS as readonly string[]).includes(key)) continue;
+    const isCuisineCriterion = key.startsWith("cuisine:");
+    if (!(INFERABLE_KEYS as readonly string[]).includes(key) && !isCuisineCriterion) continue;
     if ("omitted" in claim) continue;
     const existing = out.find((attribute) => attribute.key === key);
     if (existing && existing.status !== "unknown") continue;
-    // The caps are all below 0.7. Calling graded() is nevertheless mandatory:
-    // inferred state has exactly the same central status semantics as every
-    // other graded claim, and can never write a verified_* value.
     const status: AttributeStatus = graded(claim.lean === "yes", claim.confidence);
-    if (status === "verified_true" || status === "verified_false") continue;
+    const recordGrade =
+      claim.explicit === true &&
+      claim.source.startsWith("web:") &&
+      claim.confidence >= 0.7;
+    if ((status === "verified_true" || status === "verified_false") && !recordGrade) continue;
     const patch = {
       status,
       ...(claim.value !== undefined ? { value: claim.value } : {}),
@@ -275,6 +282,8 @@ export function applyInferredAttributes<T extends AttributeLike>(
       observedAt: claim.observedAt,
       confidence: claim.confidence,
       note: sanitizeInferenceNote(claim.evidence),
+      ...(claim.explicit !== undefined ? { explicit: claim.explicit } : {}),
+      ...(claim.sourceUrl ? { sourceUrl: claim.sourceUrl } : {}),
     };
     if (existing) Object.assign(existing, patch);
     else out.push({ key, ...patch } as T);

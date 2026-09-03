@@ -88,9 +88,32 @@ describe("say: draft → payloads", () => {
       { kind: "text", text: "karaoke night" },
       // Only published cuisine values survive.
       { kind: "exclusion", key: "cuisine", values: ["italian"], lifetime: "session" },
-      // No surviving value: text again, never an invented exclusion.
-      { kind: "text", text: "no martian food" },
     ]);
+  });
+
+  it("returns unclear instead of turning an unmatched cuisine exclusion into text", async () => {
+    scripted({
+      intent: "need",
+      reply: null,
+      needs: [
+        { kind: "exclusion", attributeKey: null, expect: null, amountEur: null, walkMin: null, excludeValues: ["sushi"], text: "no sushi", topic: "cuisine", gist: "no sushi" },
+      ],
+    });
+    const out = await say("no sushi", "application-private", context);
+    expect(out.intent).toBe("unclear");
+    expect(out.needs).toEqual([]);
+  });
+
+  it("caps free-text needs at the promised 120 characters", async () => {
+    scripted({
+      intent: "need",
+      reply: null,
+      needs: [
+        { kind: "text", attributeKey: null, expect: null, amountEur: null, walkMin: null, excludeValues: [], text: "x".repeat(200), topic: null, gist: "long detail" },
+      ],
+    });
+    const out = await say("x".repeat(200), "shared", context);
+    expect(out.needs[0].payload).toEqual({ kind: "text", text: "x".repeat(120) });
   });
 
   it("a wanted cuisine is an inclusion, never an exclusion (the 'Asian cuisine please' bug)", async () => {

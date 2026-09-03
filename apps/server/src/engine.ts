@@ -1425,7 +1425,12 @@ async function attestAttribute(
     actor.roomId,
     [cmd.candidateId],
   );
-  const label = ATTRIBUTE_LABELS[cmd.key as keyof typeof ATTRIBUTE_LABELS] ?? cmd.key;
+  // A q: key is shared evidence, but its sentence may be application-private.
+  // The event therefore uses neutral copy; authorized dossiers recover the
+  // label from their matching requirement, never from this shared frame.
+  const label = cmd.key.startsWith("q:")
+    ? "a question"
+    : ATTRIBUTE_LABELS[cmd.key as keyof typeof ATTRIBUTE_LABELS] ?? cmd.key;
   const answer = cmd.status === "verified_true" ? "yes" : "no";
   return {
     events: [

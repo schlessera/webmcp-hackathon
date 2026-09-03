@@ -5,7 +5,6 @@ import {
   ATTRIBUTE_VOCABULARY,
   criterionFor,
   graded,
-  normalizeQuestion,
   normalizeStatus,
   type Criterion,
   type DossierLink,
@@ -83,14 +82,12 @@ export type StoredCriterionInference =
       source: string;
       observedAt: string;
       sourceUrl?: string;
-      question?: string;
-      label?: string;
+      explicit?: boolean;
+      value?: string;
     }
   | {
       omitted: true;
       observedAt: string;
-      question?: string;
-      label?: string;
     };
 
 export interface ProviderFetchState {
@@ -111,6 +108,8 @@ const TTL_OK_MS = 7 * 24 * 60 * 60 * 1000;
 const TTL_FAIL_MS = 60 * 60 * 1000;
 const TTL_INFER_MS = 7 * 24 * 60 * 60 * 1000;
 const TTL_OMITTED_MS = 24 * 60 * 60 * 1000;
+export const INFERENCE_PRUNE_DAYS = 30;
+export const MAX_QUESTION_INFERENCES = 64;
 const WARM_CONCURRENCY = 4;
 export const ON_DEMAND_CONCURRENCY = 4;
 export const ON_DEMAND_MAX_WAITERS = 32;
@@ -631,25 +630,33 @@ export interface InferenceBatchWrite {
   osmRef: string;
   criteria: Criterion[];
   claims: EvaluatedInference[];
+  /** Criterion ids returned as validated claims or explicit abstentions. */
+  answeredCriterionIds: string[];
   observedAt: string;
 }
 
 /** One statement persists every place in a model batch, including explicit
- * omission markers. Questions retain both stable machine text and reader copy. */
+ * omission markers. Question copy never enters this cross-room cache. */
 export async function saveInferences(
   pool: Pick<pg.Pool, "query">,
   writes: InferenceBatchWrite[],
 ): Promise<void> {
-  const rows = writes.filter((write) => write.criteria.length > 0);
+  const rows = writes.filter(
+    (write) => write.claims.length > 0 || write.answeredCriterionIds.length > 0,
+  );
   if (rows.length === 0) return;
   const refs: string[] = [];
   const ttls: string[] = [];
   const payloads: string[] = [];
   for (const write of rows) {
     const claimed = new Map(write.claims.map((claim) => [claim.criterionId, claim]));
+    const answered = new Set(write.answeredCriterionIds);
     const inferred: Record<string, StoredCriterionInference> = {};
     for (const criterion of write.criteria) {
-      const key = criterion.kind === "key" ? criterion.key : criterion.id;
+      const key = criterion.id;
+      // A q:<sha1> is a stable, guessable commitment, not a secret. It is safe
+      // here only because neither the normalized sentence nor its label is
+      // stored; dossier copy is recovered from a viewer-authorized requirement.
       const claim = claimed.get(criterion.id);
       if (claim) {
         inferred[key] = {
@@ -659,18 +666,14 @@ export async function saveInferences(
           evidence: claim.evidence,
           source: claim.source,
           observedAt: claim.observedAt,
+          explicit: claim.explicit,
+          ...(claim.value ? { value: claim.value } : {}),
           ...(claim.sourceUrl ? { sourceUrl: claim.sourceUrl } : {}),
-          ...(criterion.kind === "question"
-            ? { question: normalizeQuestion(criterion.text), label: criterion.label }
-            : {}),
         };
-      } else {
+      } else if (answered.has(criterion.id)) {
         inferred[key] = {
           omitted: true,
           observedAt: write.observedAt,
-          ...(criterion.kind === "question"
-            ? { question: normalizeQuestion(criterion.text), label: criterion.label }
-            : {}),
         };
       }
     }
@@ -692,9 +695,35 @@ export async function saveInferences(
        FROM unnest($1::text[], $2::text[], $3::jsonb[])
             AS batch(osm_ref, ttl_ms, inferred)
      ON CONFLICT (osm_ref) DO UPDATE SET
-       inferred = enrichments.inferred || EXCLUDED.inferred,
+       inferred = (
+         WITH merged AS (
+           SELECT entry.key,
+                  entry.value,
+                  CASE
+                    WHEN pg_input_is_valid(
+                      entry.value->>'observedAt',
+                      'timestamp with time zone'
+                    )
+                    THEN (entry.value->>'observedAt')::timestamptz
+                    ELSE NULL
+                  END AS observed_at
+             FROM jsonb_each(enrichments.inferred || EXCLUDED.inferred) AS entry
+         ), ranked AS (
+           SELECT key,
+                  value,
+                  row_number() OVER (
+                    PARTITION BY key LIKE 'q:%'
+                    ORDER BY observed_at DESC NULLS LAST, key
+                  ) AS age_rank
+             FROM merged
+            WHERE observed_at >= now() - ($4 || ' days')::interval
+         )
+         SELECT COALESCE(jsonb_object_agg(key, value), '{}'::jsonb)
+           FROM ranked
+          WHERE key NOT LIKE 'q:%' OR age_rank <= $5
+       ),
        inferred_at = now()`,
-    [refs, ttls, payloads],
+    [refs, ttls, payloads, String(INFERENCE_PRUNE_DAYS), MAX_QUESTION_INFERENCES],
   );
 }
 
@@ -788,18 +817,22 @@ async function runLookupNow(
 
   const [attestations, requirementRows, initialCache] = await Promise.all([
     loadAttestations(pool, roomId),
+    // Shared and application-private payloads may reach the server-side model:
+    // that is application-private's tier contract. Agent-private content stays
+    // in its owner's agent and is never harvested. Model access is distinct
+    // from what the cross-room cache may store and a dossier viewer may see.
     pool.query(
-      `SELECT payload FROM requirements
-        WHERE room_id = $1 AND NOT withdrawn AND active IS NOT FALSE`,
+      `SELECT visibility, payload FROM requirements
+        WHERE room_id = $1 AND NOT withdrawn AND active IS NOT FALSE
+          AND visibility IN ('shared', 'application-private')`,
       [roomId],
     ),
     loadCached(pool, actionable.map((row) => row.osm_ref!).filter(Boolean)),
   ]);
   const activeCriteria = new Map<string, Criterion>();
   for (const criterion of options.criteria ?? []) activeCriteria.set(criterion.id, criterion);
-  for (const row of requirementRows.rows as Array<{ payload: unknown }>) {
-    const criterion = criterionFor(row.payload as never);
-    if (criterion) activeCriteria.set(criterion.id, criterion);
+  for (const criterion of harvestRequirementCriteria(requirementRows.rows)) {
+    activeCriteria.set(criterion.id, criterion);
   }
 
   interface CandidateEvaluation {
@@ -860,6 +893,9 @@ async function runLookupNow(
   for (const evaluation of evaluations.values()) {
     for (const key of options.keys ?? ATTRIBUTE_VOCABULARY) {
       if (!(ATTRIBUTE_VOCABULARY as readonly string[]).includes(key)) continue;
+      // Cuisine is meaningful only with the wanted values carried by an
+      // active value-specific criterion; a bare "cuisine?" cell is unusable.
+      if (key === "cuisine") continue;
       const attr = evaluation.base?.find((attribute) => attribute.key === key);
       if (attr?.status !== "unknown") continue;
       criteria.set(key, {
@@ -881,10 +917,11 @@ async function runLookupNow(
       // must never manufacture an answer to an `open:*` criterion.
       if (criterion.kind === "key" && criterion.key.startsWith("open:")) return false;
       const key = criterion.kind === "key" ? criterion.key : criterion.id;
+      const storedKey = criterion.id;
       const attr = evaluation.base!.find((attribute) => attribute.key === key);
       if (attr && attr.status !== "unknown") return false;
       if (!attr && criterion.kind === "key" && !activeCriteria.has(criterion.id)) return false;
-      return options.force === true || !evaluation.current?.inferred?.[key];
+      return options.force === true || !evaluation.current?.inferred?.[storedKey];
     });
     evaluation.openCriteria = openCriteria;
     if (openCriteria.length === 0) continue;
@@ -894,6 +931,7 @@ async function runLookupNow(
       osmRef: evaluation.row.osm_ref!,
       name: evaluation.row.name,
       category: evaluation.row.category,
+      ...(evaluation.row.extras?.website ? { website: evaluation.row.extras.website } : {}),
       cuisine: cuisineTokens(evaluation.base),
       texts: evaluation.texts,
     });
@@ -908,24 +946,38 @@ async function runLookupNow(
           new Set((evaluation.openCriteria ?? []).map((criterion) => criterion.id)),
         ]),
       );
-      const claims = (await evaluateMatrix({
+      const claims = await evaluateMatrix({
         places: matrixPlaces,
         criteria: [...matrixCriteria.values()],
-      })).filter((claim) => openByCandidate.get(claim.candidateId)?.has(claim.criterionId));
-      await saveInferences(
-        pool,
-        [...evaluations.values()].flatMap((evaluation) =>
-          evaluation.openCriteria?.length
-            ? [{
-                osmRef: evaluation.row.osm_ref!,
-                criteria: evaluation.openCriteria,
-                claims: claims.filter((claim) => claim.candidateId === evaluation.row.id),
-                observedAt: evaluation.observedAt,
-              }]
-            : [],
-        ),
-      );
-      inferenceChanged = claims.length > 0;
+      }, async (batch) => {
+        const answeredByCandidate = new Map<string, string[]>();
+        for (const cell of batch.answered) {
+          if (!openByCandidate.get(cell.candidateId)?.has(cell.criterionId)) continue;
+          const ids = answeredByCandidate.get(cell.candidateId) ?? [];
+          ids.push(cell.criterionId);
+          answeredByCandidate.set(cell.candidateId, ids);
+        }
+        const accepted = batch.claims.filter((claim) =>
+          openByCandidate.get(claim.candidateId)?.has(claim.criterionId)
+        );
+        await saveInferences(
+          pool,
+          batch.input.places.flatMap((place) => {
+            const evaluation = evaluations.get(place.candidateId);
+            if (!evaluation?.openCriteria?.length) return [];
+            const criterionIds = new Set(batch.input.criteria.map((criterion) => criterion.id));
+            return [{
+              osmRef: evaluation.row.osm_ref!,
+              criteria: evaluation.openCriteria.filter((criterion) => criterionIds.has(criterion.id)),
+              claims: accepted.filter((claim) => claim.candidateId === place.candidateId),
+              answeredCriterionIds: answeredByCandidate.get(place.candidateId) ?? [],
+              observedAt: evaluation.observedAt,
+            }];
+          }),
+        );
+        if (accepted.length > 0) inferenceChanged = true;
+      });
+      inferenceChanged ||= claims.length > 0;
       const refreshed = await loadCached(
         pool,
         [...evaluations.values()].map((evaluation) => evaluation.row.osm_ref!).filter(Boolean),
@@ -953,6 +1005,17 @@ async function runLookupNow(
     await publishInferenceChanges(pool, roomId, changed, inferenceChanged ? "inference" : "lookup");
   }
   return changed;
+}
+
+/** Defense in depth for callers/tests that supply rows without the SQL gate. */
+export function harvestRequirementCriteria(
+  rows: Array<{ visibility?: unknown; payload?: unknown }>,
+): Criterion[] {
+  return rows.flatMap((row) => {
+    if (row.visibility !== "shared" && row.visibility !== "application-private") return [];
+    const criterion = criterionFor(row.payload as never);
+    return criterion ? [criterion] : [];
+  });
 }
 
 /** One revision/facts publication path for lookup and refinement writes. */
@@ -1037,6 +1100,7 @@ export interface AttributeLike {
   confidence?: number;
   note?: string;
   sourceUrl?: string;
+  explicit?: boolean;
 }
 
 /** A slot a looked-up fact may fill: nothing, a gap, or a mere guess. */
@@ -1133,16 +1197,19 @@ export function applyEnrichmentAttributes<T extends AttributeLike>(
       source: string;
       observedAt: string;
       sourceUrl?: string;
-      question?: string;
-      label?: string;
+      explicit?: boolean;
     };
-    const confidence = Math.min(questionStored.confidence, 0.6);
+    const recordGrade =
+      questionStored.explicit === true &&
+      questionStored.source.startsWith("web:") &&
+      questionStored.confidence >= 0.7;
+    const confidence = Math.min(questionStored.confidence, recordGrade ? 0.72 : 0.6);
     set(key, {
-      label: questionStored.label ?? questionStored.question ?? key,
       status: graded(questionStored.lean === "yes", confidence),
       source: questionStored.source,
       observedAt: questionStored.observedAt,
       confidence,
+      explicit: recordGrade,
       note: sanitizeInferenceNote(questionStored.evidence),
       ...(questionStored.sourceUrl ? { sourceUrl: questionStored.sourceUrl } : {}),
     });

@@ -1,6 +1,6 @@
 {
   "toolContractVersion": "3",
-  "sha256": "19d0b3671becc33e58f8314ed9d2c081e810052a65ea2c8047dc527ab8720eea",
+  "sha256": "a0728689ff4c0754cfe28a0c294831089a12b2cac6d36342ada00aebb702ac6d",
   "manifest": {
     "capabilityManifest": {
       "agreement": {
@@ -160,6 +160,11 @@
               },
               {
                 "const": "delivery",
+                "type": "string"
+              },
+              {
+                "maxLength": 42,
+                "pattern": "^q:[0-9a-f]{40}$",
                 "type": "string"
               }
             ]
@@ -5446,7 +5451,7 @@
       },
       {
         "annotations": {},
-        "description": "Record what you found out about a place: a fact the record marks unknown or likely in inspect_candidates. Say what you checked in note and how sure you are (confidence 0-1; below 0.7 it is recorded as likely, not verified). Over an unknown fact your attestation lets the room rule on it, labelled with your name; one that contradicts a verified fact marks it disputed instead. Shared with the whole room.",
+        "description": "Record what you found out about a place: a fact the record marks unknown or likely in inspect_candidates, including a q:<sha1> question criterion. Say what you checked in note and how sure you are (confidence 0-1; below 0.7 it is recorded as likely, not verified). Over an unknown fact your attestation lets the room rule on it, labelled with your name; one that contradicts a verified fact marks it disputed instead. Shared with the whole room.",
         "inputSchema": {
           "additionalProperties": false,
           "properties": {
@@ -5504,6 +5509,11 @@
                 },
                 {
                   "const": "delivery",
+                  "type": "string"
+                },
+                {
+                  "maxLength": 42,
+                  "pattern": "^q:[0-9a-f]{40}$",
                   "type": "string"
                 }
               ]

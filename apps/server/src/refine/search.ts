@@ -191,9 +191,8 @@ export function combinedClaimsFromReply(
       sourceIndex: 0,
       observedAt,
       sourceUrl,
-      ...(criterion.kind === "question"
-        ? { question: normalizeQuestion(criterion.text), label: criterion.label }
-        : {}),
+      // Never the question text: a claim reaches the cross-room cache.
+      explicit: false,
     });
   }
   return claims;

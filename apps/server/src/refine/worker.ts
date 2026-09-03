@@ -658,10 +658,19 @@ export async function runRefinementTick(
     const refs = batch.map((item) => item.candidate.osm_ref!).filter(Boolean);
     const cached = await loadCached(pool, refs);
     const prepared = await Promise.all(batch.map((item) => preparePlace(item, cached, now)));
+    // Cells the model genuinely answered (a claim or an explicit abstention);
+    // only those are cached, everything else is re-queued (C3).
+    const answeredCells = new Set<string>();
+    const collectAnswered = async (batch: { answered: Array<{ candidateId: string; criterionId: string }> }) => {
+      for (const cell of batch.answered) answeredCells.add(`${cell.candidateId}\u0000${cell.criterionId}`);
+    };
     let firstClaims: EvaluatedInference[] = [];
     if (criteria.length > 0) {
       modelBudget.consume(roomId, firstCalls, now);
-      firstClaims = await evaluateMatrix({ places: prepared.map((place) => place.matrix), criteria });
+      firstClaims = await evaluateMatrix(
+        { places: prepared.map((place) => place.matrix), criteria },
+        collectAnswered,
+      );
     }
     const openByCandidate = new Map(batch.map((item) => [
       item.candidate.id,
@@ -737,7 +746,10 @@ export async function runRefinementTick(
         }));
         const secondCalls = modelCalls(searchPlaces.length, searchCriteria.length);
         modelBudget.consume(roomId, secondCalls, now);
-        searchClaims = await evaluateMatrix({ places: searchPlaces, criteria: searchCriteria });
+        searchClaims = await evaluateMatrix(
+          { places: searchPlaces, criteria: searchCriteria },
+          collectAnswered,
+        );
         const unresolvedByCandidate = new Map(withSnippets.map((entry) => [
           entry.prepared.item.candidate.id,
           new Set(entry.criteria.map((criterion) => criterion.id)),
@@ -758,6 +770,14 @@ export async function runRefinementTick(
         osmRef: item.candidate.osm_ref!,
         criteria: open,
         claims: claims.filter((claim) => claim.candidateId === item.candidate.id),
+        // Cells with a validated claim count as answered; cells the model
+        // left open are re-queued by the priority pass, never cached as omitted.
+        answeredCriterionIds: open
+          .map((criterion) => criterion.id)
+          .filter((id) =>
+            answeredCells.has(`${item.candidate.id}\u0000${id}`) ||
+            claims.some((claim) => claim.candidateId === item.candidate.id && claim.criterionId === id)
+          ),
         observedAt,
       }] : [];
     }));

@@ -21,8 +21,8 @@ import {
  * module.
  */
 
-export const MAX_MATRIX_PLACES = 12;
-export const MAX_MATRIX_CRITERIA = 8;
+export const MAX_MATRIX_PLACES = 8;
+export const MAX_MATRIX_CRITERIA = 5;
 export const MAX_TEXT_CHARS_PER_PLACE = 6_000;
 /** A full batch is a long prompt on a background path, so it is given more
  * room than an interactive call. Twenty seconds was not enough for a live
@@ -46,6 +46,8 @@ export interface EvaluateMatrixInput {
     osmRef: string;
     name: string;
     category: string;
+    /** OSM-recorded venue website, used only to establish own-site provenance. */
+    website?: string;
     cuisine?: string[];
     texts: Array<{ source: MatrixInferenceTextSource; text: string; url?: string }>;
   }>;
@@ -64,6 +66,7 @@ export const MATRIX_CONFIDENCE_CAPS: Record<MatrixEvidenceBucket, number> = {
   open_web_search: 0.5,
   name_category: INFERENCE_CONFIDENCE_CAPS.name_category,
 };
+export const EXPLICIT_OWN_SITE_CONFIDENCE = 0.72;
 
 export interface EvaluatedInference {
   candidateId: string;
@@ -78,8 +81,18 @@ export interface EvaluatedInference {
   sourceIndex: number;
   observedAt: string;
   sourceUrl?: string;
-  question?: string;
-  label?: string;
+  explicit: boolean;
+  value?: string;
+  // Deliberately absent: a question's sentence never travels on a claim. It
+  // may be application-private, and a claim is what reaches the cross-room
+  // enrichments cache. Authorized copy is recovered from the requirement.
+}
+
+export interface EvaluatedMatrixBatch {
+  input: EvaluateMatrixInput;
+  claims: EvaluatedInference[];
+  /** Cells for which the model returned a validated claim or explicit abstention. */
+  answered: Array<{ candidateId: string; criterionId: string }>;
 }
 
 export const EVALUATE_MATRIX_SCHEMA = {
@@ -100,6 +113,7 @@ export const EVALUATE_MATRIX_SCHEMA = {
           "confidence",
           "evidence",
           "sourceIndex",
+          "explicit",
         ],
         properties: {
           candidateId: { type: "string", minLength: 1 },
@@ -108,6 +122,7 @@ export const EVALUATE_MATRIX_SCHEMA = {
           confidence: { type: "number", minimum: 0, maximum: 1 },
           evidence: { type: "string", maxLength: 400 },
           sourceIndex: { type: ["integer", "null"], minimum: -1 },
+          explicit: { type: "boolean" },
         },
       },
     },
@@ -116,11 +131,13 @@ export const EVALUATE_MATRIX_SCHEMA = {
 
 export const EVALUATE_MATRIX_PROMPT = [
   "Evaluate many places against many planning criteria using only the supplied material.",
+  "When a criterion includes question and values fields, answer that specific question about those wanted values; never answer the bare key in general.",
   "Return exactly one claim for every candidateId × criterionId pair. Use lean=abstain when the material does not directly support yes or no; abstention is expected and is never a negative answer.",
   "For yes or no, evidence must be a verbatim span copied from that same place. Use sourceIndex 0..n-1 for the indexed texts, or -1 only when the exact span is in that place's name, category, or cuisine tokens.",
   "Evidence must contain at least 12 characters and at least two words. Never paraphrase, combine separate spans, borrow text from another place, or repeat the criterion/question itself as evidence.",
   "A yes needs direct affirmative support. A no needs explicit negative wording; silence or a missing mention requires abstain.",
-  "confidence is only your cautious probability from 0 to 1. The server applies a stricter cap based on the cited source, and no model claim can become verified.",
+  "Set explicit=true only when the cited span states the answer outright; use false when the answer is inferred from indirect evidence.",
+  "confidence is only your cautious probability from 0 to 1. The server applies a stricter cap based on the cited source. An explicit statement on the venue's own recorded website may be treated as a record-grade fact; all other model claims remain graded evidence.",
   "For abstain use confidence=0, evidence=\"\", and sourceIndex=null.",
   "Use only candidateId and criterionId values supplied in the input. Output only the JSON object required by the schema.",
 ].join("\n");
@@ -132,6 +149,7 @@ interface DraftClaim {
   confidence?: unknown;
   evidence?: unknown;
   sourceIndex?: unknown;
+  explicit?: unknown;
 }
 
 const WORD_CHARACTER = /[\p{L}\p{N}]/u;
@@ -171,6 +189,29 @@ function evidenceBucket(source: MatrixInferenceTextSource): MatrixEvidenceBucket
   }
   if (source === "wikidata") return "open_web_search";
   return "venue_site";
+}
+
+/** Exact hostname matching, case-insensitive, with one leading www. ignored. */
+export function normalizedWebsiteHost(url: string | undefined): string | null {
+  if (!url) return null;
+  try {
+    return new URL(url).hostname.toLocaleLowerCase().replace(/^www\./, "");
+  } catch {
+    return null;
+  }
+}
+
+function isExplicitOwnSite(
+  place: EvaluateMatrixInput["places"][number],
+  sourceIndex: number,
+  explicit: unknown,
+): boolean {
+  if (explicit !== true || sourceIndex < 0) return false;
+  const cited = place.texts[sourceIndex];
+  if (!cited || (cited.source !== "web" && cited.source !== "menu")) return false;
+  const citedHost = normalizedWebsiteHost(cited.url);
+  const recordedHost = normalizedWebsiteHost(place.website);
+  return citedHost !== null && recordedHost !== null && citedHost === recordedHost;
 }
 
 /** Preserve short sources first; the longest source is last and therefore the
@@ -213,12 +254,23 @@ export function matrixClaimsFromAnswer(
   model: string,
   observedAt = new Date().toISOString(),
 ): EvaluatedInference[] {
+  return matrixBatchFromAnswer(answer, input, model, observedAt).claims;
+}
+
+/** Validate claims and retain the cells the model genuinely answered. */
+export function matrixBatchFromAnswer(
+  answer: unknown,
+  input: EvaluateMatrixInput,
+  model: string,
+  observedAt = new Date().toISOString(),
+): EvaluatedMatrixBatch {
   const places = new Map(input.places.map((place) => [place.candidateId, place]));
   const criteria = new Map(input.criteria.map((criterion) => [criterion.id, criterion]));
   const drafts = (answer as { claims?: unknown } | null)?.claims;
-  if (!Array.isArray(drafts)) return [];
+  if (!Array.isArray(drafts)) return { input, claims: [], answered: [] };
   const seen = new Set<string>();
   const claims: EvaluatedInference[] = [];
+  const answered: EvaluatedMatrixBatch["answered"] = [];
   for (const raw of drafts as DraftClaim[]) {
     if (!raw || typeof raw !== "object") continue;
     const candidateId = String(raw.candidateId ?? "");
@@ -227,7 +279,14 @@ export function matrixClaimsFromAnswer(
     if (seen.has(cell)) continue;
     const place = places.get(candidateId);
     const criterion = criteria.get(criterionId);
-    if (!place || !criterion || raw.lean === "abstain") continue;
+    if (!place || !criterion) continue;
+    // The first occurrence owns the cell even when its contents fail later
+    // validation. A duplicate cannot repair or replace it within one answer.
+    seen.add(cell);
+    if (raw.lean === "abstain") {
+      answered.push({ candidateId, criterionId });
+      continue;
+    }
     if (raw.lean !== "yes" && raw.lean !== "no") continue;
     if (typeof raw.sourceIndex !== "number") continue;
     const sourceIndex = raw.sourceIndex;
@@ -247,37 +306,43 @@ export function matrixClaimsFromAnswer(
     if (!safeEvidence) continue;
     if (typeof raw.confidence !== "number") continue;
     const rawConfidence = raw.confidence;
-    if (!Number.isFinite(rawConfidence) || rawConfidence <= 0) continue;
+    const recordGrade = isExplicitOwnSite(place, sourceIndex, raw.explicit);
+    if (!Number.isFinite(rawConfidence) || (!recordGrade && rawConfidence <= 0)) continue;
     const bucket = sourceIndex === -1
       ? "name_category"
       : evidenceBucket(place.texts[sourceIndex].source);
-    const confidence = Math.min(rawConfidence, MATRIX_CONFIDENCE_CAPS[bucket]);
+    const confidence = recordGrade
+      ? EXPLICIT_OWN_SITE_CONFIDENCE
+      : Math.min(rawConfidence, MATRIX_CONFIDENCE_CAPS[bucket]);
     const status = graded(raw.lean === "yes", confidence);
-    if (status === "verified_true" || status === "verified_false") continue;
-    seen.add(cell);
+    if ((status === "verified_true" || status === "verified_false") && !recordGrade) continue;
+    answered.push({ candidateId, criterionId });
     const sourceUrl = sourceIndex >= 0 ? place.texts[sourceIndex].url : undefined;
     claims.push({
       candidateId,
       osmRef: place.osmRef,
       criterionId,
-      key: criterion.kind === "key" ? criterion.key : criterion.id,
+      key: criterion.id,
       lean: raw.lean,
       status,
       confidence,
       evidence: safeEvidence,
-      source: `infer:${model}:${bucket}`,
+      source: recordGrade
+        ? `web:${normalizedWebsiteHost(place.texts[sourceIndex].url)}`
+        : `infer:${model}:${bucket}`,
       sourceIndex,
       observedAt,
-      ...(sourceUrl ? { sourceUrl } : {}),
-      ...(criterion.kind === "question"
-        ? { question: normalizeQuestion(criterion.text), label: criterion.label }
+      explicit: raw.explicit === true,
+      ...(criterion.kind === "key" && criterion.key === "cuisine" && criterion.values?.length
+        ? { value: criterion.values.join(";") }
         : {}),
+      ...(sourceUrl ? { sourceUrl } : {}),
     });
   }
-  return claims;
+  return { input, claims, answered };
 }
 
-async function evaluateBounded(input: EvaluateMatrixInput): Promise<EvaluatedInference[]> {
+async function evaluateBounded(input: EvaluateMatrixInput): Promise<EvaluatedMatrixBatch> {
   const reply = await respond({
     model: config.nlFastModel,
     instructions: EVALUATE_MATRIX_PROMPT,
@@ -287,12 +352,19 @@ async function evaluateBounded(input: EvaluateMatrixInput): Promise<EvaluatedInf
     maxOutputTokens: 8_000,
     timeoutMs: MATRIX_TIMEOUT_MS,
   });
-  return matrixClaimsFromAnswer(parseJson(reply.text), input, reply.model);
+  const answer = parseJson<{ claims?: unknown }>(reply.text);
+  if (!answer || !Array.isArray(answer.claims)) {
+    throw new Error("matrix response was not parseable structured output");
+  }
+  return matrixBatchFromAnswer(answer, input, reply.model);
 }
 
 /** Split on both axes and merge every validated cell; no model answer is
  * truncated merely because the caller supplied more than one bounded batch. */
-export async function evaluateMatrix(input: EvaluateMatrixInput): Promise<EvaluatedInference[]> {
+export async function evaluateMatrix(
+  input: EvaluateMatrixInput,
+  persistBatch?: (batch: EvaluatedMatrixBatch) => Promise<void>,
+): Promise<EvaluatedInference[]> {
   if (!inferenceEnabled()) return [];
   const clean = uniqueInput(input);
   if (clean.places.length === 0 || clean.criteria.length === 0) return [];
@@ -305,7 +377,14 @@ export async function evaluateMatrix(input: EvaluateMatrixInput): Promise<Evalua
       criterionAt += MAX_MATRIX_CRITERIA
     ) {
       const criteria = clean.criteria.slice(criterionAt, criterionAt + MAX_MATRIX_CRITERIA);
-      claims.push(...await evaluateBounded({ places, criteria }));
+      try {
+        const batch = await evaluateBounded({ places, criteria });
+        if (persistBatch) await persistBatch(batch);
+        claims.push(...batch.claims);
+      } catch {
+        // A transport, parse, or persistence failure is not an answer. Other
+        // bounded batches remain independent and may still be persisted.
+      }
     }
   }
   return claims;

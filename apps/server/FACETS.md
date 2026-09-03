@@ -89,6 +89,19 @@ attributes present across the current results.
   places where the answer is a guess with a confidence. Absent means zero.
   Pills count `yes + likely`; the brief row shows "n likely" beside
   "n unknown"; the count block shows "· n likely" apart from the big number.
+- An enum `values[].count` is the number of places that would be fully
+  `eligible` if that value became an inclusion need. For cuisine, that means a
+  verified exact token or a verified implication whose path confidence is at
+  least `CUISINE_IMPLICATION_SATISFACTION_FLOOR`. The constant is derived from
+  `VERIFIED_CONFIDENCE_FLOOR` (currently 0.7): an implication at or above the
+  verified floor may satisfy, while a lower-confidence implication is a guess
+  and does not enter the value's count. Likely facts and lower-confidence
+  implications remain available as enum values so the parser can route them,
+  but each such place contributes zero to that value's count; selecting one
+  therefore cannot overstate the resulting match count.
+- A facet's `counts.yes` / `likely` / `unlikely` / `no` / `unknown` buckets
+  remain disjoint status totals. They describe the evidence distribution and
+  are independent of an enum value's predicate-specific `count`.
 - `salience` — optional 0–1 hint for ordering. Absent → order by
   `counts.yes` descending.
 
@@ -210,6 +223,20 @@ shared response therefore carries the effect only:
 - Never include the predicate, the value, or the place ids it removed.
 
 The owner's own client receives the full need; peers receive only this.
+
+Question inference follows the same boundary. Its cross-room enrichment-cache
+entry is keyed only by `q:<sha1(normalized sentence)>`; the entry never stores
+the sentence itself, either normalized or as a reader label. The hash is a
+guessable identity commitment, not a secret. On a dossier read, the server
+derives the viewer's permitted criterion ids with `criterionFor`: every shared
+need plus every need the viewer owns. It drops any other `q:` attribute and
+supplies an authorized row's label from the requirement payload, never from
+the cache.
+
+Shared and application-private needs may reach the server-side model evaluator;
+the latter tier permits application processing without making the content room
+visible. Agent-private content stays in its owner's agent context and is not
+harvested by the server-side evaluator.
 
 The same boundary governs a place dossier's `needs[]`. The viewer's own needs
 and every shared need are full rows, each naming its requirement. Every
