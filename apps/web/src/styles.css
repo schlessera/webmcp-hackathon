@@ -92,6 +92,11 @@ body { overflow: hidden; }
   white-space: nowrap; border: 0;
 }
 
+/* A folded block leaves the flow entirely. Without this a class-level
+   `display` outranks the browser's own [hidden] rule and the block stays
+   on screen with only its accessibility gone — the worst of both. */
+[hidden] { display: none !important; }
+
 /* A visual box smaller than 44px extends its target with a pseudo-element
    rather than growing the drawn element (CLAUDE.md §13). */
 .tap-44 { position: relative; }
