@@ -92,6 +92,11 @@ export interface ActiveNeed {
   /** The criterion this need reads; `q:<hash>` for a question the room asks
    * of the data, a vocabulary key otherwise (contracts criteria). */
   criterionId?: string;
+  referent?: {
+    kind: "scopeCenter" | "candidate" | "participant" | "point" | "landmark";
+    label: string;
+    location?: { lat: number; lng: number };
+  };
 }
 
 /** A peer's private need, reduced to its effect (FACETS.md §4). Never the

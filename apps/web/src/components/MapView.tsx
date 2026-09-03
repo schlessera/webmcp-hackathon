@@ -378,6 +378,9 @@ export function MapView({
 }: Props) {
   const mapRef = useRef<MapRef>(null);
   const { scope, candidates, proposals } = context;
+  const referentMarks = context.activeNeeds.filter(
+    (need) => need.active && need.referent?.location,
+  );
   const center = scope.area.center;
   const selectedIdRef = useRef(selectedId);
   const candidatesRef = useRef(candidates);
@@ -2004,6 +2007,25 @@ export function MapView({
             />
           )}
         </Source>
+        {referentMarks.map((need) => (
+          <Marker
+            key={`referent-${need.id}`}
+            longitude={need.referent!.location!.lng}
+            latitude={need.referent!.location!.lat}
+            anchor="center"
+            style={{ zIndex: 8 }}
+          >
+            <div
+              className="referent-marker"
+              role="img"
+              aria-label={`${need.label}. Measured from ${need.referent!.label}.`}
+              data-testid={`referent-mark-${need.id}`}
+            >
+              <span className="referent-anchor" aria-hidden="true" />
+              <span className="referent-card">{need.referent!.label}</span>
+            </div>
+          </Marker>
+        ))}
         {sharedPeople.map(({ position, participant, index }) => (
           <Marker
             key={`person-${participant.participantId}`}

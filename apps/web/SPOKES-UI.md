@@ -167,6 +167,21 @@ display face, rounded square, 2px `--spoke-surface` halo and 1px
 dot in greyscale. The viewer's own **you** mark stays the scope ring and centre
 dot described above. Position frames never pan, fit or re-centre the map.
 
+### Referent marks
+
+Every active scope need measured from something other than `self` carries a
+small anchor at the resolved measuring point and a tiny server-authored label
+card. Both use the `--spoke-scope` family: the mark describes where a scope
+need applies from, never an action or an author. A participant referent whose
+position is unavailable to this reader has no map mark; its brief label remains
+visible in privacy-safe words. Adding, moving or removing a referent mark never
+pans, fits or re-centres the map and introduces no animation.
+
+When landmark wording has several plausible matches, the agent reply card
+holds at most three choice pills. Each is a keyboard-reachable button with a
+44px minimum target; choosing one states the corresponding need and dismisses
+the card.
+
 ### Refinement (2026-09-03)
 
 The room keeps looking things up on its own (docs/ENRICHMENT-SOURCES.md,

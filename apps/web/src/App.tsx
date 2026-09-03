@@ -927,6 +927,15 @@ export function App() {
             <AgentReplies
               replies={spatialState.agentReplies}
               onDismiss={(rid) => spatial.dismissAgentReply(rid)}
+              onChoose={(rid, choice) => {
+                spatial.dismissAgentReply(rid);
+                void run("SubmitRequirement", {
+                  visibility: choice.visibility,
+                  hardness: "hard",
+                  delegation: { mode: "approval_required" },
+                  payload: choice.payload,
+                });
+              }}
             />
 
             {context && impasse && (

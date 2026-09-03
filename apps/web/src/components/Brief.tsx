@@ -599,9 +599,14 @@ export function ReadyToggle({
 export function AgentReplies({
   replies,
   onDismiss,
+  onChoose,
 }: {
   replies: AgentReply[];
   onDismiss(id: string): void;
+  onChoose(
+    replyId: string,
+    choice: NonNullable<AgentReply["choices"]>[number],
+  ): void;
 }) {
   if (replies.length === 0) return null;
   return (
@@ -615,6 +620,20 @@ export function AgentReplies({
         >
           <div className="card-kicker" data-tone="act">Your agent</div>
           <div className="card-body" data-testid="agent-reply-text">{r.text}</div>
+          {r.choices && r.choices.length > 0 && (
+            <div className="reply-choices" data-testid="agent-reply-choices">
+              {r.choices.map((choice, index) => (
+                <button
+                  type="button"
+                  className="pill"
+                  key={`${choice.label}-${index}`}
+                  onClick={() => onChoose(r.id, choice)}
+                >
+                  {choice.label}
+                </button>
+              ))}
+            </div>
+          )}
           {r.actions.length > 0 && (
             <div className="record-list" data-testid="agent-actions">
               {r.actions.map((a, i) => (

@@ -139,6 +139,7 @@ interface SayResult {
   intent?: "need" | "ask" | "act" | "unclear";
   needs?: Array<{ payload: Payload; topic?: string; gist: string }>;
   reply?: string | null;
+  choices?: Array<{ label: string; payload: Payload }>;
   actions?: Array<{ tool: string; ok: boolean; effect: string }>;
   partial?: boolean;
   failureCategory?: string;
@@ -341,6 +342,14 @@ export function Composer({ facets, activeNeeds, placeCount, disabled, run }: Pro
           text: result.reply ?? COPY.agentUnclear,
           actions: [],
           answer: true,
+          ...(result.choices?.length
+            ? {
+                choices: result.choices.slice(0, 3).map((choice) => ({
+                  ...choice,
+                  visibility: scope as "shared" | "application-private",
+                })),
+              }
+            : {}),
         });
       }
       setText("");

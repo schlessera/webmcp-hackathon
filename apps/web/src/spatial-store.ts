@@ -129,6 +129,11 @@ export interface AgentReply {
   actions: Array<{ tool: string; ok: boolean; effect: string }>;
   /** true for a question answered, false for a move made. */
   answer: boolean;
+  choices?: Array<{
+    label: string;
+    payload: Record<string, unknown>;
+    visibility: "shared" | "application-private";
+  }>;
 }
 
 type Listener = () => void;
