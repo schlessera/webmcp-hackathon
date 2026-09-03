@@ -1,6 +1,6 @@
 {
   "toolContractVersion": "3",
-  "sha256": "d0381d3b10bbbfb4829d7afae461258b1f3424ef164b1b1aaba8b6eaeb1f9e53",
+  "sha256": "9332d4e92936539c3f92e1e0a6b4877a962ae163e183c8b0990a1363e60067de",
   "manifest": {
     "capabilityManifest": {
       "agreement": {
@@ -524,6 +524,59 @@
           "proposalId",
           "disposition",
           "visibility"
+        ],
+        "type": "object"
+      },
+      "SetOrigin": {
+        "additionalProperties": false,
+        "properties": {
+          "baseRevision": {
+            "description": "Use the revision from your last sync; on sync_required, read the delta before retrying.",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "label": {
+            "maxLength": 100,
+            "minLength": 1,
+            "type": "string"
+          },
+          "position": {
+            "additionalProperties": false,
+            "properties": {
+              "lat": {
+                "maximum": 90,
+                "minimum": -90,
+                "type": "number"
+              },
+              "lng": {
+                "maximum": 180,
+                "minimum": -180,
+                "type": "number"
+              }
+            },
+            "required": [
+              "lat",
+              "lng"
+            ],
+            "type": "object"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "const": "device",
+                "type": "string"
+              },
+              {
+                "const": "stated",
+                "type": "string"
+              }
+            ]
+          }
+        },
+        "required": [
+          "baseRevision",
+          "position",
+          "source"
         ],
         "type": "object"
       },
@@ -2981,6 +3034,47 @@
                     "displayName": {
                       "type": "string"
                     },
+                    "origin": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "label": {
+                          "type": "string"
+                        },
+                        "lat": {
+                          "type": "number"
+                        },
+                        "lng": {
+                          "type": "number"
+                        },
+                        "source": {
+                          "anyOf": [
+                            {
+                              "const": "fixture",
+                              "type": "string"
+                            },
+                            {
+                              "const": "device",
+                              "type": "string"
+                            },
+                            {
+                              "const": "stated",
+                              "type": "string"
+                            }
+                          ]
+                        },
+                        "updatedAt": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "label",
+                        "lat",
+                        "lng",
+                        "source",
+                        "updatedAt"
+                      ],
+                      "type": "object"
+                    },
                     "participantId": {
                       "type": "string"
                     },
@@ -3995,6 +4089,47 @@
                     },
                     "displayName": {
                       "type": "string"
+                    },
+                    "origin": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "label": {
+                          "type": "string"
+                        },
+                        "lat": {
+                          "type": "number"
+                        },
+                        "lng": {
+                          "type": "number"
+                        },
+                        "source": {
+                          "anyOf": [
+                            {
+                              "const": "fixture",
+                              "type": "string"
+                            },
+                            {
+                              "const": "device",
+                              "type": "string"
+                            },
+                            {
+                              "const": "stated",
+                              "type": "string"
+                            }
+                          ]
+                        },
+                        "updatedAt": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "label",
+                        "lat",
+                        "lng",
+                        "source",
+                        "updatedAt"
+                      ],
+                      "type": "object"
                     },
                     "participantId": {
                       "type": "string"
@@ -5211,6 +5346,64 @@
       },
       {
         "annotations": {},
+        "description": "Tell the room where you are starting from; only you and the server see the position; others see only its effect on the counts.",
+        "inputSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "baseRevision": {
+              "description": "Use the revision from your last sync; on sync_required, read the delta before retrying.",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "label": {
+              "maxLength": 100,
+              "minLength": 1,
+              "type": "string"
+            },
+            "position": {
+              "additionalProperties": false,
+              "properties": {
+                "lat": {
+                  "maximum": 90,
+                  "minimum": -90,
+                  "type": "number"
+                },
+                "lng": {
+                  "maximum": 180,
+                  "minimum": -180,
+                  "type": "number"
+                }
+              },
+              "required": [
+                "lat",
+                "lng"
+              ],
+              "type": "object"
+            },
+            "source": {
+              "anyOf": [
+                {
+                  "const": "device",
+                  "type": "string"
+                },
+                {
+                  "const": "stated",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "required": [
+            "baseRevision",
+            "position",
+            "source"
+          ],
+          "type": "object"
+        },
+        "name": "set_origin"
+      },
+      {
+        "annotations": {},
         "description": "Stage the group agreement on a proposal for final confirmation. Requires organizer role, all participants ready, and no standing veto. The human confirms on the page; this does not commit by itself.",
         "inputSchema": {
           "additionalProperties": false,
@@ -5624,6 +5817,27 @@
               "description": "Destination to navigate to. Omit to use the committed agreement.",
               "maxLength": 40,
               "type": "string"
+            },
+            "from": {
+              "additionalProperties": false,
+              "description": "Starting position for directions. Omit to use your saved origin when available.",
+              "properties": {
+                "lat": {
+                  "maximum": 90,
+                  "minimum": -90,
+                  "type": "number"
+                },
+                "lng": {
+                  "maximum": 180,
+                  "minimum": -180,
+                  "type": "number"
+                }
+              },
+              "required": [
+                "lat",
+                "lng"
+              ],
+              "type": "object"
             }
           },
           "type": "object"

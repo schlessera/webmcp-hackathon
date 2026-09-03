@@ -94,6 +94,15 @@ export interface ParticipantIdentity {
   role: "organizer" | "member";
 }
 
+/** Application-private starting position. Only the owner receives it. */
+export interface ParticipantOrigin {
+  lat: number;
+  lng: number;
+  label: string;
+  source: "fixture" | "device" | "stated";
+  updatedAt: string;
+}
+
 /** One participant in the room's roster (shared, non-sensitive presence). */
 export interface ParticipantSummary {
   participantId: string;
@@ -104,6 +113,8 @@ export interface ParticipantSummary {
   arrived: boolean;
   /** Holds an open realtime socket right now. */
   present: boolean;
+  /** Present only on the viewer's own row; omitted entirely for peers. */
+  origin?: ParticipantOrigin;
 }
 
 export interface Feasibility {
@@ -177,7 +188,8 @@ export interface CandidateSummary {
   /** Redacted, ≤60 characters: cites evidence status and shared requirements
    * only. Omitted when eligibility is `eligible`. */
   why?: string;
-  /** Minutes on foot from the CURRENT scope centre, recomputed per read. */
+  /** Minutes on foot from this viewer's origin, falling back to the current
+   * scope centre, recomputed per read. */
   walkMin: number;
   /** null when the place has no price band on record — never coerced to 0. */
   priceLevel: number | null;

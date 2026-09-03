@@ -109,6 +109,19 @@ describe("POST /api/rooms", () => {
     expect(context.body.candidates).toHaveLength(POOL_SEED_SIZE);
     expect(context.body.total).toBe(POOL_SEED_SIZE);
     for (const c of context.body.candidates) expect(c.priceLevel).toBeNull();
+    const origins = await pool.query(
+      "SELECT origin FROM participants WHERE room_id = $1 ORDER BY id",
+      [room.roomId],
+    );
+    expect(origins.rows).toHaveLength(3);
+    for (const row of origins.rows) {
+      expect(row.origin).toMatchObject({
+        lat: context.body.scope.area.center.lat,
+        lng: context.body.scope.area.center.lng,
+        label: "the area centre",
+        source: "fixture",
+      });
+    }
 
     const inspect = await apiPost<{
       ok: boolean;

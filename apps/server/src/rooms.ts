@@ -128,9 +128,16 @@ export async function createRoom(input: CreateRoomInput): Promise<CreateRoomResu
       ],
     );
     for (const [i, p] of people.entries()) {
+      const origin = {
+        lat: center.lat,
+        lng: center.lng,
+        label: "the area centre",
+        source: "fixture",
+        updatedAt: new Date().toISOString(),
+      };
       await client.query(
-        `INSERT INTO participants (id, room_id, display_name, role) VALUES ($1, $2, $3, $4)`,
-        [p.id, roomId, p.name, p.role],
+        `INSERT INTO participants (id, room_id, display_name, role, origin) VALUES ($1, $2, $3, $4, $5)`,
+        [p.id, roomId, p.name, p.role, JSON.stringify(origin)],
       );
       await client.query(
         `INSERT INTO invite_secrets (secret_hash, participant_id, room_id) VALUES ($1, $2, $3)`,

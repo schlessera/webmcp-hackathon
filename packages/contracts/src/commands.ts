@@ -270,6 +270,23 @@ export const SetReadyStateInput = Type.Object(
   { additionalProperties: false },
 );
 
+/** Set the acting participant's own application-private starting position. */
+export const SetOriginInput = Type.Object(
+  {
+    baseRevision: BaseRevision,
+    position: Type.Object(
+      {
+        lat: Type.Number({ minimum: -90, maximum: 90 }),
+        lng: Type.Number({ minimum: -180, maximum: 180 }),
+      },
+      { additionalProperties: false },
+    ),
+    label: Type.Optional(Type.String({ minLength: 1, maxLength: 100 })),
+    source: Type.Union([Type.Literal("device"), Type.Literal("stated")]),
+  },
+  { additionalProperties: false },
+);
+
 /** Spatial mutations — SPATIAL-PROTOCOL.md §6. */
 
 const CircleArea = Type.Object(
@@ -428,6 +445,7 @@ export const COMMAND_SCHEMAS = {
   EvaluateCandidates: EvaluateCandidatesInput,
   RespondToProposal: RespondToProposalInput,
   SetReadyState: SetReadyStateInput,
+  SetOrigin: SetOriginInput,
   SetSearchScope: SetSearchScopeInput,
   AddCandidates: AddCandidatesInput,
   ProposeDestination: ProposeDestinationInput,

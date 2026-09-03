@@ -7,6 +7,7 @@ import {
   ProposeDestinationInput,
   ResolvePrivateRequestInput,
   RespondToProposalInput,
+  SetOriginInput,
   SetReadyStateInput,
   SetRequirementActiveInput,
   SetSearchScopeInput,
@@ -17,7 +18,7 @@ import {
 
 /**
  * WebMCP tool surface — INTERACTION-AND-BINDING.md §2.3: the full static
- * 19-tool surface (9 negotiation + 10 spatial), registered once at page load.
+ * 20-tool surface (10 negotiation + 10 spatial), registered once at page load.
  * Names ≤30 chars, descriptions ≤500 chars, results ≤1.5K chars except the
  * additive 8K sync allowance. All schemas additionalProperties: false. v1
  * names carry no version suffix.
@@ -122,6 +123,18 @@ export const PREPARE_NAVIGATION_INPUT = Type.Object(
           "Destination to navigate to. Omit to use the committed agreement.",
       }),
     ),
+    from: Type.Optional(
+      Type.Object(
+        {
+          lat: Type.Number({ minimum: -90, maximum: 90 }),
+          lng: Type.Number({ minimum: -180, maximum: 180 }),
+        },
+        {
+          additionalProperties: false,
+          description: "Starting position for directions. Omit to use your saved origin when available.",
+        },
+      ),
+    ),
   },
   { additionalProperties: false },
 );
@@ -206,6 +219,13 @@ const negotiationTools: ToolDefinition[] = [
       "contributing. Agreement can only be staged when every participant is " +
       "ready.",
     inputSchema: SetReadyStateInput,
+    annotations: {},
+  },
+  {
+    name: "set_origin",
+    description:
+      "Tell the room where you are starting from; only you and the server see the position; others see only its effect on the counts.",
+    inputSchema: SetOriginInput,
     annotations: {},
   },
   {

@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { afterAll, describe, expect, it } from "vitest";
 import pg from "pg";
+import { haversineMeters } from "../../apps/server/src/eligibility.ts";
 import { DATABASE_URL } from "./helpers.ts";
 
 const run = promisify(execFile);
@@ -23,6 +24,22 @@ afterAll(async () => {
 });
 
 describe("demo reseed", () => {
+  it("seeds three distinct fictitious participant origins", async () => {
+    await seedDemo();
+    const rows = await database.query(
+      "SELECT display_name, origin FROM participants WHERE room_id = 'room_demo' ORDER BY id",
+    );
+    const scope = (await database.query("SELECT scope FROM rooms WHERE id = 'room_demo'"))
+      .rows[0].scope as { area: { center: { lat: number; lng: number } } };
+    expect(rows.rows.map((row) => row.display_name).sort()).toEqual(["Alain", "Joe", "Sarah"]);
+    expect(new Set(rows.rows.map((row) => `${row.origin.lat},${row.origin.lng}`)).size).toBe(3);
+    for (const row of rows.rows) {
+      expect(row.origin).toMatchObject({ source: "fixture" });
+      expect(row.origin.label).toBeTruthy();
+      expect(haversineMeters(row.origin, scope.area.center)).toBeLessThanOrEqual(1500);
+    }
+  }, 30_000);
+
   it("keeps a snapshot place that was brought into room_demo", async () => {
     await seedDemo();
     await database.query(
