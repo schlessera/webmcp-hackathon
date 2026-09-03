@@ -48,11 +48,34 @@ describe("lookup progress", () => {
     expect(currentLookups("room_2")).toEqual({
       type: "lookups",
       pending: ["a"],
-      reason: { kind: "pool" },
     });
     endFirst();
-    expect(currentLookups("room_2").pending).toEqual(["a"]);
+    expect(currentLookups("room_2")).toEqual({ type: "lookups", pending: ["a"] });
     endSecond();
     expect(currentLookups("room_2")).toEqual({ type: "lookups", pending: [] });
+  });
+
+  it("derives a reason only when every outstanding batch agrees", () => {
+    vi.useFakeTimers();
+    const endNeed = beginLookups("room_3", ["a"], { kind: "need", label: "step-free access" });
+    const endOtherNeed = beginLookups("room_3", ["b"], { kind: "need", label: "step-free access" });
+    expect(currentLookups("room_3")).toEqual({
+      type: "lookups",
+      pending: ["a", "b"],
+      reason: { kind: "need", label: "step-free access" },
+    });
+    const endPlace = beginLookups("room_3", ["c"], { kind: "place" });
+    expect(currentLookups("room_3")).toEqual({
+      type: "lookups",
+      pending: ["a", "b", "c"],
+    });
+    endPlace();
+    expect(currentLookups("room_3")).toEqual({
+      type: "lookups",
+      pending: ["a", "b"],
+      reason: { kind: "need", label: "step-free access" },
+    });
+    endNeed();
+    endOtherNeed();
   });
 });

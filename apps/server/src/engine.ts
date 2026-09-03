@@ -88,7 +88,11 @@ interface HandlerOutcome {
   confirm?: ConfirmationSubject;
   error?: FailureEnvelope;
   /** An attribute need that should start an opportunistic lookup after commit. */
-  lookup?: { key: string; label: string };
+  lookup?: {
+    key: string;
+    label: string;
+    visibility: SubmitRequirementCmd["visibility"];
+  };
 }
 
 /** Thrown inside the command transaction so failures ROLL BACK any writes a
@@ -284,7 +288,12 @@ export async function submitCommand(
   if (result.lookup) {
     // The command is already durable. Lookup selection and every downstream
     // fetch/model failure are intentionally detached from command success.
-    void triggerNeedLookup(actor.roomId, result.lookup.key, result.lookup.label).catch((err) => {
+    void triggerNeedLookup(
+      actor.roomId,
+      result.lookup.key,
+      result.lookup.label,
+      result.lookup.visibility,
+    ).catch((err) => {
       console.error("need-triggered lookup failed:", err);
     });
   }
@@ -295,6 +304,7 @@ async function triggerNeedLookup(
   roomId: string,
   key: string,
   label: string,
+  visibility: SubmitRequirementCmd["visibility"],
 ): Promise<void> {
   const inputs = await loadEligibilityInputs(pool, roomId);
   const unknown = inScope(inputs.candidates, inputs.scope)
@@ -311,7 +321,10 @@ async function triggerNeedLookup(
   });
   await lookupNow(pool, roomId, targets, {
     keys: [key],
-    reason: { kind: "need", label },
+    reason: {
+      kind: "need",
+      ...(visibility === "shared" ? { label } : {}),
+    },
   });
 }
 
@@ -510,6 +523,7 @@ async function submitRequirement(
       ? {
           lookup: {
             key: String(cmd.payload.key),
+            visibility: cmd.visibility,
             label:
               cmd.payload.expect === "verified_false"
                 ? `no ${ATTRIBUTE_LABELS[cmd.payload.key as keyof typeof ATTRIBUTE_LABELS] ?? cmd.payload.key}`
@@ -636,6 +650,7 @@ async function setRequirementActive(
       ? {
           lookup: {
             key: String(row.payload.key),
+            visibility: row.visibility,
             label:
               row.payload.expect === "verified_false"
                 ? `no ${ATTRIBUTE_LABELS[row.payload.key as keyof typeof ATTRIBUTE_LABELS] ?? row.payload.key}`

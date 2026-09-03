@@ -131,6 +131,75 @@ describe("look_up_places route and dossier privacy", () => {
 });
 
 describe("need-triggered lookup and realtime facts", () => {
+  it("never broadcasts an application-private need label with lookup progress", async () => {
+    const networkServer = await startServer({
+      entrypoint: "tests/api/fixtures/live-network-server.ts",
+      env: { ENRICH_NETWORK: "1", INFER: "0" },
+    });
+    const privateRoom = await createTestRoom(networkServer.baseUrl);
+    const suffix = privateRoom.roomId.slice("room_test_".length);
+    const candidateIds = ["a", "b", "c"].map((letter) => `place_${letter}_${suffix}`);
+    await privateRoom.pool.query(
+      `UPDATE candidates SET
+         attributes = '[{"key":"delivery","status":"unknown","source":"osm:delivery","confidence":0}]'::jsonb,
+         osm_ref = 'node/private-progress-' || id,
+         extras = jsonb_build_object('website', 'https://93.184.216.34/' || id)
+       WHERE room_id = $1`,
+      [privateRoom.roomId],
+    );
+    const peer = await openRealtime(networkServer.baseUrl, privateRoom.tokens.sarah);
+    try {
+      const current = (
+        await apiPost<{ revision: number }>(
+          networkServer.baseUrl,
+          "/api/sync",
+          privateRoom.tokens.org,
+          {},
+        )
+      ).body.revision;
+      const result = await apiPost<{ ok: boolean }>(
+        networkServer.baseUrl,
+        "/api/commands",
+        privateRoom.tokens.org,
+        {
+          type: "SubmitRequirement",
+          input: {
+            baseRevision: current,
+            visibility: "application-private",
+            hardness: "hard",
+            delegation: { mode: "locked" },
+            payload: { kind: "attribute", key: "delivery", expect: "verified_true" },
+          },
+        },
+      );
+      expect(result.body.ok).toBe(true);
+
+      expect(
+        await waitFor(() =>
+          peer.frames().some((raw) => {
+            const frame = JSON.parse(raw) as { type: string; pending?: string[] };
+            return frame.type === "lookups" && Boolean(frame.pending?.length);
+          }),
+        ),
+      ).toBe(true);
+      const pending = peer.frames().find((raw) => {
+        const frame = JSON.parse(raw) as { type: string; pending?: string[] };
+        return frame.type === "lookups" && Boolean(frame.pending?.length);
+      })!;
+      expect(JSON.parse(pending)).toMatchObject({
+        type: "lookups",
+        pending: expect.arrayContaining(candidateIds),
+        reason: { kind: "need" },
+      });
+      expect(pending).not.toContain("delivery");
+      expect(JSON.parse(pending).reason).not.toHaveProperty("label");
+    } finally {
+      peer.close();
+      await privateRoom.cleanup();
+      await networkServer.stop();
+    }
+  });
+
   it("looks up only unknown in-scope places and broadcasts a landed fact", async () => {
     vi.stubEnv("ENRICH_NETWORK", "1");
     vi.stubEnv("INFER", "0");

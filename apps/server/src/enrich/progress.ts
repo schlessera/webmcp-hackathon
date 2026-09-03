@@ -9,7 +9,7 @@ type FactsListener = (roomId: string, message: FactsMessage) => void;
 
 interface RoomProgress {
   counts: Map<string, number>;
-  reason?: LookupReason;
+  batches: Map<symbol, { ids: string[]; reason?: LookupReason }>;
   timer?: ReturnType<typeof setTimeout>;
 }
 
@@ -21,7 +21,7 @@ const factsListeners = new Set<FactsListener>();
 function state(roomId: string): RoomProgress {
   let room = rooms.get(roomId);
   if (!room) {
-    room = { counts: new Map() };
+    room = { counts: new Map(), batches: new Map() };
     rooms.set(roomId, room);
   }
   return room;
@@ -30,10 +30,16 @@ function state(roomId: string): RoomProgress {
 export function currentLookups(roomId: string): LookupsMessage {
   const room = rooms.get(roomId);
   const pending = room ? [...room.counts.keys()].sort() : [];
+  const reasons = room ? [...room.batches.values()].map((batch) => batch.reason) : [];
+  const reason = reasons[0];
+  const reasonKey = reason ? JSON.stringify(reason) : undefined;
+  const reasonAgrees = Boolean(
+    reason && reasons.every((candidate) => JSON.stringify(candidate) === reasonKey),
+  );
   return {
     type: "lookups",
     pending,
-    ...(pending.length && room?.reason ? { reason: room.reason } : {}),
+    ...(pending.length && reasonAgrees ? { reason } : {}),
   };
 }
 
@@ -57,8 +63,9 @@ export function beginLookups(
 ): () => void {
   const ids = [...new Set(candidateIds)];
   const room = state(roomId);
+  const batchId = Symbol("lookup-batch");
+  room.batches.set(batchId, { ids, reason });
   for (const id of ids) room.counts.set(id, (room.counts.get(id) ?? 0) + 1);
-  if (reason) room.reason = reason;
   schedule(roomId);
   let ended = false;
   return () => {
@@ -66,12 +73,14 @@ export function beginLookups(
     ended = true;
     const active = rooms.get(roomId);
     if (!active) return;
-    for (const id of ids) {
+    const batch = active.batches.get(batchId);
+    if (!batch) return;
+    active.batches.delete(batchId);
+    for (const id of batch.ids) {
       const count = active.counts.get(id) ?? 0;
       if (count <= 1) active.counts.delete(id);
       else active.counts.set(id, count - 1);
     }
-    if (active.counts.size === 0) active.reason = undefined;
     schedule(roomId);
   };
 }
@@ -94,7 +103,7 @@ export function onFacts(listener: FactsListener): () => void {
   return () => factsListeners.delete(listener);
 }
 
-/** Test-only reset for module-local timers and listeners' state. */
+/** Test-only reset for module-local room state and timers. */
 export function resetProgress(): void {
   for (const room of rooms.values()) if (room.timer) clearTimeout(room.timer);
   rooms.clear();
