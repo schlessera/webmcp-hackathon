@@ -19,11 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
----
-
-This project includes geographic data from OpenStreetMap, © OpenStreetMap
-contributors, available under the Open Database License (ODbL). See
-packages/contracts/data/ATTRIBUTION.md for details. The ODbL terms apply to
-that database content independently of the MIT license above, which covers the
-source code.
