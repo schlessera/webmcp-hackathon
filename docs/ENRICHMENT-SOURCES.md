@@ -51,7 +51,7 @@ stay direct. The table is the code's purpose allowlist, not a hostname guess:
 | `tavily` | direct | it is an authenticated API; Tavily's terms prohibit concealing the customer application's identity |
 | `parallel` | direct | authenticated search API; residential venue routing provides no benefit |
 | `dataforseo` | direct | authenticated structured-listings API; one room-pool request is not venue traffic |
-| `openai` | direct | the API key is the service identity and organization rate limits do not become safer or larger through an exit proxy |
+| `openai` | direct | model APIs, including the OpenRouter backend, use the API key as service identity and gain nothing from a residential exit proxy |
 
 The cache is deliberately source-shaped. Venue homepage and HTML-menu rows in
 `page_cache` retain only selected text (never raw HTML), validators and image
@@ -80,10 +80,9 @@ text returned by the API as Output, expressly permit integrating the service
 with Customer Applications for internal business use, and contain no shorter
 cache limit. The same terms leave compliance with the underlying third-party
 sources to the customer, so only the already bounded citation snippet is
-retained, never raw page content. OpenAI search takes the more conservative
-path: official OpenAI API [data controls](https://developers.openai.com/api/docs/guides/your-data) identify tool-connected material as
-third-party data subject to third-party terms but does not grant a separate
-retention right for raw search excerpts. Its snippets and raw search responses
+retained, never raw page content. Built-in model web search through OpenRouter
+takes the more conservative path because third-party source terms do not grant
+a separate retention right for raw search excerpts. Its snippets and raw search responses
 therefore are not stored; only claims that pass this application's criterion,
 citation, span and confidence validators are cached for seven days under the
 same place/query key.
@@ -93,7 +92,7 @@ contains the room id. Parallel's Customer Terms say output from one query is
 primarily for one End Customer and must not be cached or made available to
 other End Customers. A cross-room hit would violate that restriction, so a
 missing room id disables Parallel caching instead of falling back to the
-shared Tavily/OpenAI key. The per-room duplication is deliberate and cheap at
+shared Tavily/built-in-search key. The per-room duplication is deliberate and cheap at
 the `fast` price.
 
 Matrix results use `(place, criterion, evidence-text hash)`. The hash includes
@@ -249,8 +248,9 @@ with the source `menu:<host>` and the evidence kept as the value ("menu:
 vegan bowl (vg)"). What it may never do: verify anything, or overwrite the
 record. The bytes are read once and dropped; only the claims are cached.
 Bounded to menus that are files (PDF, image) or image-only pages, at most
-one file per venue, 4 MB, off without `OPENAI_API_KEY` or with
-`MENU_READER=0`. Model: `MENU_READER_MODEL`, defaulting to the smart tier.
+one file per venue, 4 MB, off without the selected model provider's key or with
+`MENU_READER=0`. Model: `MENU_READER_MODEL`, defaulting through `LLM_MODEL` to
+`z-ai/glm-5.3-flash`.
 
 Not folded in: text extraction from text-layer PDFs without the model,
 JavaScript-rendered navigation, RFC 9309 robots semantics (the parser
@@ -354,7 +354,7 @@ and fetch/expiry timestamps. Rows expire after at most 30 days and are re-fetche
 expired bytes are never served.
 
 Every non-curated (site) image is classified before storage by
-`config.nlFastModel` (default `gpt-5.6-luna`). One strict-schema Responses call
+`config.nlFastModel` (default `z-ai/glm-5.3-flash`). One strict-schema Responses call
 carries all of a place's downloaded/resized candidates (up to eight) as WebP
 data URIs at `detail: low`; there is never one model call per image. Its one
 entry per input image is `{ kind, confidence }`, where `kind` is one of
@@ -379,7 +379,7 @@ left intact because their visual classifications remain valid.
 days under the SHA-256 of the candidate URL (the URL itself is not stored in
 that table). The cache is consulted before downloads: a cached rejection is
 not fetched, while a cached acceptance reuses a still-live local copy when one
-exists. The filter is off without `OPENAI_API_KEY` or with
+exists. The filter is off without the selected model provider's key or with
 `PLACE_IMAGE_CLASSIFIER=0`; while off, no site image is stored at all and the
 band is curated-only. One structured log line per fresh place batch records
 the place name, input/kept counts, rejected kinds, model, duration and token
@@ -529,11 +529,11 @@ silence, not an affirmative licence; production use needs a legal review.
 
 ## Search providers
 
-Split refinement supports `SEARCH_PROVIDER=parallel|openai|tavily`. Without an
-explicit setting it chooses Parallel when `PARALLEL_API_KEY` exists, otherwise
-OpenAI when `OPENAI_API_KEY` exists, otherwise Tavily. Tavily remains the
-cross-room, seven-day fallback described above. OpenAI stores validated claims
-but not raw snippets.
+Refinement supports `SEARCH_PROVIDER=parallel|openai|tavily`. Parallel is the
+default regardless of which credentials are present. The historical `openai`
+value names the built-in Responses web-search path; its LLM call now runs
+through OpenRouter. Tavily remains the cross-room, seven-day alternative
+described above. Built-in search stores validated claims but not raw snippets.
 
 Parallel uses the GA Search API's `fast` mode at **$1 per 1,000 searches**.
 Its excerpts are not verbatim. Parallel calls them “LLM-optimized”; measured
@@ -552,7 +552,7 @@ Those terms also conflict with Parallel's FAQ on model training, another reason
 queries contain only place identity and shared or server-vocabulary words.
 
 Provider search fees used in the structured refinement tick are $0.001 for
-Parallel `fast`, $0.010 for OpenAI web search and $0.008 for Tavily basic.
+Parallel `fast`, $0.007 for OpenRouter's default Exa web search and $0.008 for Tavily basic.
 Listing batch spend is added to the next room tick as well as logged on its own
 content-free batch line. Outbound diagnostics expose attempt/success counts by
 API provider without URLs, bodies, queries or credentials.
@@ -560,7 +560,7 @@ API provider without URLs, bodies, queries or credentials.
 ## Inference: evidence-backed likely facts
 
 When the record, looked-up web facts and the small deterministic guess table
-still leave an active criterion unknown, the server may ask the fast NL model
+still leave an active criterion unknown, the server may ask the deployment model
 for a lean. A criterion can be a vocabulary key or a normalized free-text
 question. The input is limited to the place name, category, cuisine
 tokens, OSM/Wikidata descriptions, parsed website facts and description,
@@ -601,9 +601,9 @@ entries older than 30 days. Closed-vocabulary entries have no cardinality cap;
 question entries and legacy `open:` entries are separately capped at 64 per
 place, with the oldest evicted first, because both keyspaces are unbounded.
 Inference is completely off when `ENRICH_NETWORK=0`, when
-`OPENAI_API_KEY` is absent, or when `INFER=0`; those paths make no model call
+the selected provider's key is absent, or when `INFER=0`; those paths make no model call
 and write no inference cache entry. Menu image reading remains a separate
-smart-tier job.
+model job.
 
 Each validated claim also stores a bounded adjudication window: at most 1,200
 characters containing its evidence span plus up to 400 normalized characters
@@ -720,13 +720,14 @@ as reader-facing evidence.
 
 ### Focused adjudication
 
-Adjudication is one fast-tier second read of likely evidence, not another
+Adjudication is one focused second read of likely evidence, not another
 matrix sweep. A cell supplies its criterion, evidence and ±400-character
 window, page title, URL, captured Open Graph/schema publisher names, and the
 place name/category. Fresh page/proxy cache text is preferred when the current
 lookup has it; otherwise the stored window is used without refetching. The
 payload is tightened to roughly 1,500 input tokens by shrinking surrounding
-context only, uses `reasoning: "none"`, and has a two-second model timeout.
+context only. The internal `reasoning: "none"` request maps to OpenRouter's
+lowest effort with reasoning text excluded, and the model timeout is fifteen seconds.
 
 | focused result | stored result |
 |---|---|
@@ -755,10 +756,9 @@ seconds. The continuous worker also runs it whenever the room's in-scope
 of at most eight places; need changes wake that check immediately.
 
 Adjudication consumes the refinement worker's existing per-room model-call
-bucket. It does not create a second budget. At the configured fast-tier rates,
-a target call of about 1,500 input tokens and 100–300 output tokens is roughly
-**$0.0003–$0.0004**, below the **$0.001** target; the hard model timeout is two
-seconds. Each attempted batch emits one content-free structured line:
+bucket. It does not create a second budget. Each attempted batch uses the real
+`usage.cost` reported by OpenRouter rather than reconstructing a price from
+token counts, and emits one content-free structured line:
 `{"msg":"adjudication batch","roomId":"…","cells":1,"verdicts":{"yes":1,"no":0,"unclear":0},"costUsd":0.0003,"latencyMs":900}`.
 Failures use zero verdict counts and add `"outcome":"error"`.
 
@@ -806,31 +806,13 @@ failed or yielded no usable text; a place with no website tag has no domain to
 allow and also uses open search. The confidence bucket follows the mode
 actually used: 0.55 for domain search and 0.50 for open web.
 
-`REFINE_SEARCH_MODE=split|combined` selects the search leg; `split` is the
-default. In split mode, each unresolved place yields cited snippets and one
-second matrix call evaluates the whole snippet batch. Evidence is checked
-against snippet text the server itself holds. Combined mode instead makes one
-strict-schema Responses call per unresolved place, with that place, all its
-open criteria and the `web_search` tool. It returns the complete row directly,
-so there is no second matrix call. The server requires each `sourceUrl` to be
-a URL the tool really retrieved in that same call, read from the
-`web_search_call.action.sources` items, ignoring the tool's `utm_source`
-parameter. Under a strict JSON schema the API returns no citation annotations
-at all, so the retrieved-source list is the only anchor available; a validator
-built on annotations rejects every row and was measured at zero yield for that
-reason alone.
-
-Combined mode's guarantee is materially weaker, and the weakness is worth
-naming. The answer *is* the JSON object, so checking that the evidence span
-occurs in the answer proves nothing: the span is there because the model wrote
-it there. What is enforced is that the cited URL was really retrieved, plus the
-length, echo, cap and never-verified rules. A combined claim is therefore a
-supervised guess about a real page, not a quotation the server checked. Split
-holds the snippet text and checks the span against words the server read.
-Neither mode can create a verified fact.
-
-Combined claims carry a final `:combined` source suffix so presentation can
-distinguish a retrieved-page anchor from split mode's checked snippet span.
+Search and judgement are always split. Each unresolved place yields bounded,
+source-bound snippets and one second matrix call evaluates the whole snippet
+batch. Evidence is checked against snippet text the server itself holds. The
+former combined mode was removed: OpenRouter accepts a strict schema beside
+its search server tool but does not enforce that schema while the tool runs.
+Keeping the two calls separate preserves structured output and the exact-span
+evidence boundary.
 
 Every outbound search query is capped at 400 characters and contains the place
 name, the city, and criterion words admitted by one of two rules.
@@ -858,8 +840,7 @@ criterion may still be evaluated in the plain matrix call over place-site text
 or snippets already returned for another criterion's search. That matrix call
 has no tools, so its contents do not become search terms or reach a search
 index. If a place has no criterion admitted by either rule, it causes no
-search. Combined mode excludes application-private criteria from the entire
-tool-enabled call. Agent-private content never enters refinement.
+search. Agent-private content never enters refinement.
 
 There is one query shape and no setting for it. A richer shaper once carried
 the street address, the category and a German lexicon behind
@@ -879,14 +860,13 @@ could hold a woken need behind a thirty-second backoff.
 With nothing left to refine the loop backs off to `REFINE_IDLE_TICK_MS`
 (thirty times the working cadence) so an idle room is not reloaded every
 second; a need commit wakes it at once. A batch matrix call is a long prompt on
-a background path, so it waits `MATRIX_TIMEOUT_MS`, 45 seconds by default,
+a background path, so it waits `MATRIX_TIMEOUT_MS`, 90 seconds by default,
 rather than the interactive twenty.
 
 The per-room budgets refill continuously: `REFINE_MODEL_CALLS_PER_HOUR`
 defaults to 200 model calls and `REFINE_SEARCHES_PER_HOUR` to 150 searches.
-A room working flat out for a full hour therefore costs on the order of
-**$1.80**, almost all of it the roughly one cent each search tool call is
-billed at; the fast-tier tokens for a twelve-place tick add well under a cent.
+A room working flat out for a full hour therefore spends at most $0.15 on
+default Parallel searches plus the OpenRouter usage cost of its model calls.
 A room only works flat out while somebody is watching it, and the loop stops
 ten minutes after the last person leaves, so the hourly ceiling is a worst
 case rather than a running rate.
@@ -907,11 +887,11 @@ is present, and `null` while the loop is working.
 stale-fact and background vocabulary sweeps are real work but are not counted
 there, because a number that climbs while the room sits still is a number
 nobody can trust. `REFINE=0` disables the loop. `ENRICH_NETWORK=0` disables all
-of its outbound work. `SEARCH_PROVIDER=parallel|openai|tavily` selects the split
-provider. With no explicit value, a Parallel key wins, then an OpenAI key, then
-Tavily. Parallel needs `PARALLEL_API_KEY`, uses `fast`, and stores its validated
-snippets per room. Tavily needs `TAVILY_API_KEY`. Combined mode is intrinsically
-an OpenAI Responses tool call.
+of its outbound work. `SEARCH_PROVIDER=parallel|openai|tavily` selects the
+provider; without an explicit value it stays Parallel. Parallel needs
+`PARALLEL_API_KEY`, uses `fast`, and stores its validated snippets per room.
+Tavily needs `TAVILY_API_KEY`; the `openai` compatibility value uses
+OpenRouter's built-in search tool.
 
 Every frame the loop emits carries `reason: { kind: "refine" }`, with a label
 only when one shared need is behind the whole batch. When a pool warm-up is
@@ -919,7 +899,7 @@ running at the same time, refinement wins the frame's single reason slot: it
 is the work a person is watching, and before this a concurrent fill left every
 busy ring either labelled `pool` or unattributed. Each tick also writes one
 structured log line with its place, criterion, call, search, claim and queue
-counts and an estimated cost. That line carries counts and dollars only, never
+counts and a cost using OpenRouter's reported usage. That line carries counts and dollars only, never
 a place name, a criterion, or a query, because a private need must not be
 readable from a log either.
 
@@ -930,16 +910,15 @@ cross-room `enrichments.inferred` blob, follows its 24-hour omission lifetime,
 and is pruned and cardinality-capped with the other synthetic keys. A local
 matrix abstention without a search does not spend an attempt.
 
-OpenAI search stores only a claim that passed criterion, source, span,
+Built-in OpenRouter search stores only a claim that passed criterion, source, span,
 confidence and status validation, plus its `sourceUrl`; Tavily may also store
 the bounded snippets described above. Search queries and raw responses are not
 stored. An abstention remains unknown and
 may leave only an omission sentinel. Any web-derived fact shown to a person
 must carry a visible, clickable citation. A citation without a usable exact
-span is dropped rather than paraphrased. The provider annotates the inline
-citation marker rather than the sentence it supports, so a snippet is the
-prose running up to that marker, with markers and emphasis removed. The
-annotated span itself is a bare link and is never evidence.
+span is dropped rather than paraphrased. OpenRouter's zeroed annotation offsets
+are ignored; its `url_citation.content` excerpt is cleaned and retained as the
+source-bound snippet.
 
 ## Sources evaluated and not used
 

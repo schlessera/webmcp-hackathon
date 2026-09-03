@@ -36,16 +36,19 @@ services:
       # The natural-language surface (docs/NL-AGENT.md). Absent: the composer
       # keeps its label matching and no agent card ever appears.
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      LLM_PROVIDER: ${LLM_PROVIDER:-}
+      LLM_MODEL: ${LLM_MODEL:-z-ai/glm-5.3-flash}
       PARALLEL_API_KEY: ${PARALLEL_API_KEY:-}
       DATAFORSEO_LOGIN: ${DATAFORSEO_LOGIN:-}
       DATAFORSEO_PASSWORD: ${DATAFORSEO_PASSWORD:-}
-      # Empty lets the server pick: parallel, then openai, then tavily, by
-      # whichever key is present. Set it explicitly only to pin one provider.
+      # Parallel is the default. Set this only to pin another provider.
       SEARCH_PROVIDER: ${SEARCH_PROVIDER:-}
       TAVILY_API_KEY: ${TAVILY_API_KEY:-}
       LISTINGS: ${LISTINGS:-1}
-      NL_FAST_MODEL: ${NL_FAST_MODEL:-gpt-5.6-luna}
-      NL_SMART_MODEL: ${NL_SMART_MODEL:-gpt-5.6-sol}
+      NL_FAST_MODEL: ${NL_FAST_MODEL:-}
+      NL_SMART_MODEL: ${NL_SMART_MODEL:-}
+      MENU_READER_MODEL: ${MENU_READER_MODEL:-}
       PROXY_URL: ${PROXY_URL:-}
       PROXY: ${PROXY:-1}
     ports:

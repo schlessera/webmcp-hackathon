@@ -13,26 +13,27 @@ participant at a time, through the **same** tool surface and the **same**
 command bus. Nothing about the protocols changed; the page gained a way to
 turn words into commands.
 
-Four jobs, two model tiers, one rule for choosing between them.
+Every job uses OpenRouter's Responses API and `z-ai/glm-5.3-flash` by default.
+The old tier names remain configuration seams, but they resolve to the same
+deployment model today.
 
-| Job | Where | Tier | Why this tier |
-|---|---|---|---|
-| Route a composer sentence: need / ask / act / unclear, and turn a need into typed payloads | `apps/server/src/nl/say.ts` | fast (`gpt-5.6-luna`) | bounded, schema-shaped, must feel like typing. A strict JSON schema is the whole output; every payload is re-validated by the server's Ajv pass like a hand-typed one. |
-| Infer still-unknown place attributes from supplied evidence spans | `apps/server/src/enrich/infer.ts` | fast (`gpt-5.6-luna`) | bounded extraction over a closed key set. The server validates the quoted span, clamps confidence below verification and drops unsupported claims. |
-| Adjudicate one likely evidence span in its nearby context | `apps/server/src/enrich/adjudicate.ts` | fast (`gpt-5.6-luna`) | focused strict-schema reread, about 1,500 input tokens and a two-second timeout. Server-side publisher and quote validation are the authority; every result uses the existing monotonic merge and room model bucket. |
-| Refine uncertain active needs from site text and cited web search | `apps/server/src/refine/worker.ts` | fast (`gpt-5.6-luna`) | one site-text matrix covers up to 12 places and 8 criteria. The default split search uses one request per unresolved place plus one cited-snippet matrix; optional combined search returns one strictly validated row per place, with the weaker guarantee documented in `ENRICHMENT-SOURCES.md`. |
-| Act on the room or answer a question about it | `apps/server/src/nl/agent.ts` | smart (`gpt-5.6-sol`) | open-ended: read state, weigh, call tools, explain. A wrong move changes a shared room. |
-| Screen places against an agent-private condition | `apps/server/src/nl/screening.ts` | smart | judging evidence against a person's private condition is where a wrong call costs most — a place wrongly ruled out never comes back. Told to prefer `needs_info` over a guess. |
+| Job | Where | Model use |
+|---|---|---|
+| Route a composer sentence and turn a need into typed payloads | `apps/server/src/nl/say.ts` | Strict schema; every payload is re-validated by the server's Ajv pass like a hand-typed one. |
+| Infer still-unknown place attributes from supplied evidence spans | `apps/server/src/enrich/infer.ts` | Strict schema over a closed key set; quoted spans and confidence are checked by server code. |
+| Adjudicate one likely evidence span in nearby context | `apps/server/src/enrich/adjudicate.ts` | Focused strict-schema reread; publisher and quote validation remain authoritative. |
+| Refine uncertain active needs from site text and cited web search | `apps/server/src/refine/worker.ts` | Split search only: Parallel supplies bounded snippets, then the matrix judge evaluates them without a search tool. |
+| Act on the room or answer a question about it | `apps/server/src/nl/agent.ts` | Function-tool loop over participant-visible room state. |
+| Screen places against an agent-private condition | `apps/server/src/nl/screening.ts` | Strict schema with no-collection and zero-retention provider routing. |
 
-**The rule.** The quickest model at the lowest effort does anything that is bounded and latency-bound:
-a sentence in, a schema out, no tools, no room state changed. The smart tier
-does anything that acts through tools, judges private content against
-evidence, or answers over the room's state. Cost is never the deciding axis;
-the shape of the job is. Models are configurable (`NL_FAST_MODEL`,
-`NL_SMART_MODEL`), the split is not.
+`LLM_MODEL` chooses the deployment model and defaults to
+`z-ai/glm-5.3-flash`. `NL_FAST_MODEL`, `NL_SMART_MODEL` and
+`MENU_READER_MODEL` remain per-site overrides for a future return to tiers.
+`LLM_PROVIDER` selects `openrouter` or `openai`; absent an explicit value it
+uses OpenRouter when `OPENROUTER_API_KEY` exists and OpenAI otherwise.
 
 This never means a paid priority processing tier. Every foreground request
-sets `service_tier: "default"`; `apps/server/src/nl/openai.ts` rejects
+sets `service_tier: "default"`; `apps/server/src/nl/llm.ts` rejects
 `priority` and `fast` before transport. A named `flex` hook is reserved for
 later background work.
 
@@ -44,7 +45,7 @@ is available:
 1. The shared EN+DE pre-parser in `packages/contracts` extracts quantities,
    units, bounds, travel modes and referents. If it consumes the whole
    sentence, code maps the concepts and no model request is made.
-2. If words remain, the quickest model at the lowest effort reads only that
+2. If words remain, the deployment model at low effort reads only that
    remainder. The pre-parsed concepts are supplied as already understood and
    must not be repeated. Its strict result is an interpretation, not a command.
 3. Server code maps every concept through the closed requirement-payload
@@ -59,7 +60,7 @@ is available:
 
 ## How it reaches the page
 
-- `GET /api/meta` carries `nl: true` when `OPENAI_API_KEY` is set. Without it
+- `GET /api/meta` carries `nl: true` when the selected provider's key is set. Without it
   the composer keeps its label matching and no agent card ever appears; the
   app is fully usable.
 - `POST /api/nl/say { text, scope }` — the composer, for Shared and Private.
@@ -68,10 +69,10 @@ is available:
   - `need` → `{ needs: [{ payload, label, topic?, gist, assumed? }] }`. The **page** submits
     each through `SubmitRequirement`, so revision discipline, the `{ }`
     drawer and every server check are the same as for a typed need. The
-    `topic` the quickest model at the lowest effort read is returned but **not** attached as a
+    `topic` the model read is returned but **not** attached as a
     `scopeHint.category`: disclosing a category is the owner's opt-in
     (FACETS.md §4), and the composer has no control for it yet.
-  - `ask` / `act` → the smart tier runs as this participant and returns
+  - `ask` / `act` → the participant agent runs as this participant and returns
     `{ reply, actions[], partial?, failureCategory? }`. Room changes arrive on
     the realtime channel like any commit; the reply lands as a **"Your agent"
     card** in the brief with a record row per move. Each mutation result is
@@ -91,7 +92,7 @@ is available:
   commit in the room. A restart forgets held conditions; the declaration then
   stays pending (uncertain) until it is said again. Nothing is guessed.
 
-## Time resolution using the quickest model at the lowest effort
+## Time resolution using the deployment model
 
 The router receives the room area's IANA timezone and the current local
 date/time with that area's numeric UTC offset. The request clock is captured
@@ -119,12 +120,12 @@ with the area's numeric offset and `end > start`; the server drops a malformed
 time need instead of turning it into free text.
 
 The client does not parse natural-language dates, weekdays, meals, or clock
-times. When the quickest model at the lowest effort is unavailable, its one exact time fallback is
+times. When the deployment model is unavailable, its one exact time fallback is
 `open now`, which becomes the browser's current instant through two hours
 later with the typed words preserved as `phrase`. Every other time sentence
 uses the existing honest `text` fallback.
 
-## What the smart tier can and cannot do
+## What the participant agent can and cannot do
 
 - Runs as the participant's own actor: every read is their view, so peers'
   private content never reaches it (it gets counts, like the page).
@@ -137,7 +138,7 @@ uses the existing honest `text` fallback.
 - Cannot commit or confirm: `CommitAgreement` and `ConfirmPrivateRequest`
   have no tool route here either. The human's page gesture stays the only
   path (INTERACTION-AND-BINDING.md §5.4).
-- One agent turn has a total deadline of about 60 seconds, including its
+- One agent turn has a total deadline of about 90 seconds, including its
   initial snapshot, requested reads and every model call. Each call receives
   only the remaining budget. The loop is capped at four model rounds and at
   most one mutating call executes per round; later mutations in the same
@@ -158,7 +159,7 @@ uses the existing honest `text` fallback.
 ## What the drawer shows
 
 Every routed sentence logs its intent, model and milliseconds to the `{ }`
-drawer (`agent routed "need" (gpt-5.6-luna 1200ms)`), and a held condition
+drawer (`agent routed "need" (z-ai/glm-5.3-flash 1200ms)`), and a held condition
 logs that it is held. The reply cards in the brief carry none of that.
 
 ## Verification
@@ -168,4 +169,5 @@ logs that it is held. The reply cards in the brief carry none of that.
 - Scripted API tests cover stale revisions, partial action persistence, total
   deadline consumption and the one-mutation-per-round rule. Unit tests cover
   valid structural result compaction and retry disposition. The transport is
-  swappable through `setTransport` in `nl/openai.ts`.
+  swappable through `setTransport` in `nl/llm.ts`; `nl/openai.ts` is a thin
+  compatibility re-export.

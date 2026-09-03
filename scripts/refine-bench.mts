@@ -1,177 +1,324 @@
 #!/usr/bin/env node
 
 /**
- * Live four-way refinement benchmark. It creates one real Berlin Mitte room,
- * freezes the first twelve eligible places, clears only those refs between
- * variants, and prints comparable one-tick yield/cost rows.
+ * Live, labeled refinement judge benchmark plus a 40-call concurrency probe.
+ * Every request uses the production LLM adapter and OpenRouter transport.
  *
  * Usage:
- *   DATABASE_URL=postgres://... OPENAI_API_KEY=... node scripts/refine-bench.mts
+ *   OPENROUTER_API_KEY=... node scripts/refine-bench.mts
  */
 
-if (!process.env.OPENAI_API_KEY) throw new Error("OPENAI_API_KEY is required");
+import type { Criterion } from "@webmcp-hackathon/contracts";
+import type { EvaluateMatrixInput } from "../apps/server/src/enrich/evaluate.ts";
 
-// Room creation normally starts background warming and pool filling. Keep
-// both off while the one benchmark room is created; the measured tick turns
-// enrichment back on explicitly below.
-process.env.ENRICH_NETWORK = "0";
-process.env.POOL_FILL = "0";
-process.env.REFINE = "1";
-process.env.INFER = "1";
+if (!process.env.OPENROUTER_API_KEY) {
+  throw new Error("OPENROUTER_API_KEY is required");
+}
+process.env.LLM_PROVIDER = "openrouter";
 
-const [{ createRoom }, db, eligibility, refinement, enrichment, openai, configModule] =
-  await Promise.all([
-    import("../apps/server/src/rooms.ts"),
-    import("../apps/server/src/db.ts"),
-    import("../apps/server/src/eligibility.ts"),
-    import("../apps/server/src/refine/worker.ts"),
-    import("../apps/server/src/enrich/index.ts"),
-    import("../apps/server/src/nl/openai.ts"),
-    import("../apps/server/src/config.ts"),
-  ]);
+const [{ parseJson, respond }, matrix] = await Promise.all([
+  import("../apps/server/src/nl/llm.ts"),
+  import("../apps/server/src/enrich/evaluate.ts"),
+]);
 
-const { pool } = db;
-const created = await createRoom({
-  areaId: "berlin-mitte",
-  organizerName: "Refinement benchmark",
-  memberNames: [],
+type Expected = "yes" | "no" | "abstain";
+
+interface Fixture {
+  place: EvaluateMatrixInput["places"][number];
+  criterion: Criterion;
+  expected: Expected;
+}
+
+const criterion = (key: string, label: string): Criterion => ({
+  id: key,
+  kind: "key",
+  key,
+  label,
 });
-if (!created.ok) throw new Error(created.error);
 
-const roomId = created.roomId;
-const ownerId = created.invites[0].participantId;
-const variants = [
-  // The query shaper is gone: the privacy ruling forbids every word it added,
-  // so a "shaped" row would have run the same query as "plain" under a
-  // different label. What still differs is the domain rule and the search mode.
-  { name: "baseline", searchMode: "split", domainRule: "domain-first" },
-  { name: "A", searchMode: "split", domainRule: "open-web-first" },
-  { name: "C", searchMode: "combined", domainRule: "open-web-first" },
-] as const;
+/** Fixed direct-evidence cases: four affirmative, four negative, four unknown. */
+const fixtures: Fixture[] = [
+  {
+    place: {
+      candidateId: "courtyard-cafe",
+      osmRef: "bench/1",
+      name: "Courtyard Cafe",
+      category: "cafe",
+      website: "https://courtyard.example",
+      texts: [{ source: "web", url: "https://courtyard.example/visit", text: "Guests may bring dogs into the sheltered courtyard throughout opening hours." }],
+    },
+    criterion: criterion("dog-friendly", "dogs welcome"),
+    expected: "yes",
+  },
+  {
+    place: {
+      candidateId: "quiet-bistro",
+      osmRef: "bench/2",
+      name: "Quiet Bistro",
+      category: "restaurant",
+      website: "https://quiet.example",
+      texts: [{ source: "web", url: "https://quiet.example/rules", text: "Animals are not permitted anywhere inside the restaurant or on its terrace." }],
+    },
+    criterion: criterion("dog-friendly", "dogs welcome"),
+    expected: "no",
+  },
+  {
+    place: {
+      candidateId: "step-free-gallery",
+      osmRef: "bench/3",
+      name: "Step Free Gallery",
+      category: "gallery",
+      website: "https://stepfree.example",
+      texts: [{ source: "web", url: "https://stepfree.example/access", text: "A level entrance and lift provide wheelchair access to every public floor." }],
+    },
+    criterion: criterion("wheelchair-accessible", "wheelchair accessible"),
+    expected: "yes",
+  },
+  {
+    place: {
+      candidateId: "stairs-cellar",
+      osmRef: "bench/4",
+      name: "Stairs Cellar",
+      category: "bar",
+      website: "https://cellar.example",
+      texts: [{ source: "web", url: "https://cellar.example/access", text: "The cellar is reached only by a narrow staircase and has no accessible entrance." }],
+    },
+    criterion: criterion("wheelchair-accessible", "wheelchair accessible"),
+    expected: "no",
+  },
+  {
+    place: {
+      candidateId: "garden-table",
+      osmRef: "bench/5",
+      name: "Garden Table",
+      category: "restaurant",
+      website: "https://garden.example",
+      texts: [{ source: "web", url: "https://garden.example/dine", text: "Our rear garden offers forty outdoor seats beneath weatherproof awnings." }],
+    },
+    criterion: criterion("outdoor-seating", "outdoor seating"),
+    expected: "yes",
+  },
+  {
+    place: {
+      candidateId: "indoor-counter",
+      osmRef: "bench/6",
+      name: "Indoor Counter",
+      category: "cafe",
+      website: "https://counter.example",
+      texts: [{ source: "web", url: "https://counter.example/about", text: "All customer seating is indoors; the venue has no terrace or pavement tables." }],
+    },
+    criterion: criterion("outdoor-seating", "outdoor seating"),
+    expected: "no",
+  },
+  {
+    place: {
+      candidateId: "green-kitchen",
+      osmRef: "bench/7",
+      name: "Green Kitchen",
+      category: "restaurant",
+      website: "https://green.example",
+      texts: [{ source: "menu", url: "https://green.example/menu", text: "A separate vegan menu is available with six fully plant-based main dishes." }],
+    },
+    criterion: criterion("vegan-options", "vegan options"),
+    expected: "yes",
+  },
+  {
+    place: {
+      candidateId: "butter-house",
+      osmRef: "bench/8",
+      name: "Butter House",
+      category: "restaurant",
+      website: "https://butter.example",
+      texts: [{ source: "menu", url: "https://butter.example/menu", text: "Every dish contains dairy or egg, and no vegan substitutions are available." }],
+    },
+    criterion: criterion("vegan-options", "vegan options"),
+    expected: "no",
+  },
+  {
+    place: {
+      candidateId: "history-cafe",
+      osmRef: "bench/9",
+      name: "History Cafe",
+      category: "cafe",
+      texts: [{ source: "web", url: "https://history.example/story", text: "The cafe opened in a restored railway office and serves locally roasted coffee." }],
+    },
+    criterion: criterion("wifi", "free Wi-Fi"),
+    expected: "abstain",
+  },
+  {
+    place: {
+      candidateId: "chef-table",
+      osmRef: "bench/10",
+      name: "Chef Table",
+      category: "restaurant",
+      texts: [{ source: "web", url: "https://chef.example/about", text: "The chef changes the seasonal tasting menu every six weeks." }],
+    },
+    criterion: criterion("delivery", "delivery available"),
+    expected: "abstain",
+  },
+  {
+    place: {
+      candidateId: "museum-lounge",
+      osmRef: "bench/11",
+      name: "Museum Lounge",
+      category: "cafe",
+      texts: [{ source: "web", url: "https://museum.example/lounge", text: "Visitors can view rotating photography exhibitions while enjoying lunch." }],
+    },
+    criterion: criterion("takeaway", "takeaway available"),
+    expected: "abstain",
+  },
+  {
+    place: {
+      candidateId: "river-room",
+      osmRef: "bench/12",
+      name: "River Room",
+      category: "restaurant",
+      texts: [{ source: "web", url: "https://river.example/story", text: "Large windows look across the river and the kitchen focuses on regional produce." }],
+    },
+    criterion: criterion("dog-friendly", "dogs welcome"),
+    expected: "abstain",
+  },
+];
 
-interface Row {
-  variant: string;
-  modelCalls: number;
-  searches: number;
-  claims: number;
-  sourced: number;
-  wallSeconds: number;
-  cost: number;
-  inputTokens: number;
-  outputTokens: number;
+const percentile = (values: number[], fraction: number): number => {
+  const ordered = [...values].sort((a, b) => a - b);
+  return ordered[Math.max(0, Math.ceil(ordered.length * fraction) - 1)] ?? 0;
+};
+
+interface BenchmarkRow {
+  label: string;
+  model: string;
+  accuracy: number;
+  unclear: number;
+  p50Ms: number;
+  p90Ms: number;
+  costUsd: number;
+  completed: number;
 }
 
-const rows: Row[] = [];
-let frozenIds: string[] = [];
-let frozenRefs: string[] = [];
-
-try {
-  await pool.query(
-    `INSERT INTO requirements
-       (id, room_id, owner_id, visibility, hardness, delegation, payload, active)
-     VALUES ($1, $2, $3, 'shared', 'hard', '{}', $4, true)`,
-    [
-      `need_refine_bench_${roomId}`,
-      roomId,
-      ownerId,
-      JSON.stringify({
-        kind: "attribute",
-        key: "dog-friendly",
-        expect: "verified_true",
-      }),
-    ],
+async function judgeOne(model: string, fixture: Fixture): Promise<{
+  actual: Expected | "invalid";
+  ms: number;
+  costUsd: number;
+}> {
+  const input: EvaluateMatrixInput = {
+    places: [fixture.place],
+    criteria: [fixture.criterion],
+  };
+  const reply = await respond({
+    model,
+    instructions: matrix.EVALUATE_MATRIX_PROMPT,
+    input: [{ role: "user", content: JSON.stringify(input) }],
+    schema: { name: "venue_criterion_matrix", schema: matrix.EVALUATE_MATRIX_SCHEMA },
+    reasoning: "none",
+    maxOutputTokens: 1_500,
+    timeoutMs: 90_000,
+  });
+  const answer = parseJson<{ claims?: unknown }>(reply.text);
+  const batch = matrix.matrixBatchFromAnswer(answer, input, model);
+  const claim = batch.claims.find((candidate) =>
+    candidate.candidateId === fixture.place.candidateId &&
+    candidate.criterionId === fixture.criterion.id
   );
-
-  process.env.ENRICH_NETWORK = "1";
-  enrichment.setEnrichFetch(null);
-  const inputs = await eligibility.loadEligibilityInputs(pool, roomId);
-  const frozen = refinement.buildRefinementQueue(
-    inputs,
-    { evaluated: new Map(), providerChecked: new Set() },
-    roomId,
-  ).slice(0, 12);
-  if (frozen.length !== 12) {
-    throw new Error(`expected 12 eligible places, found ${frozen.length}`);
-  }
-  frozenIds = frozen.map((item) => item.candidate.id);
-  frozenRefs = frozen.map((item) => item.candidate.osm_ref!).filter(Boolean);
-  console.error(`room=${roomId} frozen=${frozenIds.join(",")}`);
-
-  for (const variant of variants) {
-    refinement.resetRefinement();
-    openai.resetResponseMetrics();
-    await pool.query("DELETE FROM enrichments WHERE osm_ref = ANY($1)", [frozenRefs]);
-    const started = performance.now();
-    await refinement.runRefinementTick(roomId, Date.now(), {
-      frozenCandidateIds: frozenIds,
-      searchMode: variant.searchMode,
-      domainRule: variant.domainRule,
-    });
-    const wallSeconds = (performance.now() - started) / 1_000;
-    const metrics = openai.responseMetrics();
-    const stored = (await pool.query(
-      "SELECT inferred FROM enrichments WHERE osm_ref = ANY($1)",
-      [frozenRefs],
-    )).rows as Array<{ inferred: Record<string, Record<string, unknown>> }>;
-    const claims = stored.flatMap((row) => Object.values(row.inferred ?? {}))
-      .filter((claim) => claim.lean === "yes" || claim.lean === "no");
-    const sourced = claims.filter((claim) => typeof claim.sourceUrl === "string").length;
-    const model = configModule.config.nlFastModel;
-    const rates = model === "gpt-5.6-terra"
-      ? { input: 2, output: 12 }
-      : model === "gpt-5.6-sol"
-        ? { input: 4, output: 20 }
-        : { input: 0.2, output: 1.2 };
-    const cost = metrics.webSearchRequests * 0.01 +
-      (metrics.inputTokens * rates.input + metrics.outputTokens * rates.output) / 1_000_000;
-    rows.push({
-      variant: variant.name,
-      // Keep the round-1 metric definition: matrix calls are reported apart
-      // from per-place web searches, including combined search rows.
-      modelCalls: metrics.schemaCalls.venue_criterion_matrix ?? 0,
-      searches: metrics.webSearchRequests,
-      claims: claims.length,
-      sourced,
-      wallSeconds,
-      cost,
-      inputTokens: metrics.inputTokens,
-      outputTokens: metrics.outputTokens,
-    });
-  }
-
-  console.log("variant\tmodel calls\tsearches\tvalidated claims\tclaims with sourceUrl\twall-clock\testimated cost");
-  for (const row of rows) {
-    console.log([
-      row.variant,
-      row.modelCalls,
-      row.searches,
-      row.claims,
-      row.sourced,
-      `${row.wallSeconds.toFixed(1)}s`,
-      `$${row.cost.toFixed(4)}`,
-    ].join("\t"));
-  }
-  console.error(JSON.stringify({ model: configModule.config.nlFastModel, rows }));
-} finally {
-  refinement.resetRefinement();
-  if (frozenRefs.length) {
-    await pool.query("DELETE FROM enrichments WHERE osm_ref = ANY($1)", [frozenRefs]);
-  }
-  for (const table of [
-    "stances",
-    "proposals",
-    "verdicts",
-    "requirements",
-    "adjustments",
-    "arrival_plans",
-    "attestations",
-    "events",
-    "candidates",
-    "invite_secrets",
-  ]) {
-    await pool.query(`DELETE FROM ${table} WHERE room_id = $1`, [roomId]);
-  }
-  await pool.query("DELETE FROM participants WHERE room_id = $1", [roomId]);
-  await pool.query("DELETE FROM rooms WHERE id = $1", [roomId]);
-  await pool.end();
+  const answered = batch.answered.some((candidate) =>
+    candidate.candidateId === fixture.place.candidateId &&
+    candidate.criterionId === fixture.criterion.id
+  );
+  return {
+    actual: claim?.lean ?? (answered ? "abstain" : "invalid"),
+    ms: reply.ms,
+    costUsd: reply.usage.costUsd ?? 0,
+  };
 }
+
+async function benchmark(label: string, model: string): Promise<BenchmarkRow> {
+  const settled = await Promise.allSettled(fixtures.map((fixture) => judgeOne(model, fixture)));
+  let correct = 0;
+  let unclear = 0;
+  const latencies: number[] = [];
+  let costUsd = 0;
+  settled.forEach((result, index) => {
+    if (result.status === "rejected") return;
+    latencies.push(result.value.ms);
+    costUsd += result.value.costUsd;
+    if (result.value.actual === fixtures[index].expected) correct += 1;
+    if (result.value.actual === "abstain" || result.value.actual === "invalid") unclear += 1;
+  });
+  return {
+    label,
+    model,
+    accuracy: correct / fixtures.length,
+    unclear: unclear / fixtures.length,
+    p50Ms: percentile(latencies, 0.5),
+    p90Ms: percentile(latencies, 0.9),
+    costUsd,
+    completed: latencies.length,
+  };
+}
+
+interface ConcurrencyResult {
+  attempted: number;
+  completed: number;
+  valid: number;
+  rateLimited: number;
+  otherErrors: number;
+  p50Ms: number;
+  p90Ms: number;
+  maxMs: number;
+  costUsd: number;
+}
+
+async function concurrencyProbe(model: string): Promise<ConcurrencyResult> {
+  const schema = {
+    type: "object",
+    additionalProperties: false,
+    required: ["ok"],
+    properties: { ok: { type: "boolean", const: true } },
+  } as const;
+  const settled = await Promise.allSettled(Array.from({ length: 40 }, (_, index) => respond({
+    model,
+    instructions: "Return the required JSON object with ok=true. Output nothing else.",
+    input: [{ role: "user", content: `Concurrency probe ${index + 1}` }],
+    schema: { name: "concurrency_probe", schema },
+    reasoning: "none",
+    maxOutputTokens: 550,
+    timeoutMs: 90_000,
+  })));
+  const fulfilled = settled.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
+  const rejected = settled.flatMap((result) => result.status === "rejected" ? [result.reason] : []);
+  const latencies = fulfilled.map((reply) => reply.ms);
+  const isRateLimit = (error: unknown) =>
+    typeof error === "object" && error !== null && "status" in error && error.status === 429;
+  return {
+    attempted: settled.length,
+    completed: fulfilled.length,
+    valid: fulfilled.filter((reply) => parseJson<{ ok?: unknown }>(reply.text)?.ok === true).length,
+    rateLimited: rejected.filter(isRateLimit).length,
+    otherErrors: rejected.filter((error) => !isRateLimit(error)).length,
+    p50Ms: percentile(latencies, 0.5),
+    p90Ms: percentile(latencies, 0.9),
+    maxMs: Math.max(0, ...latencies),
+    costUsd: fulfilled.reduce((total, reply) => total + (reply.usage.costUsd ?? 0), 0),
+  };
+}
+
+const rows = [
+  await benchmark("Luna comparison", "openai/gpt-5.6-luna"),
+  await benchmark("GLM production", "z-ai/glm-5.3-flash"),
+];
+const concurrency = await concurrencyProbe("z-ai/glm-5.3-flash");
+
+console.log("model\tcompleted\taccuracy\tunclear\tp50\tp90\tcost/tick");
+for (const row of rows) {
+  console.log([
+    row.model,
+    `${row.completed}/${fixtures.length}`,
+    `${(row.accuracy * 100).toFixed(1)}%`,
+    `${(row.unclear * 100).toFixed(1)}%`,
+    `${(row.p50Ms / 1_000).toFixed(2)}s`,
+    `${(row.p90Ms / 1_000).toFixed(2)}s`,
+    `$${row.costUsd.toFixed(6)}`,
+  ].join("\t"));
+}
+console.log(`concurrency\t${JSON.stringify(concurrency)}`);
+console.error(JSON.stringify({ fixtureCount: fixtures.length, rows, concurrency }));

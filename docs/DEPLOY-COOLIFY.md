@@ -19,17 +19,20 @@ outbound proxy variables passed through to the app service.
 | `DEMO_SECRET_KEY` | **yes** | Any strong random string. HMAC key for guest invite secrets. Must be stable across redeploys or existing invite links break. The compose refuses to seed if it is unset. |
 | `APP_URL` | recommended | The public URL Coolify assigns (e.g. `https://spokes.example.coolify.app`). The seed prints participant invite URLs against it. |
 | `ORIGIN_TRIAL_TOKEN` | for the ChatGPT/WebMCP path | Chrome WebMCP origin-trial token registered **for the deployed origin** (see §4). Without it the page still works as a normal web app, but ChatGPT's built-in browser will not discover the WebMCP tools on the hosted origin. |
-| `OPENAI_API_KEY` | optional | Enables the natural-language surface, matrix evaluation, menu reading, and OpenAI-backed refinement. Leave empty for a deterministic no-model deployment. |
-| `NL_FAST_MODEL` | optional | Fast model for bounded routing, matrix evaluation, and OpenAI web search; defaults to `gpt-5.6-luna`. |
-| `NL_SMART_MODEL` | optional | Smart model for room actions and other judgment-heavy work; defaults to `gpt-5.6-sol`. |
+| `OPENROUTER_API_KEY` | recommended | Enables the natural-language surface, matrix evaluation, menu reading, and model-backed refinement through OpenRouter. Leave both provider keys empty for a deterministic no-model deployment. |
+| `OPENAI_API_KEY` | fallback only | Enables the retained OpenAI Responses backend when `LLM_PROVIDER=openai`, or when no OpenRouter key exists. |
+| `LLM_PROVIDER` | optional | `openrouter` or `openai`. Defaults to OpenRouter when `OPENROUTER_API_KEY` exists, otherwise OpenAI. |
+| `LLM_MODEL` | optional | Model for every LLM task; defaults to `z-ai/glm-5.3-flash`. |
+| `NL_FAST_MODEL` | optional | Historical per-site override for bounded routing and evaluation. Empty inherits `LLM_MODEL`. |
+| `NL_SMART_MODEL` | optional | Historical per-site override for room actions and private screening. Empty inherits `LLM_MODEL`. |
+| `MENU_READER_MODEL` | optional | Historical menu-reader override. Empty inherits `NL_SMART_MODEL`, then `LLM_MODEL`. |
 | `REFINE` | optional | Set to `0` to disable the continuous refinement worker; enabled by default when network and model access are available. |
 | `REFINE_IDLE_STOP_MS` | optional | How long refinement remains alive after the last room participant leaves; defaults to `600000`. |
 | `REFINE_TICK_MS` | optional | Working-loop interval in milliseconds; defaults to `1000`. |
 | `REFINE_IDLE_TICK_MS` | optional | Empty-queue polling interval in milliseconds; defaults to `30000`. |
 | `REFINE_MODEL_CALLS_PER_HOUR` | optional | Per-room model-call budget; defaults to `200`. |
 | `REFINE_SEARCHES_PER_HOUR` | optional | Per-room search budget; defaults to `150`. |
-| `REFINE_SEARCH_MODE` | optional | `split` searches then evaluates snippets; `combined` uses one OpenAI web-search response per place. Defaults to `split`. |
-| `SEARCH_PROVIDER` | optional | Split-search provider: `parallel`, `openai`, or `tavily`. Default order by available key: Parallel, OpenAI, Tavily. |
+| `SEARCH_PROVIDER` | optional | Search provider: `parallel`, `openai`, or `tavily`. Parallel is always the default; `openai` names the built-in search path, which now runs through OpenRouter. |
 | `PARALLEL_API_KEY` | when using Parallel | Parallel Search credential. Results are cached per room under its End Customer restriction. |
 | `TAVILY_API_KEY` | when `SEARCH_PROVIDER=tavily` | Tavily credential for the optional fallback search provider. |
 | `DATAFORSEO_LOGIN` | when listings are enabled | DataForSEO API login for one structured business-listings batch per room pool. |

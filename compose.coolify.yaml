@@ -73,17 +73,19 @@ services:
       DEMO_SECRET_KEY: ${DEMO_SECRET_KEY:?set a non-default DEMO_SECRET_KEY in Coolify}
       ORIGIN_TRIAL_TOKEN: ${ORIGIN_TRIAL_TOKEN:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      NL_FAST_MODEL: ${NL_FAST_MODEL:-gpt-5.6-luna}
-      NL_SMART_MODEL: ${NL_SMART_MODEL:-gpt-5.6-sol}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      LLM_PROVIDER: ${LLM_PROVIDER:-}
+      LLM_MODEL: ${LLM_MODEL:-z-ai/glm-5.3-flash}
+      NL_FAST_MODEL: ${NL_FAST_MODEL:-}
+      NL_SMART_MODEL: ${NL_SMART_MODEL:-}
+      MENU_READER_MODEL: ${MENU_READER_MODEL:-}
       REFINE: ${REFINE:-1}
       REFINE_IDLE_STOP_MS: ${REFINE_IDLE_STOP_MS:-600000}
       REFINE_TICK_MS: ${REFINE_TICK_MS:-1000}
       REFINE_IDLE_TICK_MS: ${REFINE_IDLE_TICK_MS:-30000}
       REFINE_MODEL_CALLS_PER_HOUR: ${REFINE_MODEL_CALLS_PER_HOUR:-200}
       REFINE_SEARCHES_PER_HOUR: ${REFINE_SEARCHES_PER_HOUR:-150}
-      REFINE_SEARCH_MODE: ${REFINE_SEARCH_MODE:-split}
-      # Empty lets the server pick: parallel, then openai, then tavily, by
-      # whichever key is present. Set it explicitly only to pin one provider.
+      # Parallel is the default. Set this only to pin another provider.
       SEARCH_PROVIDER: ${SEARCH_PROVIDER:-}
       TAVILY_API_KEY: ${TAVILY_API_KEY:-}
       PARALLEL_API_KEY: ${PARALLEL_API_KEY:-}
