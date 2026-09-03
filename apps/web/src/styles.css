@@ -2350,6 +2350,46 @@ body { overflow: hidden; }
   font-variant-numeric: tabular-nums;
 }
 .count-block .line-busy { border-color: currentColor; }
+/* The refinement line: quiet, under the count, absolute numbers. */
+.count-refine {
+  margin-top: 3px;
+  font-family: var(--spoke-font-mono);
+  font-weight: var(--spoke-weight-body);
+  font-size: var(--spoke-size-micro);
+  line-height: 1.3;
+  opacity: 0.78;
+  font-variant-numeric: tabular-nums;
+}
+/* A question need that has been looked up says so beside its label. */
+.need-looked {
+  font-family: var(--spoke-font-mono);
+  font-size: var(--spoke-size-micro);
+  font-weight: var(--spoke-weight-quiet);
+  color: var(--spoke-ink-soft);
+}
+/* Where a web-derived fact was read: a link, always, 44px tall through
+   padding rather than size (§13). */
+.fact-cite {
+  display: inline-block;
+  margin: -14px 0 -14px 4px;
+  padding: 14px 4px;
+  min-height: var(--spoke-tap-min);
+  color: var(--spoke-ink-soft);
+  font-weight: var(--spoke-weight-quiet);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  white-space: nowrap;
+}
+.fact-cite::after { content: " ↗"; color: var(--spoke-ink-ghost); }
+/* A fact that settles while the panel is open changes on the settle
+   duration — colour and edge only, no movement. */
+.fact.attr-row,
+.check-row {
+  transition:
+    color var(--spoke-dur-settle) var(--spoke-ease),
+    border-color var(--spoke-dur-settle) var(--spoke-ease),
+    background-color var(--spoke-dur-settle) var(--spoke-ease);
+}
 
 /* The hint slot names the preview while a row is held (W11). */
 .section-hint[data-tone="preview"] {
