@@ -51,7 +51,7 @@ export interface RealtimeCallbacks {
 }
 
 export type PipelineStage = "queued" | "fetching" | "processing";
-export type InteractiveStage = "site" | "needs" | "photos" | "web";
+export type InteractiveStage = "queued" | "site" | "needs" | "photos" | "web";
 /** The optional open-fast-track fields of a `facts` frame. */
 export interface FactsDetail {
   stage: InteractiveStage | null;
@@ -66,6 +66,10 @@ export interface PipelineFrame {
   total: number;
   etaMs?: number;
   paused: "budget" | "idle" | null;
+  stalled: string[];
+  stages: Array<{ candidateId: string; stage: PipelineStage | null }>;
+  reset: boolean;
+  reason: LookupReason | null;
 }
 
 export interface LookupReason {
@@ -248,28 +252,32 @@ export function connectRealtime(
           total: count(message.total),
           ...(typeof message.etaMs === "number" ? { etaMs: message.etaMs } : {}),
           paused: message.paused === "budget" || message.paused === "idle" ? message.paused : null,
+          stalled: Array.isArray(message.stalled)
+            ? message.stalled.filter((id): id is string => typeof id === "string")
+            : [],
+          stages: Array.isArray(message.stages)
+            ? message.stages.filter(
+                (row): row is { candidateId: string; stage: PipelineStage | null } =>
+                  typeof row?.candidateId === "string" &&
+                  (row.stage === null || row.stage === "queued" || row.stage === "fetching" || row.stage === "processing"),
+              )
+            : [],
+          reset: message.reset === true,
+          reason: message.reason ?? null,
         };
         diagnostics.log(
           `pipeline: ${frame.done} of ${frame.total} · ${frame.inFlight.fetch} reading · ${frame.inFlight.process} checking${frame.paused ? ` (${frame.paused})` : ""}`,
         );
         callbacks.onPipeline(frame);
-        // A pipeline frame may carry per-place stage deltas too.
-        if (Array.isArray(message.stages)) {
-          const rows = message.stages.filter(
-            (row): row is { candidateId: string; stage: PipelineStage } =>
-              typeof row?.candidateId === "string" &&
-              (row.stage === "queued" || row.stage === "fetching" || row.stage === "processing"),
-          );
-          if (message.reset || rows.length) {
-            callbacks.onLookups(rows.map((row) => row.candidateId), message.reason ?? null, rows);
-          }
-        }
       } else if (message.type === "facts") {
         const ids = Array.isArray(message.candidateIds) ? message.candidateIds : [];
         diagnostics.log(`facts: ${ids.length} changed (${message.reason})`);
+        const terminalInteractive = message.done === true &&
+          (message.reason === "floor" || message.reason === "budget" ||
+            message.reason === "aborted" || message.reason === "error");
         const isStage = (v: unknown): v is InteractiveStage =>
-          v === "site" || v === "needs" || v === "photos" || v === "web";
-        callbacks.onFacts(ids, message.reason, {
+          v === "queued" || v === "site" || v === "needs" || v === "photos" || v === "web";
+        callbacks.onFacts(ids, terminalInteractive ? "interactive" : message.reason, {
           stage: isStage(message.stage) ? message.stage : null,
           done: message.done === true,
           steps: Array.isArray(message.steps)

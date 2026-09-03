@@ -264,6 +264,6 @@ The place panel says which stage a place is in: "waiting its turn…",
 
 Opening a place fills the panel progressively: what is cached shows at once,
 then each step of the fast track lands in place with a line naming it —
-"reading the site…", "checking against your needs…", "looking at the
+"waiting its turn…", "reading the site…", "checking against your needs…", "looking at the
 photos…", "asking the web…" — and, after three seconds without the plan
 closing, "still reading the site…". One ring beside the line, no spinner.

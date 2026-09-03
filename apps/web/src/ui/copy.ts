@@ -287,8 +287,10 @@ export const COPY = {
     return parts.length ? `· ${parts.join(" · ")}` : null;
   },
   /** The open fast track, in the place panel: which step just landed. */
-  openStageLine: (stage: "site" | "needs" | "photos" | "web" | "still") =>
-    stage === "site"
+  openStageLine: (stage: "queued" | "site" | "needs" | "photos" | "web" | "still") =>
+    stage === "queued"
+      ? "waiting its turn…"
+      : stage === "site"
       ? "reading the site…"
       : stage === "needs"
         ? "checking against your needs…"

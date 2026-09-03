@@ -62,6 +62,8 @@ export interface SpatialState {
    * Presentation only.
    */
   stages: Record<string, PipelineStage>;
+  /** Candidates whose most recent server item exceeded its deadline. */
+  stalled: string[];
   /**
    * The room's pipeline volume for the active needs, from the last
    * `pipeline` frame: the count block's progress ring. Null until a frame
@@ -101,7 +103,7 @@ export interface LookupReason {
 }
 
 export type PipelineStage = "queued" | "fetching" | "processing";
-export type InteractiveStage = "site" | "needs" | "photos" | "web";
+export type InteractiveStage = "queued" | "site" | "needs" | "photos" | "web";
 export interface InteractivePlan {
   candidateId: string;
   steps: Array<{ stage: InteractiveStage; at: number; ms?: number }>;
@@ -118,6 +120,7 @@ export interface PipelineView {
   /** Kept for the drawer; never drawn in the main UI. */
   etaMs?: number;
   paused: "budget" | "idle" | null;
+  stalled: string[];
   /** When the frame landed (ms). */
   at: number;
 }
@@ -141,6 +144,8 @@ export interface PendingNeed {
 const PENDING_GRACE_MS = 600;
 /** Whatever happens, a pending need settles after this. */
 const PENDING_CAP_MS = 8000;
+/** A lost clearing frame must not leave a presentation ring forever. */
+export const LOOKUP_DEADLINE_MS = 5 * 60_000;
 
 export interface AgentReply {
   id: string;
@@ -242,6 +247,7 @@ export class SpatialStore {
     busy: [],
     busyReason: null,
     stages: {},
+    stalled: [],
     pipeline: null,
     pendingNeeds: [],
     facts: { ids: [], nonce: 0, reason: "", stage: null, done: false },
@@ -261,6 +267,8 @@ export class SpatialStore {
   private confirmationWaiters = new Map<string, Array<() => void>>();
   private roomId: string | null = null;
   private exploreAbort: AbortController | null = null;
+  private lookupSeenAt = new Map<string, number>();
+  private lookupTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(private readonly fetchContext: ContextFetcher = spatialContext) {}
 
@@ -337,6 +345,9 @@ export class SpatialStore {
     const stages: Record<string, PipelineStage> = {};
     for (const row of stageRows) stages[row.candidateId] = row.stage;
     const ids = [...new Set([...pending, ...stageRows.map((row) => row.candidateId)])];
+    const now = Date.now();
+    this.lookupSeenAt.clear();
+    for (const id of ids) this.lookupSeenAt.set(id, now);
     const same =
       ids.length === this.state.busy.length &&
       ids.every((id, i) => id === this.state.busy[i]) &&
@@ -345,12 +356,74 @@ export class SpatialStore {
     if (!same || reason !== this.state.busyReason) {
       this.update({ busy: ids, busyReason: ids.length ? reason : null, stages });
     }
+    this.armLookupWatchdog();
+    this.reconcilePending();
+  }
+
+  /** Apply a scheduler stage delta without replacing unrelated rings. */
+  applyLookupsDelta(
+    stageRows: Array<{ candidateId: string; stage: PipelineStage | null }>,
+    reason: LookupReason | null,
+  ): void {
+    const busy = new Set(this.state.busy);
+    const stages = { ...this.state.stages };
+    const now = Date.now();
+    for (const row of stageRows) {
+      if (row.stage === null) {
+        busy.delete(row.candidateId);
+        delete stages[row.candidateId];
+        this.lookupSeenAt.delete(row.candidateId);
+      } else {
+        busy.add(row.candidateId);
+        stages[row.candidateId] = row.stage;
+        this.lookupSeenAt.set(row.candidateId, now);
+      }
+    }
+    const ids = [...busy];
+    this.update({ busy: ids, stages, busyReason: ids.length ? reason : null });
+    this.armLookupWatchdog();
     this.reconcilePending();
   }
 
   /** The `pipeline` frame: the room's volume for the active needs. */
-  setPipeline(frame: Omit<PipelineView, "at">): void {
-    this.update({ pipeline: { ...frame, at: Date.now() } });
+  setPipeline(frame: Omit<PipelineView, "at"> & {
+    stages?: Array<{ candidateId: string; stage: PipelineStage | null }>;
+    reset?: boolean;
+    reason?: LookupReason | null;
+  }): void {
+    const { stages = [], reset = false, reason = null, ...pipeline } = frame;
+    this.update({ pipeline: { ...pipeline, at: Date.now() }, stalled: [...pipeline.stalled] });
+    if (reset) {
+      const present = stages.filter(
+        (row): row is { candidateId: string; stage: PipelineStage } => row.stage !== null,
+      );
+      this.setLookups(present.map((row) => row.candidateId), reason, present);
+    } else if (stages.length > 0) {
+      this.applyLookupsDelta(stages, reason);
+    }
+  }
+
+  private armLookupWatchdog(): void {
+    if (this.lookupTimer) clearTimeout(this.lookupTimer);
+    this.lookupTimer = null;
+    if (this.lookupSeenAt.size === 0) return;
+    const next = Math.min(...[...this.lookupSeenAt.values()].map((at) => at + LOOKUP_DEADLINE_MS));
+    this.lookupTimer = setTimeout(() => {
+      this.lookupTimer = null;
+      const now = Date.now();
+      const expired = new Set(
+        [...this.lookupSeenAt].filter(([, at]) => now - at >= LOOKUP_DEADLINE_MS).map(([id]) => id),
+      );
+      if (expired.size > 0) {
+        for (const id of expired) this.lookupSeenAt.delete(id);
+        const stages = { ...this.state.stages };
+        for (const id of expired) delete stages[id];
+        const busy = this.state.busy.filter((id) => !expired.has(id));
+        this.update({ busy, stages, busyReason: busy.length ? this.state.busyReason : null });
+        this.reconcilePending();
+      }
+      this.armLookupWatchdog();
+    }, Math.max(20, next - Date.now()));
   }
 
   /** The `facts` frame: facts changed outside the event stream. */
@@ -475,12 +548,16 @@ export class SpatialStore {
       busy: [],
       busyReason: null,
       stages: {},
+      stalled: [],
       pipeline: null,
       interactive: {},
       localScopeCenterKey: null,
       viewing: {},
       positions: {},
     });
+    if (this.lookupTimer) clearTimeout(this.lookupTimer);
+    this.lookupTimer = null;
+    this.lookupSeenAt.clear();
   }
 
   async loadExplore(
