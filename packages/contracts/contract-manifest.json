@@ -1,6 +1,6 @@
 {
   "toolContractVersion": "3",
-  "sha256": "fda6849788b1f06466d636dd44b790c3fb33ae4d86611bc271d233046c34b83a",
+  "sha256": "ed429da50865c6a22b9f9226bd62f3acf4c00663f6427a97611c3b2dc9251302",
   "manifest": {
     "capabilityManifest": {
       "agreement": {
@@ -37,7 +37,6 @@
       "capabilities": [
         "destination-search",
         "map-selection",
-        "meeting-points",
         "navigation-handoff",
         "private-screening",
         "impasse-resolution"
@@ -82,6 +81,7 @@
         "additionalProperties": false,
         "properties": {
           "baseRevision": {
+            "description": "Use the revision from your last sync; on sync_required, read the delta before retrying.",
             "minimum": 0,
             "type": "integer"
           },
@@ -107,6 +107,7 @@
         "additionalProperties": false,
         "properties": {
           "baseRevision": {
+            "description": "Use the revision from your last sync; on sync_required, read the delta before retrying.",
             "minimum": 0,
             "type": "integer"
           },
@@ -169,6 +170,7 @@
             "type": "string"
           },
           "sourceUrl": {
+            "format": "uri",
             "maxLength": 300,
             "type": "string"
           },
@@ -199,6 +201,7 @@
         "additionalProperties": false,
         "properties": {
           "baseRevision": {
+            "description": "Use the revision from your last sync; on sync_required, read the delta before retrying.",
             "minimum": 0,
             "type": "integer"
           },
@@ -222,6 +225,7 @@
         "additionalProperties": false,
         "properties": {
           "baseRevision": {
+            "description": "Use the revision from your last sync; on sync_required, read the delta before retrying.",
             "minimum": 0,
             "type": "integer"
           },
@@ -240,6 +244,7 @@
         "additionalProperties": false,
         "properties": {
           "baseRevision": {
+            "description": "Use the revision from your last sync; on sync_required, read the delta before retrying.",
             "minimum": 0,
             "type": "integer"
           },
@@ -263,47 +268,74 @@
         "additionalProperties": false,
         "properties": {
           "baseRevision": {
+            "description": "Use the revision from your last sync; on sync_required, read the delta before retrying.",
             "minimum": 0,
             "type": "integer"
           },
           "verdicts": {
             "items": {
-              "additionalProperties": false,
-              "properties": {
-                "candidateId": {
-                  "maxLength": 40,
-                  "type": "string"
-                },
-                "infoNeeded": {
-                  "maxLength": 100,
-                  "type": "string"
-                },
-                "verdict": {
-                  "anyOf": [
-                    {
-                      "const": "acceptable",
+              "anyOf": [
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "candidateId": {
+                      "maxLength": 40,
                       "type": "string"
                     },
-                    {
-                      "const": "unacceptable",
+                    "infoNeeded": {
+                      "maxLength": 100,
+                      "minLength": 1,
                       "type": "string"
                     },
-                    {
+                    "verdict": {
+                      "anyOf": [
+                        {
+                          "const": "acceptable",
+                          "type": "string"
+                        },
+                        {
+                          "const": "unacceptable",
+                          "type": "string"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "candidateId",
+                    "verdict"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "candidateId": {
+                      "maxLength": 40,
+                      "type": "string"
+                    },
+                    "infoNeeded": {
+                      "maxLength": 100,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "verdict": {
                       "const": "needs_info",
                       "type": "string"
                     }
-                  ]
+                  },
+                  "required": [
+                    "candidateId",
+                    "verdict",
+                    "infoNeeded"
+                  ],
+                  "type": "object"
                 }
-              },
-              "required": [
-                "candidateId",
-                "verdict"
-              ],
-              "type": "object"
+              ]
             },
             "maxItems": 10,
             "minItems": 1,
-            "type": "array"
+            "type": "array",
+            "uniqueItems": true
           }
         },
         "required": [
@@ -316,6 +348,7 @@
         "additionalProperties": false,
         "properties": {
           "baseRevision": {
+            "description": "Use the revision from your last sync; on sync_required, read the delta before retrying.",
             "minimum": 0,
             "type": "integer"
           },
@@ -350,6 +383,7 @@
         "additionalProperties": false,
         "properties": {
           "baseRevision": {
+            "description": "Use the revision from your last sync; on sync_required, read the delta before retrying.",
             "minimum": 0,
             "type": "integer"
           },
@@ -368,6 +402,7 @@
         "additionalProperties": false,
         "properties": {
           "baseRevision": {
+            "description": "Use the revision from your last sync; on sync_required, read the delta before retrying.",
             "minimum": 0,
             "type": "integer"
           },
@@ -399,6 +434,7 @@
         "additionalProperties": false,
         "properties": {
           "baseRevision": {
+            "description": "Use the revision from your last sync; on sync_required, read the delta before retrying.",
             "minimum": 0,
             "type": "integer"
           },
@@ -480,6 +516,7 @@
         "additionalProperties": false,
         "properties": {
           "baseRevision": {
+            "description": "Use the revision from your last sync; on sync_required, read the delta before retrying.",
             "minimum": 0,
             "type": "integer"
           },
@@ -509,6 +546,7 @@
             "type": "boolean"
           },
           "baseRevision": {
+            "description": "Use the revision from your last sync; on sync_required, read the delta before retrying.",
             "minimum": 0,
             "type": "integer"
           },
@@ -568,6 +606,7 @@
             "type": "object"
           },
           "baseRevision": {
+            "description": "Use the revision from your last sync; on sync_required, read the delta before retrying.",
             "minimum": 0,
             "type": "integer"
           },
@@ -603,6 +642,7 @@
         "additionalProperties": false,
         "properties": {
           "baseRevision": {
+            "description": "Use the revision from your last sync; on sync_required, read the delta before retrying.",
             "minimum": 0,
             "type": "integer"
           },
@@ -1008,6 +1048,7 @@
         "additionalProperties": false,
         "properties": {
           "baseRevision": {
+            "description": "Use the revision from your last sync; on sync_required, read the delta before retrying.",
             "minimum": 0,
             "type": "integer"
           },
@@ -1032,206 +1073,3139 @@
       "consent_required",
       "bound_exceeded",
       "not_authenticated",
-      "upgrade_required"
+      "upgrade_required",
+      "temporarily_unavailable"
     ],
     "protocols": {
       "domain": "spatial-destination/v1",
       "negotiation": "v1"
     },
     "results": {
-      "activeNeed": [
-        "id",
-        "label",
-        "ruledOut",
-        "wouldReturn",
-        "unknown",
-        "active",
-        "visibility",
-        "hardness",
-        "ownerId"
-      ],
-      "candidateSummary": [
-        "candidateId",
-        "name",
-        "location",
-        "category",
-        "eligibility",
-        "why",
-        "walkMin",
-        "priceLevel"
-      ],
-      "delta": [
-        "fromRevision",
-        "events",
-        "truncated",
-        "cursor"
-      ],
-      "facet": [
-        "key",
-        "label",
-        "type",
-        "counts.yes",
-        "counts.no",
-        "counts.unknown",
-        "values",
-        "unit",
-        "range",
-        "histogram",
-        "salience"
-      ],
-      "failureEnvelope": [
-        "ok",
-        "error.code",
-        "error.message",
-        "error.recovery",
-        "delta"
-      ],
-      "inspectCandidatesResult": [
-        "ok",
-        "revision",
-        "candidates"
-      ],
-      "outstandingAdjustmentRequest": [
-        "type",
-        "requestId",
-        "issuedAtRevision",
-        "kind",
-        "change",
-        "projectedGain",
-        "withinDelegatedBound",
-        "delegatedBound",
-        "staged"
-      ],
-      "outstandingEvaluationRequest": [
-        "type",
-        "candidateIds",
-        "issuedAtRevision",
-        "heldByPageAgent"
-      ],
-      "participantSummary": [
-        "participantId",
-        "displayName",
-        "role",
-        "readyState",
-        "arrived",
-        "present"
-      ],
-      "prepareNavigationResult": [
-        "ok",
-        "target",
-        "links.geo",
-        "links.googleMaps",
-        "links.appleMaps"
-      ],
-      "privateEffect": [
-        "owner",
-        "ruledOut",
-        "topic"
-      ],
-      "projectedEvent": [
-        "revision",
-        "type",
-        "level",
-        "text",
-        "payload",
-        "actorId"
-      ],
-      "proposalView": [
-        "proposalId",
-        "candidateId",
-        "status",
-        "stances",
-        "vetoStands",
-        "ownStance",
-        "staging.ready",
-        "staging.notReady",
-        "staging.unaccepted",
-        "staging.vetoStands"
-      ],
-      "realtime": {
-        "auth": [
-          "type",
-          "token",
-          "clientBuildId",
-          "clientToolContractVersion"
-        ],
-        "confirmation": [
-          "type",
-          "kind",
-          "subjectId",
-          "nonce",
-          "expiresInMs"
-        ],
-        "error": [
-          "type",
-          "code",
-          "message"
-        ],
-        "event": [
-          "type",
-          "revision",
-          "events"
-        ],
-        "presence": [
-          "type",
-          "present",
-          "viewing"
-        ],
-        "viewing": [
-          "type",
-          "candidateId"
-        ],
-        "welcome": [
-          "type",
-          "buildId",
-          "toolContractVersion",
-          "revision",
-          "participantId",
-          "displayName",
-          "role"
+      "ClientMessage": {
+        "anyOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "clientBuildId": {
+                "type": "string"
+              },
+              "clientToolContractVersion": {
+                "type": "string"
+              },
+              "token": {
+                "type": "string"
+              },
+              "type": {
+                "const": "auth",
+                "type": "string"
+              }
+            },
+            "required": [
+              "clientBuildId",
+              "clientToolContractVersion",
+              "token",
+              "type"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "candidateId": {
+                "anyOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ]
+              },
+              "type": {
+                "const": "viewing",
+                "type": "string"
+              }
+            },
+            "required": [
+              "candidateId",
+              "type"
+            ],
+            "type": "object"
+          }
         ]
       },
-      "spatialContextResult": [
-        "ok",
-        "revision",
-        "phase",
-        "scope",
-        "feasibility",
-        "total",
-        "matching",
-        "candidates",
-        "facets",
-        "activeNeeds",
-        "privateEffects",
-        "participants",
-        "proposals",
-        "agreement",
-        "arrival",
-        "impasse"
-      ],
-      "successEnvelope": [
-        "ok",
-        "revision",
-        "effect",
-        "staged",
-        "outstanding",
-        "syncHint"
-      ],
-      "syncSessionResult": [
-        "ok",
-        "revision",
-        "buildId",
-        "toolContractVersion",
-        "phase",
-        "identity",
-        "manifest",
-        "feasibility",
-        "brief",
-        "delta",
-        "outstanding",
-        "participants",
-        "lastSyncedRevision"
-      ]
+      "ExplorePlacesResult": {
+        "additionalProperties": false,
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "places": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "candidateId": {
+                  "type": "string"
+                },
+                "category": {
+                  "type": "string"
+                },
+                "location": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "lat": {
+                      "type": "number"
+                    },
+                    "lng": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "lat",
+                    "lng"
+                  ],
+                  "type": "object"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "ref": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "category",
+                "location",
+                "name",
+                "ref"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "truncated": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "boolean"
+              }
+            ]
+          }
+        },
+        "required": [
+          "ok",
+          "places",
+          "truncated"
+        ],
+        "type": "object"
+      },
+      "InspectCandidatesResponse": {
+        "anyOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "delta": {
+                "additionalProperties": false,
+                "properties": {
+                  "cursor": {
+                    "type": "string"
+                  },
+                  "events": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "actorId": {
+                          "type": "string"
+                        },
+                        "level": {
+                          "anyOf": [
+                            {
+                              "const": "full",
+                              "type": "string"
+                            },
+                            {
+                              "const": "existence",
+                              "type": "string"
+                            },
+                            {
+                              "const": "aggregate",
+                              "type": "string"
+                            }
+                          ]
+                        },
+                        "payload": {},
+                        "revision": {
+                          "type": "number"
+                        },
+                        "text": {
+                          "type": "string"
+                        },
+                        "type": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "level",
+                        "revision",
+                        "text",
+                        "type"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "fromRevision": {
+                    "type": "number"
+                  },
+                  "resyncRequired": {
+                    "const": "backlog_too_large",
+                    "type": "string"
+                  },
+                  "throughRevision": {
+                    "type": "number"
+                  },
+                  "truncated": {
+                    "anyOf": [
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "type": "boolean"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "events",
+                  "fromRevision",
+                  "truncated"
+                ],
+                "type": "object"
+              },
+              "error": {
+                "additionalProperties": false,
+                "properties": {
+                  "code": {
+                    "anyOf": [
+                      {
+                        "const": "sync_required",
+                        "type": "string"
+                      },
+                      {
+                        "const": "not_authorized",
+                        "type": "string"
+                      },
+                      {
+                        "const": "invalid_input",
+                        "type": "string"
+                      },
+                      {
+                        "const": "not_found",
+                        "type": "string"
+                      },
+                      {
+                        "const": "phase_unavailable",
+                        "type": "string"
+                      },
+                      {
+                        "const": "consent_required",
+                        "type": "string"
+                      },
+                      {
+                        "const": "bound_exceeded",
+                        "type": "string"
+                      },
+                      {
+                        "const": "not_authenticated",
+                        "type": "string"
+                      },
+                      {
+                        "const": "upgrade_required",
+                        "type": "string"
+                      },
+                      {
+                        "const": "temporarily_unavailable",
+                        "type": "string"
+                      }
+                    ]
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "recovery": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "code",
+                  "message",
+                  "recovery"
+                ],
+                "type": "object"
+              },
+              "ok": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "error",
+              "ok"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "candidates": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "address": {
+                      "type": "string"
+                    },
+                    "attributes": {
+                      "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "attestedBy": {
+                            "type": "string"
+                          },
+                          "confidence": {
+                            "type": "number"
+                          },
+                          "key": {
+                            "type": "string"
+                          },
+                          "note": {
+                            "type": "string"
+                          },
+                          "observedAt": {
+                            "type": "string"
+                          },
+                          "source": {
+                            "type": "string"
+                          },
+                          "sourceUrl": {
+                            "type": "string"
+                          },
+                          "status": {
+                            "type": "string"
+                          },
+                          "value": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "number"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "confidence",
+                          "key",
+                          "observedAt",
+                          "source",
+                          "status"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "awards": {
+                      "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "label": {
+                            "type": "string"
+                          },
+                          "source": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "label",
+                          "source"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "candidateId": {
+                      "type": "string"
+                    },
+                    "category": {
+                      "type": "string"
+                    },
+                    "description": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "source": {
+                          "type": "string"
+                        },
+                        "text": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "source",
+                        "text"
+                      ],
+                      "type": "object"
+                    },
+                    "hours": {
+                      "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "close": {
+                            "type": "string"
+                          },
+                          "day": {
+                            "type": "string"
+                          },
+                          "open": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "close",
+                          "day",
+                          "open"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "links": {
+                      "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "kind": {
+                            "type": "string"
+                          },
+                          "label": {
+                            "type": "string"
+                          },
+                          "source": {
+                            "type": "string"
+                          },
+                          "url": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "label",
+                          "source",
+                          "url"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "location": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "lat": {
+                          "type": "number"
+                        },
+                        "lng": {
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "lat",
+                        "lng"
+                      ],
+                      "type": "object"
+                    },
+                    "lookupPending": {
+                      "anyOf": [
+                        {
+                          "type": "boolean"
+                        },
+                        {
+                          "type": "boolean"
+                        }
+                      ]
+                    },
+                    "mapRevision": {
+                      "type": "number"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "needs": {
+                      "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "confidence": {
+                            "type": "number"
+                          },
+                          "label": {
+                            "type": "string"
+                          },
+                          "private": {
+                            "type": "boolean"
+                          },
+                          "requirementId": {
+                            "type": "string"
+                          },
+                          "verdict": {
+                            "anyOf": [
+                              {
+                                "const": "likely",
+                                "type": "string"
+                              },
+                              {
+                                "const": "unlikely",
+                                "type": "string"
+                              },
+                              {
+                                "const": "yes",
+                                "type": "string"
+                              },
+                              {
+                                "const": "no",
+                                "type": "string"
+                              },
+                              {
+                                "const": "unknown",
+                                "type": "string"
+                              }
+                            ]
+                          },
+                          "why": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "verdict"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "phone": {
+                      "type": "string"
+                    },
+                    "priceLevel": {
+                      "anyOf": [
+                        {
+                          "type": "null"
+                        },
+                        {
+                          "type": "number"
+                        }
+                      ]
+                    },
+                    "rating": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "best": {
+                          "type": "number"
+                        },
+                        "count": {
+                          "type": "number"
+                        },
+                        "label": {
+                          "type": "string"
+                        },
+                        "source": {
+                          "type": "string"
+                        },
+                        "value": {
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "best",
+                        "label",
+                        "source",
+                        "value"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "attributes",
+                    "candidateId",
+                    "category",
+                    "hours",
+                    "location",
+                    "mapRevision",
+                    "name",
+                    "priceLevel"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "ok": {
+                "type": "boolean"
+              },
+              "revision": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "candidates",
+              "ok",
+              "revision"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "PrepareNavigationResponse": {
+        "anyOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "delta": {
+                "additionalProperties": false,
+                "properties": {
+                  "cursor": {
+                    "type": "string"
+                  },
+                  "events": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "actorId": {
+                          "type": "string"
+                        },
+                        "level": {
+                          "anyOf": [
+                            {
+                              "const": "full",
+                              "type": "string"
+                            },
+                            {
+                              "const": "existence",
+                              "type": "string"
+                            },
+                            {
+                              "const": "aggregate",
+                              "type": "string"
+                            }
+                          ]
+                        },
+                        "payload": {},
+                        "revision": {
+                          "type": "number"
+                        },
+                        "text": {
+                          "type": "string"
+                        },
+                        "type": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "level",
+                        "revision",
+                        "text",
+                        "type"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "fromRevision": {
+                    "type": "number"
+                  },
+                  "resyncRequired": {
+                    "const": "backlog_too_large",
+                    "type": "string"
+                  },
+                  "throughRevision": {
+                    "type": "number"
+                  },
+                  "truncated": {
+                    "anyOf": [
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "type": "boolean"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "events",
+                  "fromRevision",
+                  "truncated"
+                ],
+                "type": "object"
+              },
+              "error": {
+                "additionalProperties": false,
+                "properties": {
+                  "code": {
+                    "anyOf": [
+                      {
+                        "const": "sync_required",
+                        "type": "string"
+                      },
+                      {
+                        "const": "not_authorized",
+                        "type": "string"
+                      },
+                      {
+                        "const": "invalid_input",
+                        "type": "string"
+                      },
+                      {
+                        "const": "not_found",
+                        "type": "string"
+                      },
+                      {
+                        "const": "phase_unavailable",
+                        "type": "string"
+                      },
+                      {
+                        "const": "consent_required",
+                        "type": "string"
+                      },
+                      {
+                        "const": "bound_exceeded",
+                        "type": "string"
+                      },
+                      {
+                        "const": "not_authenticated",
+                        "type": "string"
+                      },
+                      {
+                        "const": "upgrade_required",
+                        "type": "string"
+                      },
+                      {
+                        "const": "temporarily_unavailable",
+                        "type": "string"
+                      }
+                    ]
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "recovery": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "code",
+                  "message",
+                  "recovery"
+                ],
+                "type": "object"
+              },
+              "ok": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "error",
+              "ok"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "links": {
+                "additionalProperties": false,
+                "properties": {
+                  "appleMaps": {
+                    "type": "string"
+                  },
+                  "geo": {
+                    "type": "string"
+                  },
+                  "googleMaps": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "appleMaps",
+                  "geo",
+                  "googleMaps"
+                ],
+                "type": "object"
+              },
+              "ok": {
+                "type": "boolean"
+              },
+              "target": {
+                "additionalProperties": false,
+                "properties": {
+                  "candidateId": {
+                    "type": "string"
+                  },
+                  "location": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "lat": {
+                        "type": "number"
+                      },
+                      "lng": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "lat",
+                      "lng"
+                    ],
+                    "type": "object"
+                  },
+                  "name": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "candidateId",
+                  "location",
+                  "name"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "links",
+              "ok",
+              "target"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "ServerMessage": {
+        "anyOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "buildId": {
+                "type": "string"
+              },
+              "displayName": {
+                "type": "string"
+              },
+              "participantId": {
+                "type": "string"
+              },
+              "revision": {
+                "type": "number"
+              },
+              "role": {
+                "anyOf": [
+                  {
+                    "const": "organizer",
+                    "type": "string"
+                  },
+                  {
+                    "const": "member",
+                    "type": "string"
+                  }
+                ]
+              },
+              "toolContractVersion": {
+                "type": "string"
+              },
+              "type": {
+                "const": "welcome",
+                "type": "string"
+              }
+            },
+            "required": [
+              "buildId",
+              "displayName",
+              "participantId",
+              "revision",
+              "role",
+              "toolContractVersion",
+              "type"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "events": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "actorId": {
+                      "type": "string"
+                    },
+                    "level": {
+                      "anyOf": [
+                        {
+                          "const": "full",
+                          "type": "string"
+                        },
+                        {
+                          "const": "existence",
+                          "type": "string"
+                        },
+                        {
+                          "const": "aggregate",
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "payload": {},
+                    "revision": {
+                      "type": "number"
+                    },
+                    "text": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "level",
+                    "revision",
+                    "text",
+                    "type"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "fromRevision": {
+                "type": "number"
+              },
+              "revision": {
+                "type": "number"
+              },
+              "type": {
+                "const": "event",
+                "type": "string"
+              }
+            },
+            "required": [
+              "events",
+              "revision",
+              "type"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "anyOf": [
+                  {
+                    "const": "not_authenticated",
+                    "type": "string"
+                  },
+                  {
+                    "const": "upgrade_required",
+                    "type": "string"
+                  },
+                  {
+                    "const": "invalid_message",
+                    "type": "string"
+                  }
+                ]
+              },
+              "message": {
+                "type": "string"
+              },
+              "type": {
+                "const": "error",
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message",
+              "type"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "expiresInMs": {
+                "type": "number"
+              },
+              "kind": {
+                "anyOf": [
+                  {
+                    "const": "agreement",
+                    "type": "string"
+                  },
+                  {
+                    "const": "private_request",
+                    "type": "string"
+                  }
+                ]
+              },
+              "nonce": {
+                "type": "string"
+              },
+              "subjectId": {
+                "type": "string"
+              },
+              "type": {
+                "const": "confirmation",
+                "type": "string"
+              }
+            },
+            "required": [
+              "expiresInMs",
+              "kind",
+              "nonce",
+              "subjectId",
+              "type"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "present": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "type": {
+                "const": "presence",
+                "type": "string"
+              },
+              "viewing": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "candidateId": {
+                      "type": "string"
+                    },
+                    "participantId": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "candidateId",
+                    "participantId"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "present",
+              "type",
+              "viewing"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "pending": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "reason": {
+                "additionalProperties": false,
+                "properties": {
+                  "kind": {
+                    "anyOf": [
+                      {
+                        "const": "need",
+                        "type": "string"
+                      },
+                      {
+                        "const": "place",
+                        "type": "string"
+                      },
+                      {
+                        "const": "pool",
+                        "type": "string"
+                      }
+                    ]
+                  },
+                  "label": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind"
+                ],
+                "type": "object"
+              },
+              "type": {
+                "const": "lookups",
+                "type": "string"
+              }
+            },
+            "required": [
+              "pending",
+              "type"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "candidateIds": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "reason": {
+                "anyOf": [
+                  {
+                    "const": "pool",
+                    "type": "string"
+                  },
+                  {
+                    "const": "lookup",
+                    "type": "string"
+                  },
+                  {
+                    "const": "inference",
+                    "type": "string"
+                  }
+                ]
+              },
+              "type": {
+                "const": "facts",
+                "type": "string"
+              }
+            },
+            "required": [
+              "candidateIds",
+              "reason",
+              "type"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "SpatialContextResponse": {
+        "anyOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "delta": {
+                "additionalProperties": false,
+                "properties": {
+                  "cursor": {
+                    "type": "string"
+                  },
+                  "events": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "actorId": {
+                          "type": "string"
+                        },
+                        "level": {
+                          "anyOf": [
+                            {
+                              "const": "full",
+                              "type": "string"
+                            },
+                            {
+                              "const": "existence",
+                              "type": "string"
+                            },
+                            {
+                              "const": "aggregate",
+                              "type": "string"
+                            }
+                          ]
+                        },
+                        "payload": {},
+                        "revision": {
+                          "type": "number"
+                        },
+                        "text": {
+                          "type": "string"
+                        },
+                        "type": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "level",
+                        "revision",
+                        "text",
+                        "type"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "fromRevision": {
+                    "type": "number"
+                  },
+                  "resyncRequired": {
+                    "const": "backlog_too_large",
+                    "type": "string"
+                  },
+                  "throughRevision": {
+                    "type": "number"
+                  },
+                  "truncated": {
+                    "anyOf": [
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "type": "boolean"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "events",
+                  "fromRevision",
+                  "truncated"
+                ],
+                "type": "object"
+              },
+              "error": {
+                "additionalProperties": false,
+                "properties": {
+                  "code": {
+                    "anyOf": [
+                      {
+                        "const": "sync_required",
+                        "type": "string"
+                      },
+                      {
+                        "const": "not_authorized",
+                        "type": "string"
+                      },
+                      {
+                        "const": "invalid_input",
+                        "type": "string"
+                      },
+                      {
+                        "const": "not_found",
+                        "type": "string"
+                      },
+                      {
+                        "const": "phase_unavailable",
+                        "type": "string"
+                      },
+                      {
+                        "const": "consent_required",
+                        "type": "string"
+                      },
+                      {
+                        "const": "bound_exceeded",
+                        "type": "string"
+                      },
+                      {
+                        "const": "not_authenticated",
+                        "type": "string"
+                      },
+                      {
+                        "const": "upgrade_required",
+                        "type": "string"
+                      },
+                      {
+                        "const": "temporarily_unavailable",
+                        "type": "string"
+                      }
+                    ]
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "recovery": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "code",
+                  "message",
+                  "recovery"
+                ],
+                "type": "object"
+              },
+              "ok": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "error",
+              "ok"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "activeNeeds": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "active": {
+                      "anyOf": [
+                        {
+                          "type": "boolean"
+                        },
+                        {
+                          "type": "boolean"
+                        }
+                      ]
+                    },
+                    "hardness": {
+                      "anyOf": [
+                        {
+                          "const": "hard",
+                          "type": "string"
+                        },
+                        {
+                          "const": "soft",
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "likely": {
+                      "type": "number"
+                    },
+                    "ownerId": {
+                      "type": "string"
+                    },
+                    "ruledOut": {
+                      "type": "number"
+                    },
+                    "unknown": {
+                      "type": "number"
+                    },
+                    "unlikely": {
+                      "type": "number"
+                    },
+                    "visibility": {
+                      "anyOf": [
+                        {
+                          "const": "shared",
+                          "type": "string"
+                        },
+                        {
+                          "const": "application-private",
+                          "type": "string"
+                        },
+                        {
+                          "const": "agent-private",
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "wouldReturn": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "active",
+                    "hardness",
+                    "id",
+                    "label",
+                    "ownerId",
+                    "ruledOut",
+                    "unknown",
+                    "visibility",
+                    "wouldReturn"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "agreement": {
+                "additionalProperties": false,
+                "properties": {
+                  "candidateId": {
+                    "type": "string"
+                  },
+                  "committedAtRevision": {
+                    "type": "number"
+                  },
+                  "proposalId": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "anyOf": [
+                      {
+                        "const": "staged",
+                        "type": "string"
+                      },
+                      {
+                        "const": "committed",
+                        "type": "string"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "candidateId",
+                  "proposalId",
+                  "status"
+                ],
+                "type": "object"
+              },
+              "area": {
+                "additionalProperties": false,
+                "properties": {
+                  "areaId": {
+                    "type": "string"
+                  },
+                  "dataAsOf": {
+                    "type": "string"
+                  },
+                  "focusVenues": {
+                    "type": "number"
+                  },
+                  "kind": {
+                    "anyOf": [
+                      {
+                        "const": "osm-snapshot",
+                        "type": "string"
+                      },
+                      {
+                        "const": "curated",
+                        "type": "string"
+                      }
+                    ]
+                  },
+                  "label": {
+                    "type": "string"
+                  },
+                  "poolSize": {
+                    "type": "number"
+                  },
+                  "source": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "areaId",
+                  "dataAsOf",
+                  "focusVenues",
+                  "kind",
+                  "label",
+                  "poolSize",
+                  "source"
+                ],
+                "type": "object"
+              },
+              "arrival": {
+                "additionalProperties": false,
+                "properties": {
+                  "mode": {
+                    "anyOf": [
+                      {
+                        "const": "walk",
+                        "type": "string"
+                      },
+                      {
+                        "const": "bike",
+                        "type": "string"
+                      },
+                      {
+                        "const": "car",
+                        "type": "string"
+                      }
+                    ]
+                  },
+                  "pickupNote": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "mode"
+                ],
+                "type": "object"
+              },
+              "candidates": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "candidateId": {
+                      "type": "string"
+                    },
+                    "category": {
+                      "type": "string"
+                    },
+                    "confidence": {
+                      "type": "number"
+                    },
+                    "eligibility": {
+                      "anyOf": [
+                        {
+                          "const": "uncertain",
+                          "type": "string"
+                        },
+                        {
+                          "const": "eligible",
+                          "type": "string"
+                        },
+                        {
+                          "const": "likely",
+                          "type": "string"
+                        },
+                        {
+                          "const": "unlikely",
+                          "type": "string"
+                        },
+                        {
+                          "const": "excluded",
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "location": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "lat": {
+                          "type": "number"
+                        },
+                        "lng": {
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "lat",
+                        "lng"
+                      ],
+                      "type": "object"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "priceLevel": {
+                      "anyOf": [
+                        {
+                          "type": "null"
+                        },
+                        {
+                          "type": "number"
+                        }
+                      ]
+                    },
+                    "ref": {
+                      "type": "string"
+                    },
+                    "walkMin": {
+                      "type": "number"
+                    },
+                    "why": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "candidateId",
+                    "category",
+                    "eligibility",
+                    "location",
+                    "name",
+                    "priceLevel",
+                    "walkMin",
+                    "why"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "facets": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "counts": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "likely": {
+                          "type": "number"
+                        },
+                        "no": {
+                          "type": "number"
+                        },
+                        "unknown": {
+                          "type": "number"
+                        },
+                        "unlikely": {
+                          "type": "number"
+                        },
+                        "yes": {
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "unknown"
+                      ],
+                      "type": "object"
+                    },
+                    "histogram": {
+                      "items": {
+                        "type": "number"
+                      },
+                      "type": "array"
+                    },
+                    "key": {
+                      "type": "string"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "range": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "max": {
+                          "type": "number"
+                        },
+                        "min": {
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "max",
+                        "min"
+                      ],
+                      "type": "object"
+                    },
+                    "salience": {
+                      "type": "number"
+                    },
+                    "type": {
+                      "anyOf": [
+                        {
+                          "const": "boolean",
+                          "type": "string"
+                        },
+                        {
+                          "const": "enum",
+                          "type": "string"
+                        },
+                        {
+                          "const": "numeric",
+                          "type": "string"
+                        },
+                        {
+                          "const": "temporal",
+                          "type": "string"
+                        },
+                        {
+                          "const": "text",
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "unit": {
+                      "type": "string"
+                    },
+                    "values": {
+                      "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "count": {
+                            "type": "number"
+                          },
+                          "label": {
+                            "type": "string"
+                          },
+                          "value": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "count",
+                          "label",
+                          "value"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "counts",
+                    "key",
+                    "label",
+                    "type"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "feasibility": {
+                "additionalProperties": false,
+                "properties": {
+                  "eligible": {
+                    "type": "number"
+                  },
+                  "excluded": {
+                    "type": "number"
+                  },
+                  "likely": {
+                    "type": "number"
+                  },
+                  "state": {
+                    "anyOf": [
+                      {
+                        "const": "feasible",
+                        "type": "string"
+                      },
+                      {
+                        "const": "fragile",
+                        "type": "string"
+                      },
+                      {
+                        "const": "infeasible",
+                        "type": "string"
+                      },
+                      {
+                        "const": "uncertain",
+                        "type": "string"
+                      }
+                    ]
+                  },
+                  "uncertain": {
+                    "type": "number"
+                  },
+                  "unlikely": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "eligible",
+                  "excluded",
+                  "likely",
+                  "state",
+                  "uncertain",
+                  "unlikely"
+                ],
+                "type": "object"
+              },
+              "impasse": {
+                "additionalProperties": false,
+                "properties": {
+                  "active": {
+                    "type": "boolean"
+                  },
+                  "text": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "active",
+                  "text"
+                ],
+                "type": "object"
+              },
+              "likely": {
+                "type": "number"
+              },
+              "matching": {
+                "type": "number"
+              },
+              "ok": {
+                "type": "boolean"
+              },
+              "participants": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "arrived": {
+                      "anyOf": [
+                        {
+                          "type": "boolean"
+                        },
+                        {
+                          "type": "boolean"
+                        }
+                      ]
+                    },
+                    "displayName": {
+                      "type": "string"
+                    },
+                    "participantId": {
+                      "type": "string"
+                    },
+                    "present": {
+                      "anyOf": [
+                        {
+                          "type": "boolean"
+                        },
+                        {
+                          "type": "boolean"
+                        }
+                      ]
+                    },
+                    "readyState": {
+                      "anyOf": [
+                        {
+                          "const": "contributing",
+                          "type": "string"
+                        },
+                        {
+                          "const": "ready",
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "role": {
+                      "anyOf": [
+                        {
+                          "const": "organizer",
+                          "type": "string"
+                        },
+                        {
+                          "const": "member",
+                          "type": "string"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "arrived",
+                    "displayName",
+                    "participantId",
+                    "present",
+                    "readyState",
+                    "role"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "phase": {
+                "type": "string"
+              },
+              "pool": {
+                "additionalProperties": false,
+                "properties": {
+                  "cap": {
+                    "type": "number"
+                  },
+                  "explorable": {
+                    "anyOf": [
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "type": "boolean"
+                      }
+                    ]
+                  },
+                  "size": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "cap",
+                  "explorable",
+                  "size"
+                ],
+                "type": "object"
+              },
+              "privateEffects": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "owner": {
+                      "type": "string"
+                    },
+                    "ruledOut": {
+                      "type": "number"
+                    },
+                    "topic": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "owner",
+                    "ruledOut"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "proposals": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "candidateId": {
+                      "type": "string"
+                    },
+                    "ownStance": {
+                      "type": "string"
+                    },
+                    "proposalId": {
+                      "type": "string"
+                    },
+                    "staging": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "notReady": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "ready": {
+                          "anyOf": [
+                            {
+                              "type": "boolean"
+                            },
+                            {
+                              "type": "boolean"
+                            }
+                          ]
+                        },
+                        "unaccepted": {
+                          "type": "number"
+                        },
+                        "vetoStands": {
+                          "anyOf": [
+                            {
+                              "type": "boolean"
+                            },
+                            {
+                              "type": "boolean"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "notReady",
+                        "ready",
+                        "unaccepted",
+                        "vetoStands"
+                      ],
+                      "type": "object"
+                    },
+                    "stances": {
+                      "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "participantId": {
+                            "type": "string"
+                          },
+                          "stance": {
+                            "anyOf": [
+                              {
+                                "const": "accept",
+                                "type": "string"
+                              },
+                              {
+                                "const": "veto",
+                                "type": "string"
+                              },
+                              {
+                                "const": "none",
+                                "type": "string"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "participantId",
+                          "stance"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "status": {
+                      "anyOf": [
+                        {
+                          "const": "open",
+                          "type": "string"
+                        },
+                        {
+                          "const": "withdrawn",
+                          "type": "string"
+                        },
+                        {
+                          "const": "vetoed",
+                          "type": "string"
+                        },
+                        {
+                          "const": "staged",
+                          "type": "string"
+                        },
+                        {
+                          "const": "committed",
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "vetoStands": {
+                      "anyOf": [
+                        {
+                          "type": "boolean"
+                        },
+                        {
+                          "type": "boolean"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "candidateId",
+                    "proposalId",
+                    "staging",
+                    "stances",
+                    "status",
+                    "vetoStands"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "revision": {
+                "type": "number"
+              },
+              "scope": {
+                "anyOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "area": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "center": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "lat": {
+                                "type": "number"
+                              },
+                              "lng": {
+                                "type": "number"
+                              }
+                            },
+                            "required": [
+                              "lat",
+                              "lng"
+                            ],
+                            "type": "object"
+                          },
+                          "kind": {
+                            "const": "circle",
+                            "type": "string"
+                          },
+                          "radiusM": {
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "center",
+                          "kind",
+                          "radiusM"
+                        ],
+                        "type": "object"
+                      },
+                      "category": {
+                        "type": "string"
+                      },
+                      "scopeId": {
+                        "type": "string"
+                      },
+                      "transport": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      }
+                    },
+                    "required": [
+                      "area",
+                      "category",
+                      "scopeId",
+                      "transport"
+                    ],
+                    "type": "object"
+                  }
+                ]
+              },
+              "total": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "activeNeeds",
+              "candidates",
+              "facets",
+              "feasibility",
+              "likely",
+              "matching",
+              "ok",
+              "participants",
+              "phase",
+              "privateEffects",
+              "proposals",
+              "revision",
+              "scope",
+              "total"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "SyncSessionResponse": {
+        "anyOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "delta": {
+                "additionalProperties": false,
+                "properties": {
+                  "cursor": {
+                    "type": "string"
+                  },
+                  "events": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "actorId": {
+                          "type": "string"
+                        },
+                        "level": {
+                          "anyOf": [
+                            {
+                              "const": "full",
+                              "type": "string"
+                            },
+                            {
+                              "const": "existence",
+                              "type": "string"
+                            },
+                            {
+                              "const": "aggregate",
+                              "type": "string"
+                            }
+                          ]
+                        },
+                        "payload": {},
+                        "revision": {
+                          "type": "number"
+                        },
+                        "text": {
+                          "type": "string"
+                        },
+                        "type": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "level",
+                        "revision",
+                        "text",
+                        "type"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "fromRevision": {
+                    "type": "number"
+                  },
+                  "resyncRequired": {
+                    "const": "backlog_too_large",
+                    "type": "string"
+                  },
+                  "throughRevision": {
+                    "type": "number"
+                  },
+                  "truncated": {
+                    "anyOf": [
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "type": "boolean"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "events",
+                  "fromRevision",
+                  "truncated"
+                ],
+                "type": "object"
+              },
+              "error": {
+                "additionalProperties": false,
+                "properties": {
+                  "code": {
+                    "anyOf": [
+                      {
+                        "const": "sync_required",
+                        "type": "string"
+                      },
+                      {
+                        "const": "not_authorized",
+                        "type": "string"
+                      },
+                      {
+                        "const": "invalid_input",
+                        "type": "string"
+                      },
+                      {
+                        "const": "not_found",
+                        "type": "string"
+                      },
+                      {
+                        "const": "phase_unavailable",
+                        "type": "string"
+                      },
+                      {
+                        "const": "consent_required",
+                        "type": "string"
+                      },
+                      {
+                        "const": "bound_exceeded",
+                        "type": "string"
+                      },
+                      {
+                        "const": "not_authenticated",
+                        "type": "string"
+                      },
+                      {
+                        "const": "upgrade_required",
+                        "type": "string"
+                      },
+                      {
+                        "const": "temporarily_unavailable",
+                        "type": "string"
+                      }
+                    ]
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "recovery": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "code",
+                  "message",
+                  "recovery"
+                ],
+                "type": "object"
+              },
+              "ok": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "error",
+              "ok"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "brief": {
+                "type": "string"
+              },
+              "buildId": {
+                "type": "string"
+              },
+              "delta": {
+                "additionalProperties": false,
+                "properties": {
+                  "cursor": {
+                    "type": "string"
+                  },
+                  "events": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "actorId": {
+                          "type": "string"
+                        },
+                        "level": {
+                          "anyOf": [
+                            {
+                              "const": "full",
+                              "type": "string"
+                            },
+                            {
+                              "const": "existence",
+                              "type": "string"
+                            },
+                            {
+                              "const": "aggregate",
+                              "type": "string"
+                            }
+                          ]
+                        },
+                        "payload": {},
+                        "revision": {
+                          "type": "number"
+                        },
+                        "text": {
+                          "type": "string"
+                        },
+                        "type": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "level",
+                        "revision",
+                        "text",
+                        "type"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "fromRevision": {
+                    "type": "number"
+                  },
+                  "resyncRequired": {
+                    "const": "backlog_too_large",
+                    "type": "string"
+                  },
+                  "throughRevision": {
+                    "type": "number"
+                  },
+                  "truncated": {
+                    "anyOf": [
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "type": "boolean"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "events",
+                  "fromRevision",
+                  "truncated"
+                ],
+                "type": "object"
+              },
+              "feasibility": {
+                "additionalProperties": false,
+                "properties": {
+                  "eligible": {
+                    "type": "number"
+                  },
+                  "excluded": {
+                    "type": "number"
+                  },
+                  "likely": {
+                    "type": "number"
+                  },
+                  "state": {
+                    "anyOf": [
+                      {
+                        "const": "feasible",
+                        "type": "string"
+                      },
+                      {
+                        "const": "fragile",
+                        "type": "string"
+                      },
+                      {
+                        "const": "infeasible",
+                        "type": "string"
+                      },
+                      {
+                        "const": "uncertain",
+                        "type": "string"
+                      }
+                    ]
+                  },
+                  "uncertain": {
+                    "type": "number"
+                  },
+                  "unlikely": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "eligible",
+                  "excluded",
+                  "likely",
+                  "state",
+                  "uncertain",
+                  "unlikely"
+                ],
+                "type": "object"
+              },
+              "identity": {
+                "additionalProperties": false,
+                "properties": {
+                  "displayName": {
+                    "type": "string"
+                  },
+                  "participantId": {
+                    "type": "string"
+                  },
+                  "role": {
+                    "anyOf": [
+                      {
+                        "const": "organizer",
+                        "type": "string"
+                      },
+                      {
+                        "const": "member",
+                        "type": "string"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "displayName",
+                  "participantId",
+                  "role"
+                ],
+                "type": "object"
+              },
+              "lastSyncedRevision": {
+                "anyOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ]
+              },
+              "manifest": {
+                "additionalProperties": false,
+                "properties": {
+                  "agreement": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "rule": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "rule"
+                    ],
+                    "type": "object"
+                  },
+                  "attributeLabels": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "properties": {},
+                    "required": [],
+                    "type": "object"
+                  },
+                  "attributeVocabulary": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "capabilities": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "conduct": {
+                    "type": "string"
+                  },
+                  "priceLevelEur": {
+                    "additionalProperties": {
+                      "type": "number"
+                    },
+                    "properties": {},
+                    "required": [],
+                    "type": "object"
+                  },
+                  "privacy": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "allowedVisibilities": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "disclosureLevels": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "hintTaxonomy": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      }
+                    },
+                    "required": [
+                      "allowedVisibilities",
+                      "disclosureLevels",
+                      "hintTaxonomy"
+                    ],
+                    "type": "object"
+                  },
+                  "protocols": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "domain": {
+                        "type": "string"
+                      },
+                      "negotiation": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "domain",
+                      "negotiation"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "agreement",
+                  "attributeLabels",
+                  "attributeVocabulary",
+                  "capabilities",
+                  "conduct",
+                  "priceLevelEur",
+                  "privacy",
+                  "protocols"
+                ],
+                "type": "object"
+              },
+              "ok": {
+                "type": "boolean"
+              },
+              "outstanding": {
+                "items": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "candidateIds": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "heldByPageAgent": {
+                          "type": "boolean"
+                        },
+                        "issuedAtRevision": {
+                          "type": "number"
+                        },
+                        "type": {
+                          "const": "evaluation_request",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "candidateIds",
+                        "issuedAtRevision",
+                        "type"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "proposalId": {
+                          "type": "string"
+                        },
+                        "type": {
+                          "const": "stance_needed",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "proposalId",
+                        "type"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "change": {
+                          "additionalProperties": {},
+                          "properties": {},
+                          "required": [],
+                          "type": "object"
+                        },
+                        "delegatedBound": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "dimension": {
+                              "anyOf": [
+                                {
+                                  "const": "radius_m",
+                                  "type": "string"
+                                },
+                                {
+                                  "const": "per_person_eur",
+                                  "type": "string"
+                                },
+                                {
+                                  "const": "walk_min",
+                                  "type": "string"
+                                }
+                              ]
+                            },
+                            "max": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "dimension",
+                            "max"
+                          ],
+                          "type": "object"
+                        },
+                        "issuedAtRevision": {
+                          "type": "number"
+                        },
+                        "kind": {
+                          "anyOf": [
+                            {
+                              "const": "scope_change",
+                              "type": "string"
+                            },
+                            {
+                              "const": "requirement_relaxation",
+                              "type": "string"
+                            }
+                          ]
+                        },
+                        "projectedGain": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "newCandidates": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "newCandidates"
+                          ],
+                          "type": "object"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        },
+                        "staged": {
+                          "anyOf": [
+                            {
+                              "type": "boolean"
+                            },
+                            {
+                              "type": "boolean"
+                            }
+                          ]
+                        },
+                        "type": {
+                          "const": "adjustment_request",
+                          "type": "string"
+                        },
+                        "withinDelegatedBound": {
+                          "anyOf": [
+                            {
+                              "type": "boolean"
+                            },
+                            {
+                              "type": "boolean"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "change",
+                        "issuedAtRevision",
+                        "kind",
+                        "projectedGain",
+                        "requestId",
+                        "staged",
+                        "type",
+                        "withinDelegatedBound"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                },
+                "type": "array"
+              },
+              "participants": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "arrived": {
+                      "anyOf": [
+                        {
+                          "type": "boolean"
+                        },
+                        {
+                          "type": "boolean"
+                        }
+                      ]
+                    },
+                    "displayName": {
+                      "type": "string"
+                    },
+                    "participantId": {
+                      "type": "string"
+                    },
+                    "present": {
+                      "anyOf": [
+                        {
+                          "type": "boolean"
+                        },
+                        {
+                          "type": "boolean"
+                        }
+                      ]
+                    },
+                    "readyState": {
+                      "anyOf": [
+                        {
+                          "const": "contributing",
+                          "type": "string"
+                        },
+                        {
+                          "const": "ready",
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "role": {
+                      "anyOf": [
+                        {
+                          "const": "organizer",
+                          "type": "string"
+                        },
+                        {
+                          "const": "member",
+                          "type": "string"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "arrived",
+                    "displayName",
+                    "participantId",
+                    "present",
+                    "readyState",
+                    "role"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "phase": {
+                "type": "string"
+              },
+              "revision": {
+                "type": "number"
+              },
+              "toolContractVersion": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "brief",
+              "buildId",
+              "identity",
+              "lastSyncedRevision",
+              "ok",
+              "outstanding",
+              "participants",
+              "phase",
+              "revision",
+              "toolContractVersion"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "ToolResult": {
+        "anyOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "effect": {
+                "type": "string"
+              },
+              "ok": {
+                "type": "boolean"
+              },
+              "outstanding": {
+                "items": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "candidateIds": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "heldByPageAgent": {
+                          "type": "boolean"
+                        },
+                        "issuedAtRevision": {
+                          "type": "number"
+                        },
+                        "type": {
+                          "const": "evaluation_request",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "candidateIds",
+                        "issuedAtRevision",
+                        "type"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "proposalId": {
+                          "type": "string"
+                        },
+                        "type": {
+                          "const": "stance_needed",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "proposalId",
+                        "type"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "change": {
+                          "additionalProperties": {},
+                          "properties": {},
+                          "required": [],
+                          "type": "object"
+                        },
+                        "delegatedBound": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "dimension": {
+                              "anyOf": [
+                                {
+                                  "const": "radius_m",
+                                  "type": "string"
+                                },
+                                {
+                                  "const": "per_person_eur",
+                                  "type": "string"
+                                },
+                                {
+                                  "const": "walk_min",
+                                  "type": "string"
+                                }
+                              ]
+                            },
+                            "max": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "dimension",
+                            "max"
+                          ],
+                          "type": "object"
+                        },
+                        "issuedAtRevision": {
+                          "type": "number"
+                        },
+                        "kind": {
+                          "anyOf": [
+                            {
+                              "const": "scope_change",
+                              "type": "string"
+                            },
+                            {
+                              "const": "requirement_relaxation",
+                              "type": "string"
+                            }
+                          ]
+                        },
+                        "projectedGain": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "newCandidates": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "newCandidates"
+                          ],
+                          "type": "object"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        },
+                        "staged": {
+                          "anyOf": [
+                            {
+                              "type": "boolean"
+                            },
+                            {
+                              "type": "boolean"
+                            }
+                          ]
+                        },
+                        "type": {
+                          "const": "adjustment_request",
+                          "type": "string"
+                        },
+                        "withinDelegatedBound": {
+                          "anyOf": [
+                            {
+                              "type": "boolean"
+                            },
+                            {
+                              "type": "boolean"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "change",
+                        "issuedAtRevision",
+                        "kind",
+                        "projectedGain",
+                        "requestId",
+                        "staged",
+                        "type",
+                        "withinDelegatedBound"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                },
+                "type": "array"
+              },
+              "revision": {
+                "type": "number"
+              },
+              "staged": {
+                "anyOf": [
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "boolean"
+                  }
+                ]
+              },
+              "syncHint": {
+                "additionalProperties": false,
+                "properties": {
+                  "eventsSinceYourLastSync": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "eventsSinceYourLastSync"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "ok",
+              "outstanding",
+              "revision"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "delta": {
+                "additionalProperties": false,
+                "properties": {
+                  "cursor": {
+                    "type": "string"
+                  },
+                  "events": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "actorId": {
+                          "type": "string"
+                        },
+                        "level": {
+                          "anyOf": [
+                            {
+                              "const": "full",
+                              "type": "string"
+                            },
+                            {
+                              "const": "existence",
+                              "type": "string"
+                            },
+                            {
+                              "const": "aggregate",
+                              "type": "string"
+                            }
+                          ]
+                        },
+                        "payload": {},
+                        "revision": {
+                          "type": "number"
+                        },
+                        "text": {
+                          "type": "string"
+                        },
+                        "type": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "level",
+                        "revision",
+                        "text",
+                        "type"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "fromRevision": {
+                    "type": "number"
+                  },
+                  "resyncRequired": {
+                    "const": "backlog_too_large",
+                    "type": "string"
+                  },
+                  "throughRevision": {
+                    "type": "number"
+                  },
+                  "truncated": {
+                    "anyOf": [
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "type": "boolean"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "events",
+                  "fromRevision",
+                  "truncated"
+                ],
+                "type": "object"
+              },
+              "error": {
+                "additionalProperties": false,
+                "properties": {
+                  "code": {
+                    "anyOf": [
+                      {
+                        "const": "sync_required",
+                        "type": "string"
+                      },
+                      {
+                        "const": "not_authorized",
+                        "type": "string"
+                      },
+                      {
+                        "const": "invalid_input",
+                        "type": "string"
+                      },
+                      {
+                        "const": "not_found",
+                        "type": "string"
+                      },
+                      {
+                        "const": "phase_unavailable",
+                        "type": "string"
+                      },
+                      {
+                        "const": "consent_required",
+                        "type": "string"
+                      },
+                      {
+                        "const": "bound_exceeded",
+                        "type": "string"
+                      },
+                      {
+                        "const": "not_authenticated",
+                        "type": "string"
+                      },
+                      {
+                        "const": "upgrade_required",
+                        "type": "string"
+                      },
+                      {
+                        "const": "temporarily_unavailable",
+                        "type": "string"
+                      }
+                    ]
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "recovery": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "code",
+                  "message",
+                  "recovery"
+                ],
+                "type": "object"
+              },
+              "ok": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "error",
+              "ok"
+            ],
+            "type": "object"
+          }
+        ]
+      }
     },
     "toolContractVersion": "3",
     "tools": [
@@ -1240,10 +4214,16 @@
           "readOnlyHint": true,
           "untrustedContentHint": true
         },
-        "description": "The first tool to call on this planning page. Connects you to the shared planning session as one participant and returns your identity, protocol versions, current revision, privacy rules, a brief of what happened, and your outstanding decisions. Call without sinceRevision on first connection to receive the capability manifest; call with sinceRevision from your last sync to receive the delta of missed events. Read-only.",
+        "description": "The first tool to call on this planning page. Connects you to the shared planning session as one participant and returns your identity, protocol versions, current revision, privacy rules, a brief of what happened, and your outstanding decisions. Call without sinceRevision on first connection to receive the capability manifest; call with sinceRevision from your last sync to receive the delta of missed events. Continue every truncated delta with its cursor before acting. Read-only.",
         "inputSchema": {
           "additionalProperties": false,
           "properties": {
+            "cursor": {
+              "description": "Opaque continuation from a truncated delta. Pass it back unchanged until truncated is false.",
+              "maxLength": 512,
+              "minLength": 1,
+              "type": "string"
+            },
             "sinceRevision": {
               "description": "Revision from your last sync. Omit on first connection to receive the capability manifest.",
               "minimum": 0,
@@ -1261,6 +4241,7 @@
           "additionalProperties": false,
           "properties": {
             "baseRevision": {
+              "description": "Use the revision from your last sync; on sync_required, read the delta before retrying.",
               "minimum": 0,
               "type": "integer"
             },
@@ -1671,6 +4652,7 @@
           "additionalProperties": false,
           "properties": {
             "baseRevision": {
+              "description": "Use the revision from your last sync; on sync_required, read the delta before retrying.",
               "minimum": 0,
               "type": "integer"
             },
@@ -1697,6 +4679,7 @@
               "type": "boolean"
             },
             "baseRevision": {
+              "description": "Use the revision from your last sync; on sync_required, read the delta before retrying.",
               "minimum": 0,
               "type": "integer"
             },
@@ -1721,47 +4704,74 @@
           "additionalProperties": false,
           "properties": {
             "baseRevision": {
+              "description": "Use the revision from your last sync; on sync_required, read the delta before retrying.",
               "minimum": 0,
               "type": "integer"
             },
             "verdicts": {
               "items": {
-                "additionalProperties": false,
-                "properties": {
-                  "candidateId": {
-                    "maxLength": 40,
-                    "type": "string"
-                  },
-                  "infoNeeded": {
-                    "maxLength": 100,
-                    "type": "string"
-                  },
-                  "verdict": {
-                    "anyOf": [
-                      {
-                        "const": "acceptable",
+                "anyOf": [
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "candidateId": {
+                        "maxLength": 40,
                         "type": "string"
                       },
-                      {
-                        "const": "unacceptable",
+                      "infoNeeded": {
+                        "maxLength": 100,
+                        "minLength": 1,
                         "type": "string"
                       },
-                      {
+                      "verdict": {
+                        "anyOf": [
+                          {
+                            "const": "acceptable",
+                            "type": "string"
+                          },
+                          {
+                            "const": "unacceptable",
+                            "type": "string"
+                          }
+                        ]
+                      }
+                    },
+                    "required": [
+                      "candidateId",
+                      "verdict"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "candidateId": {
+                        "maxLength": 40,
+                        "type": "string"
+                      },
+                      "infoNeeded": {
+                        "maxLength": 100,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "verdict": {
                         "const": "needs_info",
                         "type": "string"
                       }
-                    ]
+                    },
+                    "required": [
+                      "candidateId",
+                      "verdict",
+                      "infoNeeded"
+                    ],
+                    "type": "object"
                   }
-                },
-                "required": [
-                  "candidateId",
-                  "verdict"
-                ],
-                "type": "object"
+                ]
               },
               "maxItems": 10,
               "minItems": 1,
-              "type": "array"
+              "type": "array",
+              "uniqueItems": true
             }
           },
           "required": [
@@ -1776,11 +4786,12 @@
         "annotations": {
           "untrustedContentHint": true
         },
-        "description": "Submit your stance on a proposal: accept, reject (a veto that blocks agreement while it stands), abstain, or conditionally_accept. Vetoing a map pin uses this same command. Accepting also marks you ready. reason is optional and never required; agent-private stances are disposition-only.",
+        "description": "Submit your stance on a proposal: accept, reject (a veto that blocks agreement while it stands), abstain, or conditionally_accept. Vetoing a map pin uses this same command. Accepting also marks you ready. conditionally_accept carries no condition yet and blocks commit until you re-stance. reason is optional and never required; agent-private stances are disposition-only.",
         "inputSchema": {
           "additionalProperties": false,
           "properties": {
             "baseRevision": {
+              "description": "Use the revision from your last sync; on sync_required, read the delta before retrying.",
               "minimum": 0,
               "type": "integer"
             },
@@ -1867,6 +4878,7 @@
           "additionalProperties": false,
           "properties": {
             "baseRevision": {
+              "description": "Use the revision from your last sync; on sync_required, read the delta before retrying.",
               "minimum": 0,
               "type": "integer"
             },
@@ -1903,6 +4915,7 @@
           "additionalProperties": false,
           "properties": {
             "baseRevision": {
+              "description": "Use the revision from your last sync; on sync_required, read the delta before retrying.",
               "minimum": 0,
               "type": "integer"
             },
@@ -1934,6 +4947,7 @@
           "additionalProperties": false,
           "properties": {
             "baseRevision": {
+              "description": "Use the revision from your last sync; on sync_required, read the delta before retrying.",
               "minimum": 0,
               "type": "integer"
             },
@@ -1992,7 +5006,7 @@
       },
       {
         "annotations": {},
-        "description": "Change the shared search scope (area circle and/or transport modes). Organizer authority applies the change for the whole room and eligibility is recomputed. Scope is shared state: every participant sees the change.",
+        "description": "Organizer only: change the shared search scope (area circle and/or transport modes). Organizer authority applies the change for the whole room and eligibility is recomputed. Scope is shared state: every participant sees the change.",
         "inputSchema": {
           "additionalProperties": false,
           "properties": {
@@ -2037,6 +5051,7 @@
               "type": "object"
             },
             "baseRevision": {
+              "description": "Use the revision from your last sync; on sync_required, read the delta before retrying.",
               "minimum": 0,
               "type": "integer"
             },
@@ -2077,6 +5092,7 @@
           "additionalProperties": false,
           "properties": {
             "baseRevision": {
+              "description": "Use the revision from your last sync; on sync_required, read the delta before retrying.",
               "minimum": 0,
               "type": "integer"
             },
@@ -2141,6 +5157,7 @@
           "additionalProperties": false,
           "properties": {
             "baseRevision": {
+              "description": "Use the revision from your last sync; on sync_required, read the delta before retrying.",
               "minimum": 0,
               "type": "integer"
             },
@@ -2185,6 +5202,7 @@
           "additionalProperties": false,
           "properties": {
             "baseRevision": {
+              "description": "Use the revision from your last sync; on sync_required, read the delta before retrying.",
               "minimum": 0,
               "type": "integer"
             },
@@ -2224,6 +5242,7 @@
           "additionalProperties": false,
           "properties": {
             "baseRevision": {
+              "description": "Use the revision from your last sync; on sync_required, read the delta before retrying.",
               "minimum": 0,
               "type": "integer"
             },
@@ -2286,6 +5305,7 @@
               "type": "string"
             },
             "sourceUrl": {
+              "format": "uri",
               "maxLength": 300,
               "type": "string"
             },

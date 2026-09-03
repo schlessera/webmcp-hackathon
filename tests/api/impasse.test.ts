@@ -55,6 +55,8 @@ interface SpatialContext {
 const PICKUP_CANARY = "CANARY-pickup-7741 back entrance on Ziegelstrasse";
 
 let orgChannel: TestRealtime;
+let orgChannelSecondTab: TestRealtime;
+let validRestagedNonce = "";
 
 beforeAll(async () => {
   server = await startServer();
@@ -62,9 +64,11 @@ beforeAll(async () => {
   // Confirmation nonces reach the organizer only here — the applying commands
   // below are the page's gestures, so the test stands in for the page.
   orgChannel = await openRealtime(server.baseUrl, room.tokens.org);
+  orgChannelSecondTab = await openRealtime(server.baseUrl, room.tokens.org);
 });
 afterAll(async () => {
   orgChannel?.close();
+  orgChannelSecondTab?.close();
   await room.cleanup();
   await server.stop();
 });
@@ -76,6 +80,31 @@ const command = (token: string, type: string, input: Record<string, unknown>) =>
   apiPost<Envelope>(server.baseUrl, "/api/commands", token, { type, input });
 const context = (token: string) =>
   apiPost<SpatialContext>(server.baseUrl, "/api/spatial/context", token, {});
+
+async function waitForEvent(
+  channel: TestRealtime,
+  type: string,
+  atRevision: number,
+): Promise<void> {
+  const deadline = Date.now() + 3000;
+  while (Date.now() < deadline) {
+    const found = channel.frames().some((raw) => {
+      const frame = JSON.parse(raw) as {
+        type: string;
+        revision?: number;
+        events?: Array<{ type: string }>;
+      };
+      return (
+        frame.type === "event" &&
+        frame.revision === atRevision &&
+        frame.events?.some((event) => event.type === type)
+      );
+    });
+    if (found) return;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error(`no ${type} event at revision ${atRevision}`);
+}
 
 let adjustmentId = "";
 let radiusTo = 0;
@@ -193,6 +222,7 @@ describe("private adjustment, consent, recovery", () => {
   });
 
   it("granting outside the delegated bound stages instead of applying", async () => {
+    const before = revision;
     const grant = await command(room.tokens.org, "ResolvePrivateRequest", {
       baseRevision: revision,
       requestId: adjustmentId,
@@ -200,23 +230,62 @@ describe("private adjustment, consent, recovery", () => {
     });
     expect(grant.body.ok).toBe(true);
     revision = grant.body.revision!;
+    expect(revision).toBeGreaterThan(before);
     expect(grant.body.effect).toContain("confirm on the page");
+
+    // R12: both tabs receive the owner-only event at the new revision, while
+    // peers receive neither its payload nor its existence.
+    await Promise.all([
+      waitForEvent(orgChannel, "adjustment_grant_staged", revision),
+      waitForEvent(orgChannelSecondTab, "adjustment_grant_staged", revision),
+    ]);
+    const peer = await sync(room.tokens.sarah, before);
+    expect(peer.body.delta!.events.map((event) => event.type)).not.toContain(
+      "adjustment_grant_staged",
+    );
+    expect(peer.raw).not.toContain(adjustmentId);
 
     // Scope unchanged until the in-page confirmation.
     const spatial = await context(room.tokens.org);
     expect(spatial.body.scope!.area.radiusM).toBe(800);
-    const outstanding = await sync(room.tokens.org);
-    const request = outstanding.body.outstanding!.find((o) => o.type === "adjustment_request");
-    expect(request!.staged).toBe(true);
+    const tabs = await Promise.all([
+      sync(room.tokens.org),
+      sync(room.tokens.org),
+    ]);
+    for (const outstanding of tabs) {
+      const request = outstanding.body.outstanding!.find(
+        (o) => o.type === "adjustment_request",
+      );
+      expect(request!.staged).toBe(true);
+    }
+  });
+
+  it("restaging invalidates the earlier confirmation nonce", async () => {
+    const staleNonce = await orgChannel.nonce("private_request", adjustmentId);
+    const restaged = await command(room.tokens.org, "ResolvePrivateRequest", {
+      baseRevision: revision,
+      requestId: adjustmentId,
+      decision: "grant",
+    });
+    expect(restaged.body.ok).toBe(true);
+    revision = restaged.body.revision!;
+    validRestagedNonce = await orgChannel.nonce("private_request", adjustmentId);
+
+    const stale = await command(room.tokens.org, "ConfirmPrivateRequest", {
+      baseRevision: revision,
+      requestId: adjustmentId,
+      confirmationNonce: staleNonce,
+    });
+    expect(stale.body.ok).toBe(false);
+    expect(stale.body.error!.code).toBe("consent_required");
   });
 
   it("the in-page confirmation applies the scope change and resolves the impasse", async () => {
     const before = revision;
-    const nonce = await orgChannel.nonce("private_request", adjustmentId);
     const confirm = await command(room.tokens.org, "ConfirmPrivateRequest", {
       baseRevision: revision,
       requestId: adjustmentId,
-      confirmationNonce: nonce,
+      confirmationNonce: validRestagedNonce,
     });
     expect(confirm.body.ok).toBe(true);
     revision = confirm.body.revision!;

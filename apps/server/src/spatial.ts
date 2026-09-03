@@ -21,7 +21,6 @@ import { loadSnapshot, type DataSource } from "./places.ts";
 import { loadAttestations } from "./attestations.ts";
 import {
   enrichmentView,
-  ensureEnrichments,
   loadCached,
   lookupNow,
   lookupTargetOf,
@@ -310,6 +309,69 @@ export async function inspectCandidates(
   candidateIds: string[],
   options: { triggerLookup?: boolean; waitMs?: number } = {},
 ): Promise<InspectCandidatesResponse> {
+  // R9: discover network targets without locking the room and without
+  // checking out a client. The candidate rows are deliberately re-read in a
+  // fresh transaction after enrichment, so this preflight is not the dossier
+  // consistency snapshot.
+  const roomExists = (
+    await pool.query("SELECT 1 FROM rooms WHERE id = $1", [actor.roomId])
+  ).rowCount;
+  if (!roomExists) return notFound();
+  const lookupRows = (
+    await pool.query(
+      "SELECT id, osm_ref, extras FROM candidates WHERE room_id = $1 AND id = ANY($2)",
+      [actor.roomId, candidateIds],
+    )
+  ).rows;
+  const initiallyFound = new Set(lookupRows.map((row) => row.id as string));
+  const initiallyMissing = candidateIds.find((id) => !initiallyFound.has(id));
+  if (initiallyMissing) {
+    return {
+      ok: false as const,
+      error: {
+        code: "not_found" as const,
+        message: `Unknown candidateId "${initiallyMissing}".`,
+        recovery: "Call get_spatial_context to refresh candidate IDs.",
+      },
+    };
+  }
+  const targets = lookupRows
+    .map((row) => {
+      const target = lookupTargetOf(
+        row as { osm_ref: string | null; extras: Record<string, unknown> | null },
+      );
+      return target ? { candidateId: row.id as string, ...target } : null;
+    })
+    .filter((target): target is RoomLookupTarget => target !== null);
+
+  if (options.triggerLookup !== false) {
+    // Live lookup/progress starts outside the room lock. The panel may wait
+    // for its bounded budget, while the same job continues into cache after
+    // the read returns.
+    const lookupJob = lookupNow(pool, actor.roomId, targets, {
+      reason: { kind: "place" },
+    });
+    const waitMs = Math.max(0, options.waitMs ?? INSPECT_LOOKUP_WAIT_MS);
+    if (waitMs > 0) {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      await Promise.race([
+        lookupJob.catch(() => []),
+        new Promise<[]>(resolve => {
+          timer = setTimeout(() => resolve([]), waitMs);
+          timer.unref?.();
+        }),
+      ]);
+      if (timer) clearTimeout(timer);
+    } else {
+      void lookupJob.catch(() => {
+        /* explicit fire-and-forget lookups never fail the read */
+      });
+    }
+  }
+
+  // R9: only this short, network-free transaction holds the room share lock.
+  // Revision, candidates, attestations and cached facts therefore describe
+  // one consistent dossier snapshot without delaying mutations on the crawl.
   return withTransaction(async (client) => {
     const room = (
       await client.query(
@@ -324,22 +386,6 @@ export async function inspectCandidates(
         [actor.roomId, candidateIds],
       )
     ).rows;
-    const attestations = await loadAttestations(client, actor.roomId);
-    const targets = rows
-      .map((r) => {
-        const target = lookupTargetOf(r as { osm_ref: string | null; extras: Record<string, unknown> | null });
-        return target ? { candidateId: r.id as string, ...target } : null;
-      })
-      .filter((t): t is RoomLookupTarget => t !== null);
-    if (options.triggerLookup !== false) {
-      void lookupNow(pool, actor.roomId, targets, { reason: { kind: "place" } }).catch(() => {
-        /* opening a place remains a read even when its lookup fails */
-      });
-    }
-    const waitMs = options.waitMs ?? INSPECT_LOOKUP_WAIT_MS;
-    const enrichments = waitMs > 0
-      ? await ensureEnrichments(pool, targets, waitMs)
-      : await loadCached(pool, targets.map((target) => target.osmRef));
     const found = new Set(rows.map((r) => r.id as string));
     const missing = candidateIds.find((id) => !found.has(id));
     if (missing) {
@@ -352,6 +398,11 @@ export async function inspectCandidates(
         },
       };
     }
+    const attestations = await loadAttestations(client, actor.roomId);
+    const refs = rows
+      .map((row) => row.osm_ref as string | null)
+      .filter((ref): ref is string => Boolean(ref));
+    const enrichments = await loadCached(client, refs);
     const inputs = await loadEligibilityInputs(client, actor.roomId);
     const candidateById = new Map(inputs.candidates.map((candidate) => [candidate.id, candidate]));
     const needsFor = (candidateId: string): CandidateDossier["needs"] => {

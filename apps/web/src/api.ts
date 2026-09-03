@@ -23,16 +23,27 @@ const notAuthenticated = {
   },
 };
 
+const cancelled = {
+  ok: false as const,
+  error: {
+    code: "temporarily_unavailable" as const,
+    message: "Request cancelled before completion.",
+    recovery: "Retry when the operation is still needed.",
+  },
+};
+
 async function post(
   path: string,
   body: unknown,
   signal?: AbortSignal,
+  idempotent = false,
 ): Promise<unknown> {
   const token = currentToken();
   if (!token) {
     diagnostics.log("command blocked: not_authenticated");
     return notAuthenticated;
   }
+  if (signal?.aborted) return cancelled;
   const correlationId = newCorrelationId();
   diagnostics.log(`-> ${path} [${correlationId}]`);
   try {
@@ -43,6 +54,9 @@ async function post(
         authorization: `Bearer ${token}`,
         "x-correlation-id": correlationId,
         "x-tool-contract-version": TOOL_CONTRACT_VERSION,
+        // R6: one invocation already has a unique diagnostic identity. Reuse
+        // it as the mutation key so a transport retry cannot apply twice.
+        ...(idempotent ? { "idempotency-key": correlationId } : {}),
       },
       body: JSON.stringify(body),
       signal,
@@ -53,22 +67,34 @@ async function post(
     );
     return result;
   } catch (err) {
+    if (signal?.aborted || (err instanceof DOMException && err.name === "AbortError")) {
+      diagnostics.log(`<- ${path} [${correlationId}] cancelled`);
+      return cancelled;
+    }
     diagnostics.log(`<- ${path} [${correlationId}] network error`);
     return {
       ok: false,
       error: {
-        code: "not_found",
-        message: `Network error: ${String(err).slice(0, 120)}`,
+        // R17: transport and JSON-decoding failures say nothing about whether
+        // an ID exists; `not_found` would send an agent down the wrong path.
+        code: "temporarily_unavailable",
+        message: `Request failed before a result was received: ${String(err).slice(0, 120)}`,
         recovery: "Retry once the page shows a live connection.",
       },
     };
   }
 }
 
-export function syncSession(sinceRevision?: number): Promise<unknown> {
+export function syncSession(
+  sinceRevision?: number,
+  cursor?: string,
+): Promise<unknown> {
   return post(
     "/api/sync",
-    sinceRevision === undefined ? {} : { sinceRevision },
+    {
+      ...(sinceRevision === undefined ? {} : { sinceRevision }),
+      ...(cursor === undefined ? {} : { cursor }),
+    },
   );
 }
 
@@ -88,8 +114,12 @@ export function syncSessionRaw(
   return post("/api/sync", input === undefined ? {} : input, signal);
 }
 
-export function submitCommand(type: string, input: unknown): Promise<unknown> {
-  return post("/api/commands", { type, input });
+export function submitCommand(
+  type: string,
+  input: unknown,
+  signal?: AbortSignal,
+): Promise<unknown> {
+  return post("/api/commands", { type, input }, signal, true);
 }
 
 /**

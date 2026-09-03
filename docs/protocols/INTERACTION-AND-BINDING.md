@@ -65,7 +65,7 @@ since WebMCP itself carries only tool names/descriptions/schemas:
 ```jsonc
 {
   "protocols": { "negotiation": "v1", "domain": "spatial-destination/v1" },
-  "capabilities": ["destination-search", "map-selection", "meeting-points",
+  "capabilities": ["destination-search", "map-selection",
                    "navigation-handoff", "private-screening", "impasse-resolution"],
   "privacy": {
     "allowedVisibilities": ["shared", "application-private", "agent-private"],
@@ -84,7 +84,7 @@ since WebMCP itself carries only tool names/descriptions/schemas:
 The `conduct` string is the application's one paragraph of protocol
 instruction to the model — kept short because it rides in a tool result.
 
-### 2.3 The tool surface (14 tools)
+### 2.3 The tool surface (19 tools)
 
 Names ≤30 chars, descriptions ≤500 chars, parameter descriptions ≤150 chars,
 results ≤1.5K chars (Chrome budget guidance). All schemas use
@@ -99,8 +99,9 @@ Negotiation tools:
 | `sync_session` | ✓ | ✓ | SyncSession | First call returns manifest; later calls return delta + brief + outstanding |
 | `submit_requirement` | | | SubmitRequirement | Upsert by optional `requirementId`; `visibility: agent-private` sends declaration only (no payload) |
 | `withdraw_requirement` | | | WithdrawRequirement | |
+| `set_requirement_active` | | | SetRequirementActive | Owner sets a need aside or restores it without withdrawing it |
 | `evaluate_candidates` | | | EvaluateCandidates | Bulk verdicts for agent-private screening; ≤10 per call |
-| `respond_to_proposal` | | ✓ | RespondToProposal | Stances incl. veto; `reason` optional, never required |
+| `respond_to_proposal` | | ✓ | RespondToProposal | Stances incl. veto; `reason` optional. `conditionally_accept` carries no condition and blocks commit until re-stanced |
 | `resolve_private_request` | | | ResolvePrivateRequest | Grant/deny adjustment & disclosure requests; grants outside delegated bounds are **staged** pending in-page confirmation |
 | `set_ready_state` | | | SetReadyState | |
 | `confirm_agreement` | | | ConfirmAgreement | Organizer only; **stages** — human commits in the page UI |
@@ -111,10 +112,13 @@ Spatial tools:
 |---|---|---|---|---|
 | `get_spatial_context` | ✓ | ✓ | GetSpatialContext | Scope + feasibility + candidate summary rows |
 | `inspect_candidates` | ✓ | ✓ | InspectCandidates | 1–3 dossiers; 2–3 = comparison view |
-| `set_search_scope` | | | SetSearchScope | Auto-applies within authority, else proposes |
+| `set_search_scope` | | | SetSearchScope | **Organizer only**; applies area/transport scope for the room |
+| `add_candidates` | | | AddCandidates | Adds stable refs from the explore layer to the room pool |
+| `look_up_places` | ✓ | | read | Starts bounded fact lookup for 1–3 places |
 | `propose_destination` | | | ProposeDestination | |
 | `focus_destination` | ✓³ | | FocusDestination | Local presentation only; no shared state |
-| `plan_arrival` | | | PlanArrival | Mode, pickup/meeting point, route preview |
+| `plan_arrival` | | | PlanArrival | Walk/bike/car mode and optional pickup note; routing and meeting points are deferred |
+| `attest_attribute` | | | AttestAttribute | Records shared participant-supplied evidence |
 | `prepare_navigation` | ✓ | | PrepareNavigation | Handoff links from held coordinates |
 
 ¹ `annotations.readOnlyHint: true`.
@@ -123,10 +127,9 @@ participant-authored text (requirement notes, veto notes, feed lines) or
 provider content. ³ Read-only from the session's perspective; mutates only
 the caller's local view (documented in the description).
 
-Fourteen tools is within observed practice (Shopify ships 10; OpenAI's docs
-sites ship 4) and each is a single non-overlapping function. Candidate merges
-if selection quality suffers in testing: `withdraw_requirement` →
-`submit_requirement`, `prepare_navigation` → `plan_arrival` (12 tools).
+The 19-tool surface is static and each entry has a non-overlapping command or
+read role. Consequential apply/commit commands remain page-only and are not
+part of this count.
 
 ### 2.4 Description discipline
 
@@ -172,20 +175,69 @@ Error codes (closed enum):
 |---|---|---|
 | `sync_required` | Stale `baseRevision`, non-rebasable command | Delta included; reconsider and retry |
 | `not_authorized` | Role/ownership violation | States required role; never leaks target's existence details |
-| `invalid_input` | Failed server-side validation (schemas are hints, not enforcement) | Names the field and the closed value set |
+| `invalid_input` | Failed server-side validation (schemas are hints, not enforcement) | Names the field, received value, and actual allowed values when the field is closed |
 | `not_found` | Unknown stable ID | Suggests `get_spatial_context`/`sync_session` to refresh IDs |
 | `phase_unavailable` | Command not applicable in current phase | States current phase and applicable actions |
 | `consent_required` | Action exceeds delegated authority | States that the human must confirm on the page |
 | `bound_exceeded` | Adjustment outside a delegation envelope | Returns the bound's dimension and limit (owner only) |
+| `temporarily_unavailable` | Cancellation, transport/parse failure, or unexpected server failure | Retry with the same idempotency key when a mutation outcome may be ambiguous |
 
 Design intents:
 
 - **Self-correcting errors**: every failure tells the model what to do next.
 - **Output budget**: `effect` and `brief` strings are capped; candidate lists
   are summary rows (≤8 by default) with counts for the remainder; full detail
-  is pull-based via `inspect_candidates`.
+  is pull-based via `inspect_candidates`. Every registered tool crosses one
+  structural encoder: its final text block is valid JSON at ≤1,500 characters,
+  retains the shared error shape, and reports counts of omitted array items,
+  object fields, and string characters.
+- **Cancellation**: read tools pass the invocation's abort signal through to
+  their fetch. Mutation cancellation is an ambiguous outcome and is safe to
+  retry only with the pass-1 idempotency key.
 - **UI-before-return**: mutation results resolve only after the local view
-  reflects the change, so an agent inspecting the page sees consistent state.
+  reflects at least the result's `revision`, so an agent inspecting the page
+  sees consistent state. A caller joining an older in-flight projection read
+  waits for the queued revision-targeted successor.
+
+### 3.1 Reliable mutation and event delivery
+
+HTTP mutation requests MAY carry `Idempotency-Key`. The browser uses the
+invocation's existing correlation ID as that key. For ten minutes the server
+binds `(participant, key)` to the canonical request hash and completed
+response. A success is stored in the command transaction; a failure is stored
+after its transaction has rolled back. An identical repeat returns that
+response without a second mutation, event sequence, broadcast, or confirmation
+nonce; the same key with a different body returns `invalid_input`. This header
+is additive and clients that omit it retain the existing
+at-most-once-per-request behavior.
+
+The browser maintains two revision values. `knownRoomRevision` is advanced by
+sync, welcome, event, and HTTP success and is safe as the base for a new page
+gesture. `projectedThroughRevision` is advanced only by an in-order event frame
+or by fully consumed delta pages. Every welcome starts catch-up from the latter,
+even when it equals `knownRoomRevision`, because an HTTP response is not proof
+that the corresponding WebSocket frame arrived.
+
+Server event frames are serialized per room and MAY include additive
+`fromRevision`, the revision immediately before the frame's first stored event.
+A client that sees `fromRevision` differ from its projection watermark MUST
+discard that frame as a direct update and invoke paginated sync. Participant-
+private `outstanding` responses are revision-gated so a slower old sync cannot
+overwrite a newer one.
+
+`sync_session` accepts additive optional `cursor`, returned by a truncated
+delta. Events are forward pages over stored revisions; `throughRevision`
+advances across viewer-omitted events. Callers continue until `truncated` is
+false before advancing to the room head. `resyncRequired:
+"backlog_too_large"` explicitly requires replacement from a full state read;
+the server never silently advances past an unreplayed backlog.
+
+The single serving process sends WebSocket ping control frames every 30
+seconds and terminates a connection that has not ponged within 45 seconds.
+Termination uses normal close cleanup, so advisory presence and viewing state
+expire after half-open network loss. Browser reconnects use randomized
+exponential backoff capped at 15 seconds. Cross-process presence and event
+fan-out remain deferred.
 
 ## 4. End-to-end sequences (demo beats)
 
@@ -244,6 +296,7 @@ Joe's next sync → outstanding: [{ type: "adjustment_request", adj… }]  (priv
 Joe's agent: resolve_private_request { requestId, decision: "grant" }
   → { ok: false → NO — returns ok with staged: true }  … consent_required path:
   → result: "Grant staged. Joe must confirm on the page." + page shows confirm card
+  → adjustment_grant_staged (owner-only revisioned event; no peer projection)
 Joe (UI): taps Confirm → adjustment_resolved, requirement_relaxed (rev 33)
   → recompute → impasse_resolved; feeds: "Search adjusted. 3 new candidates."
   (owner and reason never published)
@@ -269,6 +322,9 @@ Beyond the per-protocol invariants:
    a session cookie would collide across tabs in one browser profile). Every
    tool call inherits it. Tool arguments contain no `actorId`,
    `participantId`-as-self, or role claims.
+   WebSocket authentication also requires the loaded page's `clientBuildId`
+   and `clientToolContractVersion`; either mismatch is rejected before the
+   participant joins presence.
 2. **Validation**: the browser does not enforce `inputSchema`; the server (and
    the page shim before dispatch) re-validates every argument against the
    closed vocabularies. Unknown enum values → `invalid_input`.
@@ -327,6 +383,12 @@ Beyond the per-protocol invariants:
   That boundary — everything in NEGOTIATION-PROTOCOL.md with zero spatial
   imports — is the future `negotiation-core` package seam. Extraction waits
   until after the vertical slice works (MVP-AND-RISKS.md).
+- Correcting a capability that never had a callable implementation does not
+  remove a tool or accepted result field. Pass 3 therefore withdraws the
+  unsupported `meeting-points` advertisement while retaining tool contract v3.
+- The contract hash derives runtime schemas from the exported response and
+  realtime types; optional output fields cannot change without moving the
+  committed manifest hash.
 
 ## 7. Resolved and open questions
 

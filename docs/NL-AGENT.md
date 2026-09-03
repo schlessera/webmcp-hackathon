@@ -42,9 +42,13 @@ the shape of the job is. Models are configurable (`NL_FAST_MODEL`,
     `scopeHint.category`: disclosing a category is the owner's opt-in
     (FACETS.md §4), and the composer has no control for it yet.
   - `ask` / `act` → the smart tier runs as this participant and returns
-    `{ reply, actions[] }`. Room changes arrive on the realtime channel like
-    any commit; the reply lands as a **"Your agent" card** in the brief with
-    a record row per move. There is no chat pane (SPOKES-UI §9).
+    `{ reply, actions[], partial?, failureCategory? }`. Room changes arrive on
+    the realtime channel like any commit; the reply lands as a **"Your agent"
+    card** in the brief with a record row per move. Each mutation result is
+    persisted as its own participant-private action row before the next model
+    turn. If a later model/read step fails, completed actions still return,
+    `partial: true` names the failure category, and the reply offers retry.
+    There is no chat pane (SPOKES-UI §9).
   - `unclear` → a card saying what would help.
 - `POST /api/nl/condition { text }` — the composer in **Agent only** scope.
   The condition is held in memory (`apps/server/src/nl/holder.ts`), never in
@@ -60,12 +64,26 @@ the shape of the job is. Models are configurable (`NL_FAST_MODEL`,
   private content never reaches it (it gets counts, like the page).
 - Tool catalog: the registered WebMCP tools minus `sync_session` (it gets a
   room snapshot up front) and `focus_destination` (page-local). `baseRevision`
-  is injected server-side from the live room; one `sync_required` is retried.
+  is the revision of the snapshot/read the model actually saw. A
+  `sync_required` result returns to the next model round; the runtime never
+  silently retries old arguments at the live room revision. Only one mutation
+  executes per model round.
 - Cannot commit or confirm: `CommitAgreement` and `ConfirmPrivateRequest`
   have no tool route here either. The human's page gesture stays the only
   path (INTERACTION-AND-BINDING.md §5.4).
-- Eight tool rounds, 45 s per turn, reply capped at 320 characters, phrased
-  by COPY.md rules (second person, no exclamation marks, no tool names).
+- One agent turn has a total deadline of about 60 seconds, including its
+  initial snapshot, requested reads and every model call. Each call receives
+  only the remaining budget. The loop is capped at four model rounds and at
+  most one mutating call executes per round; later mutations in the same
+  batch return a structured refusal for the next round to reconsider.
+- Tool results are compacted as data before serialization. They always remain
+  valid JSON within the model-input budget and carry
+  `{ "truncated": true, "omitted": { … } }` when fields or rows were left
+  out. Replies remain capped at 320 characters and follow COPY.md (second
+  person, no exclamation marks, no tool names).
+- A failed or partial `ask`/`act` is never reinterpreted by the composer as a
+  new need. The original text stays in the input and the page offers retry,
+  because an earlier action from that same turn may already be committed.
 
 ## What the drawer shows
 
@@ -77,6 +95,7 @@ logs that it is held. The reply cards in the brief carry none of that.
 
 - `tests/api/staging.test.ts` covers the readiness change that came with this
   session (accepting marks you ready) and the viewing presence frame.
-- The NL routes are exercised live (`OPENAI_API_KEY` in the environment,
-  `make demo`), not in the test lanes: the transport is swappable
-  (`setTransport` in `nl/openai.ts`) for anyone who wants scripted tests.
+- Scripted API tests cover stale revisions, partial action persistence, total
+  deadline consumption and the one-mutation-per-round rule. Unit tests cover
+  valid structural result compaction and retry disposition. The transport is
+  swappable through `setTransport` in `nl/openai.ts`.

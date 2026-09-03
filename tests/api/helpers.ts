@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import pg from "pg";
+import { config } from "../../apps/server/src/config.ts";
 
 export const DATABASE_URL =
   process.env.DATABASE_URL ?? "postgres://webmcp:webmcp@127.0.0.1:5432/webmcp";
@@ -17,7 +18,7 @@ export interface TestServer {
   stop: () => Promise<void>;
 }
 
-interface TestServerOptions {
+export interface TestServerOptions {
   /** Repo-relative bootstrap entrypoint; defaults to the production server. */
   entrypoint?: string;
   env?: Record<string, string>;
@@ -246,6 +247,22 @@ export async function openRealtime(
   baseUrl: string,
   token: string,
 ): Promise<TestRealtime> {
+  // Most API tests connect to a full server and authenticate against its
+  // advertised build. A few live-path tests attach only the WebSocket layer
+  // to an in-process bare HTTP server; that socket uses this process's config
+  // and deliberately has no /api/meta handler.
+  let buildId = config.buildId;
+  try {
+    const response = await fetch(`${baseUrl}/api/meta`, {
+      signal: AbortSignal.timeout(250),
+    });
+    if (response.ok) {
+      const meta = await response.json() as { buildId?: unknown };
+      if (typeof meta.buildId === "string") buildId = meta.buildId;
+    }
+  } catch {
+    /* bare in-process WebSocket server */
+  }
   const socket = new WebSocket(`${baseUrl.replace(/^http/, "ws")}/ws`);
   const received: string[] = [];
   const grants: Array<{ kind: string; subjectId: string; nonce: string }> = [];
@@ -274,8 +291,8 @@ export async function openRealtime(
     JSON.stringify({
       type: "auth",
       token,
-      clientBuildId: "test",
-      clientToolContractVersion: "1",
+      clientBuildId: buildId,
+      clientToolContractVersion: TOOL_CONTRACT_VERSION,
     }),
   );
   await welcome;

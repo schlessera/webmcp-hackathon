@@ -120,6 +120,11 @@ Name the actor and the authority in the same breath:
 Never "AI", never "assistant" in chrome (the user's chat client owns that
 word), never anthropomorphise beyond "your agent".
 
+If a turn stops part-way through, say what is true and preserve the person's
+words: "Your agent could not finish that. Your words are still here so you can
+try again." Never silently reinterpret a failed question or instruction as a
+new need.
+
 ---
 
 ## Empty & error states

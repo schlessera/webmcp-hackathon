@@ -26,6 +26,7 @@ export async function outstandingFor(
         `SELECT c.id FROM candidates c
           LEFT JOIN verdicts v ON v.room_id = c.room_id
            AND v.candidate_id = c.id AND v.owner_id = $2
+           AND v.screened_map_revision = c.map_revision
          WHERE c.room_id = $1 AND (v.verdict IS NULL OR v.verdict = 'needs_info')
          ORDER BY c.id LIMIT 10`,
         [roomId, participantId],

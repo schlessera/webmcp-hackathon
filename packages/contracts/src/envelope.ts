@@ -56,7 +56,15 @@ export interface Delta {
   fromRevision: number;
   events: ProjectedEvent[];
   truncated: boolean;
+  /** Opaque continuation over stored events, including events omitted by the
+   * viewer's projection. Pass it back to sync_session unchanged. */
   cursor?: string;
+  /** Last stored revision consumed by this page. This is deliberately not
+   * the room revision while `truncated` is true. */
+  throughRevision?: number;
+  /** R1: explicit escape hatch for a backlog beyond the replay safety cap;
+   * callers must replace projections from a full sync instead of skipping. */
+  resyncRequired?: "backlog_too_large";
 }
 
 export interface SuccessEnvelope {
@@ -399,9 +407,13 @@ export interface CandidateDossier {
     source: string;
     observedAt: string;
     confidence: number;
+    /** Participant who supplied an attestation, when this fact is attested. */
+    attestedBy?: string;
     /** Why the source says so: a rule's reason, a verbatim evidence span an
      * inference rests on, an attester's note. Rendered in the ledger. */
     note?: string;
+    /** Optional evidence link supplied with an attestation. */
+    sourceUrl?: string;
   }>;
   /** The record's street address and contact, when the data carries them. */
   address?: string;

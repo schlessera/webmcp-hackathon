@@ -147,6 +147,12 @@ expressed as `conditionally_accept` or left to ranking. A stance with
 `visibility: "agent-private"` reaches the council as disposition-only; peers
 see at most its aggregate effect.
 
+**Implemented binding note.** `respond_to_proposal` currently carries no
+condition argument. `conditionally_accept` records only that disposition and
+blocks agreement; the participant must later submit `accept` or `abstain`
+after the condition is resolved. The `conditions` example above is deferred,
+not silently inferred from `reason`.
+
 ### 3.6 Adjustment (counterfactual)
 
 Council-computed, quantified recovery option during an impasse.
@@ -169,6 +175,12 @@ Council-computed, quantified recovery option during an impasse.
 under the owner's `negotiable` envelope; everything else becomes a private
 outstanding decision for the owner.
 
+Granting an adjustment outside that envelope first changes its durable status
+to `staged_grant` and appends `adjustment_grant_staged`. That event advances
+the room revision but projects only to the addressee; peers receive no content
+or existence signal. Restaging the same request replaces its prior live
+confirmation nonce, so only the latest credential can apply it.
+
 ### 3.7 Agreement
 
 ```jsonc
@@ -184,8 +196,9 @@ outstanding decision for the owner.
 ```
 
 **Commit precondition (v1 rule):** every active participant's latest stance on
-the proposal is `accept`, `abstain`, or `conditionally_accept` with all
-conditions resolved; every active participant is `ready`; the committer is the
+the proposal is `accept` or `abstain`; a current `conditionally_accept` must be
+re-stanced because condition arguments/lifecycle are deferred; every active
+participant is `ready`; the committer is the
 organizer. Commit is a two-step: `agreement_staged` (organizer initiates,
 in-page confirmation UI appears) then `agreement_committed` (human confirms in
 the page). A high rank is never agreement.
@@ -216,6 +229,7 @@ scope_change_proposed      scope_change_applied
 impasse_detected           adjustment_proposed        adjustment_resolved
 disclosure_requested       disclosure_resolved
 ready_state_changed        agreement_staged           agreement_committed
+adjustment_grant_staged
 phase_changed              arrival_plan_updated       session_closed
 ```
 
@@ -332,7 +346,8 @@ secrecy from the operator. (See PRODUCT-CONCEPT.md privacy promise.)
 ### 6.1 Sync request/response
 
 Personal agents are not daemons; they catch up on their next tool call.
-`sync_session` (read-only) with optional `sinceRevision`:
+`sync_session` (read-only) with optional `sinceRevision` or continuation
+`cursor`:
 
 ```jsonc
 // result (see INTERACTION-AND-BINDING.md §3 for the shared envelope)
@@ -346,8 +361,10 @@ Personal agents are not daemons; they catch up on their next tool call.
   "brief": "2 candidates remain eligible. Joe added a private requirement (3 candidates excluded). Sarah vetoed Cedar Table.",
   "delta": {
     "fromRevision": 40,
-    "events": [ /* projected events, most recent first, capped */ ],
-    "truncated": false
+    "events": [ /* projected events, stored-revision order, capped */ ],
+    "truncated": true,
+    "throughRevision": 44,
+    "cursor": "opaque; return unchanged"
   },
   "outstanding": [
     { "type": "evaluation_request", "candidateIds": ["place_51"], "issuedAtRevision": 45 },
@@ -361,8 +378,19 @@ Personal agents are not daemons; they catch up on their next tool call.
   rule — see INTERACTION-AND-BINDING.md §2.2) and a state summary instead of
   a delta. This is the first-connection contract.
 - `brief` is a ≤400-character natural-language summary the agent can relay.
-- Deltas are capped (~10 projected events + counts); `truncated: true` plus
-  a `cursor` allows continuation, but the brief must remain sufficient to act.
+- Deltas are forward pages capped at about ten projected events. A caller MUST
+  return `cursor` unchanged while `truncated: true`; it MUST NOT advance its
+  consumed-event watermark to the room's `revision` until every page is
+  consumed. `throughRevision` is the last stored revision scanned and advances
+  across events omitted from this viewer's projection, so private events do not
+  stall continuation.
+- `revision` is the room head, not proof that its projected events were
+  consumed. Clients maintain it separately from `throughRevision`.
+- If the stored backlog exceeds the replay safety cap, the delta contains
+  `resyncRequired: "backlog_too_large"` and no cursor. The caller MUST replace
+  its state projections from a full sync/read before moving its event
+  watermark. This is an explicit loss of incremental history, never a silent
+  truncation.
 
 ### 6.2 Mutation discipline
 
@@ -377,6 +405,12 @@ Every mutating command carries `baseRevision`. Server behavior:
    revision. The server never silently acts on stale intent for stances,
    agreement, consent, or disclosure — those are always case 1 or 3, never
    rebased.
+
+An in-page agent carries the snapshot revision it reasoned from. It submits
+against exactly that revision; a `sync_required` result is model input for the
+next round, not permission for the runtime to replay the same arguments at a
+fresh revision. The agent re-reads, reconsiders, and may then form a new move.
+At most one mutating tool call executes per model round.
 
 ## 7. State machines
 
@@ -461,7 +495,7 @@ INTERACTION-AND-BINDING.md §2. Every mutation includes `baseRevision`.
 | `SubmitRequirement { requirementId?, visibility, hardness, delegation, payload? }` | owner | create or update (upsert by ID); agent-private ⇒ declaration only |
 | `WithdrawRequirement { requirementId }` | owner | requirement_withdrawn |
 | `EvaluateCandidates { verdicts[] }` | owner w/ agent-private declaration | bulk screening verdicts |
-| `RespondToProposal { proposalId, disposition, visibility, conditions?, reason? }` | any | stance_submitted |
+| `RespondToProposal { proposalId, disposition, visibility, reason? }` | any | stance_submitted; `conditionally_accept` blocks commit until a later stance |
 | `ResolvePrivateRequest { requestId, decision, payload? }` | addressee | resolves adjustment/disclosure requests; consent outside delegated bounds requires in-page confirmation |
 | `SetReadyState { state }` | any | ready_state_changed |
 | `ConfirmAgreement { proposalId }` | organizer | stages agreement; commit finalized by in-page human confirmation |

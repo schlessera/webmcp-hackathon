@@ -32,9 +32,6 @@ bounded, honest threat model. We list them rather than hide them.
   (route through consent when another participant's bounded-negotiable
   requirement is affected) is not implemented for the organizer. Members are
   refused outright (a POC simplification).
-- **`mapRevision` is static.** Candidate dossiers carry a `mapRevision` but no
-  fact-change path bumps it; re-screening is driven by missing/`needs_info`
-  verdicts instead. Adequate for a prepared, static dataset.
 - **No participant join/leave lifecycle.** The agreement rule quantifies over
   all seeded participant rows; `policy.expiresAt` is stored but not enforced;
   guest tokens do not expire or revoke. Fine for a time-boxed demo room.
@@ -42,6 +39,63 @@ bounded, honest threat model. We list them rather than hide them.
   points, and time-window eligibility** were scoped out of this slice from the
   start (see the protocol docs' open-questions sections). The agent-private
   screening loop (L0) is implemented.
+- **Realtime fan-out and presence remain single-process.** Ping/pong expiry
+  prevents half-open sockets from leaving stale presence or viewing state on
+  that process, but there is no LISTEN/NOTIFY, Redis, durable outbox, or
+  cross-worker presence store in this POC.
+
+## Reliability findings closed in pass 1
+
+- Delta catch-up now pages forward with an opaque stored-event cursor, advances
+  across viewer-omitted private events, and signals an oversized backlog as an
+  explicit full resync instead of silently dropping history.
+- Page-authored mutation revisions and consumed WebSocket projection revisions
+  are separate. Event broadcasts are ordered per room, frames carry an
+  additive continuity revision, and gaps trigger catch-up.
+- Mutations use participant-scoped ten-minute idempotency keys, and WebMCP
+  mutation completion waits for the visible spatial projection to reach the
+  committed revision.
+- The in-page agent acts against the snapshot revision it saw and receives
+  `sync_required` as model input. Over-bound grant staging now advances the
+  room revision through an owner-only event and replaces older confirmation
+  nonces for the same subject.
+
+## Reliability findings closed in pass 2
+
+- Candidate fact revisions now version private screening verdicts. An
+  attestation increments `mapRevision`, stale verdicts stop affecting
+  eligibility, and each active private condition receives a fresh screening
+  request without exposing its content.
+- Candidate inspection no longer holds a room lock or database client while
+  waiting on external sources. On-demand work has a shared concurrency bound
+  and the request returns at its lookup deadline while bounded work may finish
+  into the cache.
+- Enrichment refreshes use an OSM-ref database lease across server processes.
+  Website and Wikidata freshness and errors are independent, and a transient
+  provider failure keeps its last good parsed facts while shortening only its
+  own retry window.
+- In-page agent turns now have one 60-second deadline, four rounds, valid
+  structurally compacted tool JSON, and one mutation per model round. Every
+  mutation outcome is persisted immediately; a later failure returns those
+  completed actions as an additive partial result and leaves the original
+  composer text available for retry instead of creating a fallback need.
+
+## Reliability findings closed in pass 3
+
+- Realtime sockets receive 30-second pings and expire after 45 seconds without
+  a pong; client reconnect uses jittered exponential backoff.
+- Every WebMCP result is structurally encoded as valid JSON within the declared
+  1,500-character budget, with omission counts and preserved error shapes.
+  Read cancellation reaches fetch; mutation cancellation remains coupled to
+  the pass-1 idempotency key.
+- WebSocket versions, viewing IDs, verdict cross-fields and uniqueness,
+  attestation URIs, future sync revisions, and actionable enum errors are now
+  enforced. Unexpected command and client transport failures use a shared
+  retryable envelope instead of escaping or claiming an ID was not found.
+- The capability manifest no longer advertises meeting points; the 19-tool
+  documentation and deferred spatial sections match implementation. Contract
+  hashing is generated from the live response/message types, including all
+  optional fields.
 
 ## Data honesty
 

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import AjvModule, { type ValidateFunction } from "ajv";
+import AjvModule, { type ErrorObject, type ValidateFunction } from "ajv";
 import addFormatsModule from "ajv-formats";
 
 // CJS/ESM interop: ajv publishes CJS; under Node ESM the class may sit on
@@ -29,6 +29,7 @@ import {
   type ConfirmationSubject,
 } from "./confirmation.ts";
 import { buildDelta } from "./delta.ts";
+import { bumpCandidateMapRevisions } from "./candidate-revisions.ts";
 import {
   computeEligibility,
   feasibilityOf,
@@ -75,6 +76,58 @@ export interface CommitNotification {
   /** Nonces to hand to their owner's page sockets — realtime channel only. */
   confirmations: Array<ConfirmationGrant & { participantId: string }>;
 }
+
+export interface CommandIdempotency {
+  key: string;
+  requestHash: string;
+}
+
+async function storedIdempotencyOutcome(
+  q: pg.PoolClient | pg.Pool,
+  actorId: string,
+  idempotency: CommandIdempotency,
+): Promise<ToolResult | null> {
+  const row = (
+    await q.query(
+      `SELECT request_hash, response
+         FROM command_idempotency
+        WHERE participant_id = $1 AND idempotency_key = $2
+          AND expires_at > now()`,
+      [actorId, idempotency.key],
+    )
+  ).rows[0] as { request_hash: string; response: ToolResult } | undefined;
+  if (!row) return null;
+  return row.request_hash === idempotency.requestHash
+    ? row.response
+    : failure(
+        "invalid_input",
+        "Idempotency-Key was already used with a different mutation.",
+        "Generate a new key for a different command body.",
+      );
+}
+
+async function rememberNonMutatingOutcome(
+  actorId: string,
+  idempotency: CommandIdempotency | undefined,
+  outcome: ToolResult,
+): Promise<ToolResult> {
+  if (!idempotency) return outcome;
+  await pool.query(
+    `DELETE FROM command_idempotency
+      WHERE participant_id = $1 AND idempotency_key = $2
+        AND expires_at <= now()`,
+    [actorId, idempotency.key],
+  );
+  const inserted = await pool.query(
+    `INSERT INTO command_idempotency
+       (participant_id, idempotency_key, request_hash, response, expires_at)
+     VALUES ($1, $2, $3, $4, now() + interval '10 minutes')
+     ON CONFLICT (participant_id, idempotency_key) DO NOTHING`,
+    [actorId, idempotency.key, idempotency.requestHash, outcome],
+  );
+  if (inserted.rowCount === 1) return outcome;
+  return (await storedIdempotencyOutcome(pool, actorId, idempotency)) ?? outcome;
+}
 type CommitListener = (n: CommitNotification) => void;
 const listeners: CommitListener[] = [];
 export function onCommit(listener: CommitListener): void {
@@ -120,20 +173,66 @@ export async function submitCommand(
   actor: Participant,
   type: string,
   input: unknown,
+  idempotency?: CommandIdempotency,
 ): Promise<ToolResult> {
+  if (idempotency) {
+    const replay = await storedIdempotencyOutcome(pool, actor.id, idempotency);
+    if (replay) return replay;
+  }
   if (!validators.has(type as CommandType)) {
-    return failure("invalid_input", `Unknown command type "${type}".`,
-      `Use one of: ${[...validators.keys()].join(", ")}.`);
+    return rememberNonMutatingOutcome(
+      actor.id,
+      idempotency,
+      failure("invalid_input", `Unknown command type "${type}".`,
+        `Use one of: ${[...validators.keys()].join(", ")}.`),
+    );
   }
   const validate = validators.get(type as CommandType)!;
+  if (type === "EvaluateCandidates" && input !== null && typeof input === "object") {
+    const verdicts = (input as { verdicts?: unknown }).verdicts;
+    const missingInfo = Array.isArray(verdicts) && verdicts.some((verdict) =>
+      verdict !== null && typeof verdict === "object" &&
+      (verdict as { verdict?: unknown }).verdict === "needs_info" &&
+      (typeof (verdict as { infoNeeded?: unknown }).infoNeeded !== "string" ||
+        (verdict as { infoNeeded: string }).infoNeeded.length === 0));
+    if (missingInfo) {
+      return rememberNonMutatingOutcome(
+        actor.id,
+        idempotency,
+        failure(
+          "invalid_input",
+          "Invalid infoNeeded: needs_info verdicts require a non-empty infoNeeded string.",
+          "Name the missing information for every needs_info verdict.",
+        ),
+      );
+    }
+  }
   if (!validate(input)) {
-    const first = validate.errors?.[0];
-    const field = first?.instancePath?.replace(/^\//, "") || first?.params?.additionalProperty || "input";
-    return failure(
-      "invalid_input",
-      `Invalid ${String(field)}: ${first?.message ?? "validation failed"}.`,
-      "Correct the named field to the documented closed value set and retry.",
+    return rememberNonMutatingOutcome(
+      actor.id,
+      idempotency,
+      actionableValidationFailure(input, validate.errors ?? []),
     );
+  }
+  if (type === "EvaluateCandidates") {
+    const verdicts = (input as { verdicts: Array<{ candidateId: string }> }).verdicts;
+    const seen = new Set<string>();
+    const duplicate = verdicts.find(({ candidateId }) => {
+      if (seen.has(candidateId)) return true;
+      seen.add(candidateId);
+      return false;
+    });
+    if (duplicate) {
+      return rememberNonMutatingOutcome(
+        actor.id,
+        idempotency,
+        failure(
+          "invalid_input",
+          `Duplicate verdict candidateId ${JSON.stringify(duplicate.candidateId)}.`,
+          "Send at most one verdict for each candidateId.",
+        ),
+      );
+    }
   }
   const cmd = input as { baseRevision: number };
 
@@ -153,6 +252,26 @@ export async function submitCommand(
     }
     const current: number = room.revision;
     const phase = room.phase as Phase;
+
+    if (idempotency) {
+      const replay = await storedIdempotencyOutcome(client, actor.id, idempotency);
+      if (replay) {
+        return {
+          success: replay,
+          storedRevisions: [],
+          revision: replay.ok ? replay.revision : current,
+          replayed: true as const,
+        };
+      }
+      // An expired row must stop owning the primary key before this request
+      // records its fresh outcome.
+      await client.query(
+        `DELETE FROM command_idempotency
+          WHERE participant_id = $1 AND idempotency_key = $2
+            AND expires_at <= now()`,
+        [actor.id, idempotency.key],
+      );
+    }
 
     if (cmd.baseRevision !== current) {
       const delta = await buildDelta(client, actor.roomId, actor.id, cmd.baseRevision);
@@ -258,6 +377,17 @@ export async function submitCommand(
       ...(outcome.staged ? { staged: true } : {}),
       outstanding,
     };
+    if (idempotency) {
+      // R6: stored in the same transaction as the mutation. Once the command
+      // is durable, its replay record is durable too; ambiguous HTTP delivery
+      // cannot create a second event sequence during the ten-minute window.
+      await client.query(
+        `INSERT INTO command_idempotency
+           (participant_id, idempotency_key, request_hash, response, expires_at)
+         VALUES ($1, $2, $3, $4, now() + interval '10 minutes')`,
+        [actor.id, idempotency.key, idempotency.requestHash, success],
+      );
+    }
     return {
       success,
       storedRevisions,
@@ -265,14 +395,32 @@ export async function submitCommand(
       confirm: outcome.confirm,
       lookup: outcome.lookup,
       warmTargets: outcome.warmTargets ?? [],
+      replayed: false as const,
     };
     });
   } catch (err) {
     if (err instanceof CommandFailure) {
-      return err.envelope as ToolResult;
+      // R6: failures mutate nothing because the transaction rolled back, so
+      // they can be recorded immediately afterward and replayed exactly too.
+      return rememberNonMutatingOutcome(
+        actor.id,
+        idempotency,
+        err.envelope as ToolResult,
+      );
     }
-    throw err;
+    // R17: database and programming failures must not escape the shared tool
+    // envelope. withTransaction has already rolled back, so retry may succeed.
+    console.error("command engine failed:", err);
+    return failure(
+      "temporarily_unavailable",
+      "The command could not be completed.",
+      "Retry with the same idempotency key; if it continues, resync the room.",
+    );
   }
+
+  // A replay returns the byte-equivalent domain outcome and deliberately has
+  // no second notification or nonce: it did not commit a second mutation.
+  if (result.replayed) return result.success;
 
   // Mint only after the write is durable, so a rolled-back stage leaves no
   // usable nonce behind. The grant rides the commit notification to the
@@ -287,20 +435,12 @@ export async function submitCommand(
       ]
     : [];
 
-  // WebSocket notifications only after the transaction commits (Gate 4).
-  // A listener failure must never fail the committed command.
-  for (const listener of listeners) {
-    try {
-      listener({
-        roomId: actor.roomId,
-        revision: result.revision,
-        storedRevisions: result.storedRevisions,
-        confirmations,
-      });
-    } catch (err) {
-      console.error("commit listener failed:", err);
-    }
-  }
+  notifyCommit({
+    roomId: actor.roomId,
+    revision: result.revision,
+    storedRevisions: result.storedRevisions,
+    confirmations,
+  });
   if (result.lookup) {
     // The command is already durable. Lookup selection and every downstream
     // fetch/model failure are intentionally detached from command success.
@@ -317,6 +457,19 @@ export async function submitCommand(
     warmEnrichments(pool, actor.roomId, result.warmTargets);
   }
   return result.success;
+}
+
+/** Notify realtime and held-agent listeners after an independently managed
+ * transaction commits. Fact producers use the same post-commit path as the
+ * command bus, so their screening requests are delivered in order too. */
+export function notifyCommit(notification: CommitNotification): void {
+  for (const listener of listeners) {
+    try {
+      listener(notification);
+    } catch (err) {
+      console.error("commit listener failed:", err);
+    }
+  }
 }
 
 async function triggerNeedLookup(
@@ -345,6 +498,67 @@ async function triggerNeedLookup(
       ...(visibility === "shared" ? { label } : {}),
     },
   });
+}
+
+function pointerValue(input: unknown, instancePath: string): unknown {
+  if (!instancePath) return input;
+  return instancePath
+    .split("/")
+    .slice(1)
+    .map((part) => part.replace(/~1/g, "/").replace(/~0/g, "~"))
+    .reduce<unknown>((value, key) =>
+      value !== null && typeof value === "object"
+        ? (value as Record<string, unknown>)[key]
+        : undefined, input);
+}
+
+/** R17: return the concrete closed values Ajv rejected so a caller can repair
+ * its request without consulting prose that may have drifted. */
+function actionableValidationFailure(
+  input: unknown,
+  errors: ErrorObject[],
+): FailureEnvelope {
+  const allowedByPath = new Map<string, unknown[]>();
+  for (const error of errors) {
+    const allowed = error.keyword === "const"
+      ? [(error.params as { allowedValue: unknown }).allowedValue]
+      : error.keyword === "enum"
+        ? (error.params as { allowedValues: unknown[] }).allowedValues
+        : [];
+    if (allowed.length === 0) continue;
+    const values = allowedByPath.get(error.instancePath) ?? [];
+    for (const value of allowed) {
+      if (!values.some((item) => JSON.stringify(item) === JSON.stringify(value))) values.push(value);
+    }
+    allowedByPath.set(error.instancePath, values);
+  }
+  const enumFailure = [...allowedByPath.entries()]
+    .sort((a, b) => b[1].length - a[1].length)[0];
+  if (enumFailure) {
+    const [path, allowed] = enumFailure;
+    const field = path.split("/").at(-1) || "input";
+    const received = JSON.stringify(pointerValue(input, path));
+    const values = allowed.map((value) => JSON.stringify(value)).join(", ");
+    return failure(
+      "invalid_input",
+      `Invalid ${field}: received ${received ?? "undefined"}; allowed values: ${values}.`,
+      `Use one of these values for ${field}: ${values}.`,
+    );
+  }
+  const first = errors[0];
+  const missing = first?.keyword === "required"
+    ? (first.params as { missingProperty: string }).missingProperty
+    : undefined;
+  const additional = first?.keyword === "additionalProperties"
+    ? (first.params as { additionalProperty: string }).additionalProperty
+    : undefined;
+  const field = missing ?? additional ?? first?.instancePath.split("/").at(-1) ?? "input";
+  const received = missing ? "missing" : JSON.stringify(pointerValue(input, first?.instancePath ?? ""));
+  return failure(
+    "invalid_input",
+    `Invalid ${field}: received ${received ?? "undefined"}; ${first?.message ?? "validation failed"}.`,
+    `Correct ${field} and retry.`,
+  );
 }
 
 async function dispatch(
@@ -699,13 +913,14 @@ async function evaluateCandidates(
       "Declare an agent-private requirement first; screening verdicts fold into it.",
     );
   }
-  const known = new Set(
+  const candidateRevisions = new Map<string, number>(
     (
-      await client.query("SELECT id FROM candidates WHERE room_id = $1", [
+      await client.query("SELECT id, map_revision FROM candidates WHERE room_id = $1", [
         actor.roomId,
       ])
-    ).rows.map((r) => r.id as string),
+    ).rows.map((r) => [r.id as string, Number(r.map_revision)]),
   );
+  const known = new Set(candidateRevisions.keys());
   const unknown = cmd.verdicts.find((v) => !known.has(v.candidateId));
   if (unknown) {
     return errorOutcome(
@@ -719,11 +934,22 @@ async function evaluateCandidates(
   ).rows[0];
   for (const v of cmd.verdicts) {
     await client.query(
-      `INSERT INTO verdicts (room_id, owner_id, candidate_id, verdict, info_needed, recorded_at_revision)
-       VALUES ($1, $2, $3, $4, $5, $6)
+      `INSERT INTO verdicts
+         (room_id, owner_id, candidate_id, verdict, info_needed,
+          recorded_at_revision, screened_map_revision)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
        ON CONFLICT (room_id, owner_id, candidate_id)
-       DO UPDATE SET verdict = $4, info_needed = $5, recorded_at_revision = $6`,
-      [actor.roomId, actor.id, v.candidateId, v.verdict, v.infoNeeded ?? null, room.revision + 1],
+       DO UPDATE SET verdict = $4, info_needed = $5,
+                     recorded_at_revision = $6, screened_map_revision = $7`,
+      [
+        actor.roomId,
+        actor.id,
+        v.candidateId,
+        v.verdict,
+        v.infoNeeded ?? null,
+        room.revision + 1,
+        candidateRevisions.get(v.candidateId),
+      ],
     );
   }
   return {
@@ -1224,6 +1450,14 @@ async function attestAttribute(
       cmd.note, cmd.sourceUrl ?? null, room.revision + 1,
     ],
   );
+  // R3: the attestation changed the candidate's merged facts. The shared
+  // revision helper couples every mapRevision bump to private re-screening,
+  // so future fact producers inherit the same invalidation discipline.
+  const screeningEvents = await bumpCandidateMapRevisions(
+    client,
+    actor.roomId,
+    [cmd.candidateId],
+  );
   const label = ATTRIBUTE_LABELS[cmd.key as keyof typeof ATTRIBUTE_LABELS] ?? cmd.key;
   const answer = cmd.status === "verified_true" ? "yes" : "no";
   return {
@@ -1242,6 +1476,7 @@ async function attestAttribute(
           confidence: cmd.confidence,
         },
       },
+      ...screeningEvents,
     ],
     effect: `Attested ${label}: ${answer} for ${candidate.name}.`,
   };
@@ -1347,7 +1582,20 @@ async function resolvePrivateRequest(
       [adj.id],
     );
     return {
-      events: [],
+      // R12: staging is durable room state. The owner-only event advances the
+      // revision and wakes every one of this addressee's tabs without leaking
+      // the private adjustment's content to peers.
+      events: [
+        {
+          type: "adjustment_grant_staged",
+          actorId: actor.id,
+          visibility: "application-private",
+          payload: {
+            targetParticipantId: actor.id,
+            adjustmentId: adj.id,
+          },
+        },
+      ],
       staged: true,
       confirm: { kind: "private_request", subjectId: adj.id },
       effect:

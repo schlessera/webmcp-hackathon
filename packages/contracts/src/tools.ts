@@ -17,7 +17,7 @@ import {
 
 /**
  * WebMCP tool surface — INTERACTION-AND-BINDING.md §2.3: the full static
- * 16-tool surface (8 negotiation + 8 spatial), registered once at page load.
+ * 19-tool surface (9 negotiation + 10 spatial), registered once at page load.
  * Names ≤30 chars, descriptions ≤500 chars, results ≤1.5K chars. All schemas
  * additionalProperties: false. v1 names carry no version suffix.
  * ConfirmPrivateRequest and CommitAgreement are deliberately NOT bound to
@@ -45,6 +45,14 @@ export const SYNC_SESSION_INPUT = Type.Object(
           "Revision from your last sync. Omit on first connection to receive the capability manifest.",
       }),
     ),
+    cursor: Type.Optional(
+      Type.String({
+        minLength: 1,
+        maxLength: 512,
+        description:
+          "Opaque continuation from a truncated delta. Pass it back unchanged until truncated is false.",
+      }),
+    ),
   },
   { additionalProperties: false },
 );
@@ -57,7 +65,8 @@ export const syncSessionTool: ToolDefinition = {
     "versions, current revision, privacy rules, a brief of what happened, and " +
     "your outstanding decisions. Call without sinceRevision on first connection " +
     "to receive the capability manifest; call with sinceRevision from your last " +
-    "sync to receive the delta of missed events. Read-only.",
+    "sync to receive the delta of missed events. Continue every truncated delta " +
+    "with its cursor before acting. Read-only.",
   inputSchema: SYNC_SESSION_INPUT,
   annotations: { readOnlyHint: true, untrustedContentHint: true },
 };
@@ -166,6 +175,7 @@ const negotiationTools: ToolDefinition[] = [
       "Submit your stance on a proposal: accept, reject (a veto that blocks " +
       "agreement while it stands), abstain, or conditionally_accept. Vetoing " +
       "a map pin uses this same command. Accepting also marks you ready. " +
+      "conditionally_accept carries no condition yet and blocks commit until you re-stance. " +
       "reason is optional and never required; agent-private stances are " +
       "disposition-only.",
     inputSchema: RespondToProposalInput,
@@ -228,7 +238,7 @@ const spatialTools: ToolDefinition[] = [
   {
     name: "set_search_scope",
     description:
-      "Change the shared search scope (area circle and/or transport modes). " +
+      "Organizer only: change the shared search scope (area circle and/or transport modes). " +
       "Organizer authority applies the change for the whole room and " +
       "eligibility is recomputed. Scope is shared state: every participant " +
       "sees the change.",

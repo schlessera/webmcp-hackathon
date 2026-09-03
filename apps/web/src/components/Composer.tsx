@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "reac
 import { ATTRIBUTE_LABELS, ATTRIBUTE_VOCABULARY } from "@webmcp-hackathon/contracts";
 import { nlCondition, nlSay } from "../api.ts";
 import { diagnostics } from "../diagnostics-store.ts";
+import { shouldPreserveNlText } from "../nl-result.ts";
 import { spatial } from "../spatial-store.ts";
 import type {
   ActiveNeed,
@@ -116,6 +117,8 @@ interface SayResult {
   needs?: Array<{ payload: Payload; topic?: string; gist: string }>;
   reply?: string | null;
   actions?: Array<{ tool: string; ok: boolean; effect: string }>;
+  partial?: boolean;
+  failureCategory?: string;
   meta?: { route?: { model: string; ms: number }; agent?: { model: string; ms: number; rounds: number } };
   error?: { code: string; message: string };
 }
@@ -278,11 +281,13 @@ export function Composer({ facets, activeNeeds, placeCount, disabled, run }: Pro
         return;
       }
       const result = (await nlSay(trimmed, scope)) as SayResult;
+      const preserveForRetry = shouldPreserveNlText(result);
       if (!result.ok) {
-        // No agent to be had: the label match is the honest fallback.
-        diagnostics.log(`agent unavailable (${result.error?.code}); label match used`);
-        void submitPayload(payloadFromText(trimmed, facets), saidLabel(trimmed));
-        setText("");
+        // R7: a failed question/action may already have committed an earlier
+        // step. Never reinterpret the original words as an unrelated need;
+        // keep them in the composer and make retry explicit.
+        diagnostics.log(`agent unavailable (${result.error?.code}); text preserved for retry`);
+        spatial.pushAgentReply({ text: COPY.agentRetry, actions: [], answer: true });
         return;
       }
       const route = result.meta?.route;
@@ -304,6 +309,10 @@ export function Composer({ facets, activeNeeds, placeCount, disabled, run }: Pro
           answer: result.intent === "ask",
         });
         void spatial.refetch();
+        if (preserveForRetry) {
+          diagnostics.log(`agent partial (${result.failureCategory ?? "unknown"}); text preserved for retry`);
+          return;
+        }
       } else {
         spatial.pushAgentReply({
           text: result.reply ?? COPY.agentUnclear,

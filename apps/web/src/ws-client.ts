@@ -13,7 +13,11 @@ export interface RealtimeCallbacks {
     revision: number;
     participantId: string;
   }): void;
-  onEvents(revision: number, events: ProjectedEvent[]): void;
+  onEvents(
+    revision: number,
+    events: ProjectedEvent[],
+    fromRevision?: number,
+  ): void;
   /** The realtime channel is the ONLY route a confirmation nonce takes. */
   onConfirmation(grant: {
     kind: "agreement" | "private_request";
@@ -41,6 +45,26 @@ export interface RealtimeHandle {
   /** Tell the room which place this page has open (null: none). Presence
    * only; dropped silently while the socket is down and re-sent on welcome. */
   setViewing(candidateId: string | null): void;
+}
+
+/** R10: an ordered frame must begin exactly where this client stopped. The
+ * field is optional so a mixed deployment remains wire-compatible. */
+export function hasRevisionGap(
+  projectedThroughRevision: number,
+  fromRevision?: number,
+): boolean {
+  return fromRevision !== undefined && fromRevision !== projectedThroughRevision;
+}
+
+/** R13: reconnecting clients share the same outage, so deterministic delays
+ * create a synchronized retry wave. Half-to-full jitter keeps exponential
+ * backoff while spreading attempts, capped at the existing 15 seconds. */
+export function reconnectDelayMs(
+  attempt: number,
+  random: () => number = Math.random,
+): number {
+  const exponential = Math.min(1000 * 2 ** Math.max(0, attempt), 15_000);
+  return Math.round(exponential * (0.5 + Math.min(1, Math.max(0, random())) * 0.5));
 }
 
 let pageBuildId: string | null = null;
@@ -77,7 +101,7 @@ export function connectRealtime(
 ): RealtimeHandle {
   let closed = false;
   let socket: WebSocket | null = null;
-  let retryMs = 1000;
+  let retryAttempt = 0;
   let viewing: string | null = null;
   let welcomed = false;
 
@@ -113,7 +137,7 @@ export function connectRealtime(
         return;
       }
       if (message.type === "welcome") {
-        retryMs = 1000; // healthy connection resets the backoff
+        retryAttempt = 0; // healthy connection resets the backoff
         diagnostics.update({ serverBuildId: message.buildId });
         callbacks.onWelcome(message);
         welcomed = true;
@@ -136,7 +160,7 @@ export function connectRealtime(
           }
         }
       } else if (message.type === "event") {
-        callbacks.onEvents(message.revision, message.events);
+        callbacks.onEvents(message.revision, message.events, message.fromRevision);
       } else if (message.type === "presence") {
         callbacks.onPresence(message.present, message.viewing ?? []);
       } else if (message.type === "lookups") {
@@ -152,18 +176,19 @@ export function connectRealtime(
         callbacks.onConfirmation(message);
       } else if (message.type === "error") {
         diagnostics.log(`ws error: ${message.code}`);
+        if (message.code === "upgrade_required") callbacks.onStaleBundle();
       }
     };
     socket.onclose = (event) => {
       diagnostics.update({ wsState: "closed" });
       if (closed) return;
-      if (event.code === 4003) {
+      if (event.code === 4002 || event.code === 4003) {
         // Dead token: retrying cannot help — the page must re-exchange.
-        diagnostics.log("ws: token rejected (4003), reconnect stopped");
+        diagnostics.log(`ws: unrecoverable close (${event.code}), reconnect stopped`);
         return;
       }
-      setTimeout(connect, retryMs);
-      retryMs = Math.min(retryMs * 2, 15000);
+      setTimeout(connect, reconnectDelayMs(retryAttempt));
+      retryAttempt += 1;
     };
   };
   connect();

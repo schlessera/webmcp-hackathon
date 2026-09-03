@@ -1,5 +1,6 @@
-import { TOOLS, type ToolDefinition } from "@webmcp-hackathon/contracts";
+import { BUDGETS, TOOLS, type ToolDefinition } from "@webmcp-hackathon/contracts";
 import {
+  spatialContext,
   spatialInspectRaw,
   spatialLookupRaw,
   spatialNavigationRaw,
@@ -78,9 +79,126 @@ function modelContext(): ModelContextLike | null {
   return mc && typeof mc.registerTool === "function" ? mc : null;
 }
 
-/** Tool results resolve (never reject) as one JSON text content block. */
-function asToolResult(value: unknown): unknown {
-  return { content: [{ type: "text", text: JSON.stringify(value) }] };
+interface OmittedCounts {
+  arrayItems: number;
+  objectFields: number;
+  stringCharacters: number;
+}
+
+interface StructuralLimits {
+  arrayItems: number;
+  objectFields: number;
+  stringCharacters: number;
+  depth: number;
+}
+
+const ROOT_PRIORITY = [
+  "ok", "error", "revision", "effect", "staged", "delta", "outstanding",
+  "identity", "phase", "brief", "manifest", "feasibility", "candidates",
+];
+const ERROR_PRIORITY = ["code", "message", "recovery"];
+
+function clipString(value: string, max: number, omitted: OmittedCounts): string {
+  if (value.length <= max) return value;
+  omitted.stringCharacters += value.length - Math.max(0, max - 1);
+  return max <= 1 ? "…" : `${value.slice(0, max - 1)}…`;
+}
+
+function compactStructurally(
+  value: unknown,
+  limits: StructuralLimits,
+  omitted: OmittedCounts,
+  path = "$",
+  depth = 0,
+): unknown {
+  if (typeof value === "string") {
+    return clipString(value, limits.stringCharacters, omitted);
+  }
+  if (value === null || typeof value !== "object") return value;
+  if (Array.isArray(value)) {
+    const kept = value.slice(0, limits.arrayItems);
+    omitted.arrayItems += value.length - kept.length;
+    return kept.map((item) =>
+      compactStructurally(item, limits, omitted, `${path}[]`, depth + 1),
+    );
+  }
+  const record = value as Record<string, unknown>;
+  const entries = Object.entries(record);
+  if (depth >= limits.depth) {
+    omitted.objectFields += entries.length;
+    return "[nested content omitted]";
+  }
+  const priority = path === "$" ? ROOT_PRIORITY : path === "$.error" ? ERROR_PRIORITY : [];
+  const ordered = [...entries].sort(([a], [b]) => {
+    const ai = priority.indexOf(a);
+    const bi = priority.indexOf(b);
+    return (ai < 0 ? priority.length : ai) - (bi < 0 ? priority.length : bi);
+  });
+  const required = path === "$.error" ? new Set(ERROR_PRIORITY) : new Set<string>();
+  const kept = ordered.filter(([key], index) => index < limits.objectFields || required.has(key));
+  omitted.objectFields += entries.length - kept.length;
+  return Object.fromEntries(
+    kept.map(([key, item]) => [
+      key,
+      compactStructurally(item, limits, omitted, `${path}.${key}`, depth + 1),
+    ]),
+  );
+}
+
+function withOmissionMarker(value: unknown, omitted: OmittedCounts): Record<string, unknown> {
+  const object = value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : { value };
+  return { ...object, truncated: true, omitted };
+}
+
+/**
+ * R15: every registered tool crosses this single structural budget boundary.
+ * It never slices serialized JSON, preserves the shared error object, and
+ * reports what it omitted before returning one valid JSON text block.
+ */
+export function encodeToolResult(
+  value: unknown,
+  maxChars = BUDGETS.resultMax,
+): { content: Array<{ type: "text"; text: string }> } {
+  const raw = JSON.stringify(value ?? null);
+  if (raw.length <= maxChars) {
+    return { content: [{ type: "text", text: raw }] };
+  }
+  for (const limits of [
+    { arrayItems: 8, objectFields: 20, stringCharacters: 240, depth: 7 },
+    { arrayItems: 4, objectFields: 14, stringCharacters: 160, depth: 6 },
+    { arrayItems: 2, objectFields: 10, stringCharacters: 96, depth: 5 },
+    { arrayItems: 1, objectFields: 7, stringCharacters: 64, depth: 4 },
+    { arrayItems: 0, objectFields: 4, stringCharacters: 40, depth: 3 },
+  ]) {
+    const omitted: OmittedCounts = { arrayItems: 0, objectFields: 0, stringCharacters: 0 };
+    const compacted = compactStructurally(value, limits, omitted);
+    const text = JSON.stringify(withOmissionMarker(compacted, omitted));
+    if (text.length <= maxChars) return { content: [{ type: "text", text }] };
+  }
+
+  // The declared 1.5K budget always fits this last shape. Keep failures
+  // actionable even if a pathological value defeated every richer pass.
+  const source = value as { ok?: unknown; error?: Record<string, unknown> } | null;
+  const omitted: OmittedCounts = {
+    arrayItems: 0,
+    objectFields: value && typeof value === "object" ? Object.keys(value).length : 0,
+    stringCharacters: raw.length,
+  };
+  const fallback = source?.ok === false
+    ? {
+        ok: false,
+        error: {
+          code: String(source.error?.code ?? "temporarily_unavailable"),
+          message: clipString(String(source.error?.message ?? "Request failed."), 120, omitted),
+          recovery: clipString(String(source.error?.recovery ?? "Retry in a moment."), 120, omitted),
+        },
+        truncated: true,
+        omitted,
+      }
+    : { ok: source?.ok === true, truncated: true, omitted };
+  return { content: [{ type: "text", text: JSON.stringify(fallback) }] };
 }
 
 /** Tool name → server command type for the mutating negotiation/spatial tools. */
@@ -202,17 +320,13 @@ async function executeTool(
       return syncSessionRaw(args ?? {}, signal);
 
     case "get_spatial_context": {
-      // Fresh read; the store update also refreshes the visible map.
-      const context = await spatial.refetch();
-      if (!context) {
-        return {
-          ok: false,
-          error: {
-            code: "not_authenticated",
-            message: "No spatial context available yet.",
-            recovery: "Call sync_session first; retry once the page is connected.",
-          },
-        };
+      // R15: this read owns its request, so cancellation cannot abort a UI
+      // refetch that happened to share the store's coalesced promise.
+      const fresh = await spatialContext(signal) as SpatialContext | { ok: false };
+      if (!fresh.ok) return fresh;
+      const context = fresh as SpatialContext;
+      if (!spatial.state.context || context.revision >= spatial.state.context.revision) {
+        spatial.update({ context });
       }
       if (!context.scope?.area) {
         return {
@@ -285,14 +399,19 @@ async function executeTool(
       // designed catch-up path, not something to paper over client-side.
       const input =
         args && typeof args === "object" ? (args as Record<string, unknown>) : {};
-      const result = await runCommand(commandType, input);
+      // R15: aborting a mutation request cannot prove it did not commit. It is
+      // safe to expose cancellation only because pass 1 attaches the same
+      // invocation's idempotency key to the command transport.
+      const result = await runCommand(commandType, input, signal);
       if (result.ok) {
         // UI-before-return: the visible map/panels reflect the change before
         // the agent's tool call resolves (agents plan against what they see).
         // A grant beyond the delegated bound also lands here as ok:true — the
         // refreshed outstanding list carries staged:true, which is what makes
         // the in-page confirm card visible; no error branch is involved.
-        await spatial.refetch();
+        // R8: await the committed revision, not merely whichever projection
+        // request happened to be in flight before this mutation.
+        await spatial.refetch(result.revision);
       }
       return result;
     }
@@ -326,7 +445,7 @@ export function registerWebMcpTools(): void {
             // pass the raw JSON string form.
             const parsed = typeof args === "string" ? safeParse(args) : args;
             const result = await executeTool(tool.name, parsed, options?.signal);
-            return asToolResult(result);
+            return encodeToolResult(result);
           },
         });
         diagnostics.log(`registered tool ${tool.name}`);

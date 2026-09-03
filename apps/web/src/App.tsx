@@ -14,7 +14,11 @@ import {
   inviteSecretFromFragment,
   type SessionState,
 } from "./session.ts";
-import { connectRealtime, fetchPageBuild } from "./ws-client.ts";
+import {
+  connectRealtime,
+  fetchPageBuild,
+  hasRevisionGap,
+} from "./ws-client.ts";
 import { diagnostics } from "./diagnostics-store.ts";
 import { registerCommandRunner, spatial } from "./spatial-store.ts";
 import type {
@@ -42,6 +46,7 @@ import { ArrivalBar } from "./components/ArrivalBar.tsx";
 import { Drawer } from "./components/Drawer.tsx";
 import { Start } from "./components/Start.tsx";
 import { provenanceLine } from "./ui/copy.ts";
+import { RevisionWatermarks } from "./revision-watermarks.ts";
 
 /**
  * The room is the whole app: one screen, no nav bar, no tab bar, no
@@ -98,6 +103,7 @@ function readerFacingError(error: CommandEnvelope["error"]): string {
 /** Events after which this participant's outstanding list may have changed. */
 const OUTSTANDING_EVENTS = new Set([
   "adjustment_proposed",
+  "adjustment_grant_staged",
   "adjustment_resolved",
   "evaluation_requested",
   "impasse_detected",
@@ -150,8 +156,10 @@ export function App() {
     () => spatial.state,
   );
 
-  const lastSeenRevision = useRef(0);
-  const catchUpRef = useRef<(() => Promise<void>) | null>(null);
+  // R5: command results prove room state, not event delivery. Only WS frames
+  // and fully consumed delta pages advance projectedThroughRevision.
+  const revisionWatermarks = useRef(new RevisionWatermarks()).current;
+  const catchUpRef = useRef<(() => Promise<unknown>) | null>(null);
   const realtimeRef = useRef<{ setViewing(id: string | null): void } | null>(null);
 
   useEffect(() => {
@@ -172,16 +180,19 @@ export function App() {
       // seen (any tab, any surface); the FIRST contact of this page load is
       // the one that still reports it, since every sync stamps it afresh.
       let serverSeen: number | null = null;
-      let probed = false;
+      let probedRevision = 0;
       if (established.token) {
-        probed = true;
         const probe = (await syncSession()) as {
           ok: boolean;
+          revision?: number;
           error?: { code: string };
           lastSyncedRevision?: number | null;
         };
         if (cancelled) return;
-        if (probe.ok) serverSeen = probe.lastSyncedRevision ?? null;
+        if (probe.ok) {
+          serverSeen = probe.lastSyncedRevision ?? null;
+          probedRevision = probe.revision ?? 0;
+        }
         if (
           !probe.ok &&
           probe.error?.code === "not_authenticated" &&
@@ -204,14 +215,26 @@ export function App() {
       // a sync), so the larger of the two is what this person has seen.
       const tabSeen = readLastSeen(roomId);
 
-      const advanceTo = (newRevision: number) => {
-        lastSeenRevision.current = Math.max(
-          lastSeenRevision.current,
-          newRevision,
-        );
-        setRevision(lastSeenRevision.current);
-        writeLastSeen(roomId, lastSeenRevision.current);
+      const advanceKnownTo = (newRevision: number) => {
+        setRevision(revisionWatermarks.observeRoom(newRevision));
       };
+
+      const advanceProjectionTo = (newRevision: number) => {
+        const through = revisionWatermarks.consumeProjection(newRevision);
+        writeLastSeen(roomId, through);
+        setRevision(revisionWatermarks.knownRoomRevision);
+      };
+
+      const previouslySeen = Math.max(tabSeen, serverSeen ?? 0);
+      const wasHere = tabSeen > 0 || serverSeen !== null;
+      // R5: serverSeen may have been advanced by an agent or another tab. It
+      // informs the away digest, but only this tab's persisted projection is
+      // proof that this page consumed event frames.
+      revisionWatermarks.reset(
+        tabSeen,
+        Math.max(previouslySeen, probedRevision),
+      );
+      setRevision(revisionWatermarks.knownRoomRevision);
 
       /** Pull the delta for events this page missed (disconnects, races).
        * Revision 0 is a legitimate sinceRevision (freshly seeded room).
@@ -219,62 +242,140 @@ export function App() {
        * the round-trip advances the ref, and filtering against the moved ref
        * would silently drop the very events this fetch went out for
        * (mergeFeed dedups any overlap). */
-      const catchUp = async () => {
-        const since = lastSeenRevision.current;
-        const sync = (await syncSession(since)) as {
-          ok: boolean;
-          revision?: number;
-          delta?: { events: ProjectedEvent[] };
-          outstanding?: OutstandingItem[];
-        };
-        if (!sync.ok || sync.revision === undefined || cancelled) return;
-        if (sync.delta && sync.revision > since) {
-          const fresh = sync.delta.events.filter((e) => e.revision > since);
-          setFeed((prev) => mergeFeed(fresh, prev));
-        }
-        spatial.setOutstanding(sync.outstanding);
-        advanceTo(sync.revision);
+      let catchUpInFlight: Promise<{
+        revision: number;
+        lastSyncedRevision?: number | null;
+      } | null> | null = null;
+      const catchUp = () => {
+        if (catchUpInFlight) return catchUpInFlight;
+        catchUpInFlight = (async () => {
+          let firstPage: {
+            revision: number;
+            lastSyncedRevision?: number | null;
+          } | null = null;
+          let cursor: string | undefined;
+          // R1: continuation moves this local stored-event cursor. The page's
+          // durable projection watermark is committed only after every page
+          // through a room head has been consumed.
+          let consumedThrough = revisionWatermarks.projectedThroughRevision;
+          for (;;) {
+            const since = consumedThrough;
+            const sync = (await syncSession(
+              cursor ? undefined : since,
+              cursor,
+            )) as {
+              ok: boolean;
+              revision?: number;
+              delta?: {
+                events: ProjectedEvent[];
+                truncated: boolean;
+                cursor?: string;
+                throughRevision?: number;
+                resyncRequired?: "backlog_too_large";
+              };
+              outstanding?: OutstandingItem[];
+              lastSyncedRevision?: number | null;
+            };
+            if (!sync.ok || sync.revision === undefined || cancelled) return null;
+            firstPage ??= {
+              revision: sync.revision,
+              lastSyncedRevision: sync.lastSyncedRevision,
+            };
+            advanceKnownTo(sync.revision);
+            spatial.setOutstanding(sync.outstanding, sync.revision);
+            if (!sync.delta) return firstPage;
+
+            if (sync.delta.resyncRequired === "backlog_too_large") {
+              // R1: this is an explicit loss of incremental history. Replace
+              // the projection at the named room revision before moving the
+              // consumed watermark; never silently jump over omitted events.
+              diagnostics.log("sync backlog too large — replacing full projection");
+              const context = await spatial.refetch(sync.revision);
+              if (context && context.revision >= sync.revision) {
+                setFeed([]);
+                advanceProjectionTo(sync.revision);
+              }
+              return firstPage;
+            }
+
+            const fresh = sync.delta.events.filter(
+              (e) => e.revision > revisionWatermarks.projectedThroughRevision,
+            );
+            if (fresh.length) setFeed((prev) => mergeFeed(fresh, prev));
+            if (sync.delta.throughRevision !== undefined) {
+              consumedThrough = Math.max(
+                consumedThrough,
+                sync.delta.throughRevision,
+              );
+            } else if (!sync.delta.truncated) {
+              // Additive deployment compatibility: the old untruncated shape
+              // represented the complete interval through sync.revision.
+              consumedThrough = Math.max(consumedThrough, sync.revision);
+            }
+            if (sync.delta.truncated) {
+              if (!sync.delta.cursor) {
+                // Compatibility with a server that can report truncation but
+                // cannot continue: retain the old watermark and retry later.
+                diagnostics.log("sync delta truncated without a cursor");
+                return firstPage;
+              }
+              cursor = sync.delta.cursor;
+              continue;
+            }
+            cursor = undefined;
+            if (consumedThrough < sync.revision) continue;
+            advanceProjectionTo(consumedThrough);
+            return firstPage;
+          }
+        })().finally(() => {
+          catchUpInFlight = null;
+        });
+        return catchUpInFlight;
       };
 
       catchUpRef.current = catchUp;
 
-      const first = (await syncSession(0)) as {
-        ok: boolean;
-        revision?: number;
-        delta?: { events: ProjectedEvent[] };
-        outstanding?: OutstandingItem[];
-        lastSyncedRevision?: number | null;
-      };
+      const first = await catchUp();
       if (cancelled) return;
-      if (first.ok && first.revision !== undefined) {
-        if (first.delta) setFeed((prev) => mergeFeed(first.delta!.events, prev));
-        spatial.setOutstanding(first.outstanding);
-        // Only the first server contact of this load still reports the
-        // previous value; the probe, when it ran, was that contact.
-        const remembered =
-          serverSeen !== null || probed ? serverSeen : (first.lastSyncedRevision ?? null);
+      if (first) {
         // Seen revision 0 (an empty room) is a real floor; never-seen is not.
-        const wasHere = tabSeen > 0 || remembered !== null;
-        const previouslySeen = Math.max(tabSeen, remembered ?? 0);
         if (wasHere && first.revision > previouslySeen) {
           setAway({ since: previouslySeen, until: first.revision });
         }
-        advanceTo(first.revision);
       }
-      void spatial.refetch();
+      void spatial.refetch(revisionWatermarks.knownRoomRevision);
 
       realtime = connectRealtime(established.token, {
         onWelcome(welcome) {
-          // The server broadcasts only live commits: a welcome ahead of the
-          // page means missed events — fetch them, don't skip them.
-          if (welcome.revision > lastSeenRevision.current) {
-            void catchUp();
-            void spatial.refetch();
-          }
+          // R5: always catch up from the projection watermark. Equality with
+          // the HTTP-known room revision does not prove its event frame landed.
+          advanceKnownTo(welcome.revision);
+          void catchUp();
+          void spatial.refetch(welcome.revision);
         },
-        onEvents(newRevision, events) {
-          setFeed((prev) => mergeFeed(events, prev));
-          advanceTo(newRevision);
+        onEvents(newRevision, events, fromRevision) {
+          advanceKnownTo(newRevision);
+          if (
+            hasRevisionGap(
+              revisionWatermarks.projectedThroughRevision,
+              fromRevision,
+            )
+          ) {
+            // R10: do not render across a hole or reordered frame. Paginated
+            // sync is the one path that can prove every stored revision was
+            // consumed, including viewer-omitted private events.
+            diagnostics.log(
+              `ws revision gap: projected ${revisionWatermarks.projectedThroughRevision}, frame from ${fromRevision}`,
+            );
+            void catchUp();
+            void spatial.refetch(newRevision);
+            return;
+          }
+          const fresh = events.filter(
+            (e) => e.revision > revisionWatermarks.projectedThroughRevision,
+          );
+          if (fresh.length) setFeed((prev) => mergeFeed(fresh, prev));
+          advanceProjectionTo(newRevision);
           // Any commit can change eligibility/proposals/scope — the store
           // coalesces bursts into one fetch.
           void spatial.refetch();
@@ -365,6 +466,7 @@ export function App() {
     async (
       type: string,
       input: Record<string, unknown>,
+      signal?: AbortSignal,
       retried = false,
     ): Promise<CommandEnvelope> => {
       const requestedArea = input.area as
@@ -381,9 +483,9 @@ export function App() {
         // The ref, not render-time state: a WS event between paint and click
         // must not send a stale baseRevision. A tool caller's own baseRevision
         // (spread after) wins — agents carry revision discipline themselves.
-        baseRevision: lastSeenRevision.current,
+        baseRevision: revisionWatermarks.knownRoomRevision,
         ...input,
-      })) as CommandEnvelope;
+      }, signal)) as CommandEnvelope;
       // A gesture that lost the race to someone else's commit is retried once
       // against the caught-up room: the person's intent ("works for me") does
       // not go stale the way an agent's plan does, and asking them to click
@@ -396,20 +498,18 @@ export function App() {
         !("baseRevision" in input)
       ) {
         await catchUpRef.current?.();
-        return run(type, input, true);
+        return run(type, input, signal, true);
       }
       if (result.ok && result.revision !== undefined) {
-        lastSeenRevision.current = Math.max(
-          lastSeenRevision.current,
-          result.revision,
-        );
-        setRevision(lastSeenRevision.current);
+        // R5: HTTP proves only the room head. projectedThroughRevision moves
+        // later, when WS delivery or catch-up consumes the event.
+        setRevision(revisionWatermarks.observeRoom(result.revision));
         setErrorLine(null);
-        spatial.setOutstanding(result.outstanding);
+        spatial.setOutstanding(result.outstanding, result.revision);
         // The first move of their own is the moment someone is back: the
         // digest has done its job and the header stops saying "away".
         setAway(null);
-        void spatial.refetch();
+        void spatial.refetch(result.revision);
       } else if (!result.ok) {
         if (requestedCenter) spatial.clearLocalScopeCenter();
         // Only failures are surfaced. A success is visible in the map and the

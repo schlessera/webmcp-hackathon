@@ -205,14 +205,21 @@ smart-tier job.
 
 ## How it lands in a room
 
-- `enrichments` (migration 010), keyed by OSM ref, shared by every room that
-  holds the place, TTL 7 days. `candidates.osm_ref` and `candidates.extras`
-  (links, description, lookup ids from the record) were added alongside.
+- `enrichments` (migrations 010 and 013), keyed by OSM ref and shared by every
+  room that holds the place. Website and Wikidata each carry their own fetch
+  status, error and expiry. A successful provider value is kept for seven
+  days; a transient failure preserves that provider's last good value and
+  retries only that provider after about one hour. A short database lease per
+  OSM ref prevents separate server processes from refreshing the same place at
+  once.
 - **When**: a new room's pool is warmed in the background (4 at a time);
   `inspect_candidates` (the place panel, or an agent) waits up to 3.5 s for
   a fresh lookup and otherwise opens with what is cached, the lookup
-  finishing behind it. The classifier reads the cache only; it never waits
-  on the network.
+  finishing behind it. On-demand lookups share one global four-place
+  semaphore. Inspection discovers targets before taking a room lock, waits
+  without a checked-out database client, then opens one short transaction to
+  read the revision and build the dossier. The classifier reads the cache
+  only; it never waits on the network.
 - **Precedence**: a verified record fact (`osm:*`, `curated:*`) is never
   overwritten. A looked-up fact fills `unknown` / `unverified` slots:
   cuisine, price band, wheelchair (verified, `web:<host>`), hours
