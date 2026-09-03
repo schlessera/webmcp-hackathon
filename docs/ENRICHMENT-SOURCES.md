@@ -20,6 +20,15 @@ Three sources ship, all server-side, all evidence-labelled:
 | S2 | the place's own website | the venue's | schema.org facts (cuisine, price range, hours, accessibility, self-published rating, menu, reservations), menu link discovery, one-line description; selected visible text for same-pass inference only | one homepage fetch plus an optional menu follow, robots.txt honoured; parsed facts cached 7 days, page text held only in memory for that lookup pass |
 | S3 | Wikidata | CC0 | description, Wikipedia article, official site, awards (Michelin star, Bib Gourmand) | one entity fetch for places carrying a `wikidata` tag, cached 7 days |
 
+A fourth input is not enrichment by a provider: a person can permanently
+confirm or rule out a vocabulary fact or `q:<sha1>` question answer. It is
+stored by OpenStreetMap ref with no TTL and merges as `person:confirmed` at
+0.95 in every room. It outranks web reads, inference, guesses and room
+attestations. A contradiction of a verified OSM/curated record remains a
+visible dispute rather than silently replacing either side. Absolute
+`open:*` windows are rejected, and a private question stores only its hash;
+its sentence is shown only to its requirement owner.
+
 Ratings from review platforms are **not** available under our constraints
 (details below). What a room sees as a rating is what the place publishes
 about itself, labelled "as published by the place", or an award on record.
@@ -263,7 +272,8 @@ Source buckets rank as follows, highest first:
 
 Name/category sits below open web because it is based only on generic place
 context, without a quoted external span. Attestations are still applied after
-inferences at dossier read time and keep their existing precedence.
+inferences at dossier read time and keep their existing precedence. Permanent
+confirmed facts are applied last through that same merge path.
 
 The batch write is a read-modify-write transaction. It first materializes any
 missing enrichment row, then locks every affected row in OSM-ref order with

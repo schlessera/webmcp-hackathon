@@ -77,6 +77,18 @@ describe("tool schemas (lane 1)", () => {
     expect(TOOL_CONTRACT_VERSION).toBe("3");
   });
 
+  it("admits only vocabulary and q:<sha1> ids for permanent confirmations", () => {
+    const confirm = ajv.compile(COMMAND_SCHEMAS.ConfirmFact);
+    const base = { baseRevision: 0, candidateId: "c1", lean: true };
+    expect(confirm({ ...base, criterionId: "dog-friendly" })).toBe(true);
+    expect(confirm({ ...base, criterionId: `q:${"b".repeat(40)}` })).toBe(true);
+    expect(confirm({ ...base, criterionId: "open:2026-09-03T10:00Z-2026-09-03T12:00Z" }))
+      .toBe(false);
+    expect(confirm({ ...base, criterionId: "Is it quiet?" })).toBe(false);
+    expect(confirm({ ...base, criterionId: `q:${"g".repeat(40)}` })).toBe(false);
+    expect(TOOL_CONTRACT_VERSION).toBe("3");
+  });
+
   it("rejects oversized arguments (verdict batch cap, note cap)", () => {
     const evaluate = ajv.compile(COMMAND_SCHEMAS.EvaluateCandidates);
     const oversized = {
@@ -182,8 +194,8 @@ describe("character budgets (Chrome guidance)", () => {
     expect(CAPABILITY_MANIFEST.conduct.length).toBeLessThanOrEqual(400);
   });
 
-  it("advertises the implemented 19-tool surface without meeting points", () => {
-    expect(TOOLS).toHaveLength(19);
+  it("advertises the implemented 20-tool surface without meeting points", () => {
+    expect(TOOLS).toHaveLength(20);
     expect(CAPABILITY_MANIFEST.capabilities).not.toContain("meeting-points");
     expect(TOOLS.find((tool) => tool.name === "set_search_scope")?.description)
       .toContain("Organizer only");

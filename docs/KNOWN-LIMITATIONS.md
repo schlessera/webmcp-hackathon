@@ -93,7 +93,7 @@ bounded, honest threat model. We list them rather than hide them.
   attestation URIs, future sync revisions, and actionable enum errors are now
   enforced. Unexpected command and client transport failures use a shared
   retryable envelope instead of escaping or claiming an ID was not found.
-- The capability manifest no longer advertises meeting points; the 19-tool
+- The capability manifest no longer advertises meeting points; the 20-tool
   documentation and deferred spatial sections match implementation. Contract
   hashing is generated from the live response/message types, including all
   optional fields.

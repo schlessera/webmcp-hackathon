@@ -84,7 +84,7 @@ since WebMCP itself carries only tool names/descriptions/schemas:
 The `conduct` string is the application's one paragraph of protocol
 instruction to the model — kept short because it rides in a tool result.
 
-### 2.3 The tool surface (19 tools)
+### 2.3 The tool surface (20 tools)
 
 Names ≤30 chars, descriptions ≤500 chars, parameter descriptions ≤150 chars,
 results ≤1.5K chars (Chrome budget guidance), except `sync_session`, whose
@@ -129,7 +129,7 @@ participant-authored text (requirement notes, veto notes, feed lines) or
 provider content. ³ Read-only from the session's perspective; mutates only
 the caller's local view (documented in the description).
 
-The 19-tool surface is static and each entry has a non-overlapping command or
+The 20-tool surface is static and each entry has a non-overlapping command or
 read role. Consequential apply/commit commands remain page-only and are not
 part of this count.
 

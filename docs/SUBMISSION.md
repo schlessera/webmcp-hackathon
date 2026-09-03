@@ -90,7 +90,7 @@ effect, never the cause.
 
 ## How we implemented WebMCP
 
-- **19 tools** registered imperatively on `document.modelContext` at page load
+- **20 tools** registered imperatively on `document.modelContext` at page load
   (static surface — ChatGPT's in-app browser binds tools at page level), 9
   negotiation + 10 spatial, each a single narrow function with closed enum
   schemas, `readOnlyHint`/`untrustedContentHint` annotations, and capped result
