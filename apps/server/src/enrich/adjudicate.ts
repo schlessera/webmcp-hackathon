@@ -4,6 +4,7 @@ import { config } from "../config.ts";
 import { parseJson, respond, type Reply } from "../nl/llm.ts";
 import { evidenceContext, hasWholeSpan, type EvaluatedInference } from "./evaluate.ts";
 import {
+  ADJUDICATION_ATTEMPT_CAP,
   normalizeEvidence,
   sanitizeInferenceNote,
   type StoredInference,
@@ -160,8 +161,54 @@ export function adjudicationCached(
 ): boolean {
   const cached = claim.adjudication;
   if (!cached || cached.evidenceHash !== hash) return false;
+  // A deferral is not a verdict: it only closes the cell once the retries are
+  // spent, so a transient timeout still gets another pass.
+  if (cached.deferred && (cached.attempts ?? 0) < ADJUDICATION_ATTEMPT_CAP) return false;
   const observed = new Date(cached.observedAt).getTime();
   return Number.isFinite(observed) && now - observed < ADJUDICATION_CACHE_DAYS * 24 * 60 * 60_000;
+}
+
+/**
+ * The terminal record for a cell the model did not resolve — a dropped,
+ * malformed or missing result, or a batch that threw. It carries the stored
+ * claim unchanged and only adds the deferral, so the merge keeps the evidence
+ * and counts the attempt.
+ */
+export function deferredAdjudication(
+  cell: AdjudicationCell,
+  observedAt = new Date().toISOString(),
+): EvaluatedInference {
+  return cleanEvaluatedInference({
+    candidateId: cell.candidateId,
+    osmRef: cell.osmRef,
+    criterionId: cell.criterionId,
+    key: cell.criterionId,
+    lean: cell.claim.lean,
+    status: cell.claim.confidence >= 0.7
+      ? cell.claim.lean === "yes" ? "verified_true" : "verified_false"
+      : cell.claim.lean === "yes" ? "likely_true" : "likely_false",
+    confidence: cell.claim.confidence,
+    evidence: cell.claim.evidence,
+    source: cell.claim.source,
+    sourceIndex: 0,
+    observedAt: cell.claim.observedAt,
+    explicit: cell.claim.explicit === true,
+    ...(cell.claim.value !== undefined ? { value: String(cell.claim.value) } : {}),
+    ...(cell.claim.sourceUrl ? { sourceUrl: cell.claim.sourceUrl } : {}),
+    ...(cell.claim.context ? { context: cell.claim.context } : {}),
+    ...(cell.claim.pageTitle ? { pageTitle: cell.claim.pageTitle } : {}),
+    ...(cell.claim.publisherNames?.length ? { publisherNames: cell.claim.publisherNames } : {}),
+    adjudication: {
+      evidenceHash: cell.evidenceHash,
+      verdict: "unclear",
+      explicit: false,
+      publisher: "unknown",
+      quote: "",
+      observedAt,
+      deferred: true,
+      attempts: 1,
+    },
+  });
 }
 
 function boundedContext(context: string, evidence: string, max: number): string {

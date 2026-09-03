@@ -45,13 +45,47 @@ export interface InferredClaim {
   context?: string;
   pageTitle?: string;
   publisherNames?: string[];
-  adjudication?: {
-    evidenceHash: string;
-    verdict: "yes" | "no" | "unclear";
-    explicit: boolean;
-    publisher: "venue" | "chain" | "third_party" | "unknown";
-    quote: string;
-    observedAt: string;
+  adjudication?: Adjudication;
+}
+
+export interface Adjudication {
+  evidenceHash: string;
+  verdict: "yes" | "no" | "unclear";
+  explicit: boolean;
+  publisher: "venue" | "chain" | "third_party" | "unknown";
+  quote: string;
+  observedAt: string;
+  /** No verdict came back for this cell: a dropped, malformed or missing
+   * result rather than a judgement. Recorded so the cell has a terminal
+   * state; without it the runner reselects the same cell on every pass. */
+  deferred?: boolean;
+  /** Deferred attempts spent on this evidence, capped. */
+  attempts?: number;
+}
+
+/** A cell is retried this many times before its deferral becomes terminal. */
+export const ADJUDICATION_ATTEMPT_CAP = 3;
+
+/**
+ * Monotonic merge for one cell's adjudication metadata. A real verdict is
+ * never replaced by a deferral, and deferrals over the same evidence
+ * accumulate towards the cap instead of resetting it.
+ */
+export function mergeAdjudication(
+  previous: Adjudication | undefined,
+  fresh: Adjudication,
+): Adjudication {
+  if (!fresh.deferred) return fresh;
+  if (!previous || previous.evidenceHash !== fresh.evidenceHash) {
+    return { ...fresh, attempts: Math.min(ADJUDICATION_ATTEMPT_CAP, fresh.attempts ?? 1) };
+  }
+  if (!previous.deferred) return previous;
+  return {
+    ...fresh,
+    attempts: Math.min(
+      ADJUDICATION_ATTEMPT_CAP,
+      (previous.attempts ?? 0) + (fresh.attempts ?? 1),
+    ),
   };
 }
 

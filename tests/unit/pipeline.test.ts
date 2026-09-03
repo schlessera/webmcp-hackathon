@@ -292,6 +292,78 @@ describe("refinement pipeline", () => {
     expect(modelCalls).toBe(1);
   });
 
+  it("backs off a proactive pass that resolved nothing instead of retrying it every tick", async () => {
+    vi.stubEnv("ENRICH_NETWORK", "1");
+    vi.stubEnv("INFER", "1");
+    vi.stubEnv("OPENAI_API_KEY", "test");
+    resetAdjudicationForTest();
+    const evidence = "Dogs are explicitly welcome in the dining room.";
+    const sourceUrl = "https://backoff-adjudication.example/dogs";
+    const inputs = {
+      candidates: [{
+        id: "backoff-candidate",
+        osm_ref: "node/backoff-candidate",
+        name: "Backoff Candidate",
+        category: "restaurant",
+        walk_min: 1,
+        location: { lat: 0, lng: 0 },
+        extras: { website: "https://backoff-adjudication.example" },
+        attributes: [{ key: "dog-friendly", status: "likely_true", confidence: 0.6 }],
+      }],
+      requirements: [{
+        id: "backoff-need",
+        owner_id: "participant",
+        visibility: "shared",
+        hardness: "hard",
+        payload: { kind: "attribute", key: "dog-friendly", expect: "verified_true" },
+        withdrawn: false,
+        active: true,
+      }],
+      verdicts: [],
+      scope: null,
+      enrichments: new Map([["node/backoff-candidate", {
+        osmRef: "node/backoff-candidate",
+        fetchedAt: new Date().toISOString(),
+        website: null,
+        wikidata: null,
+        inferred: {
+          "dog-friendly": {
+            key: "dog-friendly",
+            lean: "yes",
+            confidence: 0.6,
+            evidence,
+            context: evidence,
+            pageTitle: "Dogs",
+            publisherNames: ["Backoff Candidate"],
+            source: "infer:test:venue_site",
+            sourceUrl,
+            observedAt: new Date().toISOString(),
+            explicit: true,
+          },
+        },
+        error: null,
+      }]]),
+    } as EligibilityInputs;
+    let modelCalls = 0;
+    setTransport(async () => {
+      modelCalls += 1;
+      // No usable result: every cell in this pass stays unresolved.
+      return { output: [{ type: "message", content: [{ type: "output_text", text: "{}" }] }] };
+    });
+    const options = {
+      mode: "proactive" as const,
+      inputs,
+      consumeModelCall: () => true,
+    };
+    await adjudicateLikelyForRoom({} as never, "backoff-room", options);
+    expect(modelCalls).toBe(1);
+    await adjudicateLikelyForRoom({} as never, "backoff-room", options);
+    expect(modelCalls).toBe(1);
+    resetAdjudicationForTest();
+    await adjudicateLikelyForRoom({} as never, "backoff-room", options);
+    expect(modelCalls).toBe(2);
+  });
+
   it("keeps direct site occupancy full while a slow proxied asset downloads", async () => {
     const scheduler = new PipelineScheduler({
       pools: testPools({ direct: 4, proxy: 1, search: 1, "llm-matrix": 1, vision: 1, "image-decode": 1 }),

@@ -43,6 +43,7 @@ import { menuReaderEnabled, readMenu } from "./menu-reader.ts";
 import {
   applyInferredAttributes,
   inferenceEnabled,
+  mergeAdjudication,
   sanitizeInferenceNote,
   type StoredInference,
 } from "./infer.ts";
@@ -245,8 +246,12 @@ export function resolveInference(
   // Cache metadata is monotonic metadata on this evidence cell, not a second
   // fact path. Retain it even when the evidence comparison keeps the old fact.
   const retainedPrevious = fresh.adjudication
-    ? { ...previous, adjudication: fresh.adjudication }
+    ? { ...previous, adjudication: mergeAdjudication(previous.adjudication, fresh.adjudication) }
     : previous;
+
+  // A deferral records that this cell was attempted and produced nothing. It
+  // carries no evidence, so it may only ever update the metadata.
+  if (fresh.adjudication?.deferred) return retainedPrevious;
 
   // A focused reread may flip a likely claim, never a fact already verified.
   if (

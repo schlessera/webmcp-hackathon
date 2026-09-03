@@ -6,6 +6,7 @@ import {
   THIRD_PARTY_ADJUDICATION_CONFIDENCE,
   adjudicationCached,
   adjudicationOutcomesFromAnswer,
+  deferredAdjudication,
   evidenceHash,
   publisherNameMatchesPlace,
   registrableDomainMatches,
@@ -13,6 +14,7 @@ import {
   type AdjudicationCell,
 } from "../../apps/server/src/enrich/adjudicate.ts";
 import { resolveInference, type StoredCriterionInference } from "../../apps/server/src/enrich/index.ts";
+import { ADJUDICATION_ATTEMPT_CAP } from "../../apps/server/src/enrich/infer.ts";
 
 const observedAt = "2026-09-03T10:00:00.000Z";
 const context =
@@ -150,6 +152,43 @@ describe("focused evidence adjudication", () => {
     expect(adjudicationCached(stored, hash, new Date("2026-10-02T10:00:00.000Z").getTime())).toBe(true);
     expect(adjudicationCached(stored, evidenceHash("different evidence"))).toBe(false);
     expect(adjudicationCached(stored, hash, new Date("2026-10-04T10:00:00.000Z").getTime())).toBe(false);
+  });
+
+  it("keeps the claim and closes the cell once a deferral reaches the attempt cap", () => {
+    const target = cell();
+    const hash = target.evidenceHash;
+    let stored = target.claim as Exclude<StoredCriterionInference, { omitted: true }>;
+    for (let attempt = 1; attempt <= ADJUDICATION_ATTEMPT_CAP; attempt += 1) {
+      const fresh = deferredAdjudication(target, observedAt) as Exclude<
+        StoredCriterionInference,
+        { omitted: true }
+      >;
+      stored = resolveInference(stored, fresh) as Exclude<StoredCriterionInference, { omitted: true }>;
+      expect(stored.evidence).toBe(target.claim.evidence);
+      expect(stored.confidence).toBe(target.claim.confidence);
+      expect(stored.adjudication).toMatchObject({ deferred: true, attempts: attempt });
+      // Only the spent attempt closes the cell; before that it is still retried.
+      expect(adjudicationCached(stored, hash)).toBe(attempt === ADJUDICATION_ATTEMPT_CAP);
+    }
+  });
+
+  it("never lets a deferral overwrite a recorded verdict", () => {
+    const target = cell();
+    const verdict = adjudicationOutcomesFromAnswer(
+      result("yes", true, "chain"),
+      [target],
+      observedAt,
+    )[0].inference as Exclude<StoredCriterionInference, { omitted: true }>;
+    const deferred = deferredAdjudication(target, observedAt) as Exclude<
+      StoredCriterionInference,
+      { omitted: true }
+    >;
+    const merged = resolveInference(verdict, deferred) as Exclude<
+      StoredCriterionInference,
+      { omitted: true }
+    >;
+    expect(merged.adjudication).toEqual(verdict.adjudication);
+    expect(merged.source).toBe(verdict.source);
   });
 
   it("rejects a yes/no quote that is not a verbatim span", () => {
