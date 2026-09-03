@@ -1,172 +1,368 @@
-# Project status — Spokes (handoff)
+# Project status — Spokes
 
-> **2026-09-02, later:** the venue layer moved onto whole-city OpenStreetMap
-> snapshots for Berlin and San Francisco, with an area picker before the
-> room and honest provenance inside it (`docs/DATA-QUALITY.md`, "Engine
-> decision"). `room_demo` and the rehearsed trajectory are unchanged. The
-> rest of this document predates that and the redesign; trust the code.
+**Last updated:** 2026-09-03, after the WebMCP Challenge deadline.
+**HEAD:** `3d3e1f2` on `main`. **Live:** <https://spokes.alainschlesser.com>
+(deployed build `acef7d2`). **Tool contract:** version 3, 22 tools.
 
-Last updated: 2026-09-02 (the mapview redesign has LANDED and its open menu
-is closed: tokens, fonts, the FACETS.md server contract, the rebuilt client,
-presence on the wire, the rewritten e2e lane (7 passing), the re-walked demo
-runbook and recording script are on main. Read `docs/REDESIGN-HANDOFF.md`
-first for the current state, locked decisions D1–D6 and the remaining gaps;
-the counts and wave descriptions below it predate the redesign.)
+This is the single source of truth for anyone picking the work up. It replaces
+the 2026-09-02 version of this file, which predates roughly 313 commits.
 
-This is the single source of truth for a new session
-picking up the work. Read this, then `docs/DEMO-RUNBOOK.md` and
-`docs/KNOWN-LIMITATIONS.md`.
+---
+
+## Where things stand
+
+The entry was **submitted to the WebMCP Challenge 2026 before the deadline
+(3 September 2026, 22:00 CEST), without the narrated video.** That is the one
+hole in the submission itself; everything else the entry claims is deployed and
+running. Judging runs 4–21 September.
+
+Two consequences shape the near-term work:
+
+- **The submission is frozen; the project is not.** Per the official rules, the
+  Devpost submission cannot be altered after the deadline, but the project in
+  the Devpost portfolio — and this repository — can keep moving.
+- **The live URL has to keep working through 21 September.** Judges test
+  against it. Any change that reaches production during the judging window
+  should be treated as touching the thing being judged.
+
+Verified live, 2026-09-03: `GET /api/meta` returns
+`{"buildId":"acef7d2","toolContractVersion":"3","nl":true}`; the origin-trial
+response header decodes to `{"origin":"https://spokes.alainschlesser.com:443",
+"feature":"WebMCP","expiry":1794873600}` (mid-November 2026).
+
+**The deployed build is four commits behind `main`:** `890984d` (deploy keeps
+the host-generated Postgres password), `cca69ce` (a place panel settles after a
+lookup caught mid-read), `daaebc4` (the agent forwards its read intent to
+`inspect_candidates`), and the merge. None is a regression fix for something
+judges would hit; pushing is optional, and any push during judging carries the
+risk of the live URL being briefly down.
+
+---
 
 ## What Spokes is
 
-A shared map where a small group and their personal AI agents privately
-negotiate a meeting venue: state requirements (shared / application-private /
-agent-private), see live eligibility, hit and resolve impasses via quantified
-counterfactuals with in-page consent, reach an organizer-committed agreement,
-and hand off to navigation. Built on WebMCP: 22 tools on
-`document.modelContext` expose two custom protocols (`negotiation/v1` +
-`spatial-destination/v1`). Concept + protocol design in `docs/` and
-`docs/protocols/`.
+A shared map where a small group and their personal AI agents converge on a
+place to meet. People state needs at three privacy levels, watch eligibility
+recompute live, hit and resolve impasses through quantified counterfactuals with
+in-page consent, reach an organizer-committed agreement, and hand off to
+navigation. Each person's agent participates in the same room through WebMCP —
+22 tools on `document.modelContext` carrying two protocols (`negotiation/v1` and
+`spatial-destination/v1`).
 
-## Current state (honest)
+The room is domain-agnostic by construction: every control the client draws
+comes from server-returned facet data, and there is no domain branch anywhere in
+the front end.
 
-**Built and green.** The product vertical slice is implemented on top of the
-validation-spike-1 core. Automated tests: **222 unit + 128 API + 14 e2e = 364 enumerated** (lanes 1–3). Two independent adversarial reviews ran (GPT-5.6 code
-review + a protocol-invariant audit); the critical/high privacy and
-agreement-integrity findings were fixed and are covered by tests, and the two
-biggest deferred findings were closed on 2026-09-01: a realtime-only
-**confirmation nonce** on `CommitAgreement`/`ConfirmPrivateRequest` (closes the
-raw-HTTP bypass; honest residual limits in KNOWN-LIMITATIONS) and the **full
-six-state phase machine** with a per-command gating table.
+---
 
-**UX pass done.** A full dual-agent `impeccable` critique ran (26/40 snapshot in
-`.impeccable/critique/`), the user picked the two open design directions (wire
-view as a designed trust feature; live-count legend), and the polish wave
-shipped: desktop layout fix, legend, humanized copy end-to-end (phase labels,
-provenance, requirement summaries), wire view, commit celebration, toasts,
-a11y (tabbable pins, sr-only privacy text, contrast), scope spotlight mask
-(outside the range dimmed), and unmistakable proposed (pulsing ring) / vetoed
-(desaturated + dashed red ring + ✕ badge) pins. Two real rendering bugs died on
-the way: the Vite dep optimizer broke MapLibre's worker (no basemap tiles ever
-painted in dev serving) and the vetoed ring's base CSS only existed under
-`data-proposed`.
+## What is built
 
-**Three-window demo recordable.** `scripts/record-demo.mjs` drives the full
-trajectory against its own server + throwaway room and records one paced video
-per participant window plus `beats.log`
-(`test-results/demo-recording/{org,sarah,joe}.webm`, ~55 s arc). These are
-**rehearsal/evidence artifacts only** (spikes 6/7/8 evidence, spike 10 input) —
-the user has explicitly decided the product is NOT ready for the submission
-video: the three planned waves below come first, and recording resumes only
-after them.
+### The room
 
-**NOT yet done / NOT verified — the real gaps before submission:**
+Goal-first start (`apps/web/src/Start.tsx`): pick an area, type what the group
+is trying to do, and `POST /api/plans/preview` reads that sentence into one step
+— a place class plus pending needs the organizer can drop before the room
+exists. `POST /api/rooms` then creates it. Invite links bypass the picker; `/`
+serves a landing page.
 
-1. **WebMCP-in-ChatGPT is unverified for the new slice.** The old spike's
-   Gate 0/1 validated only `sync_session` in real ChatGPT. The 14 new
-   spatial+negotiation tools have never been exercised in ChatGPT's in-app
-   browser — this is the core thesis and it is untested end-to-end. Needs a
-   public deploy (`docs/DEPLOY-COOLIFY.md`), a Chrome WebMCP origin-trial token
-   for that origin, and the real ChatGPT app (user-side steps).
-2. **Human eyes-on**: the recordings exist, but a human has to actually watch
-   them (or the live three windows) and sign off the flow.
-3. **Submission tail** — deliberately LAST: the sub-3-minute narrated video,
-   Devpost submission (`docs/SUBMISSION.md` is a draft), and public-repo
-   checklist all wait until the planned next waves (see below) are done.
-4. **Deferred review findings still open** (documented in
-   `docs/KNOWN-LIMITATIONS.md`, decide per item): organizer scope-change
-   consent routing, mapRevision, token expiry, participant lifecycle.
+Inside the room: an edge-to-edge MapLibre map that never re-centres on a set
+change, a brief of what the group has asked for (press-and-hold any need row to
+preview the map without it), a composer with a shared/private/agent-private
+scope selector, a place details panel that renders whatever attribute groups the
+server sends, and the `{ }` drawer — which since `10c169b` draws the wire as a
+five-lane timeline rather than a log.
 
-We are **far from submission-ready** — do not treat the drafted `LICENSE` /
-`docs/SUBMISSION.md` as a decision to submit; they are prep, written ahead.
+### Decision engine
 
-## Where things live
+`apps/server/src/engine.ts` is the single command bus: 19 command types, Ajv
+validation, transactional, optimistic concurrency on `baseRevision` (a stale one
+returns `sync_required` with a delta), participant-scoped idempotency keys, and
+a six-state phase machine with a per-command gating table. UI gestures and
+WebMCP tool calls enter through the same door.
 
-- **Commits** (branch `main`): `3639cb1` spike 1 · `7525d4b` product slice ·
-  `bc9ac2b` review fixes · `ca8fcbf` Coolify deploy · `4f7c80f`/`76df833`/
-  `6330a2a` nonce + phase machine · `fdad82f`…`d0de320` polish wave ·
-  `b59ae10` MapLibre worker fix · `a498352` scope mask + pin states ·
-  `33fc2d7` demo recorder · `16cb3eb` human summaries. `LICENSE` (MIT + ODbL
-  note) and `docs/SUBMISSION.md` (Devpost draft) are drafts.
-- **Code map** (very detailed, from an Explore pass):
-  `/home/alain/.claude/jobs/94b7999d/tmp/codebase-map.md` — job-temp, may be
-  purged; regenerate with an Explore agent if gone.
-- **Review reports**: codex review at
-  `/home/alain/.claude/jobs/94b7999d/tmp/codex-review.Ihk82p/report.md`;
-  invariant audit (16 findings + HELD list + repro scripts) at
-  `/home/alain/.claude/jobs/94b7999d/tmp/invariant-audit.md`. Both are job-temp.
-- **Venue dataset**: `packages/contracts/data/berlin-mitte-venues.json` (31 OSM
-  venues + curated demo overlay), built by `scripts/extract-venues.mjs` +
-  `scripts/curate-venues.mjs`; ODbL in `packages/contracts/data/ATTRIBUTION.md`.
-- **Venue data research** (2026-09-01): `docs/DATA-QUALITY.md` — measured OSM
-  attribute coverage for Berlin vs five San Francisco centres, why no public
-  OSM API is safe in the request path, commercial pricing, and the three ways
-  data quality limits the demo.
-- **Next wave plan**: `docs/PLAN-LIVE-DATA-AND-ONBOARDING.md` — two areas, live
-  self-hosted venue data, organizer onboarding with join link/QR, and agent
-  attestation tools. Proposed, not started; one open decision recorded there.
-- **Docs**: `DEMO-RUNBOOK.md`, `KNOWN-LIMITATIONS.md`, `DEPLOY-COOLIFY.md`,
-  `SUBMISSION.md`; protocol specs in `docs/protocols/` (normative — impl matches;
-  §5.4 was narrowed to match reality).
+`eligibility.ts` classifies each place five ways — eligible, likely, uncertain,
+unlikely, excluded. Only verified statuses (confidence ≥ 0.7) rule a place in or
+out; a guess is drawn dashed and never makes a room feasible. The client shows
+`matching + likely` as the big number, while `matching`, the impasse arithmetic
+and every relaxation delta stay eligible-only on the wire.
 
-## Demo facts (verified against passing tests)
+`impasse.ts` computes the minimal conflict set and the quantified relaxations.
+`projection.ts` redacts per viewer, so unauthorised fields never enter another
+participant's HTTP body or WebSocket frame. `confirmation.ts` mints single-use
+nonces delivered only over the staging participant's own socket.
 
-- Center 52.5219,13.3899, scope 800 m → **21 of 31 eligible** with no
-  requirements. Demo requirement set (veg shared + lactose-free app-private +
-  exclude Italian + budget ≤ €15) → **impasse fires when Joe's lactose
-  requirement lands**; the radius adjustment widens **800 → 1200 m → 3 eligible**;
-  veto target **Chén Ché (place_30)** leaves **2**; final destination
-  **The Barn (place_24)**. (Dataset manifest says 4 at 1400 m; the engine picks
-  the smallest 200 m step reaching ≥3, which is 1200 m — the runbook uses the
-  engine's real numbers.)
+### The enrichment pipeline
 
-## Stack decisions (locked)
+The largest change since the last version of this doc. A process-global
+admission controller in `apps/server/src/pipeline/`, documented accurately in
+`docs/ENRICHMENT-SOURCES.md`:
 
-MapLibre GL + `@vis.gl/react-maplibre`, keyless OpenFreeMap tiles
-(`.../styles/liberty`); routing via FOSSGIS OSRM with a haversine fallback
-(currently haversine only — walk_min); Google Maps URL for navigation handoff.
-All keyless and ToS-cleared for a public demo (spike 9). Agreement rule:
-all-accept-organizer-commit. See `[[product-slice-decisions]]` memory.
+- **Seven work kinds** — `fetch.site`, `fetch.search`, `fetch.asset`,
+  `process.judge`, `process.adjudicate`, `process.vision`, `process.decode`.
+- **Seven pools** with continuous refill and a priority-zero reservation:
+  interactive 3, proxy 8, direct 4, search 4, llm-matrix 2, vision 1,
+  image-decode 2.
+- **Deficit round robin across rooms, strict priority within one.** Priority 0
+  means a person is waiting; background tiers start at 1.
+- **One focus per participant.** Moving on drops that participant's queued
+  interactive work and aborts its in-flight legs unless another participant
+  shares the place. Superseded plan generations publish nothing.
+- **Admission floor:** one plan per (place, needs epoch) with a 60-second floor;
+  a refused open publishes an immediate `done` carrying `completionReason`.
+  "Look again" forces past it.
+- **Batching:** matrix rectangles of ≤ 8 places × 5 criteria on a 300 ms
+  window; priority-zero cells bypass the window.
 
-## How to resume
+Evidence merges monotonically through a single source-rank table (record >
+own-site explicit > listing > own-site inferred > domain search > open web >
+name/category). An abstention never overwrites a stronger claim, and inference
+is capped by source bucket. Sources shipping today: the OSM long tail, venue
+websites (JSON-LD plus visible text), Wikidata and Commons, DataForSEO business
+listings, a vision menu reader, and facts a person confirmed (kept permanently,
+across rooms).
 
-- **Run the demo**: `make demo` (docker; needs `sudo -n` on this machine), then
-  `node scripts/open-participants.mjs`. The demo stack runs on 4173.
-- **After pulling new code**: `git pull && sudo -n make update` — rebuilds every
-  image (including the profile-hidden `seed-demo`), migrates, restarts, reseeds.
-  Then hard-reload open tabs. (`git pull` stays outside make so sudo never runs
-  git as root.) If the map is stuck on "Loading the shared map…", the room was
-  seeded by a stale image and lost its scope: `make demo-reset`.
-- **Record the demo**: `node scripts/record-demo.mjs` (own server + throwaway
-  room; three videos + beats.log).
-- **Tests**: `pnpm test:unit`; `pnpm test:api` and `pnpm test:e2e` need the db
-  up + migrated (`sudo -n docker compose up -d db migrate`). `sudo -n make test`
-  loses the user's pnpm PATH — run the pnpm scripts directly instead. An
-  orphan smoke server may linger on **4180**; kill it if tidying.
+Outbound traffic runs through `net/outbound.ts`: PacketStream residential exits,
+per-purpose routing, per-host breakers, a stable 10 % direct control group,
+robots honoured, and an SSRF guard on every target.
 
-## Planned next waves (user-confirmed 2026-09-01; all required before the video)
+### Place data
 
-The user chose ALL of these as still needed, in no committed order, each to be
-PLANNED and DESIGNED before building:
+Committed OpenStreetMap area snapshots are the source of truth; no public query
+API sits in the request path. `scripts/build-area-snapshot.mjs` clips a
+Geofabrik extract and measures its own coverage, which `/api/areas` surfaces —
+those numbers are never typed into the client.
 
-1. **Product depth** — descoped protocol features return to the table:
-   disclosure ladder L1–L3, richer requirement types, time-window eligibility,
-   meeting points, multiple areas/rooms. Discovery path: the protocol docs'
-   open-questions sections (`docs/protocols/*.md`) name each descope and its
-   design questions; `PRODUCT-CONCEPT.md` and `IDEATION-JOURNAL.md` hold the
-   original ambitions to mine.
-2. **Visual identity overhaul** — the critique's verdict stands: the semantic
-   core is authored, the chrome is timid. A real design-direction pass (brand,
-   typography, header, map styling) beyond the shipped polish. Discovery path:
-   `.impeccable/critique/2026-09-01T07-24-12Z__apps-web.md` (especially the
-   "provocative questions"), `apps/web/DESIGN.md` as the incumbent system to
-   evolve or deliberately replace.
-3. **Agent/ChatGPT experience** — deepen the tool surface: first-run
-   instructions, richer tool results, the agent-private screening loop's UX,
-   demo choreography for the agent window. Discovery path:
-   `docs/protocols/INTERACTION-AND-BINDING.md` (tool descriptions and result
-   budgets), `WEBMCP-REFERENCE.md`, the lane-5 gate below.
+| Area | Venues | Landmarks | Focus coverage |
+|---|---|---|---|
+| berlin-mitte | 19,095 | 3,000 | 874 places, 21.2 % decisive |
+| sf-soma | 5,260 | 3,000 | 910 places, 8.9 % decisive |
 
-After those waves: the ChatGPT WebMCP gate (public deploy + origin-trial token
-+ real ChatGPT run of the 14 tools), the human sign-off, and only then the
-narrated sub-3-minute video and Devpost submission.
+Scope radii 800 / 1,400 / 2,000 m, `POOL_CAP` 2,500. The explore layer behind
+the map loads for the viewport the user panned to — loading follows the
+viewport, never the other way round. Ten step classes (food, cafe, drinks,
+cinema, theatre, park, museum, coworking, sport, books) decide which place
+classes a room's pool draws from.
+
+`room_demo` still runs on the 31-venue curated Berlin Mitte set, unchanged, so
+the rehearsed demo arithmetic stays deterministic.
+
+### Models
+
+One door (`nl/llm.ts`), one deployment model: **`openai/gpt-5.6-luna` through
+OpenRouter at high reasoning effort.** Per-role overrides
+(`LLM_MODEL_ROUTE/_JUDGE/_AGENT/_VISION`, `MENU_READER_MODEL`) all fall back to
+it and survive only as override seams. `OPENROUTER_PROVIDERS` pins endpoints
+with `allow_fallbacks: false`, so a refusal surfaces instead of a silent swap;
+the private screening path adds `data_collection: deny` and `zdr: true`. Search
+runs on Parallel's turbo processor by default, with OpenAI and Tavily behind it.
+
+Without a model key the room still works: the composer falls back to label
+matching and no agent card appears. No model is ever allowed to invent a
+feasibility fact.
+
+### WebMCP surface
+
+22 tools defined once in `packages/contracts/src/tools.ts` and registered at page
+load — 10 negotiation, 12 spatial. Unauthenticated calls return a structured
+`not_authenticated` rather than being absent. Result budgets: 1,500 characters,
+8,000 for `sync_session`. `CommitAgreement` and `ConfirmPrivateRequest`
+deliberately have no tool binding.
+
+The page's own agent (`nl/agent.ts`) acts for exactly one person over the same
+tool surface and the same command bus. Agent-private conditions live in memory
+only (`nl/held-registry.ts` — never a table, an event, or a frame).
+
+### Persistence
+
+Postgres 17.6, 24 migrations, immutability enforced by a hash manifest and a
+unit test. Room state, attestations and confirmed facts, per-OSM-ref enrichment
+rows, place images with blurhashes, and four caches — page, outbound metadata,
+search, and a matrix cache that has **no expiry by design**: an identical
+evidence hash means that exact question was already answered.
+
+---
+
+## Verified state
+
+Measured on this tree at `3d3e1f2`, 2026-09-03:
+
+| Lane | Command | Result |
+|---|---|---|
+| typecheck | `pnpm typecheck` | clean, 3 projects |
+| unit | `pnpm test:unit` | **752 passed / 752**, 56 files, no database |
+| api | `pnpm exec vitest run tests/api --maxWorkers=2` | see below |
+| e2e | `pnpm test:e2e` | see below |
+| native | `pnpm test:native` | not run — needs real Chrome ≥ 149 |
+
+Static `it(`/`test(` counts undercount the real total by 20–30 %, because
+several suites are table-driven off `tests/fixtures/nl-corpus.jsonl`. Quote a
+run, not a grep. The old "222 unit + 128 API + 14 e2e = 364" figure is stale in
+every lane by a wide margin.
+
+There is no CI. `make test` runs unit, api and e2e in sequence but takes no
+lock, and the api lane truncates global cache tables.
+
+---
+
+## Running it
+
+```sh
+make demo                             # stack + seeded room_demo on 127.0.0.1:4173
+node scripts/open-participants.mjs    # Sarah and Joe in isolated contexts, organizer URL printed
+make update                           # after a git pull: rebuild every image, migrate, restart, reseed
+make demo-reset                       # reset and reseed only room_demo
+make dev                              # compose watch, HMR
+make venues / venues-refresh          # rebuild the area snapshots from the Geofabrik extracts
+APP_DOMAIN=… scripts/push-to-hetzner.sh   # ship to production
+```
+
+Deployment is **Caddy in front of the existing compose stack on a plain Docker
+host** (`compose.prod.yaml` + `Caddyfile` + the two Hetzner scripts). Coolify was
+prepared and abandoned at the gate; `docs/DEPLOY-COOLIFY.md` still describes it
+and is still what the README links to.
+
+Nothing is strictly required in the environment — `apps/server/src/config.ts`
+defaults everything — but the live paths need `OPENROUTER_API_KEY`,
+`PARALLEL_API_KEY`, `DATAFORSEO_LOGIN`/`_PASSWORD`, `PROXY_URL`,
+`DEMO_SECRET_KEY` and `ORIGIN_TRIAL_TOKEN`. There is no `.env.example`;
+`docs/DEPLOY-COOLIFY.md` carries the full variable table, which is current even
+though its platform is not.
+
+---
+
+## The demo
+
+`docs/DEMO-RUNBOOK.md` holds the rehearsed 14-beat, three-window script on
+`room_demo`, with counts the engine actually produces: 21 places in scope →
+12 after Sarah's shared need → 0 after Joe's private one → 0 after Alain's two
+→ 4 of 31 once the area widens to 1.2 km → settled on The Barn. It is accurate
+except for one number: setup step 3 says 17 WebMCP tools, and there are 22.
+
+The rehearsed demo is **not** goal-first. `make demo` seeds a fixed room with a
+fixed scope and three joined participants. Goal-first rooms, the area picker and
+the live-data path are real and reachable, but unrehearsed, and the runbook's
+optional section describes the pre-goal version of that flow.
+
+No narrated video exists. `scripts/record-demo.mjs` still drives the full
+trajectory against its own server and a throwaway room, producing three paced
+`.webm` files plus `beats.log`; `test-results/demo-recording/` is not in the
+working tree.
+
+---
+
+## Open gaps
+
+**The submission**
+
+1. No narrated video. The submission is frozen, so this can only improve the
+   Devpost portfolio entry, not the judged submission.
+2. The manual ChatGPT gate — the 22 tools exercised end to end in ChatGPT's
+   in-app browser against the live URL — has never been run and recorded. The
+   deploy and the origin-trial token are both in place, so nothing blocks it.
+   `docs/VALIDATION-SPIKE-1-AUTOMATED-DEMO.md` lane 5 has the ten steps.
+
+**Protocol and privacy** (each with a written threat model in
+`docs/KNOWN-LIMITATIONS.md`)
+
+3. The confirmation nonce binds to a page session, not to a human gesture: the
+   same token holder can open a socket, be re-issued a nonce, and apply.
+4. Organizer `SetSearchScope` applies without consent routing — spatial
+   invariant 7 is unimplemented for the organizer; members are refused outright.
+5. No participant join/leave lifecycle. `policy.expiresAt` is stored but not
+   enforced; guest tokens neither expire nor revoke.
+6. `exclusion.key` is still pinned to the literal `"cuisine"`
+   (`packages/contracts/src/commands.ts`) — a domain word on the wire, against
+   the domain-agnostic rule. `FACETS.md` should decide whether exclusions
+   generalise to any enum facet.
+7. Five protocol questions stay open in `docs/protocols/*` §7: commutative
+   rebase, brief and delta wording templates, the `evaluate_candidates`
+   re-screen nudge, the scoring model, and the minimal-conflict-set algorithm.
+8. The disclosure ladder L1–L3, transit routing and meeting points remain
+   scoped out. Agent-private screening (L0) ships.
+
+**Product and UI** (fuller list in `docs/REDESIGN-HANDOFF.md`)
+
+9. Desktop is a thin adaptation of mockup 8c — a 319 px rail and a wide map.
+   Nobody has decided what desktop is for; that is a design decision first.
+10. The agreed map draws no route and no origin marker.
+11. The `{ }` drawer is a full-screen takeover without the Wire / Tools /
+    Session tabs the mockup specifies.
+12. "Send the link" is not built — invite secrets are minted per person and
+    never come back to the page.
+13. Attribution links are 7 px with no 44 px target: invariant 11 and invariant
+    13 contradict each other and the contradiction is unresolved.
+
+**Data and operations**
+
+14. Presence, realtime fan-out and the pipeline counters are single-process. No
+    LISTEN/NOTIFY, no Redis, no cross-worker presence store. A multi-instance
+    deploy needs sticky sessions or a shared store, and split work would make
+    the volume figures wrong.
+15. Budget needs are EUR-only, so an SF room classifies every place unsure on
+    budget. Supplementary SF sources are researched but unwired.
+16. Roughly 45 % of Berlin and 50 % of SF focus places have no website tag; the
+    Foursquare/Overture offline join that would close it is not built.
+17. Wave 3 D2 — multi-step goals with `then`/`near` offers and `stepId` columns
+    — is designed but unbuilt, and its design note (`UNDERSTANDING-ARCH.md`) is
+    not in the repository. `docs/NL-AGENT.md` still cites it.
+
+---
+
+## Which documents to trust
+
+**Current, written or rewritten against the shipped code**
+
+- `README.md` — demo-first, accurate. Only fault: it links
+  `docs/DEPLOY-COOLIFY.md` as the deployment guide.
+- `docs/SYSTEM-ARCHITECTURE.md` — carries the scheduler, outbound routing and
+  the interactive lane.
+- `docs/ENRICHMENT-SOURCES.md` — the pipeline document that matches the code.
+- `docs/DATA-QUALITY.md` — measured coverage, and why no public OSM API sits in
+  the request path.
+- `docs/NL-AGENT.md` — the two agent tiers and the goal-first read.
+- `docs/KNOWN-LIMITATIONS.md` — the deferral list, with one exception: it says
+  the `setup` and `closed` phases are unreachable, and `setup` became reachable
+  when room creation shipped.
+- `docs/DEMO-RUNBOOK.md` — one wrong tool count, otherwise walked.
+- `docs/DEVPOST.md` — the submitted narrative. Its test counts are the ones that
+  were true when it was written.
+- Root `PRODUCT.md`, `DESIGN.md`, `CLAUDE.md`, `apps/web/SPOKES-UI.md`,
+  `apps/web/COPY.md`, `apps/server/FACETS.md` — the working invariants.
+
+**Superseded, and mostly not saying so**
+
+- `docs/DEPLOY-COOLIFY.md` — the platform was abandoned; the environment table
+  is still the best one there is.
+- `docs/PLAN-LIVE-DATA-AND-ONBOARDING.md` — headed "proposed, not started",
+  while three of its four waves shipped and wave 2's self-hosted Overpass
+  architecture was rejected in `DATA-QUALITY.md`.
+- `docs/REDESIGN-HANDOFF.md` — locked decisions D1–D6 still bind; its test
+  counts and `TOOL_CONTRACT_VERSION 2` are wrong.
+- `docs/SUBMISSION.md` — reads pre-deploy, keeps `<LIVE_URL>` placeholders and
+  an unchecked checklist. `DEVPOST.md` is the real narrative; `SUBMISSION.md`
+  uniquely holds the WebMCP-fit bullets.
+- `docs/EXPERIENCE-AND-DEMO.md` — its 16-step sequence predates the runbook's 14
+  beats. `docs/README.md` — an August 31 index that omits half the corpus.
+  `docs/PROTOCOLS.md` — self-marked superseded. `docs/MVP-AND-RISKS.md` — its
+  open-decisions list is fully resolved and carries no caveat.
+- `docs/protocols/INTERACTION-AND-BINDING.md` §2.3 is headed "22 tools" and
+  enumerates 21: `confirm_fact` is documented nowhere in the corpus.
+
+---
+
+## Operating rules that will bite
+
+- **Take the shared lane lock.** `flock /tmp/claude-1000/spokes-lane.lock` for
+  the api and e2e lanes. Sibling worktrees share the compose database and the
+  api lane truncates global cache tables; concurrent runs corrupt each other.
+- **Run the api lane twice, or run it on a fresh database.** Global rows
+  (confirmed facts, images, caches) accumulate, so one green run proves less
+  than two. `DROP`/`CREATE` a scratch database and migrate for merge testing.
+- **Never edit an applied migration.** Add one and re-run
+  `node scripts/migration-hashes.mjs`; a unit test enforces it.
+- **Local Node is four majors behind the image.** `engines.node` is ≥ 24, the
+  local default is 22.18, the Dockerfile builds on node:26-alpine. pnpm warns on
+  every command; nothing has broken yet.
+- **`make test` omits the native lane**, and the compose `e2e` service runs only
+  `three-user.spec.ts` — narrower than `pnpm test:e2e`.
+- Test servers run with `OPENAI_API_KEY=""` so no lane can spend money.
