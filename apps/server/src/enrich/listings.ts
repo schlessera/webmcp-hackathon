@@ -1,5 +1,5 @@
 import type pg from "pg";
-import { PRICE_LEVEL_EUR } from "@webmcp-hackathon/contracts";
+import { PLACE_CLASSES, PRICE_LEVEL_EUR, type PlaceClass } from "@webmcp-hackathon/contracts";
 import { outboundFetchFor } from "../net/outbound.ts";
 
 export const LISTING_SOURCE = "listing:google" as const;
@@ -11,6 +11,95 @@ export const DATAFORSEO_REQUEST_USD = 0.012;
 export const DATAFORSEO_ITEM_USD = 0.00036;
 export const DATAFORSEO_LIMIT = 1_000;
 export const LISTING_MATCH_DISTANCE_M = 60;
+/** The provider caps a request at 10 categories; a wider pool takes more. */
+export const DATAFORSEO_CATEGORIES_PER_REQUEST = 10;
+export const DATAFORSEO_MAX_REQUESTS = 6;
+/** `location_coordinate` rejects a radius below one kilometre. */
+export const DATAFORSEO_MIN_RADIUS_KM = 1;
+
+/**
+ * Our place classes to the provider's own category names, every one of them
+ * checked against the 5,317-name list its categories endpoint publishes
+ * (verified live 2026-09-03). This is a provider translation, not a domain
+ * branch: the classes come from the pool, and nothing here reaches a client.
+ *
+ * It exists because an unfiltered request is useless. Measured on the Berlin
+ * demo centre at a 1 km radius: 10,238 businesses match with no category
+ * filter, so the 1,000-item cap returns an arbitrary tenth of them — lawyers,
+ * software firms and hotels — and one of 31 pool places was found. The same
+ * request filtered to the pool's own classes matches 435, fits under the cap
+ * whole, and costs less because cost is per item returned.
+ */
+export const LISTING_CATEGORIES: Readonly<Record<PlaceClass, readonly string[]>> = Object.freeze({
+  // A class expands to its subtypes because the provider files a place under
+  // the most specific one it has: Grill Royal is `bar_and_grill`, not
+  // `restaurant`, and asking only for `restaurant` never returns it. Measured
+  // on the Berlin pool, adding subtypes recovered 7 of the 12 places a
+  // top-level-only filter missed.
+  cafe: ["cafe", "coffee_shop", "espresso_bar", "bistro", "patisserie", "cafeteria"],
+  restaurant: [
+    "restaurant", "italian_restaurant", "asian_restaurant", "chinese_restaurant",
+    "japanese_restaurant", "sushi_restaurant", "ramen_restaurant", "korean_restaurant",
+    "thai_restaurant", "vietnamese_restaurant", "indian_restaurant",
+    "middle_eastern_restaurant", "turkish_restaurant", "greek_restaurant",
+    "spanish_restaurant", "french_restaurant", "german_restaurant",
+    "american_restaurant", "mexican_restaurant", "seafood_restaurant",
+    "barbecue_restaurant", "bar_and_grill", "fine_dining_restaurant",
+    "vegetarian_restaurant", "vegan_restaurant", "brunch_restaurant",
+    "breakfast_restaurant",
+  ],
+  bar: ["bar", "cocktail_bar", "wine_bar", "sports_bar", "gastropub"],
+  pub: ["pub", "brewpub", "beer_hall"],
+  biergarten: ["beer_garden"],
+  fast_food: [
+    "fast_food_restaurant", "hamburger_restaurant", "pizza_restaurant",
+    "taco_restaurant", "chicken_restaurant", "sandwich_shop", "kebab_shop",
+    "salad_shop",
+  ],
+  cinema: ["movie_theater"],
+  theatre: ["performing_arts_theater"],
+  library: ["library"],
+  coworking_space: ["coworking_space"],
+  arts_centre: ["arts_organization", "cultural_center"],
+  community_centre: ["community_center"],
+  ice_cream: ["ice_cream_shop"],
+  park: ["park"],
+  garden: ["garden"],
+  dog_park: ["dog_park"],
+  playground: ["playground"],
+  sports_centre: ["sports_complex"],
+  fitness_centre: ["fitness_center"],
+  museum: ["museum"],
+  gallery: ["art_gallery"],
+  attraction: ["tourist_attraction"],
+  zoo: ["zoo"],
+  aquarium: ["aquarium"],
+  books: ["book_store"],
+  bakery: ["bakery"],
+  coffee: ["coffee_shop"],
+  tea: ["tea_house"],
+});
+
+/**
+ * Provider categories for the classes this pool actually holds, in stable
+ * class order, chunked to the provider's per-request cap. An empty result
+ * means no class was recognized; the caller then sends no filter rather than
+ * fetching nothing.
+ */
+export function listingCategoryBatches(classes: readonly string[]): string[][] {
+  const known = new Set(PLACE_CLASSES as readonly string[]);
+  const present = new Set(classes.filter((value) => known.has(value)));
+  const names = [...new Set(
+    (PLACE_CLASSES as readonly PlaceClass[])
+      .filter((placeClass) => present.has(placeClass))
+      .flatMap((placeClass) => LISTING_CATEGORIES[placeClass] ?? []),
+  )];
+  const batches: string[][] = [];
+  for (let at = 0; at < names.length; at += DATAFORSEO_CATEGORIES_PER_REQUEST) {
+    batches.push(names.slice(at, at + DATAFORSEO_CATEGORIES_PER_REQUEST));
+  }
+  return batches.slice(0, DATAFORSEO_MAX_REQUESTS);
+}
 
 type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
@@ -210,6 +299,35 @@ function listingLocation(listing: DataForSeoListing): { lat: number; lng: number
     : undefined;
 }
 
+export const LISTING_CONTAINED_DISTANCE_M = 25;
+export const LISTING_NAME_SIMILARITY = 0.72;
+
+/**
+ * True when one name is the other plus extra whole words — the shape a branch
+ * suffix takes. Dice similarity punishes the length difference and scores
+ * these below the threshold even though they are the same place: measured on
+ * the Berlin pool, "Hackescher Hof" against "Restaurant Hackescher Hof"
+ * scores 0.70 at 14 m, and "Haferkater" against "Haferkater,
+ * Friedrichstrasse" scores 0.53 at 15 m.
+ *
+ * Containment alone is far too loose ("sushi" sits inside "Sushi Miyabi"), so
+ * it counts only with a tight distance, a name long enough to be an identity,
+ * and the shorter name covering half the longer one's words.
+ */
+export function listingNameContains(left: string, right: string): boolean {
+  const a = normalizeName(left);
+  const b = normalizeName(right);
+  if (!a || !b || a === b) return false;
+  const [shorter, longer] = a.length <= b.length ? [a, b] : [b, a];
+  // Six characters, because "sushi" (five) sits inside "Sushi Miyabi" and is
+  // a dish, not an identity.
+  if (shorter.length < 6) return false;
+  const words = longer.split(" ");
+  const shortWords = shorter.split(" ");
+  if (!` ${longer} `.includes(` ${shorter} `)) return false;
+  return shortWords.length / words.length >= 0.5;
+}
+
 /**
  * A match needs both identity and proximity. When both records name a domain,
  * that identity signal must agree as well; a nearby similarly named venue on
@@ -229,7 +347,9 @@ export function matchListing(
   const distanceM = listingDistanceMeters(candidate.location, location);
   if (distanceM > LISTING_MATCH_DISTANCE_M) return null;
   const nameSimilarity = listingNameSimilarity(candidate.name, title);
-  if (nameSimilarity < 0.72) return null;
+  const contained = distanceM <= LISTING_CONTAINED_DISTANCE_M &&
+    listingNameContains(candidate.name, title);
+  if (nameSimilarity < LISTING_NAME_SIMILARITY && !contained) return null;
   const candidateSite = candidateDomain(candidate);
   const listingSite = listingDomain(listing);
   if (candidateSite && listingSite && candidateSite !== listingSite) return null;
@@ -490,7 +610,7 @@ export async function fetchRoomListings(
   const observedAt = new Date().toISOString();
   try {
     const rows = (await q.query(
-      `SELECT id, osm_ref, name, location, extras->>'website' AS website
+      `SELECT id, osm_ref, name, category, location, extras->>'website' AS website
          FROM candidates
         WHERE room_id = $1 AND osm_ref IS NOT NULL
         ORDER BY id
@@ -500,6 +620,7 @@ export async function fetchRoomListings(
       id: string;
       osm_ref: string;
       name: string;
+      category: string | null;
       location: { lat?: unknown; lng?: unknown };
       website: string | null;
     }>;
@@ -530,41 +651,55 @@ export async function fetchRoomListings(
         matches: [],
       };
     }
-    const radiusKm = Math.max(1, room.radius_m / 1_000);
-    const response = await listingFetch(
-      "https://api.dataforseo.com/v3/business_data/business_listings/search/live",
-      {
-        method: "POST",
-        headers: {
-          authorization: `Basic ${Buffer.from(`${process.env.DATAFORSEO_LOGIN}:${process.env.DATAFORSEO_PASSWORD}`).toString("base64")}`,
-          "content-type": "application/json",
+    // The provider rejects a radius under a kilometre, so a tighter scope is
+    // fetched at the floor and the 60 m match rule discards the overshoot.
+    const radiusKm = Math.max(DATAFORSEO_MIN_RADIUS_KM, room.radius_m / 1_000);
+    const coordinate =
+      `${Number(room.center.lat).toFixed(7)},${Number(room.center.lng).toFixed(7)},${Number(radiusKm.toFixed(3))}`;
+    // One request per category batch; an unrecognized pool sends no filter
+    // rather than fetching nothing.
+    const batches = listingCategoryBatches(rows.map((row) => row.category ?? ""));
+    const requests = batches.length ? batches : [null];
+    const items: DataForSeoListing[] = [];
+    let costUsd = 0;
+    for (const categories of requests) {
+      const response = await listingFetch(
+        "https://api.dataforseo.com/v3/business_data/business_listings/search/live",
+        {
+          method: "POST",
+          headers: {
+            authorization: `Basic ${Buffer.from(`${process.env.DATAFORSEO_LOGIN}:${process.env.DATAFORSEO_PASSWORD}`).toString("base64")}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify([{
+            location_coordinate: coordinate,
+            limit: DATAFORSEO_LIMIT,
+            ...(categories ? { categories } : {}),
+          }]),
         },
-        body: JSON.stringify([{
-          location_coordinate: `${Number(room.center.lat).toFixed(7)},${Number(room.center.lng).toFixed(7)},${Number(radiusKm.toFixed(3))}`,
-          limit: DATAFORSEO_LIMIT,
-        }]),
-      },
-    );
-    if (!response.ok) {
-      await response.body?.cancel();
-      throw new Error(`DataForSEO returned ${response.status}`);
+      );
+      if (!response.ok) {
+        await response.body?.cancel();
+        throw new Error(`DataForSEO returned ${response.status}`);
+      }
+      const parsed = responseListings(await response.json());
+      items.push(...parsed.items);
+      costUsd += parsed.cost ?? DATAFORSEO_REQUEST_USD + DATAFORSEO_ITEM_USD * parsed.items.length;
     }
-    const parsed = responseListings(await response.json());
-    const costUsd = parsed.cost ?? DATAFORSEO_REQUEST_USD + DATAFORSEO_ITEM_USD * parsed.items.length;
     unreportedSpendByRoom.set(roomId, (unreportedSpendByRoom.get(roomId) ?? 0) + costUsd);
     await q.query(
       `UPDATE room_listing_fetches
           SET status = 'ok', item_count = $2, cost_usd = $3
         WHERE room_id = $1`,
-      [roomId, parsed.items.length, costUsd],
+      [roomId, items.length, costUsd],
     );
     return {
       roomId,
       scopeId: room.scope_id,
       observedAt,
-      returnedItems: parsed.items.length,
+      returnedItems: items.length,
       costUsd,
-      matches: matchListings(candidates, parsed.items, observedAt),
+      matches: matchListings(candidates, items, observedAt),
     };
   } catch (error) {
     await q.query(
