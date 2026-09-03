@@ -147,6 +147,12 @@ expressed as `conditionally_accept` or left to ranking. A stance with
 `visibility: "agent-private"` reaches the council as disposition-only; peers
 see at most its aggregate effect.
 
+**Implemented binding note.** `respond_to_proposal` currently carries no
+condition argument. `conditionally_accept` records only that disposition and
+blocks agreement; the participant must later submit `accept` or `abstain`
+after the condition is resolved. The `conditions` example above is deferred,
+not silently inferred from `reason`.
+
 ### 3.6 Adjustment (counterfactual)
 
 Council-computed, quantified recovery option during an impasse.
@@ -190,8 +196,9 @@ confirmation nonce, so only the latest credential can apply it.
 ```
 
 **Commit precondition (v1 rule):** every active participant's latest stance on
-the proposal is `accept`, `abstain`, or `conditionally_accept` with all
-conditions resolved; every active participant is `ready`; the committer is the
+the proposal is `accept` or `abstain`; a current `conditionally_accept` must be
+re-stanced because condition arguments/lifecycle are deferred; every active
+participant is `ready`; the committer is the
 organizer. Commit is a two-step: `agreement_staged` (organizer initiates,
 in-page confirmation UI appears) then `agreement_committed` (human confirms in
 the page). A high rank is never agreement.
@@ -488,7 +495,7 @@ INTERACTION-AND-BINDING.md §2. Every mutation includes `baseRevision`.
 | `SubmitRequirement { requirementId?, visibility, hardness, delegation, payload? }` | owner | create or update (upsert by ID); agent-private ⇒ declaration only |
 | `WithdrawRequirement { requirementId }` | owner | requirement_withdrawn |
 | `EvaluateCandidates { verdicts[] }` | owner w/ agent-private declaration | bulk screening verdicts |
-| `RespondToProposal { proposalId, disposition, visibility, conditions?, reason? }` | any | stance_submitted |
+| `RespondToProposal { proposalId, disposition, visibility, reason? }` | any | stance_submitted; `conditionally_accept` blocks commit until a later stance |
 | `ResolvePrivateRequest { requestId, decision, payload? }` | addressee | resolves adjustment/disclosure requests; consent outside delegated bounds requires in-page confirmation |
 | `SetReadyState { state }` | any | ready_state_changed |
 | `ConfirmAgreement { proposalId }` | organizer | stages agreement; commit finalized by in-page human confirmation |

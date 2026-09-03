@@ -214,7 +214,7 @@ verified negative attribute.
 | `stance_submitted` | Conditional acceptance of `place_42` |
 | `scope_change_proposed` | Expand radius from 800 m to 1.5 km |
 | `impasse_detected` | No verified destination satisfies the current set |
-| `agreement_confirmed` | Destination, meeting point, and arrival plan |
+| `agreement_confirmed` | Destination and arrival plan (meeting points deferred) |
 
 ## First-connection capability manifest
 
@@ -229,7 +229,6 @@ The first sync should teach the personal agent both contracts:
     "capabilities": [
       "destination-search",
       "map-selection",
-      "meeting-points",
       "navigation-handoff"
     ]
   },
@@ -279,4 +278,3 @@ map-reference-app
 
 For the POC, extraction should follow the working vertical slice rather than
 precede it.
-

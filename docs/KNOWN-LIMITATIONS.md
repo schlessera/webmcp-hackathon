@@ -39,6 +39,10 @@ bounded, honest threat model. We list them rather than hide them.
   points, and time-window eligibility** were scoped out of this slice from the
   start (see the protocol docs' open-questions sections). The agent-private
   screening loop (L0) is implemented.
+- **Realtime fan-out and presence remain single-process.** Ping/pong expiry
+  prevents half-open sockets from leaving stale presence or viewing state on
+  that process, but there is no LISTEN/NOTIFY, Redis, durable outbox, or
+  cross-worker presence store in this POC.
 
 ## Reliability findings closed in pass 1
 
@@ -75,6 +79,23 @@ bounded, honest threat model. We list them rather than hide them.
   mutation outcome is persisted immediately; a later failure returns those
   completed actions as an additive partial result and leaves the original
   composer text available for retry instead of creating a fallback need.
+
+## Reliability findings closed in pass 3
+
+- Realtime sockets receive 30-second pings and expire after 45 seconds without
+  a pong; client reconnect uses jittered exponential backoff.
+- Every WebMCP result is structurally encoded as valid JSON within the declared
+  1,500-character budget, with omission counts and preserved error shapes.
+  Read cancellation reaches fetch; mutation cancellation remains coupled to
+  the pass-1 idempotency key.
+- WebSocket versions, viewing IDs, verdict cross-fields and uniqueness,
+  attestation URIs, future sync revisions, and actionable enum errors are now
+  enforced. Unexpected command and client transport failures use a shared
+  retryable envelope instead of escaping or claiming an ID was not found.
+- The capability manifest no longer advertises meeting points; the 19-tool
+  documentation and deferred spatial sections match implementation. Contract
+  hashing is generated from the live response/message types, including all
+  optional fields.
 
 ## Data honesty
 

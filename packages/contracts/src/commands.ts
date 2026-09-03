@@ -25,6 +25,14 @@ const DelegationModeEnum = Type.Union([
 ]);
 const HintEnum = Type.Union(HINT_TAXONOMY.map((v) => Type.Literal(v)));
 
+// R16: revision recovery is central enough to teach at every mutation field,
+// not only in a tool description an agent may no longer have in context.
+const BaseRevision = Type.Integer({
+  minimum: 0,
+  description:
+    "Use the revision from your last sync; on sync_required, read the delta before retrying.",
+});
+
 /** Domain payloads (SPATIAL-PROTOCOL.md §5.1) — closed union, no free-text catch-all. */
 const AttributeExpectEnum = Type.Union([
   Type.Literal("verified_true"),
@@ -128,7 +136,7 @@ const DelegationBound = Type.Object(
 
 export const SubmitRequirementInput = Type.Object(
   {
-    baseRevision: Type.Integer({ minimum: 0 }),
+    baseRevision: BaseRevision,
     requirementId: Type.Optional(Type.String({ maxLength: 40 })),
     visibility: VisibilityEnum,
     hardness: HardnessEnum,
@@ -157,7 +165,7 @@ export const SubmitRequirementInput = Type.Object(
 
 export const WithdrawRequirementInput = Type.Object(
   {
-    baseRevision: Type.Integer({ minimum: 0 }),
+    baseRevision: BaseRevision,
     requirementId: Type.String({ maxLength: 40 }),
   },
   { additionalProperties: false },
@@ -170,7 +178,7 @@ export const WithdrawRequirementInput = Type.Object(
  */
 export const SetRequirementActiveInput = Type.Object(
   {
-    baseRevision: Type.Integer({ minimum: 0 }),
+    baseRevision: BaseRevision,
     requirementId: Type.String({ maxLength: 40 }),
     active: Type.Boolean(),
   },
@@ -197,7 +205,7 @@ const CandidateVerdict = Type.Union([
 ]);
 export const EvaluateCandidatesInput = Type.Object(
   {
-    baseRevision: Type.Integer({ minimum: 0 }),
+    baseRevision: BaseRevision,
     verdicts: Type.Array(CandidateVerdict, {
       minItems: 1,
       maxItems: 10,
@@ -215,7 +223,7 @@ const DispositionEnum = Type.Union([
 ]);
 export const RespondToProposalInput = Type.Object(
   {
-    baseRevision: Type.Integer({ minimum: 0 }),
+    baseRevision: BaseRevision,
     proposalId: Type.String({ maxLength: 40 }),
     disposition: DispositionEnum,
     visibility: VisibilityEnum,
@@ -234,7 +242,7 @@ export const RespondToProposalInput = Type.Object(
 
 export const SetReadyStateInput = Type.Object(
   {
-    baseRevision: Type.Integer({ minimum: 0 }),
+    baseRevision: BaseRevision,
     state: Type.Union([Type.Literal("contributing"), Type.Literal("ready")]),
   },
   { additionalProperties: false },
@@ -264,7 +272,7 @@ const TransportEnum = Type.Union([
 
 export const SetSearchScopeInput = Type.Object(
   {
-    baseRevision: Type.Integer({ minimum: 0 }),
+    baseRevision: BaseRevision,
     area: Type.Optional(CircleArea),
     transport: Type.Optional(
       Type.Array(TransportEnum, { minItems: 1, maxItems: 3, uniqueItems: true }),
@@ -280,7 +288,7 @@ export const SetSearchScopeInput = Type.Object(
  */
 export const AddCandidatesInput = Type.Object(
   {
-    baseRevision: Type.Integer({ minimum: 0 }),
+    baseRevision: BaseRevision,
     refs: Type.Array(
       Type.String({ maxLength: 40, description: "A `ref` from the explore layer (GET /api/rooms/:id/places)." }),
       { minItems: 1, maxItems: 40, uniqueItems: true },
@@ -291,7 +299,7 @@ export const AddCandidatesInput = Type.Object(
 
 export const ProposeDestinationInput = Type.Object(
   {
-    baseRevision: Type.Integer({ minimum: 0 }),
+    baseRevision: BaseRevision,
     candidateId: Type.String({ maxLength: 40 }),
   },
   { additionalProperties: false },
@@ -299,7 +307,7 @@ export const ProposeDestinationInput = Type.Object(
 
 export const PlanArrivalInput = Type.Object(
   {
-    baseRevision: Type.Integer({ minimum: 0 }),
+    baseRevision: BaseRevision,
     mode: TransportEnum,
     pickupNote: Type.Optional(Type.String({ maxLength: 200 })),
   },
@@ -309,7 +317,7 @@ export const PlanArrivalInput = Type.Object(
 /** Adjustment/consent — NEGOTIATION-PROTOCOL.md §3.6. */
 export const ResolvePrivateRequestInput = Type.Object(
   {
-    baseRevision: Type.Integer({ minimum: 0 }),
+    baseRevision: BaseRevision,
     requestId: Type.String({ maxLength: 40 }),
     decision: Type.Union([Type.Literal("grant"), Type.Literal("deny")]),
   },
@@ -334,7 +342,7 @@ const ConfirmationNonce = Type.String({ maxLength: 64 });
  */
 export const ConfirmPrivateRequestInput = Type.Object(
   {
-    baseRevision: Type.Integer({ minimum: 0 }),
+    baseRevision: BaseRevision,
     requestId: Type.String({ maxLength: 40 }),
     confirmationNonce: ConfirmationNonce,
   },
@@ -343,7 +351,7 @@ export const ConfirmPrivateRequestInput = Type.Object(
 
 export const ConfirmAgreementInput = Type.Object(
   {
-    baseRevision: Type.Integer({ minimum: 0 }),
+    baseRevision: BaseRevision,
     proposalId: Type.String({ maxLength: 40 }),
   },
   { additionalProperties: false },
@@ -352,7 +360,7 @@ export const ConfirmAgreementInput = Type.Object(
 /** UI-only: commits a staged agreement (same enforcement as ConfirmPrivateRequest). */
 export const CommitAgreementInput = Type.Object(
   {
-    baseRevision: Type.Integer({ minimum: 0 }),
+    baseRevision: BaseRevision,
     proposalId: Type.String({ maxLength: 40 }),
     confirmationNonce: ConfirmationNonce,
   },
@@ -373,7 +381,7 @@ const AttestableKeyEnum = Type.Union(
 );
 export const AttestAttributeInput = Type.Object(
   {
-    baseRevision: Type.Integer({ minimum: 0 }),
+    baseRevision: BaseRevision,
     candidateId: Type.String({ maxLength: 40 }),
     key: AttestableKeyEnum,
     status: Type.Union([Type.Literal("verified_true"), Type.Literal("verified_false")]),

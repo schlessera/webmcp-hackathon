@@ -405,9 +405,13 @@ export interface CandidateDossier {
     source: string;
     observedAt: string;
     confidence: number;
+    /** Participant who supplied an attestation, when this fact is attested. */
+    attestedBy?: string;
     /** Why the source says so: a rule's reason, a verbatim evidence span an
      * inference rests on, an attester's note. Rendered in the ledger. */
     note?: string;
+    /** Optional evidence link supplied with an attestation. */
+    sourceUrl?: string;
   }>;
   /** The record's street address and contact, when the data carries them. */
   address?: string;

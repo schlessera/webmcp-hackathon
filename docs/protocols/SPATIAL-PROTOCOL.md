@@ -15,6 +15,13 @@ It owns spatial facts and interaction semantics. It does **not** own identity,
 privacy, consent, or agreement — any spatial action with negotiation meaning
 (veto a pin, propose a destination) compiles down to a negotiation command.
 
+**Implementation boundary (tool contract v3).** The live wire supports stable
+candidate IDs, circle scope, `walk | bike | car`, an optional pickup note, and
+candidate navigation handoff. `timeWindow`, `transit`, computed routes,
+`routeId`, meeting points, and `meetingPointId` are explicitly deferred. Any
+examples below that mention them reserve future protocol design; they are not
+advertised capabilities or accepted tool arguments today.
+
 ## 2. Identifier rules
 
 All references are stable, opaque IDs — never labels, coordinates, or screen
@@ -24,11 +31,12 @@ positions:
 |---|---|---|
 | `candidateId` (`place_42`) | A destination. The map pin for a candidate **is** the candidate — there is no separate pin ID. | Stable for the session; survives re-ranking and scope changes. |
 | `scopeId` (`scope_2`) | A search-scope snapshot (area + time + transport). | New ID per applied change; previous scopes remain referencable in history. |
-| `routeId` (`route_p_joe_1`) | A computed route for one participant. | Stable until inputs change. |
-| `meetingPointId` (`meet_1`) | A proposed meeting/pickup point. | Stable for the session. |
+| `routeId` (`route_p_joe_1`) | A computed route for one participant. | **Deferred; not on the v3 wire.** |
+| `meetingPointId` (`meet_1`) | A proposed meeting/pickup point. | **Deferred; not on the v3 wire.** |
 
-Tool schemas accept and return these IDs. Free-text venue names appear only in
-human-readable fields, never as command arguments.
+Implemented tool schemas accept and return candidate/scope IDs. The deferred
+route and meeting-point rows have no accepted tool arguments yet. Free-text
+place names appear only in human-readable fields, never as command arguments.
 
 ## 3. Search scope
 
@@ -41,16 +49,16 @@ visibility); changes flow through negotiation as `scope_change_proposed` /
   "scopeId": "scope_2",
   "area": { "kind": "circle", "center": { "lat": 52.499, "lng": 13.425 }, "radiusM": 800 },
   // also: { "kind": "bbox", ... } — polygon deferred
-  "timeWindow": { "start": "2026-09-01T18:30:00+02:00", "end": "2026-09-01T22:00:00+02:00" },
-  "transport": ["walk", "transit", "car"],
+  "timeWindow": { "start": "2026-09-01T18:30:00+02:00", "end": "2026-09-01T22:00:00+02:00" }, // deferred
+  "transport": ["walk", "transit", "car"], // transit deferred; live enum is walk | bike | car
   "category": "food"                     // room goal category
 }
 ```
 
-Time is a first-class scope dimension ("plan for later, not now"). Neutral
-impasse expansions manipulate exactly these fields: `radiusM`, `timeWindow`,
-`transport` — which is why adjustments quantify in these units ("widen by
-600 m to add 3 candidates").
+The protocol design reserves time as a first-class scope dimension ("plan for
+later, not now"), but time-window eligibility and transit routing are deferred.
+The current implementation applies circle radius and walk/bike/car modes;
+implemented neutral impasse expansion changes radius only.
 
 ## 4. Candidate dossier
 
@@ -136,7 +144,7 @@ These are the `payload` shapes the negotiation envelope carries when
 ### 5.3 Stance condition / reason payloads
 
 ```jsonc
-// condition on conditionally_accept
+// future condition on conditionally_accept (deferred; current tool has no condition argument)
 { "kind": "attribute", "key": "outdoor-seating", "expect": "verified_true" }
 
 // veto reason (optional, from the map's reason menu)
@@ -166,11 +174,14 @@ Transport-agnostic, like the negotiation command set. Mutations carry
 |---|---|---|
 | `GetSpatialContext` | read | scope, feasibility counts, candidate summaries, current proposal, selection state |
 | `InspectCandidates { candidateIds[1..3] }` | read | full dossiers (side-by-side when >1 — this is "compare") |
-| `SetSearchScope { area?, timeWindow?, transport? }` | mutate | emits `scope_change_proposed`; auto-applies when within the proposer's authority (organizer, or an accepted adjustment), else routes through negotiation |
+| `SetSearchScope { area?, transport? }` | mutate | **organizer only**; applies circle scope and walk/bike/car modes, emits `scope_change_proposed` + `_applied` |
+| `AddCandidates { refs[] }` | mutate | adds stable explore refs to the shared room pool |
+| `LookUpPlaces { candidateIds[], keys? }` | read | starts bounded provider lookup for current places |
 | `ProposeDestination { candidateId }` | mutate | emits negotiation `proposal_created` with `domainRef` |
 | `FocusDestination { candidateId }` | local | pans/highlights the caller's own map view; **no shared state change** |
-| `PlanArrival { mode, origin? , pickup? }` | mutate | per-participant arrival plan: transport mode, meeting/pickup point, route preview; emits `arrival_plan_updated` |
-| `PrepareNavigation { candidateId | meetingPointId }` | read | one-click handoff links (§9) |
+| `PlanArrival { mode, pickupNote? }` | mutate | per-participant walk/bike/car mode and note; emits `arrival_plan_updated` |
+| `AttestAttribute { candidateId, key, status, confidence, note, sourceUrl? }` | mutate | records shared participant-supplied evidence |
+| `PrepareNavigation { candidateId? }` | read | one-click handoff links for that candidate or the committed destination (§9) |
 
 Negotiation-meaningful map actions do **not** get spatial commands: vetoing a
 pin is `RespondToProposal { proposalId, disposition: "reject", reason: {…} }`.
@@ -189,7 +200,7 @@ command. One command model, two entry surfaces.
 | Pin card → "Veto…" + reason menu | `RespondToProposal(reject)` | `stance_submitted` |
 | Pin card → "Works for me" | `RespondToProposal(accept)` | `stance_submitted` |
 | "I'm done adding" toggle | `SetReadyState` | `ready_state_changed` |
-| Arrival panel → mode + pickup | `PlanArrival` | `arrival_plan_updated` |
+| Arrival panel → mode + pickup note | `PlanArrival` | `arrival_plan_updated` |
 | "Navigate" button | `PrepareNavigation` | none (read) |
 
 An agent invoking the equivalent tool produces the identical command, so both
@@ -306,8 +317,7 @@ coordination surface, the installed map app is the execution surface:
     "geo": "geo:52.4981,13.4262?q=Garden+Cafe+Window",
     "googleMaps": "https://www.google.com/maps/dir/?api=1&destination=52.4981,13.4262",
     "appleMaps": "https://maps.apple.com/?daddr=52.4981,13.4262"
-  },
-  "forParticipant": { "mode": "transit", "from": "meet_1" }
+  }
 }
 ```
 
@@ -328,8 +338,8 @@ provider API call is required at handoff time.
 
 ## 11. Invariants (testable)
 
-1. Every spatial command argument that references a place/route/meeting point
-   uses a stable ID from §2 — never coordinates-as-identity or labels.
+1. Every implemented spatial command argument that references a place uses a
+   stable candidate ID from §2 — never coordinates-as-identity or labels.
 2. A dossier attribute is one of exactly four states; eligibility treats
    `unknown` ≠ `verified_false`.
 3. `FocusDestination` never mutates shared session state.

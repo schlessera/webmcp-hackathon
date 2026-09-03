@@ -68,7 +68,8 @@ export const ATTRIBUTE_LABELS: Record<(typeof ATTRIBUTE_VOCABULARY)[number], str
 export const CAPABILITIES = [
   "destination-search",
   "map-selection",
-  "meeting-points",
+  // R16: meeting points are protocol design only; advertising them caused
+  // agents to seek a tool/ID shape that this implementation does not expose.
   "navigation-handoff",
   "private-screening",
   "impasse-resolution",
