@@ -164,7 +164,7 @@ make test-native
 ```
 
 That lane requires Chrome 149 or newer and an origin-trial token. See the
-[deployment guide](docs/DEPLOY-COOLIFY.md).
+[deployment guide](docs/DEPLOY.md).
 
 ## Repository structure
 
@@ -200,7 +200,7 @@ provider decisions, provenance, caching, and known gaps.
 - [WebMCP interaction and binding](docs/protocols/INTERACTION-AND-BINDING.md)
 - [Data quality](docs/DATA-QUALITY.md)
 - [Known limitations](docs/KNOWN-LIMITATIONS.md)
-- [Deployment](docs/DEPLOY-COOLIFY.md)
+- [Deployment](docs/DEPLOY.md)
 - [Current project status](docs/PROJECT-STATUS.md)
 
 ## Project status

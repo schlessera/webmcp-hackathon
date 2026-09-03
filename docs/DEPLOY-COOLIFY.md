@@ -1,5 +1,15 @@
 # Deploying Spokes on Coolify
 
+> **Superseded as a deployment path.** Production runs Caddy in front of the
+> compose stack on a plain Docker host — see **`docs/DEPLOY.md`**, which is the
+> playbook to follow. Coolify was prepared and abandoned at the gate; nothing
+> below has been exercised against a live Coolify resource.
+>
+> The **environment-variable table in §2 is still authoritative** and applies to
+> the Hetzner deployment unchanged, as does the origin-trial section (§4). Keep
+> this file for those two; ignore §§1, 3, 5 and 6.
+
+
 The app is a single Docker image (Fastify API + WebSocket + the pre-built React
 bundle) plus Postgres. `compose.coolify.yaml` is a deploy-ready compose that
 Coolify can run directly; local development uses `compose.yaml` with the same

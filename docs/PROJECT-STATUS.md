@@ -1,8 +1,9 @@
 # Project status — Spokes
 
 **Last updated:** 2026-09-03, after the WebMCP Challenge deadline.
-**HEAD:** `3d3e1f2` on `main`. **Live:** <https://spokes.alainschlesser.com>
-(deployed build `acef7d2`). **Tool contract:** version 3, 22 tools.
+**HEAD:** `37e9208` on `main`. **Live:** <https://spokes.alainschlesser.com>
+(deployed build `37e9208` — `main` and production are in step). **Tool
+contract:** version 3, 22 tools.
 
 This is the single source of truth for anyone picking the work up. It replaces
 the 2026-09-02 version of this file, which predates roughly 313 commits.
@@ -25,17 +26,16 @@ Two consequences shape the near-term work:
   against it. Any change that reaches production during the judging window
   should be treated as touching the thing being judged.
 
-Verified live, 2026-09-03: `GET /api/meta` returns
-`{"buildId":"acef7d2","toolContractVersion":"3","nl":true}`; the origin-trial
+Verified live, 2026-09-03 after the push: `GET /api/meta` returns
+`{"buildId":"37e9208","toolContractVersion":"3","nl":true}`; the origin-trial
 response header decodes to `{"origin":"https://spokes.alainschlesser.com:443",
-"feature":"WebMCP","expiry":1794873600}` (mid-November 2026).
+"feature":"WebMCP","expiry":1794873600}` (mid-November 2026). The served
+document carries no injected script, the WebSocket authenticates and streams
+`welcome`/`presence`/`pipeline`/`lookups`, and a browser pass found no console
+error and no failed request.
 
-**The deployed build is four commits behind `main`:** `890984d` (deploy keeps
-the host-generated Postgres password), `cca69ce` (a place panel settles after a
-lookup caught mid-read), `daaebc4` (the agent forwards its read intent to
-`inspect_candidates`), and the merge. None is a regression fix for something
-judges would hit; pushing is optional, and any push during judging carries the
-risk of the live URL being briefly down.
+`docs/DEPLOY.md` is now the deployment playbook. `docs/DEPLOY-COOLIFY.md` keeps
+only its environment-variable and origin-trial sections and says so at the top.
 
 ---
 
@@ -217,16 +217,21 @@ APP_DOMAIN=… scripts/push-to-hetzner.sh   # ship to production
 ```
 
 Deployment is **Caddy in front of the existing compose stack on a plain Docker
-host** (`compose.prod.yaml` + `Caddyfile` + the two Hetzner scripts). Coolify was
-prepared and abandoned at the gate; `docs/DEPLOY-COOLIFY.md` still describes it
-and is still what the README links to.
+host** (`compose.prod.yaml` + `Caddyfile` + the two Hetzner scripts), documented
+in `docs/DEPLOY.md`. Coolify was prepared and abandoned at the gate.
 
 Nothing is strictly required in the environment — `apps/server/src/config.ts`
 defaults everything — but the live paths need `OPENROUTER_API_KEY`,
 `PARALLEL_API_KEY`, `DATAFORSEO_LOGIN`/`_PASSWORD`, `PROXY_URL`,
 `DEMO_SECRET_KEY` and `ORIGIN_TRIAL_TOKEN`. There is no `.env.example`;
-`docs/DEPLOY-COOLIFY.md` carries the full variable table, which is current even
-though its platform is not.
+`docs/DEPLOY-COOLIFY.md` §2 carries the full variable table, which is current
+even though its platform is not.
+
+`room_demo` on production currently holds **356 candidates**, not the seeded 31:
+the explore layer accumulated them during live sessions and the seed tops up
+rather than wipes. The room is otherwise clean — no active needs. The runbook's
+rehearsed counts (21 in scope, 12, 0, 4 of 31) will not reproduce against it
+without `seed --reset`.
 
 ---
 
@@ -331,8 +336,9 @@ working tree.
 
 **Superseded, and mostly not saying so**
 
-- `docs/DEPLOY-COOLIFY.md` — the platform was abandoned; the environment table
-  is still the best one there is.
+- `docs/DEPLOY-COOLIFY.md` — the platform was abandoned; §2's environment table
+  and §4's origin-trial notes are still the best there are, and the file now
+  says so at the top. `docs/DEPLOY.md` replaced it as the playbook.
 - `docs/PLAN-LIVE-DATA-AND-ONBOARDING.md` — headed "proposed, not started",
   while three of its four waves shipped and wave 2's self-hosted Overpass
   architecture was rejected in `DATA-QUALITY.md`.
