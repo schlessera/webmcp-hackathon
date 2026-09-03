@@ -2275,6 +2275,7 @@ body { overflow: hidden; }
    One column, the same surfaces as the brief. Numbers are absolute; the
    meter draws the same two numbers, unknown hollow (CLAUDE.md §4, §10). */
 .start {
+  height: 100%;
   min-height: 100%;
   max-width: 440px;
   margin: 0 auto;
@@ -2282,6 +2283,8 @@ body { overflow: hidden; }
   display: flex;
   flex-direction: column;
   gap: 12px;
+  overflow-x: hidden;
+  overflow-y: auto;
   color: var(--spoke-ink);
 }
 .start-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
@@ -2303,6 +2306,39 @@ body { overflow: hidden; }
 }
 .start-note { font-size: var(--spoke-size-detail); }
 .start-quiet { color: var(--spoke-ink-ghost); font-size: var(--spoke-size-detail); }
+.start-goal {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+  font-family: var(--spoke-font-display);
+  font-weight: var(--spoke-weight-strong);
+  font-size: var(--spoke-size-body);
+}
+.start-goal input,
+.start-class-field select,
+.plan-clarify-free input {
+  box-sizing: border-box;
+  min-height: var(--spoke-tap-min);
+  padding: 8px 10px;
+  border: var(--spoke-border) solid var(--spoke-line-quiet);
+  border-radius: var(--spoke-radius-badge);
+  background: var(--spoke-surface);
+  color: var(--spoke-ink);
+  font: inherit;
+  font-family: var(--spoke-font-text);
+  font-size: var(--spoke-size-body);
+}
+.start-goal small {
+  position: absolute;
+  right: 10px;
+  top: 1px;
+  color: var(--spoke-ink-faint);
+  font-family: var(--spoke-font-text);
+  font-size: var(--spoke-size-micro);
+  font-weight: var(--spoke-weight-quiet);
+}
 .start-error {
   margin: 0;
   padding: var(--spoke-pad-card);
@@ -2368,6 +2404,82 @@ body { overflow: hidden; }
   color: var(--spoke-ink-faint);
 }
 
+.start-class-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--spoke-ink-faint);
+  font-size: var(--spoke-size-meta);
+}
+.start-class-field select { flex: 1; min-width: 0; }
+
+.plan-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spoke-gap-group);
+  border-style: dashed;
+}
+.plan-heading {
+  font-family: var(--spoke-font-display);
+  font-weight: var(--spoke-weight-display);
+  font-size: var(--spoke-size-title);
+}
+.plan-offline {
+  margin: 0;
+  color: var(--spoke-ink-soft);
+  font-size: var(--spoke-size-detail);
+}
+.plan-needs { display: flex; flex-direction: column; gap: var(--spoke-gap-row); }
+.plan-need {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  min-height: var(--spoke-tap-min);
+  padding-left: 10px;
+  border: var(--spoke-border) dashed var(--spoke-line-quiet);
+  border-radius: var(--spoke-radius-card);
+  background: var(--spoke-surface);
+}
+.plan-need-label {
+  min-width: 0;
+  padding: 7px 9px;
+  font-weight: var(--spoke-weight-body);
+  overflow-wrap: anywhere;
+}
+.plan-need-label small {
+  color: var(--spoke-ink-faint);
+  font-size: var(--spoke-size-meta);
+  font-weight: var(--spoke-weight-quiet);
+}
+.plan-drop {
+  align-self: stretch;
+  min-height: var(--spoke-tap-min);
+  padding: 0 10px;
+}
+.plan-clarify {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spoke-gap-group);
+  box-shadow: none;
+}
+.plan-clarify-free {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  color: var(--spoke-ink-faint);
+  font-size: var(--spoke-size-meta);
+}
+.plan-clarify-input { display: flex; gap: 6px; }
+.plan-clarify-input input { min-width: 0; flex: 1; }
+.plan-clarify-input .btn { min-height: var(--spoke-tap-min); padding-inline: 12px; }
+.invite-goal {
+  margin: 0;
+  font-family: var(--spoke-font-display);
+  font-weight: var(--spoke-weight-strong);
+  font-size: var(--spoke-size-title);
+  color: var(--spoke-ink);
+}
+
 .start-names { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
 .start-field {
   display: grid;
@@ -2399,6 +2511,9 @@ body { overflow: hidden; }
   color: var(--spoke-ink-soft);
 }
 .start-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   margin-top: 8px;
   min-height: var(--spoke-tap-min);
   padding: 10px 16px;

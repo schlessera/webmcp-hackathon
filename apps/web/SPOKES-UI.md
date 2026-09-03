@@ -76,6 +76,33 @@ outside tap, or on the row again. It is a disclosure, not navigation.
 **Don't** make `{ }` prominent. It is a debugging affordance: no border, no
 fill, no label. Everything protocol-shaped lives behind it.
 
+For a goal-first room, the unresolved header title is the room goal verbatim.
+After agreement, the committed place keeps the title as before. A legacy room
+without a supplied goal receives the server's area-based goal and uses the
+same line; the client never composes a domain label there.
+
+### Before the room: goal review
+
+The Start screen keeps the area picker and names, with one optional, one-line
+goal field above them. A class selector is always present and contains only
+server-provided classes; the compatibility fallback is the single server
+default class. Start is a pre-room screen and scrolls vertically within the
+viewport; the room's “only the brief scrolls” invariant begins after entry.
+
+A non-empty goal opens a dashed review card before creation:
+
+- `From what you said`, then the server title and selected class;
+- every parsed need as a dashed pending row with the map's ghost mark;
+- a `Leave out` control whose target is at least 44 px;
+- clarification choices plus one free-text field when requested;
+- one final `Open the room` action carrying only the needs still shown.
+
+Pending here means “not in the room yet”. It never borrows works or unsure,
+and it has no count. Reading the goal and opening the room use the standard
+`spoke-busy` ring; no fifth loading animation is introduced. A failed or
+timed-out review becomes the same class-only card and never disables room
+creation. The invites screen repeats the goal above the invite links.
+
 ---
 
 ## 3. Map
