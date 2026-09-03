@@ -523,17 +523,24 @@ export function PlaceDetails({
                 <PlacePhoto image={image} alt={candidate.name} key={image.url} />
               ))}
             </div>
-            {creditPhoto?.pageUrl && (
-              <a
-                className="details-photo-credit"
-                href={creditPhoto.pageUrl}
-                target="_blank"
-                rel="noreferrer noopener"
-                data-testid="photo-credit"
-              >
-                {photoCredit(creditPhoto)}
-              </a>
-            )}
+            {creditPhoto &&
+              (creditPhoto.pageUrl ? (
+                <a
+                  className="details-photo-credit"
+                  href={creditPhoto.pageUrl}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  data-testid="photo-credit"
+                >
+                  {photoCredit(creditPhoto)}
+                </a>
+              ) : (
+                /* Attribution is owed whether or not there is somewhere to
+                   link; only the arrow belongs to the link. */
+                <span className="details-photo-credit" data-testid="photo-credit">
+                  {photoCredit(creditPhoto).replace(" \u2197", "")}
+                </span>
+              ))}
           </div>
         )}
         <div className="details-group">

@@ -24,6 +24,7 @@ import {
 } from "./wikidata.ts";
 import {
   imageRefreshDue,
+  imagesRefreshDue,
   loadImageVersions,
   refreshPlaceImages,
   type ImageCandidate,
@@ -582,16 +583,12 @@ export async function ensureEnrichments(
 ): Promise<Map<string, Enrichment>> {
   const wanted = targets.filter(hasLookupSource);
   const found = await loadCached(db, wanted.map((t) => t.osmRef));
-  const stale = (
-    await Promise.all(
-      wanted.map(async (target) =>
-        Object.values(dueProviders(target, found.get(target.osmRef))).some(Boolean) ||
-        await imageRefreshDue(db, target.osmRef)
-          ? target
-          : null,
-      ),
-    )
-  ).filter((target): target is LookupTarget => target !== null);
+  const imagesDue = await imagesRefreshDue(db, wanted.map((t) => t.osmRef));
+  const stale = wanted.filter(
+    (target) =>
+      Object.values(dueProviders(target, found.get(target.osmRef))).some(Boolean) ||
+      imagesDue.has(target.osmRef),
+  );
   if (stale.length === 0) return found;
 
   const jobs = stale.map((target) => lookup(db, target));

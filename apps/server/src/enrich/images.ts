@@ -20,6 +20,9 @@ export interface ProcessedImage {
   width: number;
   height: number;
   bytes: Buffer;
+  /** How long this copy may be kept, already clamped to the source's own
+   * freshness hint. Absent means the full image TTL. */
+  ttlMs?: number;
 }
 
 export interface StoredPlaceImage extends ProcessedImage {
@@ -40,6 +43,9 @@ export const MAX_STORED_IMAGE_BYTES = 200 * 1024;
 export const IMAGE_TIMEOUT_MS = 10_000;
 export const IMAGE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const IMAGE_FAILURE_TTL_MS = 60 * 60 * 1000;
+/** A source that asks for a shorter life gets a shorter life, but re-fetching
+ * every hour for thousands of places is its own kind of rudeness. */
+const MIN_IMAGE_TTL_MS = 24 * 60 * 60 * 1000;
 const DECODED_FORMATS = new Set([
   "jpeg", "png", "webp", "gif", "avif", "heif", "tiff", "svg",
 ]);
@@ -102,6 +108,17 @@ export async function resizePlaceImage(input: Uint8Array): Promise<ProcessedImag
   return { mime: "image/webp", width: info.width, height: info.height, bytes: data };
 }
 
+/** Clamp our seven-day store to the source's own `max-age`, with a one-day
+ * floor so a short hint cannot turn into an hourly re-fetch of every place. */
+export function cacheTtlMs(cacheControl: string): number {
+  const declared = [...cacheControl.matchAll(/(?:^|,)\s*(?:s-maxage|max-age)=(\d+)/g)]
+    .map((match) => Number(match[1]))
+    .filter((seconds) => Number.isFinite(seconds));
+  if (declared.length === 0) return IMAGE_TTL_MS;
+  const shortest = Math.min(...declared) * 1000;
+  return Math.min(IMAGE_TTL_MS, Math.max(MIN_IMAGE_TTL_MS, shortest));
+}
+
 export async function downloadPlaceImage(
   candidate: ImageCandidate,
   fetchImpl: FetchLike = fetch,
@@ -126,12 +143,11 @@ export async function downloadPlaceImage(
   if (/(?:^|,)\s*(?:no-store|no-cache|private)(?:\s|,|$)/.test(cacheControl)) {
     throw new Error("source response forbids shared caching");
   }
-  const sourceTtls = [...cacheControl.matchAll(/(?:^|,)\s*(?:s-maxage|max-age)=(\d+)/g)]
-    .map((match) => Number(match[1]));
-  if (sourceTtls.some((ttl) => ttl < IMAGE_TTL_MS / 1000)) {
-    throw new Error("source cache lifetime is shorter than image TTL");
-  }
-  return resizePlaceImage(await readBoundedImageBody(response));
+  // A shorter freshness hint shortens our copy rather than refusing it: almost
+  // every real image host sends an hour or a day, and treating that as a
+  // prohibition would leave the band permanently empty.
+  const image = await resizePlaceImage(await readBoundedImageBody(response));
+  return { ...image, ttlMs: cacheTtlMs(cacheControl) };
 }
 
 export async function imageRefreshDue(
@@ -156,6 +172,32 @@ export async function imageRefreshDue(
     )
   ).rows[0] as { due: boolean | null } | undefined;
   return row?.due !== false;
+}
+
+/** The batch form of `imageRefreshDue`. A fill pass asks about fifty places at
+ * once, and the memory rule is one query per batch, never one per place. */
+export async function imagesRefreshDue(
+  q: Pick<pg.Pool, "query"> | Pick<pg.PoolClient, "query">,
+  refs: string[],
+): Promise<Set<string>> {
+  if (refs.length === 0) return new Set();
+  const rows = (
+    await q.query(
+      `SELECT r.osm_ref,
+              (e.osm_ref IS NULL
+                OR e.image_expires_at IS NULL
+                OR e.image_expires_at <= now()
+                OR (EXISTS (SELECT 1 FROM place_images i WHERE i.osm_ref = r.osm_ref)
+                    AND NOT EXISTS (
+                      SELECT 1 FROM place_images i
+                       WHERE i.osm_ref = r.osm_ref AND i.expires_at > now()
+                    ))) AS due
+         FROM unnest($1::text[]) AS r(osm_ref)
+         LEFT JOIN enrichments e ON e.osm_ref = r.osm_ref`,
+      [refs],
+    )
+  ).rows as Array<{ osm_ref: string; due: boolean }>;
+  return new Set(rows.filter((row) => row.due).map((row) => row.osm_ref));
 }
 
 /** One place at a time is already bounded by the enrichment semaphore. Its
@@ -204,7 +246,7 @@ export async function refreshPlaceImages(
             entry.candidate.pageUrl,
             entry.candidate.license ?? null,
             entry.candidate.credit ?? null,
-            String(IMAGE_TTL_MS),
+            String(entry.image.ttlMs ?? IMAGE_TTL_MS),
           ],
         );
       }
