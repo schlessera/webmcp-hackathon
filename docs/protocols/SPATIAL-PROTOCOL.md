@@ -16,8 +16,9 @@ privacy, consent, or agreement — any spatial action with negotiation meaning
 (veto a pin, propose a destination) compiles down to a negotiation command.
 
 **Implementation boundary (tool contract v3).** The live wire supports stable
-candidate IDs, circle scope, `walk | bike | car`, an optional pickup note, and
-candidate navigation handoff. `timeWindow`, `transit`, computed routes,
+candidate IDs, circle scope, `walk | bike | car`, an optional pickup note,
+candidate navigation handoff, and absolute time requirement predicates.
+The search scope's `timeWindow`, `transit`, computed routes,
 `routeId`, meeting points, and `meetingPointId` are explicitly deferred. Any
 examples below that mention them reserve future protocol design; they are not
 advertised capabilities or accepted tool arguments today.
@@ -55,10 +56,12 @@ visibility); changes flow through negotiation as `scope_change_proposed` /
 }
 ```
 
-The protocol design reserves time as a first-class scope dimension ("plan for
-later, not now"), but time-window eligibility and transit routing are deferred.
-The current implementation applies circle radius and walk/bike/car modes;
-implemented neutral impasse expansion changes radius only.
+The protocol design reserves time as a first-class **scope** dimension ("plan
+for later, not now"), but that scope field and transit routing are deferred.
+An absolute window is implemented as a requirement payload (§5.1) and is
+evaluated against opening hours (§8.3). The current scope implementation
+applies circle radius and walk/bike/car modes; implemented neutral impasse
+expansion changes radius only.
 
 ## 4. Candidate dossier
 
@@ -128,6 +131,9 @@ These are the `payload` shapes the negotiation envelope carries when
 
 // Budget
 { "kind": "budget", "perPersonMax": { "amount": 18, "currency": "EUR" } }
+
+// Absolute opening-hours window; both instants carry the area's UTC offset
+{ "kind": "time", "window": { "start": "2026-09-04T12:00:00+02:00", "end": "2026-09-04T14:00:00+02:00" }, "phrase": "tomorrow for lunch" }
 
 // Exclusion (temporary preference: "not Italian today")
 { "kind": "exclusion", "key": "cuisine", "values": ["italian"], "lifetime": "session" }
@@ -347,6 +353,22 @@ Cuisine uses the same criterion mechanism with the sourced implication
 taxonomy. An implication may add a place to an inclusion set (for example,
 `pizza` can support Italian), but it never rules a place out of an exclusion
 set. An implied exclusion remains `unlikely`, not `excluded`.
+
+### 8.3 Absolute time windows
+
+A time need has the payload `{ kind: "time", window: { start, end }, phrase? }`.
+`start` and `end` are absolute ISO-8601 instants carrying a UTC offset, with
+`end` later than `start`. Relative words are resolved before submission; the
+predicate never stores "tomorrow" as its clock. The area's IANA timezone
+decides which weekday and wall-clock opening-hours rows those instants touch,
+including midnight crossings.
+
+Verified OpenStreetMap hours covering every minute of the half-open window
+produce `yes`; verified hours with any gap produce `no`. Structured hours
+published only by the place's own site produce `likely` or `unlikely`, never a
+verified answer. A place with no parseable hours is `unknown` and is never
+ruled out for the time need. Reader-facing evidence uses a weekday and wall
+clock span; the absolute timestamps stay on the protocol surface.
 
 ## 9. Navigation handoff
 

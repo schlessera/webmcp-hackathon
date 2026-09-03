@@ -142,6 +142,22 @@ reusable facet. Its `ActiveNeed` row carries the stable `criterionId`
 and `unlikely` counts as any other need. The `facets` array deliberately has no
 row for that id: the sentence remains need content, not a new hardcoded control.
 
+### Temporal needs
+
+Each active time need produces one `temporal` facet. Its key is the stable
+criterion `open:<start>-<end>` and is never rendered. Its label is composed by
+the server from the absolute window, the room area's IANA timezone, and the
+read-time clock: `open today 18:00–21:00 (Thu)`, `open tomorrow
+12:00–14:00 (Fri)`, or `open Fri 18:00–21:00`. If the area clock cannot be
+used, the fallback reads only weekday and wall clock from the window's written
+offset, never the ISO timestamp.
+
+The five counts are disjoint: `yes` for verified hours covering the window,
+`no` for verified hours that do not, `likely` / `unlikely` for the same answers
+from site-published hours, and `unknown` when no hours can answer. Their sum is
+the current candidate total. Missing hours never become `no`, and one time
+need never shares a facet with another window.
+
 ---
 
 ## 3. Provenance
