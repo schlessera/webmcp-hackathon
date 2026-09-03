@@ -28,6 +28,9 @@ const connections = new Set<Connection>();
 
 const PING_INTERVAL_MS = Number(process.env.WS_PING_INTERVAL_MS ?? 30_000);
 const PONG_TIMEOUT_MS = Number(process.env.WS_PONG_TIMEOUT_MS ?? 45_000);
+/** Visible keepalive (PingMessage): the page treats > 10 s of silence on an
+ * open socket as a dropped link, so this must arrive well inside that. */
+const KEEPALIVE_MS = Number(process.env.WS_KEEPALIVE_MS ?? 4_000);
 
 export function attachSocketErrorHandler(socket: {
   on(event: "error", listener: (error: Error) => void): unknown;
@@ -94,6 +97,11 @@ export function attachWebSocket(server: Server): void {
     const pingTimer = setInterval(() => {
       if (socket.readyState === WebSocket.OPEN) socket.ping();
     }, PING_INTERVAL_MS);
+    const keepaliveTimer = setInterval(() => {
+      if (connection && socket.readyState === WebSocket.OPEN) {
+        send(socket, { type: "ping", at: new Date().toISOString() });
+      }
+    }, KEEPALIVE_MS);
     // Set synchronously before the async token lookup so a second auth frame
     // on the same socket cannot register a duplicate connection.
     let authenticating = false;
@@ -244,6 +252,7 @@ export function attachWebSocket(server: Server): void {
     socket.on("close", () => {
       clearTimeout(authTimer);
       clearInterval(pingTimer);
+      clearInterval(keepaliveTimer);
       clearTimeout(pongDeadline);
       if (connection) {
         connections.delete(connection);

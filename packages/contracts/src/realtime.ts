@@ -96,6 +96,17 @@ export interface FactsMessage {
   candidateIds: string[];
   reason: "lookup" | "inference" | "pool";
 }
+/**
+ * Application-level keepalive, every few seconds to every authenticated
+ * socket. Browsers answer protocol pings silently, so the page cannot see
+ * them; this frame is what lets the page notice a half-open socket (no
+ * frame for ten seconds) and say the map is as of when the link dropped.
+ * Presentation only, never revisioned, never logged.
+ */
+export interface PingMessage {
+  type: "ping";
+  at: string;
+}
 export type ServerMessage =
   | WelcomeMessage
   | EventMessage
@@ -103,4 +114,5 @@ export type ServerMessage =
   | ConfirmationMessage
   | PresenceMessage
   | LookupsMessage
-  | FactsMessage;
+  | FactsMessage
+  | PingMessage;

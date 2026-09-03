@@ -1,6 +1,6 @@
 {
   "toolContractVersion": "3",
-  "sha256": "8932d0bf6404bed308b609368c8770288d02647209793c23dcae4219aeec9d1a",
+  "sha256": "f403b19450ccbc9aad64eec74a51526d68dc05a8296d3e489c7a6e6f5515e182",
   "manifest": {
     "capabilityManifest": {
       "agreement": {
@@ -2202,6 +2202,23 @@
             "required": [
               "candidateIds",
               "reason",
+              "type"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "at": {
+                "type": "string"
+              },
+              "type": {
+                "const": "ping",
+                "type": "string"
+              }
+            },
+            "required": [
+              "at",
               "type"
             ],
             "type": "object"

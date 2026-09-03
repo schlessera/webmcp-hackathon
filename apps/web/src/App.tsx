@@ -179,14 +179,38 @@ export function App() {
     () => diagnostics.state,
   );
   useEffect(() => {
-    if (diag.wsState === "open") {
+    const report = () => diagnostics.update({ online: navigator.onLine });
+    window.addEventListener("online", report);
+    window.addEventListener("offline", report);
+    report();
+    return () => {
+      window.removeEventListener("online", report);
+      window.removeEventListener("offline", report);
+    };
+  }, []);
+  /* Three ways to learn the link is down, and the line shows from whichever
+     fires first: the browser says offline (at once), the socket has been
+     silent for ten seconds while claiming open (ws-client), or the socket is
+     closed and has not come back within ten seconds. Any frame or a reopened
+     socket takes the line away. */
+  const linkDown = !diag.online || diag.wsStale || diag.wsState !== "open";
+  const linkDownNow = !diag.online || diag.wsStale;
+  useEffect(() => {
+    if (!linkDown) {
       setOfflineSince(null);
       return;
     }
     const droppedAt = new Date();
-    const timer = window.setTimeout(() => setOfflineSince(droppedAt), 10_000);
+    if (linkDownNow) {
+      setOfflineSince((current) => current ?? droppedAt);
+      return;
+    }
+    const timer = window.setTimeout(
+      () => setOfflineSince((current) => current ?? droppedAt),
+      10_000,
+    );
     return () => window.clearTimeout(timer);
-  }, [diag.wsState]);
+  }, [linkDown, linkDownNow]);
 
   const spatialState = useSyncExternalStore(
     (cb) => spatial.subscribe(cb),
