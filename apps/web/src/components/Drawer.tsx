@@ -177,6 +177,15 @@ export function Drawer({
                   ? ` — ${pendingNeeds.map((n) => `${n.label}${n.needId ? ` → ${n.needId}` : n.committedAt ? " (committed)" : " (sent)"}`).join("; ")}`
                   : ""}
               </span>
+              <span>
+                refining{" "}
+                <strong data-testid="diag-refine">
+                  {context?.refine ? (context.refine.active ? "active" : "idle") : "—"}
+                </strong>
+                {context?.refine
+                  ? ` · ${context.refine.queued} queued · ${context.refine.checkedToday} checked today · ${context.refine.budgetLeft.calls} calls, ${context.refine.budgetLeft.searches} searches left`
+                  : ""}
+              </span>
               {busy.length > 0 && <code>{busy.join(" ")}</code>}
             </div>
           </Section>

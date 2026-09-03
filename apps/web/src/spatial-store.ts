@@ -507,6 +507,18 @@ export class SpatialStore {
         if (result.ok) {
           const prev = this.state.context;
           if (!prev || result.revision >= prev.revision) {
+            const before = prev?.refine;
+            const after = result.refine;
+            if (
+              after &&
+              (before?.active !== after.active ||
+                before?.queued !== after.queued ||
+                before?.checkedToday !== after.checkedToday)
+            ) {
+              diagnostics.log(
+                `refine: ${after.active ? "active" : "idle"} · ${after.queued} queued · ${after.checkedToday} checked today · ${after.budgetLeft.calls} calls left`,
+              );
+            }
             this.update({ context: result });
           }
           // R8: an older request may have been in flight when the mutation

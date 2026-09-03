@@ -97,6 +97,7 @@ function NeedRow({
       data-inactive={!need.active || undefined}
       data-previewing={previewing || undefined}
       data-pending={pending || undefined}
+      data-kind={need.criterionId?.startsWith("q:") ? "question" : undefined}
       data-testid={`need-${need.id}`}
       aria-pressed={need.active}
       aria-busy={pending || undefined}
@@ -141,6 +142,13 @@ function NeedRow({
       <span className="need-label">
         {need.label}
         {!isOwn && ownerName && <span className="need-author"> · {ownerName}</span>}
+        {need.criterionId?.startsWith("q:") &&
+          (need.likely ?? 0) + (need.unlikely ?? 0) > 0 && (
+            <span className="need-looked" data-testid="need-looked">
+              {" "}
+              · {COPY.lookedUp}
+            </span>
+          )}
       </span>
       {(need.likely ?? 0) > 0 && (
         <span className="badge" data-kind="likely">

@@ -13,7 +13,7 @@ import type {
   SpatialContext,
 } from "../spatial-types.ts";
 import type { LookupReason } from "../spatial-store.ts";
-import { initials, numberWord, personColor, stillWorkVerb, tiltFor } from "../ui/copy.ts";
+import { COPY, initials, numberWord, personColor, stillWorkVerb, tiltFor } from "../ui/copy.ts";
 
 /**
  * The shared map.
@@ -302,6 +302,10 @@ export function MapView({
    * marker positions stop moving on their own. The e2e specs wait on it. */
   const [loaded, setLoaded] = useState(false);
   const [motion, setMotion] = useState({ reduced: false, settleMs: 420, busyMs: 1600 });
+  /* Screen readers hear the refinement line at most every 10 s, never on
+     every frame (SPOKES-UI "Refinement"). */
+  const [refineAnnouncement, setRefineAnnouncement] = useState("");
+  const refineAnnouncedAt = useRef(0);
   const busyAnimating = useRef(false);
   const busyFrame = useRef<number | null>(null);
   useEffect(() => {
@@ -1232,11 +1236,14 @@ export function MapView({
   /* The busy line: a lookup a need or the pool started, never a single
      place someone opened (the panel says that). */
   const busyCount = busy.size;
+  const refine = context.refine;
   const lookupLine =
     busyCount > 0 && busyReason?.kind !== "place"
-      ? busyReason?.kind === "need" && busyReason.label
-        ? `checking ${busyCount} for ${busyReason.label}`
-        : `checking ${busyCount} place${busyCount === 1 ? "" : "s"}`
+      ? busyReason?.kind === "refine"
+        ? COPY.lookingUpMany(busyCount, refine?.queued ?? 0)
+        : busyReason?.kind === "need" && busyReason.label
+          ? `checking ${busyCount} for ${busyReason.label}`
+          : `checking ${busyCount} place${busyCount === 1 ? "" : "s"}`
       : pendingCount > 0
         ? "checking…"
         : null;
@@ -1247,7 +1254,24 @@ export function MapView({
     ? `adding places · ${context.pool.size} of ${context.pool.target}`
     : null;
   const busyLine = fillLine ?? lookupLine;
+  /* The refinement line: what the room has checked so far and what is left,
+     quiet, under the count. Out of budget reads as paused, never as an
+     error — nothing is wrong, the room is waiting its turn. */
+  const refineLine = refine?.active
+    ? refine.budgetLeft.calls === 0
+      ? COPY.refinePaused
+      : COPY.refining(refine.checkedToday, statedNeeds.length, refine.queued)
+    : null;
   const settled = committedId !== null;
+  useEffect(() => {
+    const line = refineLine ?? "";
+    const wait = Math.max(0, 10_000 - (Date.now() - refineAnnouncedAt.current));
+    const timer = setTimeout(() => {
+      refineAnnouncedAt.current = Date.now();
+      setRefineAnnouncement(line);
+    }, wait);
+    return () => clearTimeout(timer);
+  }, [refineLine]);
   const preNeed = statedNeeds.length === 0 && context.privateEffects.length === 0;
 
   /* Zero eligible with unknowns outstanding is NOT an impasse (§4) unless the
@@ -1843,6 +1867,14 @@ export function MapView({
             <span>{busyLine}</span>
           </div>
         )}
+        {refineLine && countState !== "settled" && (
+          <div className="count-refine" data-testid="count-refine">
+            {refineLine}
+          </div>
+        )}
+        <span className="sr-only" aria-live="polite" aria-atomic="true">
+          {refineAnnouncement}
+        </span>
       </div>
 
       {bestRelaxation && !settled && (
