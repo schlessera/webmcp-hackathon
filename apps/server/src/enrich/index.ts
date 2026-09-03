@@ -89,18 +89,10 @@ export interface Enrichment {
 export type PersistedWebFacts = Omit<WebFacts, "imageCandidates">;
 
 export type StoredCriterionInference =
-  | StoredInference
-  | {
-      key: string;
-      lean: "yes" | "no";
-      confidence: number;
-      evidence: string;
-      source: string;
-      observedAt: string;
-      sourceUrl?: string;
-      explicit?: boolean;
-      value?: string;
-    }
+  | (Exclude<StoredInference, { omitted: true }> & {
+      /** A merge-time disagreement, shown instead of the retained evidence span. */
+      note?: string;
+    })
   | {
       omitted: true;
       observedAt: string;
@@ -132,6 +124,83 @@ const TTL_OMITTED_MS = 24 * 60 * 60 * 1000;
 export const INFERENCE_PRUNE_DAYS = 30;
 export const MAX_QUESTION_INFERENCES = 64;
 export const SEARCH_ATTEMPT_CAP = 3;
+
+export type InferenceSourceBucket =
+  | "record"
+  | "own_site_explicit"
+  | "own_site_inferred"
+  | "domain_search"
+  | "open_web"
+  | "name_category";
+
+/** One comparison table for every monotonic evidence merge, lowest to highest. */
+export const INFERENCE_SOURCE_BUCKET_RANK: Readonly<Record<InferenceSourceBucket, number>> = {
+  name_category: 0,
+  open_web: 1,
+  domain_search: 2,
+  own_site_inferred: 3,
+  own_site_explicit: 4,
+  record: 5,
+};
+
+export const INFERENCE_DISAGREEMENT_NOTE = "another read leaned the other way";
+
+function isOmitted(
+  inference: StoredCriterionInference,
+): inference is Extract<StoredCriterionInference, { omitted: true }> {
+  return "omitted" in inference;
+}
+
+function inferenceSourceBucket(
+  inference: Exclude<StoredCriterionInference, { omitted: true }>,
+): InferenceSourceBucket {
+  if (inference.source.startsWith("web:")) return "record";
+  const bucket = inference.source.split(":").at(-1);
+  if (bucket === "venue_site" || bucket === "menu") {
+    return inference.explicit === true ? "own_site_explicit" : "own_site_inferred";
+  }
+  if (bucket === "domain_search") return "domain_search";
+  if (bucket === "open_web_search") return "open_web";
+  // name_category is weaker than a quoted open-web span. Legacy infer:<model>
+  // entries also land here because their source does not retain a bucket.
+  return "name_category";
+}
+
+/**
+ * Pure, monotonic merge for one place/criterion evidence cell. A re-read may
+ * add evidence, strengthen it, or record a contradiction; absence is never
+ * disproof and therefore never refreshes an existing claim's observedAt.
+ */
+export function resolveInference(
+  previous: StoredCriterionInference | undefined,
+  fresh: StoredCriterionInference,
+): StoredCriterionInference {
+  if (!previous) return fresh;
+  if (isOmitted(fresh)) {
+    if (!isOmitted(previous)) return previous;
+    if (fresh.searchDay && fresh.searchDay === previous.searchDay) {
+      return {
+        ...fresh,
+        searchAttempts: Math.min(
+          SEARCH_ATTEMPT_CAP,
+          (previous.searchAttempts ?? 0) + (fresh.searchAttempts ?? 0),
+        ),
+      };
+    }
+    return fresh;
+  }
+  if (isOmitted(previous)) return fresh;
+
+  const previousRank = INFERENCE_SOURCE_BUCKET_RANK[inferenceSourceBucket(previous)];
+  const freshRank = INFERENCE_SOURCE_BUCKET_RANK[inferenceSourceBucket(fresh)];
+  if (fresh.lean === previous.lean) {
+    return fresh.confidence > previous.confidence || freshRank > previousRank
+      ? fresh
+      : previous;
+  }
+  if (fresh.explicit === true && freshRank >= previousRank) return fresh;
+  return { ...previous, note: INFERENCE_DISAGREEMENT_NOTE };
+}
 const WARM_CONCURRENCY = 4;
 export const ON_DEMAND_CONCURRENCY = 4;
 export const ON_DEMAND_MAX_WAITERS = 32;
@@ -659,7 +728,7 @@ export interface LookupNowOptions {
    * "Look again": a provider whose last good read is older than
    * FORCE_STALE_MS is read again inside its success TTL, and inference runs
    * again for every requested key that is still unknown on the record,
-   * replacing what was inferred before. A provider's failure TTL, the
+   * monotonically merging what was inferred before. A provider's failure TTL, the
    * robots and network rules, and the per-participant budget all still hold.
    */
   force?: boolean;
@@ -784,10 +853,11 @@ export interface InferenceBatchWrite {
   observedAt: string;
 }
 
-/** One statement persists every place in a model batch, including explicit
- * omission markers. Question copy never enters this cross-room cache. */
+/** Persist one model batch, including explicit omission markers. Question
+ * copy never enters this cross-room cache. Rows are locked for the complete
+ * read-resolve-write transaction so lookup and refinement cannot interleave. */
 export async function saveInferences(
-  pool: Pick<pg.Pool, "query">,
+  pool: pg.Pool,
   writes: InferenceBatchWrite[],
 ): Promise<void> {
   const rows = writes.filter(
@@ -797,9 +867,8 @@ export async function saveInferences(
       (write.searchedCriterionIds?.length ?? 0) > 0,
   );
   if (rows.length === 0) return;
-  const refs: string[] = [];
-  const ttls: string[] = [];
-  const payloads: string[] = [];
+  const incomingByRef = new Map<string, Record<string, StoredCriterionInference>>();
+  const ttlByRef = new Map<string, number>();
   for (const write of rows) {
     const claimed = new Map(write.claims.map((claim) => [claim.criterionId, claim]));
     const answered = new Set(write.answeredCriterionIds);
@@ -833,90 +902,121 @@ export async function saveInferences(
         };
       }
     }
-    refs.push(write.osmRef);
-    ttls.push(String(write.claims.length > 0 ? TTL_INFER_MS : TTL_OMITTED_MS));
-    payloads.push(JSON.stringify(inferred));
+    incomingByRef.set(write.osmRef, {
+      ...(incomingByRef.get(write.osmRef) ?? {}),
+      ...inferred,
+    });
+    ttlByRef.set(
+      write.osmRef,
+      Math.max(
+        ttlByRef.get(write.osmRef) ?? 0,
+        write.claims.length > 0 ? TTL_INFER_MS : TTL_OMITTED_MS,
+      ),
+    );
   }
-  await pool.query(
-    `INSERT INTO enrichments
-       (osm_ref, fetched_at, expires_at, website, wikidata, inferred, inferred_at, error)
-     SELECT batch.osm_ref,
-            now(),
-            now() + (batch.ttl_ms || ' milliseconds')::interval,
-            NULL,
-            NULL,
-            batch.inferred,
-            now(),
-            NULL
-       FROM unnest($1::text[], $2::text[], $3::jsonb[])
-            AS batch(osm_ref, ttl_ms, inferred)
-     ON CONFLICT (osm_ref) DO UPDATE SET
-       inferred = (
-         WITH incoming AS (
-           SELECT fresh.key,
-                  CASE
-                    WHEN fresh.value->>'omitted' = 'true'
-                     AND fresh.value ? 'searchDay'
-                     AND old.value->>'omitted' = 'true'
-                     AND old.value->>'searchDay' = fresh.value->>'searchDay'
-                    THEN fresh.value || jsonb_build_object(
-                      'searchAttempts',
-                      LEAST($6::int,
-                        COALESCE((old.value->>'searchAttempts')::int, 0) +
-                        COALESCE((fresh.value->>'searchAttempts')::int, 0))
-                    )
-                    ELSE fresh.value
-                  END AS value
-             FROM jsonb_each(EXCLUDED.inferred) AS fresh
-             LEFT JOIN LATERAL (
-               SELECT enrichments.inferred->fresh.key AS value
-             ) AS old ON true
-         ), merged AS (
-           SELECT key, value FROM incoming
-           UNION ALL
-           SELECT old.key, old.value
-             FROM jsonb_each(enrichments.inferred) AS old
-            WHERE NOT EXCLUDED.inferred ? old.key
-         ), observed AS (
-           SELECT entry.key,
-                  entry.value,
-                  CASE
-                    WHEN pg_input_is_valid(
-                      entry.value->>'observedAt',
-                      'timestamp with time zone'
-                    )
-                    THEN (entry.value->>'observedAt')::timestamptz
-                    ELSE NULL
-                  END AS observed_at
-             FROM merged AS entry
-         ), ranked AS (
-           SELECT key,
-                  value,
-                  row_number() OVER (
-                    PARTITION BY CASE
-                      WHEN key LIKE 'q:%' THEN 'question'
-                      WHEN key LIKE 'open:%' THEN 'time-window'
-                      ELSE key
-                    END
-                    ORDER BY observed_at DESC NULLS LAST, key
-                  ) AS age_rank
-             FROM observed
-            WHERE observed_at >= now() - ($4 || ' days')::interval
-         )
-         SELECT COALESCE(jsonb_object_agg(key, value), '{}'::jsonb)
-           FROM ranked
-          WHERE (key NOT LIKE 'q:%' AND key NOT LIKE 'open:%') OR age_rank <= $5
-       ),
-       inferred_at = now()`,
-    [
-      refs,
-      ttls,
-      payloads,
-      String(INFERENCE_PRUNE_DAYS),
-      MAX_QUESTION_INFERENCES,
-      SEARCH_ATTEMPT_CAP,
-    ],
-  );
+  const refs = [...incomingByRef.keys()];
+  const ttls = refs.map((ref) => String(ttlByRef.get(ref)));
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    // Materialize missing rows first. A concurrent insert of the same ref
+    // blocks here, after which both transactions lock and resolve in order.
+    await client.query(
+      `INSERT INTO enrichments
+         (osm_ref, fetched_at, expires_at, website, wikidata, inferred, inferred_at, error)
+       SELECT batch.osm_ref,
+              now(),
+              now() + (batch.ttl_ms || ' milliseconds')::interval,
+              NULL,
+              NULL,
+              '{}'::jsonb,
+              NULL,
+              NULL
+         FROM unnest($1::text[], $2::text[]) AS batch(osm_ref, ttl_ms)
+       ON CONFLICT (osm_ref) DO NOTHING`,
+      [refs, ttls],
+    );
+    const locked = (
+      await client.query(
+        `SELECT osm_ref, inferred
+           FROM enrichments
+          WHERE osm_ref = ANY($1::text[])
+          ORDER BY osm_ref
+          FOR UPDATE`,
+        [refs],
+      )
+    ).rows as Array<{
+      osm_ref: string;
+      inferred: Record<string, StoredCriterionInference>;
+    }>;
+    const resolvedRefs = locked.map((row) => row.osm_ref);
+    const resolvedPayloads = locked.map((row) => {
+      const resolved = { ...(row.inferred ?? {}) };
+      for (const [key, fresh] of Object.entries(incomingByRef.get(row.osm_ref) ?? {})) {
+        resolved[key] = resolveInference(resolved[key], fresh);
+      }
+      return JSON.stringify(resolved);
+    });
+
+    // SQL retains only storage maintenance: the 30-day age limit and the
+    // independent 64-entry question/open partitions. It makes no evidence
+    // choice; the full resolved objects above are its input.
+    await client.query(
+      `WITH batch AS (
+         SELECT * FROM unnest($1::text[], $2::jsonb[]) AS value(osm_ref, inferred)
+       ), observed AS (
+         SELECT batch.osm_ref,
+                entry.key,
+                entry.value,
+                CASE
+                  WHEN pg_input_is_valid(entry.value->>'observedAt', 'timestamp with time zone')
+                  THEN (entry.value->>'observedAt')::timestamptz
+                  ELSE NULL
+                END AS observed_at
+           FROM batch
+           CROSS JOIN LATERAL jsonb_each(batch.inferred) AS entry
+       ), ranked AS (
+         SELECT osm_ref,
+                key,
+                value,
+                row_number() OVER (
+                  PARTITION BY osm_ref, CASE
+                    WHEN key LIKE 'q:%' THEN 'question'
+                    WHEN key LIKE 'open:%' THEN 'time-window'
+                    ELSE key
+                  END
+                  ORDER BY observed_at DESC NULLS LAST, key
+                ) AS age_rank
+           FROM observed
+          WHERE observed_at >= now() - ($3 || ' days')::interval
+       ), pruned AS (
+         SELECT batch.osm_ref,
+                COALESCE(
+                  jsonb_object_agg(ranked.key, ranked.value) FILTER (
+                    WHERE ranked.key IS NOT NULL
+                      AND ((ranked.key NOT LIKE 'q:%' AND ranked.key NOT LIKE 'open:%')
+                        OR ranked.age_rank <= $4)
+                  ),
+                  '{}'::jsonb
+                ) AS inferred
+           FROM batch
+           LEFT JOIN ranked ON ranked.osm_ref = batch.osm_ref
+          GROUP BY batch.osm_ref
+       )
+       UPDATE enrichments
+          SET inferred = pruned.inferred,
+              inferred_at = now()
+         FROM pruned
+        WHERE enrichments.osm_ref = pruned.osm_ref`,
+      [resolvedRefs, resolvedPayloads, String(INFERENCE_PRUNE_DAYS), MAX_QUESTION_INFERENCES],
+    );
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 /**
@@ -1407,6 +1507,7 @@ export function applyEnrichmentAttributes<T extends AttributeLike>(
       observedAt: string;
       sourceUrl?: string;
       explicit?: boolean;
+      note?: string;
     };
     const recordGrade =
       questionStored.explicit === true &&
@@ -1419,7 +1520,7 @@ export function applyEnrichmentAttributes<T extends AttributeLike>(
       observedAt: questionStored.observedAt,
       confidence,
       explicit: recordGrade,
-      note: sanitizeInferenceNote(questionStored.evidence),
+      note: sanitizeInferenceNote(questionStored.note ?? questionStored.evidence),
       ...(questionStored.sourceUrl ? { sourceUrl: questionStored.sourceUrl } : {}),
     });
   }

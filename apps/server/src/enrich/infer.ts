@@ -43,7 +43,11 @@ export interface InferredClaim {
 }
 
 export type StoredInference =
-  | (InferredClaim & { observedAt: string })
+  | (InferredClaim & {
+      observedAt: string;
+      /** A merge-time disagreement, shown instead of the retained evidence. */
+      note?: string;
+    })
   | {
       omitted: true;
       observedAt: string;
@@ -286,7 +290,7 @@ export function applyInferredAttributes<T extends AttributeLike>(
       source: claim.source,
       observedAt: claim.observedAt,
       confidence: claim.confidence,
-      note: sanitizeInferenceNote(claim.evidence),
+      note: sanitizeInferenceNote(claim.note ?? claim.evidence),
       ...(claim.explicit !== undefined ? { explicit: claim.explicit } : {}),
       ...(claim.sourceUrl ? { sourceUrl: claim.sourceUrl } : {}),
     };

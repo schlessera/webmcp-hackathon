@@ -200,12 +200,12 @@ function photoCredit(image: DossierImage): string {
   return COPY.photoFromOpenStreetMap;
 }
 
-/** One line per fact — status, source, value, note — so a re-read can say
+/** One line per fact — status, source, value, confidence, note — so a re-read can say
  * how many facts a lookup changed without trusting a count from anywhere. */
 function factSignatures(dossier: CandidateDossier | null): Map<string, string> {
   const out = new Map<string, string>();
   for (const a of dossier?.attributes ?? []) {
-    out.set(a.key, [a.status, a.source, a.value ?? "", a.note ?? ""].join("|"));
+    out.set(a.key, [a.status, a.source, a.value ?? "", a.confidence ?? "", a.note ?? ""].join("|"));
   }
   return out;
 }
