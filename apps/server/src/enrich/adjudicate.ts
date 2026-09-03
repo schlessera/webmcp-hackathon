@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { getDomain } from "tldts";
 import { config } from "../config.ts";
-import { parseJson, respond, type Reply } from "../nl/openai.ts";
+import { parseJson, respond, type Reply } from "../nl/llm.ts";
 import { evidenceContext, hasWholeSpan, type EvaluatedInference } from "./evaluate.ts";
 import {
   normalizeEvidence,
@@ -15,7 +15,7 @@ export const ADJUDICATION_CONFIDENCE = 0.75;
 export const THIRD_PARTY_ADJUDICATION_CONFIDENCE = 0.69;
 export const ADJUDICATION_CACHE_DAYS = 30;
 export const ADJUDICATION_MAX_PLACES = 8;
-export const ADJUDICATION_TIMEOUT_MS = Number(process.env.ADJUDICATION_TIMEOUT_MS ?? 2_000);
+export const ADJUDICATION_TIMEOUT_MS = Number(process.env.ADJUDICATION_TIMEOUT_MS ?? 15_000);
 export const MAX_ADJUDICATION_INPUT_CHARS = 4_800;
 
 export type Publisher = "venue" | "chain" | "third_party" | "unknown";
@@ -315,7 +315,7 @@ export async function adjudicateCells(cells: AdjudicationCell[]): Promise<Adjudi
     input: [{ role: "user", content: JSON.stringify(boundedAdjudicationPayload(cells)) }],
     schema: { name: "venue_evidence_adjudication", schema: ADJUDICATION_SCHEMA },
     reasoning: "none",
-    maxOutputTokens: Math.min(2_400, 120 + cells.length * 100),
+    maxOutputTokens: Math.min(2_900, 620 + cells.length * 100),
     timeoutMs: ADJUDICATION_TIMEOUT_MS,
   });
   const answer = parseJson<{ results?: unknown }>(reply.text);

@@ -28,25 +28,39 @@ export const config = {
     process.env.OUTBOUND_USER_AGENT ??
     "spokes-enrich/0.2 (+https://github.com/schlessera/webmcp-hackathon; reads what a venue publishes about itself)",
   /**
-   * Natural-language surface (docs/NL-AGENT.md). Absent key: the composer
-   * falls back to its label matching and the page never shows an agent card.
-   * Two model choices, chosen per job — never per request size:
-   *  - the quickest model at the lowest effort: bounded, schema-shaped,
-   *    latency-bound work (routing a sentence, turning it into a need payload);
-   *  - smart: anything that acts on the room through tools, judges a person's
-   *    private condition against evidence, or answers a question about state.
-   * "Quickest" never means a paid priority processing tier: nl/openai.ts
-   * sets service_tier=default and rejects priority/fast values before fetch.
+   * Natural-language surface (docs/NL-AGENT.md). Both historical tiers now
+   * default to the one deployment model; the old names remain deliberate
+   * per-site override seams. Paid priority processing is still forbidden in
+   * nl/llm.ts.
    */
-  openaiApiKey: process.env.OPENAI_API_KEY ?? "",
+  get openaiApiKey(): string {
+    return process.env.OPENAI_API_KEY ?? "";
+  },
+  get openrouterApiKey(): string {
+    return process.env.OPENROUTER_API_KEY ?? "";
+  },
   parallelApiKey: process.env.PARALLEL_API_KEY ?? "",
   dataForSeoLogin: process.env.DATAFORSEO_LOGIN ?? "",
   dataForSeoPassword: process.env.DATAFORSEO_PASSWORD ?? "",
-  nlFastModel: process.env.NL_FAST_MODEL ?? "gpt-5.6-luna",
-  nlSmartModel: process.env.NL_SMART_MODEL ?? "gpt-5.6-sol",
+  llmModel: process.env.LLM_MODEL || "z-ai/glm-5.3-flash",
+  nlFastModel:
+    process.env.NL_FAST_MODEL || process.env.LLM_MODEL || "z-ai/glm-5.3-flash",
+  nlSmartModel:
+    process.env.NL_SMART_MODEL || process.env.LLM_MODEL || "z-ai/glm-5.3-flash",
   /** Reads menu photos and PDFs (enrich/menu-reader.ts); vision-capable. */
-  menuReaderModel: process.env.MENU_READER_MODEL ?? process.env.NL_SMART_MODEL ?? "gpt-5.6-sol",
+  menuReaderModel:
+    process.env.MENU_READER_MODEL ||
+    process.env.NL_SMART_MODEL ||
+    process.env.LLM_MODEL ||
+    "z-ai/glm-5.3-flash",
+  get llmProvider(): "openai" | "openrouter" {
+    if (process.env.LLM_PROVIDER === "openai") return "openai";
+    if (process.env.LLM_PROVIDER === "openrouter") return "openrouter";
+    return this.openrouterApiKey.length > 0 ? "openrouter" : "openai";
+  },
   get nlEnabled(): boolean {
-    return this.openaiApiKey.length > 0;
+    return this.llmProvider === "openrouter"
+      ? this.openrouterApiKey.length > 0
+      : this.openaiApiKey.length > 0;
   },
 };

@@ -28,8 +28,6 @@ import {
 } from "./adjudicate.ts";
 import { inferenceEnabled } from "./infer.ts";
 
-const INPUT_USD_PER_TOKEN = 0.00000015;
-const OUTPUT_USD_PER_TOKEN = 0.0000006;
 const PROACTIVE_THRESHOLD = 20;
 const inFlight = new Set<string>();
 
@@ -168,8 +166,7 @@ function logBatch(
 ): void {
   const verdicts = { yes: 0, no: 0, unclear: 0 };
   for (const outcome of result.outcomes) verdicts[outcome.verdict] += 1;
-  const cost = result.reply.usage.inputTokens * INPUT_USD_PER_TOKEN +
-    result.reply.usage.outputTokens * OUTPUT_USD_PER_TOKEN;
+  const cost = result.reply.usage.costUsd ?? 0;
   console.info(JSON.stringify({
     msg: "adjudication batch",
     roomId,

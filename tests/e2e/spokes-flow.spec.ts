@@ -34,6 +34,7 @@ test.beforeAll(async () => {
       PORT: String(PORT),
       // The fixture installs a throwing scripted transport as a second guard.
       OPENAI_API_KEY: "",
+      OPENROUTER_API_KEY: "",
       BUILD_ID: "e2e-flow-1",
       LOG_LEVEL: "warn",
     },

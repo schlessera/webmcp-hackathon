@@ -32,7 +32,7 @@ async function waitForServer(): Promise<void> {
 
 test.beforeAll(async () => {
   server = spawn("node", [join(repoRoot, "apps", "server", "src", "server.ts")], {
-    env: { ...process.env, DATABASE_URL, PORT: String(PORT), BUILD_ID: "e2e-landing", LOG_LEVEL: "warn", OPENAI_API_KEY: "" },
+    env: { ...process.env, DATABASE_URL, PORT: String(PORT), BUILD_ID: "e2e-landing", LOG_LEVEL: "warn", OPENAI_API_KEY: "", OPENROUTER_API_KEY: "" },
     stdio: ["ignore", "pipe", "pipe"],
   });
   await waitForServer();

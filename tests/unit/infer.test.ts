@@ -215,11 +215,12 @@ describe("inference off switches", () => {
   it.each([
     ["ENRICH_NETWORK", "0"],
     ["INFER", "0"],
-    ["OPENAI_API_KEY", ""],
+    ["OPENROUTER_API_KEY", ""],
   ])("does not call the model when %s=%s", async (name, value) => {
     vi.stubEnv("ENRICH_NETWORK", "1");
     vi.stubEnv("INFER", "1");
-    vi.stubEnv("OPENAI_API_KEY", "test");
+    vi.stubEnv("LLM_PROVIDER", "openrouter");
+    vi.stubEnv("OPENROUTER_API_KEY", "test");
     vi.stubEnv(name, value);
     let calls = 0;
     setTransport(async () => {
@@ -230,10 +231,11 @@ describe("inference off switches", () => {
     expect(calls).toBe(0);
   });
 
-  it("uses the fast model, strict schema, no reasoning, and a 12 second timeout", async () => {
+  it("uses the deployment model, strict schema, low hidden reasoning, and a wider timeout", async () => {
     vi.stubEnv("ENRICH_NETWORK", "1");
     vi.stubEnv("INFER", "1");
-    vi.stubEnv("OPENAI_API_KEY", "test");
+    vi.stubEnv("LLM_PROVIDER", "openrouter");
+    vi.stubEnv("OPENROUTER_API_KEY", "test");
     let wire: Record<string, unknown> | undefined;
     let timeout = 0;
     setTransport(async (body, timeoutMs) => {
@@ -246,10 +248,13 @@ describe("inference off switches", () => {
     await inferAttributes(INPUT);
     expect(wire).toMatchObject({
       model: expect.any(String),
-      reasoning: { effort: "none" },
+      reasoning: { effort: "low", exclude: true },
+      provider: { require_parameters: true },
+      max_output_tokens: 1_700,
       text: { format: { type: "json_schema", strict: true } },
     });
-    expect(timeout).toBe(12_000);
+    expect(timeout).toBeLessThanOrEqual(30_000);
+    expect(timeout).toBeGreaterThan(29_000);
   });
 });
 

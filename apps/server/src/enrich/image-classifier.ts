@@ -1,5 +1,5 @@
 import { config } from "../config.ts";
-import { parseJson, respond, type ContentPart } from "../nl/openai.ts";
+import { parseJson, respond, type ContentPart } from "../nl/llm.ts";
 
 /** The deliberately small visual vocabulary persisted in
  * `place_image_verdicts`. It is about what an image depicts, not why a URL
@@ -136,8 +136,8 @@ export async function classifyPlaceImages(
     input: [{ role: "user", content }],
     schema: { name: "place_image_verdicts", schema: schemaFor(images.length) },
     reasoning: "low",
-    maxOutputTokens: 650,
-    timeoutMs: 45_000,
+    maxOutputTokens: 1_150,
+    timeoutMs: 90_000,
   });
   return {
     verdicts: placeImageVerdictsFromAnswer(parseJson(reply.text), images.length),

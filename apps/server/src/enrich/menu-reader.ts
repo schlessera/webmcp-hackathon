@@ -1,5 +1,5 @@
 import { config } from "../config.ts";
-import { parseJson, respond } from "../nl/openai.ts";
+import { parseJson, respond } from "../nl/llm.ts";
 import { cleanInlineText, cleanSummary } from "./text.ts";
 
 /**
@@ -15,7 +15,7 @@ import { cleanInlineText, cleanSummary } from "./text.ts";
  * source `menu:<host>`, so the room sees where it came from and the engine
  * treats it as a guess. Text the model reads is not stored; only the claims.
  *
- * Off whenever OPENAI_API_KEY is unset or MENU_READER=0.
+ * Off whenever the selected model provider has no key or MENU_READER=0.
  */
 
 export const READABLE_KEYS = [
@@ -148,8 +148,8 @@ export async function readMenu(source: MenuSource): Promise<MenuReading | null> 
     input: [{ role: "user", content: [{ type: "input_text", text: `Menu from ${source.url}` }, part] }],
     schema: { name: "menu_reading", schema: SCHEMA },
     reasoning: "low",
-    maxOutputTokens: 900,
-    timeoutMs: 45_000,
+    maxOutputTokens: 1_400,
+    timeoutMs: 90_000,
   });
   return readingFromAnswer(parseJson(reply.text), reply.model, new Date().toISOString());
 }

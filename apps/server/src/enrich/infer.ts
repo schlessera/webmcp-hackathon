@@ -5,7 +5,7 @@ import {
   type AttributeStatus,
 } from "@webmcp-hackathon/contracts";
 import { config } from "../config.ts";
-import { parseJson, respond } from "../nl/openai.ts";
+import { parseJson, respond } from "../nl/llm.ts";
 import { cleanEvidenceText, hasWholeTextSpan } from "./text.ts";
 
 /**
@@ -166,7 +166,7 @@ export function inferenceEnabled(): boolean {
   return (
     process.env.ENRICH_NETWORK !== "0" &&
     process.env.INFER !== "0" &&
-    Boolean(process.env.OPENAI_API_KEY)
+    config.nlEnabled
   );
 }
 
@@ -242,8 +242,8 @@ export async function inferAttributes(input: InferInput): Promise<InferredClaim[
     ],
     schema: { name: "venue_attribute_inference", schema: INFERENCE_SCHEMA },
     reasoning: "none",
-    maxOutputTokens: 1200,
-    timeoutMs: 12_000,
+    maxOutputTokens: 1_700,
+    timeoutMs: 30_000,
   });
   return claimsFromAnswer(parseJson(reply.text), { ...input, keys }, reply.model);
 }

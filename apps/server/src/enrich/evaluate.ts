@@ -7,7 +7,7 @@ import {
   type Criterion,
 } from "@webmcp-hackathon/contracts";
 import { config } from "../config.ts";
-import { parseJson, respond } from "../nl/openai.ts";
+import { parseJson, respond } from "../nl/llm.ts";
 import {
   inferenceEnabled,
   INFERENCE_CONFIDENCE_CAPS,
@@ -39,7 +39,7 @@ export const MAX_EVIDENCE_CONTEXT_CHARS = 1_200;
 /** A full batch is a long prompt on a background path, so it is given more
  * room than an interactive call. Twenty seconds was not enough for a live
  * twelve-place matrix and the whole tick returned nothing. */
-export const MATRIX_TIMEOUT_MS = Number(process.env.MATRIX_TIMEOUT_MS ?? 45_000);
+export const MATRIX_TIMEOUT_MS = Number(process.env.MATRIX_TIMEOUT_MS ?? 90_000);
 
 /** Search source names are consumed by the refinement stream; aliases keep
  * the evidence boundary tolerant at the module edge without changing caps. */
@@ -429,7 +429,7 @@ async function evaluateBounded(input: EvaluateMatrixInput): Promise<EvaluatedMat
     input: [{ role: "user", content: JSON.stringify(input) }],
     schema: { name: "venue_criterion_matrix", schema: EVALUATE_MATRIX_SCHEMA },
     reasoning: "none",
-    maxOutputTokens: 8_000,
+    maxOutputTokens: 8_500,
     timeoutMs: MATRIX_TIMEOUT_MS,
   });
   const answer = parseJson<{ claims?: unknown }>(reply.text);

@@ -67,6 +67,7 @@ export async function startServer(options: TestServerOptions = {}): Promise<Test
         ...process.env,
         // Test servers never talk to the model.
         OPENAI_API_KEY: "",
+        OPENROUTER_API_KEY: "",
         DATABASE_URL,
         PORT: String(port),
         SERVE_STATIC: "1", // skip Vite middleware in API tests

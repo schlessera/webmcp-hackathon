@@ -14,7 +14,7 @@ import { outstandingFor } from "../outstanding.ts";
 import { inspectCandidates, lookUpPlaces, prepareNavigation, spatialContext } from "../spatial.ts";
 import { consumeLookupToken, LOOKUP_RATE_LIMIT_ERROR } from "../lookup-budget.ts";
 import { findRoomLandmarks } from "../landmarks.ts";
-import { respond, type FunctionTool, type InputItem } from "./openai.ts";
+import { respondPrivate, type FunctionTool, type InputItem } from "./llm.ts";
 import { serializeToolOutput } from "./tool-output.ts";
 
 /**
@@ -52,7 +52,7 @@ export type AgentFailureCategory =
   | "round_limit";
 
 const MAX_ROUNDS = 4;
-const TURN_DEADLINE_MS = 60_000;
+const TURN_DEADLINE_MS = 90_000;
 const REPLY_MAX = 320;
 
 class TurnDeadlineError extends Error {}
@@ -369,16 +369,16 @@ export async function runAgent(
       rounds += 1;
       stage = "model";
       const turn = await withinTurn(deadlineAt, () =>
-        respond({
+        respondPrivate({
           model: config.nlSmartModel,
           instructions: instructions(actor, held),
           input,
           tools: tools(),
           reasoning: "medium",
-          maxOutputTokens: 1200,
+          maxOutputTokens: 1_700,
           // R14: the transport receives the remaining total budget, never a
-          // fresh 45 seconds for every round.
-          timeoutMs: Math.min(45_000, remainingMs(deadlineAt)),
+          // fresh timeout for every round.
+          timeoutMs: Math.min(60_000, remainingMs(deadlineAt)),
         }),
       );
       model = turn.model;

@@ -15,7 +15,7 @@ import {
 import { config } from "../config.ts";
 import { mapInterpretation, type UnderstandInput } from "./understand/map.ts";
 import type { Clarification, ClarifyChoice, ParsedNeed } from "./understand/types.ts";
-import { parseJson, respond } from "./openai.ts";
+import { parseJson, respond } from "./llm.ts";
 
 export type Intent = "need" | "ask" | "act" | "clarify" | "unclear";
 
@@ -242,8 +242,8 @@ export async function say(
       input: [{ role: "user", content: parsed.remainder || text }],
       schema: { name: "understanding", schema: SCHEMA },
       reasoning: "low",
-      maxOutputTokens: 700,
-      timeoutMs: 12_000,
+      maxOutputTokens: 1_200,
+      timeoutMs: 30_000,
       serviceTier: "default",
     });
     const draft = parseJson<Draft>(reply.text);

@@ -159,7 +159,9 @@ describe("batched matrix evaluation", () => {
       expect.objectContaining({ candidateId: "beta", criterionId: dog.id, key: "dog-friendly", status: "likely_false", sourceUrl: "https://beta.example/rules", context: "Dogs are not allowed inside the dining room." }),
     ]);
     expect(wire).toMatchObject({
-      reasoning: { effort: "none" },
+      reasoning: { effort: "low", exclude: true },
+      provider: { require_parameters: true },
+      max_output_tokens: 8_500,
       text: { format: { type: "json_schema", strict: true } },
     });
   });

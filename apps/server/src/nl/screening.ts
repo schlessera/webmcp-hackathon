@@ -2,7 +2,7 @@ import type { Participant } from "../auth.ts";
 import { config } from "../config.ts";
 import { submitCommand } from "../engine.ts";
 import { inspectCandidates } from "../spatial.ts";
-import { parseJson, respond } from "./openai.ts";
+import { parseJson, respondPrivate } from "./llm.ts";
 
 /**
  * Agent-private screening (the L0 loop): the condition lives with the agent,
@@ -68,7 +68,7 @@ export async function screen(
     ),
   }));
 
-  const turn = await respond({
+  const turn = await respondPrivate({
     model: config.nlSmartModel,
     instructions: [
       `You screen places for one person against a condition they told you in confidence: "${condition}".`,
@@ -81,8 +81,8 @@ export async function screen(
     input: [{ role: "user", content: JSON.stringify(rows) }],
     schema: { name: "screening", schema: SCHEMA },
     reasoning: "medium",
-    maxOutputTokens: 800,
-    timeoutMs: 45_000,
+    maxOutputTokens: 1_300,
+    timeoutMs: 90_000,
   });
   const draft = parseJson<Draft>(turn.text);
   const known = new Set(ids);
