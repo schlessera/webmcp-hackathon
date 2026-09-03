@@ -1,6 +1,7 @@
 import { TOOL_CONTRACT_VERSION } from "@webmcp-hackathon/contracts";
 import { currentToken } from "./session.ts";
 import { diagnostics } from "./diagnostics-store.ts";
+import type { ExplorePlace } from "./spatial-types.ts";
 
 /**
  * The single client command bus: UI gestures and WebMCP tool callbacks both
@@ -135,6 +136,52 @@ export function spatialNavigationRaw(
   signal?: AbortSignal,
 ): Promise<unknown> {
   return post("/api/spatial/navigation", input === undefined ? {} : input, signal);
+}
+
+export interface ExplorePlacesResponse {
+  ok: true;
+  places: ExplorePlace[];
+  truncated: boolean;
+}
+
+/** Authenticated viewport read over the room area's already-loaded snapshot. */
+export async function fetchExplorePlaces(
+  roomId: string,
+  bbox: [number, number, number, number],
+  signal?: AbortSignal,
+): Promise<ExplorePlacesResponse | typeof notAuthenticated | { ok: false; error: { code: string; message: string } }> {
+  const token = currentToken();
+  if (!token) return notAuthenticated;
+  const correlationId = newCorrelationId();
+  const path = `/api/rooms/${encodeURIComponent(roomId)}/places?bbox=${bbox.join(",")}`;
+  diagnostics.log(`-> explore places [${correlationId}]`);
+  try {
+    const response = await fetch(path, {
+      headers: {
+        authorization: `Bearer ${token}`,
+        "x-correlation-id": correlationId,
+      },
+      signal,
+    });
+    const body = await response.json() as ExplorePlacesResponse & { error?: string };
+    if (!response.ok || body.ok !== true) {
+      return {
+        ok: false,
+        error: {
+          code: response.status === 400 ? "invalid_input" : "not_found",
+          message: body.error ?? `Explore places failed (${response.status}).`,
+        },
+      };
+    }
+    diagnostics.log(`<- explore places [${correlationId}] ${body.places.length}`);
+    return body;
+  } catch (error) {
+    if (signal?.aborted) {
+      return { ok: false, error: { code: "aborted", message: "Explore request replaced." } };
+    }
+    diagnostics.log(`<- explore places [${correlationId}] network error`);
+    return { ok: false, error: { code: "not_found", message: String(error).slice(0, 120) } };
+  }
 }
 
 /**

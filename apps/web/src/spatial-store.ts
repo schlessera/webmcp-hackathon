@@ -1,7 +1,8 @@
-import { spatialContext } from "./api.ts";
+import { fetchExplorePlaces, spatialContext } from "./api.ts";
 import { diagnostics } from "./diagnostics-store.ts";
 import type {
   CommandEnvelope,
+  ExplorePlace,
   OutstandingItem,
   SpatialContext,
 } from "./spatial-types.ts";
@@ -22,6 +23,8 @@ export interface SpatialState {
   selectedId: string | null;
   /** Bumped by focus_destination so the map pans even to the same pin. */
   focusNonce: number;
+  /** Scope centre last requested through this viewer's own command path. */
+  localScopeCenterKey: string | null;
   /** Latest outstanding list for THIS participant (from sync/command results).
    * A grant beyond the delegated bound comes back as an adjustment_request
    * with staged:true — that flag alone drives the in-page confirm card. */
@@ -59,6 +62,10 @@ export interface SpatialState {
   facts: { ids: string[]; nonce: number };
   /** A context refetch is in flight. */
   refetching: boolean;
+  /** Bounded snapshot-place cache across recent viewport reads, by stable ref. */
+  explore: Map<string, ExplorePlace>;
+  /** Whether the most recent viewport held more than the endpoint cap. */
+  exploreTruncated: boolean;
 }
 
 export interface LookupReason {
@@ -105,12 +112,61 @@ interface HeldConfirmation {
 
 /** How long a confirm/commit gesture waits for its nonce to land on the socket. */
 const CONFIRMATION_WAIT_MS = 3000;
+const EXPLORE_CACHE_MAX = 3000;
+
+function sameExplorePlace(a: ExplorePlace, b: ExplorePlace): boolean {
+  return (
+    a.ref === b.ref &&
+    a.name === b.name &&
+    a.category === b.category &&
+    a.location.lat === b.location.lat &&
+    a.location.lng === b.location.lng &&
+    a.candidateId === b.candidateId &&
+    a.added === b.added
+  );
+}
+
+/** Merge one viewport and retain the nearest places when the cache is full. */
+export function mergeExploreCache(
+  current: ReadonlyMap<string, ExplorePlace>,
+  incoming: ExplorePlace[],
+  bbox: [number, number, number, number],
+): Map<string, ExplorePlace> {
+  let changed = false;
+  const merged = new Map(current);
+  for (const place of incoming) {
+    const previous = merged.get(place.ref);
+    const next = {
+      ...place,
+      ...(!place.candidateId && previous?.added ? { added: true } : {}),
+    };
+    if (!previous || !sameExplorePlace(previous, next)) {
+      merged.set(place.ref, next);
+      changed = true;
+    }
+  }
+  if (merged.size > EXPLORE_CACHE_MAX) {
+    const [south, west, north, east] = bbox;
+    const centerLat = (south + north) / 2;
+    const centerLng = (west + east) / 2;
+    const lngScale = Math.cos((centerLat * Math.PI) / 180);
+    const distance = (place: ExplorePlace) =>
+      (place.location.lat - centerLat) ** 2 +
+      ((place.location.lng - centerLng) * lngScale) ** 2;
+    const nearest = [...merged.values()]
+      .sort((a, b) => distance(a) - distance(b) || a.ref.localeCompare(b.ref))
+      .slice(0, EXPLORE_CACHE_MAX);
+    return new Map(nearest.map((place) => [place.ref, place]));
+  }
+  return changed ? merged : (current as Map<string, ExplorePlace>);
+}
 
 class SpatialStore {
   state: SpatialState = {
     context: null,
     selectedId: null,
     focusNonce: 0,
+    localScopeCenterKey: null,
     outstanding: [],
     preview: null,
     previewNeedId: null,
@@ -123,6 +179,8 @@ class SpatialStore {
     pendingNeeds: [],
     facts: { ids: [], nonce: 0 },
     refetching: false,
+    explore: new Map(),
+    exploreTruncated: false,
   };
   private listeners = new Set<Listener>();
   private pendingTimer: number | null = null;
@@ -131,6 +189,8 @@ class SpatialStore {
   private previewAbort: AbortController | null = null;
   private confirmations = new Map<string, HeldConfirmation>();
   private confirmationWaiters = new Map<string, Array<() => void>>();
+  private roomId: string | null = null;
+  private exploreAbort: AbortController | null = null;
 
   subscribe(listener: Listener): () => void {
     this.listeners.add(listener);
@@ -146,6 +206,13 @@ class SpatialStore {
   }
   focus(candidateId: string): void {
     this.update({ selectedId: candidateId, focusNonce: this.state.focusNonce + 1 });
+  }
+  noteLocalScopeCenter(center: { lat: number; lng: number }): void {
+    this.update({ localScopeCenterKey: `${center.lat},${center.lng}` });
+  }
+  clearLocalScopeCenter(centerKey?: string): void {
+    if (centerKey && this.state.localScopeCenterKey !== centerKey) return;
+    if (this.state.localScopeCenterKey) this.update({ localScopeCenterKey: null });
   }
   setOutstanding(outstanding: OutstandingItem[] | undefined): void {
     if (outstanding) this.update({ outstanding });
@@ -264,6 +331,53 @@ class SpatialStore {
         this.reconcilePending();
       }, Math.max(20, next - Date.now()));
     }
+  }
+
+  /** A new room is the only boundary that clears accumulated exploration. */
+  beginRoom(roomId: string): void {
+    if (this.roomId === roomId) return;
+    this.roomId = roomId;
+    this.exploreAbort?.abort();
+    this.exploreAbort = null;
+    this.update({
+      explore: new Map(),
+      exploreTruncated: false,
+      busy: [],
+      busyReason: null,
+      localScopeCenterKey: null,
+    });
+  }
+
+  async loadExplore(
+    roomId: string,
+    bbox: [number, number, number, number],
+  ): Promise<void> {
+    if (this.roomId !== roomId) this.beginRoom(roomId);
+    this.exploreAbort?.abort();
+    const controller = new AbortController();
+    this.exploreAbort = controller;
+    const result = await fetchExplorePlaces(roomId, bbox, controller.signal);
+    if (controller.signal.aborted || this.roomId !== roomId || !result.ok) return;
+    const explore = mergeExploreCache(this.state.explore, result.places, bbox);
+    if (
+      explore !== this.state.explore ||
+      result.truncated !== this.state.exploreTruncated
+    ) {
+      this.update({ explore, exploreTruncated: result.truncated });
+    }
+  }
+
+  markExploreAdded(refs: string[]): void {
+    if (refs.length === 0) return;
+    const explore = new Map(this.state.explore);
+    let changed = false;
+    for (const ref of refs) {
+      const place = explore.get(ref);
+      if (!place || place.candidateId) continue;
+      explore.set(ref, { ...place, added: true });
+      changed = true;
+    }
+    if (changed) this.update({ explore });
   }
 
   /**
@@ -424,5 +538,10 @@ export function runCommand(
       },
     });
   }
-  return runner(type, input);
+  return runner(type, input).then((result) => {
+    if (result.ok && type === "AddCandidates" && Array.isArray(input.refs)) {
+      spatial.markExploreAdded(input.refs.filter((ref): ref is string => typeof ref === "string"));
+    }
+    return result;
+  });
 }

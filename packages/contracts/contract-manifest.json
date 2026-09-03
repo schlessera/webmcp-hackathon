@@ -1,6 +1,6 @@
 {
   "toolContractVersion": "3",
-  "sha256": "3141a50f423610621d5b34e9a8882cab45e55d0312a0607161184cea9d9133c8",
+  "sha256": "fda6849788b1f06466d636dd44b790c3fb33ae4d86611bc271d233046c34b83a",
   "manifest": {
     "capabilityManifest": {
       "agreement": {
@@ -2072,7 +2072,7 @@
       },
       {
         "annotations": {},
-        "description": "Bring up to 40 places from the data behind the map into the room's pool, by the refs the explore layer reports. Additive and shared: nothing is removed, every participant sees the new places, and the room's pool ceiling applies.",
+        "description": "Bring up to 40 places shown on the page's explore map into the room, using the refs attached to those page places. The page is the discovery path for refs. Additive and shared: nothing is removed, every participant sees the new places, and the room's place ceiling applies.",
         "inputSchema": {
           "additionalProperties": false,
           "properties": {

@@ -108,10 +108,66 @@ function pointOf(geometry) {
 
 // --- the pool rule, shared with the server (places.ts mirrors it) ---------
 
+const GRID_M = 100;
+
+function gridPoint(center, location) {
+  return {
+    x:
+      (location.lng - center.lng) *
+      111_320 *
+      Math.cos((center.lat * Math.PI) / 180),
+    y: (location.lat - center.lat) * 111_320,
+  };
+}
+
+function spreadRing(ordered, center, limit) {
+  if (ordered.length <= limit) return ordered;
+  const points = new Map();
+  for (const venue of ordered) {
+    const point = gridPoint(center, venue.location);
+    const cell = `${Math.floor(point.x / GRID_M)},${Math.floor(point.y / GRID_M)}`;
+    if (!points.has(cell)) points.set(cell, { venue, ...point });
+  }
+
+  const candidates = [...points.values()];
+  const selected = candidates.length > 0 ? [candidates.shift()] : [];
+  while (selected.length < limit && candidates.length > 0) {
+    let bestIndex = 0;
+    let bestDistance = -1;
+    for (let i = 0; i < candidates.length; i += 1) {
+      const point = candidates[i];
+      let nearest = Number.POSITIVE_INFINITY;
+      for (const chosen of selected) {
+        const distance = (point.x - chosen.x) ** 2 + (point.y - chosen.y) ** 2;
+        if (distance < nearest) nearest = distance;
+      }
+      if (nearest > bestDistance) {
+        bestDistance = nearest;
+        bestIndex = i;
+      }
+    }
+    selected.push(candidates.splice(bestIndex, 1)[0]);
+  }
+
+  const refs = new Set(selected.map((point) => point.venue.ref));
+  for (const venue of ordered) {
+    if (selected.length >= limit) break;
+    if (!refs.has(venue.ref)) {
+      selected.push({ venue, ...gridPoint(center, venue.location) });
+      refs.add(venue.ref);
+    }
+  }
+  return selected.map((point) => point.venue);
+}
+
 function poolOf(venues, area) {
   const { narrow, wide, max } = area.radii;
   const ring = (from, to) =>
-    venues.filter((v) => v.distance > from && v.distance <= to).slice(0, POOL_PER_RING);
+    spreadRing(
+      venues.filter((v) => v.distance > from && v.distance <= to),
+      area.center,
+      POOL_PER_RING,
+    );
   return [...ring(-1, narrow), ...ring(narrow, wide), ...ring(wide, max)];
 }
 
@@ -195,7 +251,8 @@ for (const area of areas) {
       tags,
     });
   }
-  // Deterministic order: distance, then ref. The pool is a prefix of this.
+  // Deterministic source order: distance, then ref. The pool rule preserves
+  // this order for ties while spreading its selections across each ring.
   venues.sort((a, b) => a.distance - b.distance || (a.ref < b.ref ? -1 : 1));
 
   const pool = poolOf(venues, area);

@@ -131,13 +131,15 @@ await withTransaction(async (client) => {
     ],
   );
 
-  // Upgrade path: drop demo candidates that are not part of the current
-  // dataset (the pre-slice seed shipped 4 Kreuzberg venues). Their verdicts
-  // go with them, and proposals pointing at a vanished venue are withdrawn.
+  // Upgrade path: drop stale curated candidates only (the pre-slice seed
+  // shipped 4 Kreuzberg venues). Snapshot places brought into the demo room
+  // use pl_demo_* ids and are live room state, so an idempotent reseed must
+  // leave them, their verdicts, and their proposals alone.
   const datasetIds = dataset.venues.map((v) => v.candidateId);
   const stale = (
     await client.query(
-      "SELECT id FROM candidates WHERE room_id = $1 AND id <> ALL($2)",
+      `SELECT id FROM candidates
+        WHERE room_id = $1 AND id ~ '^place_[0-9]+$' AND id <> ALL($2)`,
       [ROOM_ID, datasetIds],
     )
   ).rows.map((r) => r.id as string);
@@ -193,8 +195,8 @@ await withTransaction(async (client) => {
   // make ON CONFLICT silently under-seed the demo. Fail loudly instead.
   const seeded = (
     await client.query(
-      "SELECT count(*)::int AS n FROM candidates WHERE room_id = $1",
-      [ROOM_ID],
+      "SELECT count(*)::int AS n FROM candidates WHERE room_id = $1 AND id = ANY($2)",
+      [ROOM_ID, datasetIds],
     )
   ).rows[0].n as number;
   if (seeded !== dataset.venues.length) {

@@ -11,7 +11,9 @@ const addFormats = ((addFormatsModule as never as { default?: unknown })
 import type pg from "pg";
 import {
   COMMAND_SCHEMAS,
+  POOL_CAP,
   PROTECTED_ATTRIBUTE_KEYS,
+  areaById,
   type CommandType,
   type FailureEnvelope,
   type SuccessEnvelope,
@@ -43,6 +45,13 @@ import {
   nextPhase,
   type Phase,
 } from "./phase.ts";
+import {
+  candidatesForRefs,
+  loadSnapshot,
+  topUp,
+  type CandidateSeed,
+} from "./places.ts";
+import { warmEnrichments, type RoomLookupTarget } from "./enrich/index.ts";
 
 /**
  * The single command bus (INTERACTION-AND-BINDING.md §1 rule 4): UI gestures
@@ -86,6 +95,8 @@ interface HandlerOutcome {
   staged?: boolean;
   /** Mint a confirmation nonce for this subject once the transaction commits. */
   confirm?: ConfirmationSubject;
+  /** Snapshot-backed places to warm only after the transaction commits. */
+  warmTargets?: RoomLookupTarget[];
   error?: FailureEnvelope;
   /** An attribute need that should start an opportunistic lookup after commit. */
   lookup?: {
@@ -179,10 +190,14 @@ export async function submitCommand(
     // Append eligibility-shift aggregate event when ANY classification
     // changed (eligible -> uncertain matters as much as -> excluded).
     const after = await computeEligibility(client, actor.roomId);
-    const beforeExcluded = before.filter((c) => c.eligibility === "excluded").length;
-    const afterExcluded = after.filter((c) => c.eligibility === "excluded").length;
     const eligibleNow = after.filter((c) => c.eligibility === "eligible").length;
     const beforeByCandidate = new Map(before.map((c) => [c.candidateId, c.eligibility]));
+    const newlyExcluded = after.filter(
+      (c) =>
+        c.eligibility === "excluded" &&
+        beforeByCandidate.has(c.candidateId) &&
+        beforeByCandidate.get(c.candidateId) !== "excluded",
+    ).length;
     const classificationChanged = after.some(
       (c) => beforeByCandidate.get(c.candidateId) !== c.eligibility,
     );
@@ -192,7 +207,7 @@ export async function submitCommand(
         actorId: null,
         visibility: "shared",
         payload: {
-          newlyExcluded: Math.max(0, afterExcluded - beforeExcluded),
+          newlyExcluded,
           eligible: eligibleNow,
         },
       });
@@ -249,6 +264,7 @@ export async function submitCommand(
       revision,
       confirm: outcome.confirm,
       lookup: outcome.lookup,
+      warmTargets: outcome.warmTargets ?? [],
     };
     });
   } catch (err) {
@@ -296,6 +312,9 @@ export async function submitCommand(
     ).catch((err) => {
       console.error("need-triggered lookup failed:", err);
     });
+  }
+  if (result.warmTargets.length > 0) {
+    warmEnrichments(pool, actor.roomId, result.warmTargets);
   }
   return result.success;
 }
@@ -865,17 +884,56 @@ async function setReadyState(
   };
 }
 
-/** Stub until the pool-growth wave lands (SPATIAL-PROTOCOL §5.5). */
 async function addCandidates(
-  _client: pg.PoolClient,
-  _actor: Participant,
-  _cmd: { refs: string[] },
+  client: pg.PoolClient,
+  actor: Participant,
+  cmd: { refs: string[] },
 ): Promise<HandlerOutcome> {
-  return errorOutcome(
-    "invalid_input",
-    "Bringing places into the room is not available yet.",
-    "Use the places already on the map.",
+  const room = (
+    await client.query("SELECT area_id, scope FROM rooms WHERE id = $1", [actor.roomId])
+  ).rows[0] as { area_id: string | null; scope: ScopeState | null };
+  const area = room.area_id ? areaById(room.area_id) : undefined;
+  const snapshot = area ? loadSnapshot(area.id) : null;
+  if (!area || !snapshot) {
+    return errorOutcome(
+      "invalid_input",
+      "There are no more places available for this room.",
+      "Use the places already in the room.",
+    );
+  }
+  const center = room.scope?.area.center ?? area.center;
+  const resolved = candidatesForRefs(actor.roomId, snapshot, cmd.refs, center);
+  if (!resolved) {
+    return errorOutcome(
+      "not_found",
+      "One or more of those places are no longer available.",
+      "Choose the places again from the map and retry.",
+    );
+  }
+  const existingRows = (
+    await client.query("SELECT id, osm_ref FROM candidates WHERE room_id = $1 ORDER BY id", [actor.roomId])
+  ).rows as Array<{ id: string; osm_ref: string | null }>;
+  const existingRefs = new Set(
+    existingRows.map((row) => row.osm_ref).filter((ref): ref is string => ref !== null),
   );
+  const novel = resolved.filter((seed) => !existingRefs.has(seed.osmRef!));
+  if (existingRows.length + novel.length > POOL_CAP) {
+    return errorOutcome(
+      "invalid_input",
+      `The room can hold at most ${POOL_CAP} places.`,
+      `Bring in at most ${Math.max(0, POOL_CAP - existingRows.length)} more places.`,
+    );
+  }
+  numberSeeds(actor.roomId, novel, existingRows.map((row) => row.id));
+  await insertCandidateSeeds(client, actor.roomId, novel);
+  if (novel.length === 0) {
+    return { events: [], effect: "Those places are already in the room." };
+  }
+  return {
+    events: [candidatesAddedEvent(actor, novel)],
+    effect: `${novel.length} place${novel.length === 1 ? "" : "s"} brought into the room.`,
+    warmTargets: warmTargetsFor(novel),
+  };
 }
 
 async function setSearchScope(
@@ -903,7 +961,7 @@ async function setSearchScope(
     );
   }
   const room = (
-    await client.query("SELECT scope, scope_seq FROM rooms WHERE id = $1", [
+    await client.query("SELECT scope, scope_seq, area_id FROM rooms WHERE id = $1", [
       actor.roomId,
     ])
   ).rows[0];
@@ -924,8 +982,44 @@ async function setSearchScope(
     [actor.roomId, JSON.stringify(next), seq],
   );
   const summary = `${next.area.radiusM} m around the center; ${next.transport.join("/")}`;
+  const events: AppendedEvent[] = [];
+  let added: CandidateSeed[] = [];
+  const centerChanged =
+    cmd.area !== undefined &&
+    (previous?.area.center.lat !== next.area.center.lat ||
+      previous?.area.center.lng !== next.area.center.lng);
+  if (centerChanged && room.area_id) {
+    const area = areaById(room.area_id as string);
+    const snapshot = area ? loadSnapshot(area.id) : null;
+    if (area && snapshot) {
+      const existingRows = (
+        await client.query(
+          "SELECT id, osm_ref FROM candidates WHERE room_id = $1 ORDER BY id",
+          [actor.roomId],
+        )
+      ).rows as Array<{ id: string; osm_ref: string | null }>;
+      const existingRefs = existingRows
+        .map((row) => row.osm_ref)
+        .filter((ref): ref is string => ref !== null);
+      added = topUp(
+        actor.roomId,
+        area,
+        snapshot,
+        next.area.center,
+        next.area.radiusM,
+        existingRefs,
+      ).slice(
+        0,
+        Math.max(0, POOL_CAP - existingRows.length),
+      );
+      numberSeeds(actor.roomId, added, existingRows.map((row) => row.id));
+      await insertCandidateSeeds(client, actor.roomId, added);
+      if (added.length > 0) events.push(candidatesAddedEvent(actor, added));
+    }
+  }
   return {
     events: [
+      ...events,
       {
         type: "scope_change_proposed",
         actorId: actor.id,
@@ -941,7 +1035,86 @@ async function setSearchScope(
       },
     ],
     effect: `Search scope is now ${summary}.`,
+    warmTargets: warmTargetsFor(added),
   };
+}
+
+function numberSeeds(roomId: string, seeds: CandidateSeed[], existingIds: string[]): void {
+  const prefix = `pl_${roomId.replace(/^room_/, "")}_`;
+  let next = existingIds.reduce((highest, id) => {
+    if (!id.startsWith(prefix)) return highest;
+    const suffix = id.slice(prefix.length);
+    return /^\d+$/.test(suffix) ? Math.max(highest, Number(suffix)) : highest;
+  }, 0) + 1;
+  for (const seed of seeds) seed.id = `${prefix}${String(next++).padStart(3, "0")}`;
+}
+
+async function insertCandidateSeeds(
+  client: pg.PoolClient,
+  roomId: string,
+  seeds: CandidateSeed[],
+): Promise<void> {
+  if (seeds.length > 0) {
+    const values: unknown[] = [];
+    const rows = seeds.map((seed, index) => {
+      const offset = index * 11;
+      values.push(
+        seed.id,
+        roomId,
+        seed.name,
+        seed.category,
+        seed.price_level,
+        seed.walk_min,
+        JSON.stringify(seed.location),
+        JSON.stringify(seed.attributes),
+        JSON.stringify(seed.hours),
+        seed.osmRef ?? null,
+        JSON.stringify(seed.extras ?? {}),
+      );
+      return `(${Array.from({ length: 11 }, (_, i) => `$${offset + i + 1}`).join(", ")})`;
+    });
+    await client.query(
+      `INSERT INTO candidates
+         (id, room_id, name, category, price_level, walk_min, location, attributes, hours, osm_ref, extras)
+       VALUES ${rows.join(", ")}`,
+      values,
+    );
+    await client.query(
+      `UPDATE rooms
+          SET data_source = CASE WHEN data_source IS NULL THEN NULL
+            ELSE jsonb_set(data_source, '{poolSize}',
+              to_jsonb((SELECT count(*)::int FROM candidates WHERE room_id = $1))) END
+        WHERE id = $1`,
+      [roomId],
+    );
+  }
+}
+
+function candidatesAddedEvent(actor: Participant, seeds: CandidateSeed[]): AppendedEvent {
+  return {
+    type: "candidates_added",
+    actorId: actor.id,
+    visibility: "shared",
+    payload: {
+      actorName: actor.displayName,
+      count: seeds.length,
+      names: seeds.slice(0, 3).map((seed) => seed.name),
+    },
+  };
+}
+
+function warmTargetsFor(seeds: CandidateSeed[]): RoomLookupTarget[] {
+  return seeds.flatMap((seed) => {
+    const extras = seed.extras;
+    return seed.osmRef && (extras?.website || extras?.wikidata)
+      ? [{
+          candidateId: seed.id,
+          osmRef: seed.osmRef,
+          ...(extras.website ? { website: extras.website } : {}),
+          ...(extras.wikidata ? { wikidata: extras.wikidata } : {}),
+        }]
+      : [];
+  });
 }
 
 async function proposeDestination(

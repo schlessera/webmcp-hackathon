@@ -91,10 +91,13 @@ export function areaById(id: string): AreaDefinition | undefined {
 }
 
 /**
- * What a room starts with: the N nearest places inside the narrow radius,
- * the N nearest in the ring out to the wide radius, and the N nearest in the
- * ring out to the widening ceiling. One number, one rule — stated in the
- * picker, never hidden. A room is a group converging on a place, not a
- * directory; hundreds of stickers bury each other.
+ * What a room starts with in each distance ring. Places are first ordered by
+ * distance then stable ref, thinned to one representative per 100 m grid
+ * cell, and greedily chosen by farthest-point distance. The fixed count keeps
+ * the room legible while the spread keeps a dense city centre from collapsing
+ * into a nearest-neighbour blob.
  */
 export const POOL_PER_RING = 40;
+
+/** Additive room-pool ceiling. Explore places remain available on the map. */
+export const POOL_CAP = 400;

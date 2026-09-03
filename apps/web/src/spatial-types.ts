@@ -21,6 +21,8 @@ export interface ParticipantSummary {
 
 export interface CandidateSummary {
   candidateId: string;
+  /** Stable area-snapshot ref, when this place has one. */
+  ref?: string;
   name: string;
   location: { lat: number; lng: number };
   category: string;
@@ -107,6 +109,23 @@ export interface AreaView {
   dataAsOf: string;
   poolSize: number;
   focusVenues: number;
+}
+
+export interface PoolView {
+  size: number;
+  cap: number;
+  explorable: boolean;
+}
+
+export interface ExplorePlace {
+  ref: string;
+  name: string;
+  location: { lat: number; lng: number };
+  category: string;
+  /** Optimistic local state after a successful bring-in, until the read path
+   * supplies the real candidateId. Never masquerades as a candidate id. */
+  added?: boolean;
+  candidateId?: string;
 }
 
 export interface SpatialContext {

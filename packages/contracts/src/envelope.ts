@@ -157,6 +157,8 @@ export type Eligibility = "eligible" | "likely" | "uncertain" | "unlikely" | "ex
 
 export interface CandidateSummary {
   candidateId: string;
+  /** Stable source ref when the place came from an area snapshot. */
+  ref?: string;
   name: string;
   location: LatLng;
   category: string;

@@ -7,6 +7,7 @@ import {
   dossierFromTags,
   type AreaDefinition,
   type DossierExtras,
+  type ExplorePlacesResult,
 } from "@webmcp-hackathon/contracts";
 import { haversineMeters } from "./eligibility.ts";
 
@@ -163,11 +164,81 @@ export function areaSummaries(): AreaSummary[] {
   });
 }
 
+const GRID_M = 100;
+
+type LocatedVenue = SnapshotVenue & { distance: number };
+
+function stableRefOrder(a: LocatedVenue, b: LocatedVenue): number {
+  return a.distance - b.distance || (a.ref < b.ref ? -1 : a.ref > b.ref ? 1 : 0);
+}
+
+function gridPoint(
+  center: { lat: number; lng: number },
+  location: { lat: number; lng: number },
+): { x: number; y: number } {
+  return {
+    x:
+      (location.lng - center.lng) *
+      111_320 *
+      Math.cos((center.lat * Math.PI) / 180),
+    y: (location.lat - center.lat) * 111_320,
+  };
+}
+
 /**
- * The pool rule, identical to the builder's: the N nearest places inside the
- * narrow radius, the N nearest in the ring out to the wide radius, and the N
- * nearest out to the widening ceiling. Sorted by distance then ref, so two
- * rooms opened at the same centre see the same places in the same order.
+ * Thin a distance-ordered ring onto a 100 m grid, then choose the next point
+ * farthest from everything already chosen. Ties retain distance/ref order.
+ */
+function spreadRing(
+  ordered: LocatedVenue[],
+  center: { lat: number; lng: number },
+  limit: number,
+): LocatedVenue[] {
+  if (ordered.length <= limit) return ordered;
+  const points = new Map<string, { venue: LocatedVenue; x: number; y: number }>();
+  for (const venue of ordered) {
+    const point = gridPoint(center, venue.location);
+    const cell = `${Math.floor(point.x / GRID_M)},${Math.floor(point.y / GRID_M)}`;
+    if (!points.has(cell)) points.set(cell, { venue, ...point });
+  }
+
+  const candidates = [...points.values()];
+  const selected = candidates.length > 0 ? [candidates.shift()!] : [];
+  while (selected.length < limit && candidates.length > 0) {
+    let bestIndex = 0;
+    let bestDistance = -1;
+    for (let i = 0; i < candidates.length; i += 1) {
+      const point = candidates[i];
+      let nearest = Number.POSITIVE_INFINITY;
+      for (const chosen of selected) {
+        const distance = (point.x - chosen.x) ** 2 + (point.y - chosen.y) ** 2;
+        if (distance < nearest) nearest = distance;
+      }
+      if (nearest > bestDistance) {
+        bestDistance = nearest;
+        bestIndex = i;
+      }
+    }
+    selected.push(candidates.splice(bestIndex, 1)[0]);
+  }
+
+  // A very sparse snapshot can have fewer grid cells than the requested
+  // count. Backfill from the stable source order without duplicating refs.
+  const refs = new Set(selected.map((point) => point.venue.ref));
+  for (const venue of ordered) {
+    if (selected.length >= limit) break;
+    if (!refs.has(venue.ref)) {
+      selected.push({ venue, ...gridPoint(center, venue.location) });
+      refs.add(venue.ref);
+    }
+  }
+  return selected.map((point) => point.venue);
+}
+
+/**
+ * The pool rule, identical in all three rings: stable distance/ref ordering,
+ * 100 m grid thinning, then deterministic farthest-point selection. This
+ * preserves POOL_PER_RING while covering the usable geography of each ring.
  */
 export function poolFor(
   area: AreaDefinition,
@@ -180,10 +251,14 @@ export function poolFor(
   const withDistance = snapshot.venues
     .map((v) => ({ ...v, distance: Math.round(haversineMeters(center, v.location)) }))
     .filter((v) => v.distance <= area.radii.max)
-    .sort((a, b) => a.distance - b.distance || (a.ref < b.ref ? -1 : 1));
+    .sort(stableRefOrder);
   const { narrow, wide, max } = area.radii;
   const ring = (from: number, to: number) =>
-    withDistance.filter((v) => v.distance > from && v.distance <= to).slice(0, perRing);
+    spreadRing(
+      withDistance.filter((v) => v.distance > from && v.distance <= to),
+      center,
+      perRing,
+    );
   return [...ring(-1, narrow), ...ring(narrow, wide), ...ring(wide, max)];
 }
 
@@ -192,6 +267,30 @@ const WALK_SPEED_M_PER_MIN = 4500 / 60;
 export interface CandidateSet {
   candidates: CandidateSeed[];
   dataSource: DataSource;
+}
+
+function seedsForVenues(
+  roomId: string,
+  venues: LocatedVenue[],
+  observedAt: string,
+  startAt = 1,
+): CandidateSeed[] {
+  const suffix = roomId.replace(/^room_/, "");
+  return venues.map((v, i) => {
+    const dossier = dossierFromTags(v.tags, observedAt);
+    return {
+      id: `pl_${suffix}_${String(startAt + i).padStart(3, "0")}`,
+      name: v.name,
+      category: dossier.category,
+      price_level: dossier.priceLevel,
+      walk_min: Math.max(1, Math.round(v.distance / WALK_SPEED_M_PER_MIN)),
+      location: v.location,
+      attributes: dossier.attributes,
+      hours: dossier.hours,
+      osmRef: v.ref,
+      extras: dossier.extras,
+    };
+  });
 }
 
 /**
@@ -207,22 +306,7 @@ export function candidatesFor(
   if (!snapshot) return curatedCandidates(roomId, area);
   const observedAt = snapshot.manifest.extract.timestamp;
   const pool = poolFor(area, snapshot, center);
-  const suffix = roomId.replace(/^room_/, "");
-  const candidates = pool.map((v, i) => {
-    const dossier = dossierFromTags(v.tags, observedAt);
-    return {
-      id: `pl_${suffix}_${String(i + 1).padStart(3, "0")}`,
-      name: v.name,
-      category: dossier.category,
-      price_level: dossier.priceLevel,
-      walk_min: Math.max(1, Math.round(v.distance / WALK_SPEED_M_PER_MIN)),
-      location: v.location,
-      attributes: dossier.attributes,
-      hours: dossier.hours,
-      osmRef: v.ref,
-      extras: dossier.extras,
-    };
-  });
+  const candidates = seedsForVenues(roomId, pool, observedAt);
   const focusVenues = snapshot.venues.filter(
     (v) => Math.round(haversineMeters(center, v.location)) <= area.radii.wide,
   ).length;
@@ -238,6 +322,76 @@ export function candidatesFor(
       focusVenues,
     },
   };
+}
+
+export type ExploreBbox = [south: number, west: number, north: number, east: number];
+
+/** In-process viewport query over the snapshot; never performs a network call. */
+export function explorePlaces(
+  _area: AreaDefinition,
+  snapshot: AreaSnapshot,
+  [south, west, north, east]: ExploreBbox,
+  limit = 600,
+): ExplorePlacesResult {
+  const capped = Math.max(1, Math.min(600, Math.floor(limit)));
+  const matches = snapshot.venues
+    .filter(
+      (venue) =>
+        venue.location.lat >= south &&
+        venue.location.lat <= north &&
+        venue.location.lng >= west &&
+        venue.location.lng <= east,
+    )
+    .sort((a, b) => (a.ref < b.ref ? -1 : a.ref > b.ref ? 1 : 0));
+  return {
+    ok: true,
+    places: matches.slice(0, capped).map((venue) => ({
+      ref: venue.ref,
+      name: venue.name,
+      location: venue.location,
+      category: dossierFromTags(
+        venue.tags,
+        snapshot.manifest.extract.timestamp,
+      ).category,
+    })),
+    truncated: matches.length > capped,
+  };
+}
+
+/** Places the same spread rule would seed around a moved scope centre. */
+export function topUp(
+  roomId: string,
+  area: AreaDefinition,
+  snapshot: AreaSnapshot,
+  center: { lat: number; lng: number },
+  scopeRadiusM: number,
+  existingRefs: Iterable<string>,
+): CandidateSeed[] {
+  const existing = new Set(existingRefs);
+  const venues = poolFor(area, snapshot, center).filter(
+    (venue) => venue.distance <= scopeRadiusM && !existing.has(venue.ref),
+  );
+  return seedsForVenues(roomId, venues, snapshot.manifest.extract.timestamp);
+}
+
+/** Resolve requested snapshot refs into candidate seeds, preserving input order. */
+export function candidatesForRefs(
+  roomId: string,
+  snapshot: AreaSnapshot,
+  refs: string[],
+  center: { lat: number; lng: number },
+): CandidateSeed[] | null {
+  const byRef = new Map(snapshot.venues.map((venue) => [venue.ref, venue]));
+  const venues: LocatedVenue[] = [];
+  for (const ref of refs) {
+    const venue = byRef.get(ref);
+    if (!venue) return null;
+    venues.push({
+      ...venue,
+      distance: Math.round(haversineMeters(center, venue.location)),
+    });
+  }
+  return seedsForVenues(roomId, venues, snapshot.manifest.extract.timestamp);
 }
 
 // --- the floor: the shipped curated dataset (Berlin only) ------------------
