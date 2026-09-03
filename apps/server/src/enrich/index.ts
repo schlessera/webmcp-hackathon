@@ -626,6 +626,8 @@ export interface InferenceBatchWrite {
   osmRef: string;
   criteria: Criterion[];
   claims: EvaluatedInference[];
+  /** Criterion ids returned as validated claims or explicit abstentions. */
+  answeredCriterionIds: string[];
   observedAt: string;
 }
 
@@ -635,13 +637,16 @@ export async function saveInferences(
   pool: Pick<pg.Pool, "query">,
   writes: InferenceBatchWrite[],
 ): Promise<void> {
-  const rows = writes.filter((write) => write.criteria.length > 0);
+  const rows = writes.filter(
+    (write) => write.claims.length > 0 || write.answeredCriterionIds.length > 0,
+  );
   if (rows.length === 0) return;
   const refs: string[] = [];
   const ttls: string[] = [];
   const payloads: string[] = [];
   for (const write of rows) {
     const claimed = new Map(write.claims.map((claim) => [claim.criterionId, claim]));
+    const answered = new Set(write.answeredCriterionIds);
     const inferred: Record<string, StoredCriterionInference> = {};
     for (const criterion of write.criteria) {
       const key = criterion.kind === "key" ? criterion.key : criterion.id;
@@ -659,7 +664,7 @@ export async function saveInferences(
           observedAt: claim.observedAt,
           ...(claim.sourceUrl ? { sourceUrl: claim.sourceUrl } : {}),
         };
-      } else {
+      } else if (answered.has(criterion.id)) {
         inferred[key] = {
           omitted: true,
           observedAt: write.observedAt,
@@ -904,24 +909,38 @@ async function runLookupNow(
           new Set((evaluation.openCriteria ?? []).map((criterion) => criterion.id)),
         ]),
       );
-      const claims = (await evaluateMatrix({
+      const claims = await evaluateMatrix({
         places: matrixPlaces,
         criteria: [...matrixCriteria.values()],
-      })).filter((claim) => openByCandidate.get(claim.candidateId)?.has(claim.criterionId));
-      await saveInferences(
-        pool,
-        [...evaluations.values()].flatMap((evaluation) =>
-          evaluation.openCriteria?.length
-            ? [{
-                osmRef: evaluation.row.osm_ref!,
-                criteria: evaluation.openCriteria,
-                claims: claims.filter((claim) => claim.candidateId === evaluation.row.id),
-                observedAt: evaluation.observedAt,
-              }]
-            : [],
-        ),
-      );
-      inferenceChanged = claims.length > 0;
+      }, async (batch) => {
+        const answeredByCandidate = new Map<string, string[]>();
+        for (const cell of batch.answered) {
+          if (!openByCandidate.get(cell.candidateId)?.has(cell.criterionId)) continue;
+          const ids = answeredByCandidate.get(cell.candidateId) ?? [];
+          ids.push(cell.criterionId);
+          answeredByCandidate.set(cell.candidateId, ids);
+        }
+        const accepted = batch.claims.filter((claim) =>
+          openByCandidate.get(claim.candidateId)?.has(claim.criterionId)
+        );
+        await saveInferences(
+          pool,
+          batch.input.places.flatMap((place) => {
+            const evaluation = evaluations.get(place.candidateId);
+            if (!evaluation?.openCriteria?.length) return [];
+            const criterionIds = new Set(batch.input.criteria.map((criterion) => criterion.id));
+            return [{
+              osmRef: evaluation.row.osm_ref!,
+              criteria: evaluation.openCriteria.filter((criterion) => criterionIds.has(criterion.id)),
+              claims: accepted.filter((claim) => claim.candidateId === place.candidateId),
+              answeredCriterionIds: answeredByCandidate.get(place.candidateId) ?? [],
+              observedAt: evaluation.observedAt,
+            }];
+          }),
+        );
+        if (accepted.length > 0) inferenceChanged = true;
+      });
+      inferenceChanged ||= claims.length > 0;
       const refreshed = await loadCached(
         pool,
         [...evaluations.values()].map((evaluation) => evaluation.row.osm_ref!).filter(Boolean),

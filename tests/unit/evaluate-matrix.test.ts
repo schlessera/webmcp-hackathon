@@ -4,6 +4,7 @@ import {
   EVALUATE_MATRIX_PROMPT,
   EVALUATE_MATRIX_SCHEMA,
   evaluateMatrix,
+  matrixBatchFromAnswer,
   MATRIX_CONFIDENCE_CAPS,
   MAX_MATRIX_CRITERIA,
   MAX_MATRIX_PLACES,
@@ -70,9 +71,9 @@ afterEach(() => {
 describe("batched matrix evaluation", () => {
   it("publishes its strict prompt, schema and limits", () => {
     expect(EVALUATE_MATRIX_PROMPT).toContain("candidateId × criterionId");
-    expect(EVALUATE_MATRIX_SCHEMA.properties.claims.maxItems).toBe(96);
+    expect(EVALUATE_MATRIX_SCHEMA.properties.claims.maxItems).toBe(40);
     expect(EVALUATE_MATRIX_SCHEMA.properties.claims.items.properties.lean.enum).toContain("abstain");
-    expect([MAX_MATRIX_PLACES, MAX_MATRIX_CRITERIA, MAX_TEXT_CHARS_PER_PLACE]).toEqual([12, 8, 6000]);
+    expect([MAX_MATRIX_PLACES, MAX_MATRIX_CRITERIA, MAX_TEXT_CHARS_PER_PLACE]).toEqual([8, 5, 6000]);
   });
 
   it("attributes a place × criterion grid and carries the cited URL", async () => {
@@ -162,10 +163,86 @@ describe("batched matrix evaluation", () => {
     expect(await evaluateMatrix(input())).toEqual([]);
   });
 
-  it("splits after 12 places and merges both responses", async () => {
+  it("splits an 8 × 5 bounded matrix on both axes", async () => {
     let calls = 0;
+    const shapes: Array<[number, number]> = [];
     setTransport(async (body) => {
       calls += 1;
+      const sent = JSON.parse((body.input as Array<{ content: string }>)[0].content) as EvaluateMatrixInput;
+      shapes.push([sent.places.length, sent.criteria.length]);
+      return response(sent.places.flatMap((place) => sent.criteria.map((criterion) => ({
+        candidateId: place.candidateId,
+        criterionId: criterion.id,
+        lean: "yes",
+        confidence: 0.5,
+        evidence: "Direct supporting words",
+        sourceIndex: 0,
+      }))));
+    });
+    const sample: EvaluateMatrixInput = {
+      places: Array.from({ length: 9 }, (_, index) => ({
+        candidateId: `p${index}`,
+        osmRef: `node/${index}`,
+        name: `Place ${index}`,
+        category: "cafe",
+        texts: [{ source: "web", text: "Direct supporting words appear here." }],
+      })),
+      criteria: Array.from({ length: 6 }, (_, index): Criterion => ({
+        id: `key-${index}`,
+        kind: "key",
+        key: `key-${index}`,
+        label: `criterion ${index}`,
+      })),
+    };
+    expect(await evaluateMatrix(sample)).toHaveLength(54);
+    expect(calls).toBe(4);
+    expect(shapes).toEqual([[8, 5], [8, 1], [1, 5], [1, 1]]);
+  });
+
+  it("does not persist missing cells, but persists an explicit abstention", async () => {
+    const sample = input();
+    const batch = matrixBatchFromAnswer({ claims: [
+      { candidateId: "alpha", criterionId: wifi.id, lean: "yes", confidence: 0.8, evidence: "free wireless internet throughout", sourceIndex: 0 },
+      { candidateId: "alpha", criterionId: dog.id, lean: "abstain", confidence: 0, evidence: "", sourceIndex: null },
+    ] }, sample, "test", "2026-09-03T00:00:00.000Z");
+    const calls: Array<{ values: unknown[] }> = [];
+    const db = { query: async (_sql: string, values: unknown[]) => {
+      calls.push({ values });
+      return { rows: [], rowCount: 1 };
+    } };
+    await saveInferences(db as never, sample.places.map((place) => ({
+      osmRef: place.osmRef,
+      criteria: sample.criteria,
+      claims: batch.claims.filter((claim) => claim.candidateId === place.candidateId),
+      answeredCriterionIds: batch.answered
+        .filter((cell) => cell.candidateId === place.candidateId)
+        .map((cell) => cell.criterionId),
+      observedAt: "2026-09-03T00:00:00.000Z",
+    })));
+    expect(calls).toHaveLength(1);
+    const payloads = calls[0].values[2] as string[];
+    expect(payloads).toHaveLength(1);
+    expect(JSON.parse(payloads[0])).toMatchObject({
+      [wifi.id]: { lean: "yes" },
+      [dog.id]: { omitted: true },
+    });
+  });
+
+  it("writes nothing for transport or parse failures", async () => {
+    let persisted = 0;
+    setTransport(async () => { throw new Error("transport down"); });
+    expect(await evaluateMatrix(input(), async () => { persisted += 1; })).toEqual([]);
+    setTransport(async () => ({ output: [{ type: "message", content: [{ type: "output_text", text: "truncated" }] }] }));
+    expect(await evaluateMatrix(input(), async () => { persisted += 1; })).toEqual([]);
+    expect(persisted).toBe(0);
+  });
+
+  it("keeps the first batch persisted when the second batch fails", async () => {
+    let calls = 0;
+    const persisted: string[] = [];
+    setTransport(async (body) => {
+      calls += 1;
+      if (calls === 2) throw new Error("later batch failed");
       const sent = JSON.parse((body.input as Array<{ content: string }>)[0].content) as EvaluateMatrixInput;
       return response(sent.places.map((place) => ({
         candidateId: place.candidateId,
@@ -177,7 +254,7 @@ describe("batched matrix evaluation", () => {
       })));
     });
     const sample: EvaluateMatrixInput = {
-      places: Array.from({ length: 13 }, (_, index) => ({
+      places: Array.from({ length: 9 }, (_, index) => ({
         candidateId: `p${index}`,
         osmRef: `node/${index}`,
         name: `Place ${index}`,
@@ -186,35 +263,12 @@ describe("batched matrix evaluation", () => {
       })),
       criteria: [dog],
     };
-    expect(await evaluateMatrix(sample)).toHaveLength(13);
-    expect(calls).toBe(2);
-  });
-
-  it("splits after 8 criteria and merges both responses", async () => {
-    let calls = 0;
-    setTransport(async (body) => {
-      calls += 1;
-      const sent = JSON.parse((body.input as Array<{ content: string }>)[0].content) as EvaluateMatrixInput;
-      return response(sent.criteria.map((criterion) => ({
-        candidateId: "p",
-        criterionId: criterion.id,
-        lean: "yes",
-        confidence: 0.5,
-        evidence: "Direct supporting words",
-        sourceIndex: 0,
-      })));
+    const claims = await evaluateMatrix(sample, async (batch) => {
+      persisted.push(...batch.claims.map((claim) => claim.candidateId));
     });
-    const criteria = Array.from({ length: 9 }, (_, index): Criterion => ({
-      id: `key-${index}`,
-      kind: "key",
-      key: `key-${index}`,
-      label: `criterion ${index}`,
-    }));
-    expect(await evaluateMatrix({
-      places: [{ candidateId: "p", osmRef: "node/p", name: "P", category: "cafe", texts: [{ source: "web", text: "Direct supporting words appear here." }] }],
-      criteria,
-    })).toHaveLength(9);
     expect(calls).toBe(2);
+    expect(persisted).toEqual(Array.from({ length: 8 }, (_, index) => `p${index}`));
+    expect(claims).toHaveLength(8);
   });
 
   it("keeps the longest source last and trims aggregate text to 6,000 characters", () => {
@@ -290,8 +344,8 @@ describe("bulk inference persistence", () => {
       label: wifi.label,
     };
     await saveInferences(db as never, [
-      { osmRef: "node/1", criteria: [wifi], claims: [claim], observedAt: claim.observedAt },
-      { osmRef: "node/2", criteria: [dog], claims: [], observedAt: claim.observedAt },
+      { osmRef: "node/1", criteria: [wifi], claims: [claim], answeredCriterionIds: [wifi.id], observedAt: claim.observedAt },
+      { osmRef: "node/2", criteria: [dog], claims: [], answeredCriterionIds: [dog.id], observedAt: claim.observedAt },
     ]);
     expect(calls).toHaveLength(1);
     expect(calls[0].sql).toContain("FROM unnest");

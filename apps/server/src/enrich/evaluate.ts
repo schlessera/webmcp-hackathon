@@ -21,8 +21,8 @@ import {
  * module.
  */
 
-export const MAX_MATRIX_PLACES = 12;
-export const MAX_MATRIX_CRITERIA = 8;
+export const MAX_MATRIX_PLACES = 8;
+export const MAX_MATRIX_CRITERIA = 5;
 export const MAX_TEXT_CHARS_PER_PLACE = 6_000;
 
 /** Search source names are consumed by the refinement stream; aliases keep
@@ -76,6 +76,13 @@ export interface EvaluatedInference {
   sourceUrl?: string;
   question?: string;
   label?: string;
+}
+
+export interface EvaluatedMatrixBatch {
+  input: EvaluateMatrixInput;
+  claims: EvaluatedInference[];
+  /** Cells for which the model returned a validated claim or explicit abstention. */
+  answered: Array<{ candidateId: string; criterionId: string }>;
 }
 
 export const EVALUATE_MATRIX_SCHEMA = {
@@ -209,12 +216,23 @@ export function matrixClaimsFromAnswer(
   model: string,
   observedAt = new Date().toISOString(),
 ): EvaluatedInference[] {
+  return matrixBatchFromAnswer(answer, input, model, observedAt).claims;
+}
+
+/** Validate claims and retain the cells the model genuinely answered. */
+export function matrixBatchFromAnswer(
+  answer: unknown,
+  input: EvaluateMatrixInput,
+  model: string,
+  observedAt = new Date().toISOString(),
+): EvaluatedMatrixBatch {
   const places = new Map(input.places.map((place) => [place.candidateId, place]));
   const criteria = new Map(input.criteria.map((criterion) => [criterion.id, criterion]));
   const drafts = (answer as { claims?: unknown } | null)?.claims;
-  if (!Array.isArray(drafts)) return [];
+  if (!Array.isArray(drafts)) return { input, claims: [], answered: [] };
   const seen = new Set<string>();
   const claims: EvaluatedInference[] = [];
+  const answered: EvaluatedMatrixBatch["answered"] = [];
   for (const raw of drafts as DraftClaim[]) {
     if (!raw || typeof raw !== "object") continue;
     const candidateId = String(raw.candidateId ?? "");
@@ -223,7 +241,12 @@ export function matrixClaimsFromAnswer(
     if (seen.has(cell)) continue;
     const place = places.get(candidateId);
     const criterion = criteria.get(criterionId);
-    if (!place || !criterion || raw.lean === "abstain") continue;
+    if (!place || !criterion) continue;
+    if (raw.lean === "abstain") {
+      seen.add(cell);
+      answered.push({ candidateId, criterionId });
+      continue;
+    }
     if (raw.lean !== "yes" && raw.lean !== "no") continue;
     if (typeof raw.sourceIndex !== "number") continue;
     const sourceIndex = raw.sourceIndex;
@@ -251,6 +274,7 @@ export function matrixClaimsFromAnswer(
     const status = graded(raw.lean === "yes", confidence);
     if (status === "verified_true" || status === "verified_false") continue;
     seen.add(cell);
+    answered.push({ candidateId, criterionId });
     const sourceUrl = sourceIndex >= 0 ? place.texts[sourceIndex].url : undefined;
     claims.push({
       candidateId,
@@ -270,10 +294,10 @@ export function matrixClaimsFromAnswer(
         : {}),
     });
   }
-  return claims;
+  return { input, claims, answered };
 }
 
-async function evaluateBounded(input: EvaluateMatrixInput): Promise<EvaluatedInference[]> {
+async function evaluateBounded(input: EvaluateMatrixInput): Promise<EvaluatedMatrixBatch> {
   const reply = await respond({
     model: config.nlFastModel,
     instructions: EVALUATE_MATRIX_PROMPT,
@@ -283,12 +307,19 @@ async function evaluateBounded(input: EvaluateMatrixInput): Promise<EvaluatedInf
     maxOutputTokens: 8_000,
     timeoutMs: 20_000,
   });
-  return matrixClaimsFromAnswer(parseJson(reply.text), input, reply.model);
+  const answer = parseJson<{ claims?: unknown }>(reply.text);
+  if (!answer || !Array.isArray(answer.claims)) {
+    throw new Error("matrix response was not parseable structured output");
+  }
+  return matrixBatchFromAnswer(answer, input, reply.model);
 }
 
 /** Split on both axes and merge every validated cell; no model answer is
  * truncated merely because the caller supplied more than one bounded batch. */
-export async function evaluateMatrix(input: EvaluateMatrixInput): Promise<EvaluatedInference[]> {
+export async function evaluateMatrix(
+  input: EvaluateMatrixInput,
+  persistBatch?: (batch: EvaluatedMatrixBatch) => Promise<void>,
+): Promise<EvaluatedInference[]> {
   if (!inferenceEnabled()) return [];
   const clean = uniqueInput(input);
   if (clean.places.length === 0 || clean.criteria.length === 0) return [];
@@ -301,7 +332,14 @@ export async function evaluateMatrix(input: EvaluateMatrixInput): Promise<Evalua
       criterionAt += MAX_MATRIX_CRITERIA
     ) {
       const criteria = clean.criteria.slice(criterionAt, criterionAt + MAX_MATRIX_CRITERIA);
-      claims.push(...await evaluateBounded({ places, criteria }));
+      try {
+        const batch = await evaluateBounded({ places, criteria });
+        if (persistBatch) await persistBatch(batch);
+        claims.push(...batch.claims);
+      } catch {
+        // A transport, parse, or persistence failure is not an answer. Other
+        // bounded batches remain independent and may still be persisted.
+      }
     }
   }
   return claims;
