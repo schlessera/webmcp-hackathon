@@ -182,6 +182,10 @@ export interface DossierAttribute {
   confidence: number;
   /** Present when someone in the room attested (or disputed) this fact. */
   attestedBy?: string;
+  /** Permanent person confirmation provenance. */
+  confirmedByName?: string;
+  confirmedByParticipant?: string;
+  confirmedAt?: string;
   /** Why the source says so: a rule's reason, an evidence span, a note. */
   note?: string;
   sourceUrl?: string;

@@ -40,6 +40,7 @@ const SPATIAL_TOOLS: Array<[string, string]> = [
   ["add_candidates", "mutation"],
   ["propose_destination", "mutation"],
   ["attest_attribute", "mutation"],
+  ["confirm_fact", "permanent mutation"],
   ["plan_arrival", "mutation"],
   ["focus_destination", "page-local"],
   ["prepare_navigation", "read"],
