@@ -1,6 +1,6 @@
 {
   "toolContractVersion": "3",
-  "sha256": "ec048d54ee0e83325cab1f851e9154530b9e2045d7af5b8dbd663de8d709d4e8",
+  "sha256": "469bf12d4fa8bac608897425fbd5e31ea1868d975b796ce3771933ade68f299d",
   "manifest": {
     "capabilityManifest": {
       "agreement": {
@@ -1595,6 +1595,30 @@
               "type"
             ],
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "candidateId": {
+                "anyOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ]
+              },
+              "type": {
+                "const": "previewing",
+                "type": "string"
+              }
+            },
+            "required": [
+              "candidateId",
+              "type"
+            ],
+            "type": "object"
           }
         ]
       },
@@ -2913,6 +2937,16 @@
                 },
                 "type": "array"
               },
+              "deadlineExceeded": {
+                "anyOf": [
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "boolean"
+                  }
+                ]
+              },
               "reason": {
                 "anyOf": [
                   {
@@ -2929,6 +2963,34 @@
                   },
                   {
                     "const": "inference",
+                    "type": "string"
+                  },
+                  {
+                    "const": "interactive",
+                    "type": "string"
+                  }
+                ]
+              },
+              "stage": {
+                "anyOf": [
+                  {
+                    "const": "cache",
+                    "type": "string"
+                  },
+                  {
+                    "const": "site",
+                    "type": "string"
+                  },
+                  {
+                    "const": "images",
+                    "type": "string"
+                  },
+                  {
+                    "const": "adjudicate",
+                    "type": "string"
+                  },
+                  {
+                    "const": "search",
                     "type": "string"
                   }
                 ]
@@ -6269,6 +6331,11 @@
               "maxItems": 3,
               "minItems": 1,
               "type": "array"
+            },
+            "intent": {
+              "const": "open",
+              "description": "Treat this inspection as an opened place: return cached facts immediately and stream fast-track updates.",
+              "type": "string"
             }
           },
           "required": [

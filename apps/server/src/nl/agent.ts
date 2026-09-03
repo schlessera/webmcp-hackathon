@@ -249,7 +249,9 @@ async function execute(
     }
     case "inspect_candidates": {
       const ids = Array.isArray(args.candidateIds) ? (args.candidateIds as string[]).slice(0, 3) : [];
-      const result = await withinTurn(deadlineAt, () => inspectCandidates(actor, ids));
+      const result = await withinTurn(deadlineAt, () => inspectCandidates(actor, ids, {
+        ...(args.intent === "open" ? { intent: "open" as const } : {}),
+      }));
       if (!result.ok) return result;
       return { ok: true, candidates: result.candidates.map(compactDossier) };
     }

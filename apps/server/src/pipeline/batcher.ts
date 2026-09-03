@@ -19,11 +19,27 @@ export class MatrixBatcher<T> {
   }
 
   add(cell: ReadyCell<T>): void {
-    this.pending.push(cell);
-    if (cell.priority === 0 || this.full()) {
+    this.addMany([cell]);
+  }
+
+  /** Priority-zero cells bypass the collection window without draining background work. */
+  addMany(cells: Array<ReadyCell<T>>): void {
+    if (cells.length === 0) return;
+    const interactive = cells.filter((cell) => cell.priority === 0);
+    const background = cells.filter((cell) => cell.priority !== 0);
+    this.pending.push(...background);
+    for (const first of interactive) {
+      const samePlace = interactive.filter((cell) =>
+        cell.roomId === first.roomId && cell.candidateId === first.candidateId
+      );
+      if (samePlace[0] !== first) continue;
+      void Promise.resolve(this.dispatch(samePlace));
+    }
+    if (this.full()) {
       this.flush();
       return;
     }
+    if (this.pending.length === 0) return;
     if (!this.timer) {
       this.timer = setTimeout(() => this.flush(), this.waitMs);
       this.timer.unref?.();
@@ -56,7 +72,7 @@ export class MatrixBatcher<T> {
     this.pending = retained;
     void Promise.resolve(this.dispatch(selected));
     if (this.pending.length > 0) {
-      if (this.pending[0].priority === 0 || this.full()) this.flush();
+      if (this.full()) this.flush();
       else {
         this.timer = setTimeout(() => this.flush(), this.waitMs);
         this.timer.unref?.();
@@ -82,7 +98,7 @@ export class MatrixBatcher<T> {
     if (this.timer) clearTimeout(this.timer);
     this.timer = undefined;
     if (this.pending.length > 0) {
-      if (this.pending[0].priority === 0 || this.full()) this.flush();
+      if (this.full()) this.flush();
       else {
         this.timer = setTimeout(() => this.flush(), this.waitMs);
         this.timer.unref?.();

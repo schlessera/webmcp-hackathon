@@ -88,6 +88,10 @@ export const INSPECT_CANDIDATES_INPUT = Type.Object(
       }),
       { minItems: 1, maxItems: 3 },
     ),
+    intent: Type.Optional(Type.Literal("open", {
+      description:
+        "Treat this inspection as an opened place: return cached facts immediately and stream fast-track updates.",
+    })),
   },
   { additionalProperties: false },
 );

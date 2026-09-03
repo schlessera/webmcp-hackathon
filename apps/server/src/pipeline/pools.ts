@@ -15,14 +15,20 @@ function boundedEnv(name: string, fallback: number, min = 1, max = 64): number {
 export class PipelinePool {
   readonly name: PoolName;
   readonly limit: number;
+  readonly reserved: number;
   private active = 0;
-  private readonly waiting: Array<() => void> = [];
+  private backgroundActive = 0;
+  private readonly waiting: Array<{ priority: number; resolve(): void }> = [];
   private peak = 0;
 
-  constructor(name: PoolName, limit: number) {
+  constructor(name: PoolName, limit: number, reserved = 0) {
     if (!Number.isInteger(limit) || limit < 1) throw new Error("pool limit must be positive");
+    if (!Number.isInteger(reserved) || reserved < 0 || reserved > limit) {
+      throw new Error("pool reservation must be between zero and the pool limit");
+    }
     this.name = name;
     this.limit = limit;
+    this.reserved = reserved;
   }
 
   get inFlight(): number {
@@ -41,36 +47,69 @@ export class PipelinePool {
     return Math.max(0, this.limit - this.active);
   }
 
-  async submit<T>(run: () => Promise<T> | T): Promise<T> {
-    if (this.active >= this.limit || this.waiting.length > 0) {
-      await new Promise<void>((resolve) => this.waiting.push(resolve));
+  /** Priority zero may use every free slot; all other work leaves the reserve untouched. */
+  canRun(priority: number): boolean {
+    return priority === 0
+      ? this.active < this.limit
+      : this.active < this.limit && this.backgroundActive < this.limit - this.reserved;
+  }
+
+  async submit<T>(run: () => Promise<T> | T, priority = 0): Promise<T> {
+    if (!this.canRun(priority) || this.hasEarlierEligibleWaiter(priority)) {
+      await new Promise<void>((resolve) => this.waiting.push({ priority, resolve }));
     } else {
-      this.reserve();
+      this.reserve(priority);
     }
     try {
       return await run();
     } finally {
-      this.release();
+      this.release(priority);
     }
   }
 
-  private reserve(): void {
+  private hasEarlierEligibleWaiter(priority: number): boolean {
+    if (this.waiting.length === 0) return false;
+    // Interactive work may pass background waiters that cannot use the
+    // reserved capacity, but never another interactive waiter.
+    return priority === 0
+      ? this.waiting.some((entry) => entry.priority === 0)
+      : true;
+  }
+
+  private reserve(priority: number): void {
     this.active += 1;
+    if (priority !== 0) this.backgroundActive += 1;
     this.peak = Math.max(this.peak, this.active);
   }
 
-  private release(): void {
+  private release(priority: number): void {
     this.active -= 1;
-    const next = this.waiting.shift();
-    if (!next) return;
-    this.reserve();
-    next();
+    if (priority !== 0) this.backgroundActive -= 1;
+    const interactive = this.waiting.findIndex((entry) => entry.priority === 0 && this.canRun(0));
+    const background = this.waiting.findIndex((entry) => entry.priority !== 0 && this.canRun(1));
+    const index = interactive >= 0 ? interactive : background;
+    if (index < 0) return;
+    const [next] = this.waiting.splice(index, 1);
+    this.reserve(next.priority);
+    next.resolve();
   }
 }
 
 export type PipelinePools = Record<PoolName, PipelinePool>;
 
-export function createPipelinePools(overrides: Partial<Record<PoolName, number>> = {}): PipelinePools {
+export const RESERVED_PRIORITY_ZERO: Readonly<Record<PoolName, number>> = {
+  proxy: 0,
+  direct: 2,
+  search: 1,
+  "llm-matrix": 1,
+  vision: 1,
+  "image-decode": 1,
+};
+
+export function createPipelinePools(
+  overrides: Partial<Record<PoolName, number>> = {},
+  reservations: Partial<Record<PoolName, number>> = {},
+): PipelinePools {
   const limits: Record<PoolName, number> = {
     proxy: boundedEnv("POOL_PROXY", 8, 8, 12),
     direct: boundedEnv("POOL_DIRECT", 4),
@@ -81,6 +120,16 @@ export function createPipelinePools(overrides: Partial<Record<PoolName, number>>
     ...overrides,
   };
   return Object.fromEntries(
-    Object.entries(limits).map(([name, limit]) => [name, new PipelinePool(name as PoolName, limit)]),
+    Object.entries(limits).map(([name, limit]) => {
+      const poolName = name as PoolName;
+      return [name, new PipelinePool(
+        poolName,
+        limit,
+        Math.min(
+          limit,
+          reservations[poolName] ?? RESERVED_PRIORITY_ZERO[poolName],
+        ),
+      )];
+    }),
   ) as PipelinePools;
 }

@@ -108,6 +108,10 @@ uses the existing honest `text` fallback.
 - Cannot commit or confirm: `CommitAgreement` and `ConfirmPrivateRequest`
   have no tool route here either. The human's page gesture stays the only
   path (INTERACTION-AND-BINDING.md §5.4).
+- `inspect_candidates` has an optional `intent: "open"`. With it, the tool
+  returns the cached dossier immediately and streams the bounded priority-zero
+  site, image, adjudication and optional Parallel-fast search continuation
+  through `facts` frames.
 - One agent turn has a total deadline of about 60 seconds, including its
   initial snapshot, requested reads and every model call. Each call receives
   only the remaining budget. The loop is capped at four model rounds and at

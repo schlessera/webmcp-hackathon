@@ -33,6 +33,7 @@ describe("pipeline over HTTP, WebSocket, and PostgreSQL", () => {
         REFINE_TICK_MS: "250",
         REFINE_IDLE_STOP_MS: "200",
         OPENAI_API_KEY: "scripted",
+        PARALLEL_API_KEY: "scripted",
       },
     });
     room = await createTestRoom(server.baseUrl);
@@ -120,6 +121,58 @@ describe("pipeline over HTTP, WebSocket, and PostgreSQL", () => {
     expect(response.body.ok).toBe(true);
     await waitFor(() => countLog("pipeline-enqueue process.decode") > 0, 8_000, () => server.logs());
     await waitFor(() => countLog("pipeline-enqueue process.vision") > 0, 8_000, () => server.logs());
+  });
+
+  it("returns cached inspect_candidates content immediately and streams the open fast track", async () => {
+    const frameStart = realtime.frames().length;
+    const started = performance.now();
+    const response = await apiPost<{ ok: boolean; candidates: Array<{ candidateId: string }> }>(
+      server.baseUrl,
+      "/api/spatial/inspect",
+      room.tokens.org,
+      { candidateIds: [candidateId], intent: "open" },
+    );
+    const elapsedMs = performance.now() - started;
+    expect(response.body.ok).toBe(true);
+    expect(response.body.candidates[0]?.candidateId).toBe(candidateId);
+    expect(elapsedMs).toBeLessThan(1_000);
+    await waitFor(() => realtime.frames().slice(frameStart).some((raw) => {
+      const frame = JSON.parse(raw) as { type?: string; reason?: string; stage?: string };
+      return frame.type === "facts" && frame.reason === "interactive" && frame.stage === "site";
+    }), 8_000, () => realtime.frames().slice(frameStart).join("|"));
+  });
+
+  it("emits one cost-accounting line for each completed open", async () => {
+    await waitFor(() => countLog("interactive open cost") > 0, 8_000, () => server.logs());
+    const before = countLog("interactive open cost");
+    const response = await apiPost<{ ok: boolean }>(
+      server.baseUrl,
+      "/api/spatial/inspect",
+      room.tokens.org,
+      { candidateIds: [candidateId], intent: "open" },
+    );
+    expect(response.body.ok).toBe(true);
+    await waitFor(() => countLog("interactive open cost") === before + 1, 8_000, () => server.logs());
+    const line = server.logs().split("\n").filter((entry) => entry.includes("interactive open cost")).at(-1)!;
+    expect(line).toContain('"modelCalls":');
+    expect(line).toContain('"costUsd":');
+    expect(line).not.toContain(PRIVATE_TEXT);
+  });
+
+  it("runs previewing as cheap work without search or vision", async () => {
+    const previewId = (await room.pool.query(
+      "SELECT id FROM candidates WHERE room_id = $1 AND id <> $2 ORDER BY id DESC LIMIT 1",
+      [room.roomId, candidateId],
+    )).rows[0].id as string;
+    const searches = countLog(`pipeline-enqueue fetch.search ${previewId} priority=1`);
+    const visions = countLog(`pipeline-enqueue process.vision ${previewId} priority=1`);
+    const siteJobs = countLog("pipeline-enqueue fetch.site");
+    realtime.send({ type: "previewing", candidateId: previewId });
+    await waitFor(() => countLog("pipeline-enqueue fetch.site") > siteJobs, 8_000, () => server.logs());
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(countLog(`pipeline-enqueue fetch.search ${previewId} priority=1`)).toBe(searches);
+    expect(countLog(`pipeline-enqueue process.vision ${previewId} priority=1`)).toBe(visions);
+    realtime.send({ type: "previewing", candidateId: null });
   });
 
   it("does one fresh judgement and zero fetches for warm-page Look again", async () => {

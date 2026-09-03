@@ -315,3 +315,16 @@ Stages are `queued`, `fetching`, or `processing`; absence from both arrays
 means settled. A reason label may name only a shared need. Application-private
 and agent-private question text never enters either frame, an outbound search
 query, or a log line.
+
+The client may additionally send `{ "type": "previewing", "candidateId":
+"place_a" }`, or `null` to clear it, with the same validation shape as
+`viewing`. This is presence-like, non-persistent input: it starts only a
+priority-one cache/site/judge prefetch, at most two concurrently, and expires
+after five seconds if `viewing` does not open the place. `viewing` itself starts
+the bounded priority-zero open plan.
+
+`inspect_candidates` accepts the additive optional `intent: "open"`. Its HTTP
+result is the cached dossier immediately; later steps arrive as `facts` frames
+with `reason: "interactive"`, `stage` (`cache`, `site`, `images`,
+`adjudicate`, or `search`) and optional `deadlineExceeded: true` after the soft
+three-second mark. No need label or question text is carried in these frames.

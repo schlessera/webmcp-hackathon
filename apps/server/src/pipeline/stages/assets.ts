@@ -38,6 +38,8 @@ export interface PipelineAssetContext {
   intent: "interactive" | "background";
   needsEpoch?: number;
   imageWork?: { commonsApiCalls?: number };
+  /** Called only when decoded images are ready for the single vision batch. */
+  consumeVision?: () => boolean;
   fetchForRoute: (route: OutboundRoute, purpose: OutboundPurpose) => FetchLike;
   scheduler?: PipelineScheduler;
 }
@@ -111,10 +113,13 @@ export function refreshAssetsThroughPipeline(context: PipelineAssetContext): Pro
     );
     return { ...decoded, ttlMs: downloaded.ttlMs };
   };
-  const classify = (
+  const classify = async (
     placeName: string,
     images: Array<{ bytes: Uint8Array }>,
   ): Promise<ClassifiedImageBatch> => {
+    if (context.consumeVision && !context.consumeVision()) {
+      return classifyPlaceImages(placeName, [], context.intent);
+    }
     const evidenceHash = createHash("sha1")
       .update(context.candidates.map((candidate) => candidate.url).join("\0"))
       .digest("hex");

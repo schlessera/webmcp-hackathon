@@ -9,6 +9,7 @@ import {
   normalizeStatus,
   type Criterion,
   type DossierLink,
+  type FactsMessage,
   type LookupsMessage,
 } from "@webmcp-hackathon/contracts";
 import {
@@ -72,9 +73,10 @@ import {
   type OutboundPurpose,
   type OutboundRoute,
 } from "../net/outbound.ts";
-import { pipelineDedupeKey } from "../pipeline/queue.ts";
+import { pipelineDedupeKey, type PipelinePriority } from "../pipeline/queue.ts";
 import { pipelineScheduler, type DispatchResult } from "../pipeline/scheduler.ts";
 import { refreshAssetsThroughPipeline } from "../pipeline/stages/assets.ts";
+import type { InteractiveBudget } from "../pipeline/interactive.ts";
 import { cleanInlineText, cleanSummary, cleanTitle } from "./text.ts";
 import {
   cleanEvaluatedInference,
@@ -764,6 +766,8 @@ async function lookup(
   target: LookupTarget,
   intent: LookupIntent = "background",
   scheduledRoute?: OutboundRoute,
+  reuseFreshPage = false,
+  skipMenuRead = false,
 ): Promise<LookupPass> {
   const interactive = intent === "interactive";
   const passTarget: LookupTarget = {
@@ -772,6 +776,21 @@ async function lookup(
     ...(scheduledRoute ? { direct: scheduledRoute === "direct" } : interactive ? { direct: true } : {}),
   };
   const initial = (await loadCached(db, [target.osmRef])).get(target.osmRef);
+  if (reuseFreshPage) {
+    const [pageText, cachedHome] = await Promise.all([
+      cachedPageText(db, target, initial),
+      target.website ? loadPageCache(db, target.website) : Promise.resolve(null),
+    ]);
+    if (pageText) {
+      return {
+        enrichment: initial ?? null,
+        pageText,
+        ...(cachedHome?.fresh && cachedHome.imageCandidates?.length
+          ? { imageCandidates: cachedHome.imageCandidates }
+          : {}),
+      };
+    }
+  }
   if (!Object.values(dueProviders(target, initial, intent)).some(Boolean)) {
     const pageText = await cachedPageText(db, target, initial);
     return { enrichment: initial ?? null, ...(pageText ? { pageText } : {}) };
@@ -811,7 +830,7 @@ async function lookup(
       ]);
       // A menu that is a picture gets read (menu-reader.ts); the bytes are
       // never stored, the claims are.
-      if (site.facts && site.menuFile && menuReaderEnabled()) {
+      if (site.facts && site.menuFile && menuReaderEnabled() && !skipMenuRead) {
         try {
           const reading = await readMenu(site.menuFile, intent);
           if (reading) site.facts.menuReading = reading;
@@ -901,6 +920,21 @@ export interface LookupNowOptions {
   intent?: LookupIntent;
   /** Fresh fetched/proxy page material for focused adjudication in this pass. */
   pageCache?: AdjudicationPageCache;
+  /** Fast-track/prefetch controls. These narrow work; they never add a route override. */
+  priority?: PipelinePriority;
+  activeCriteriaOnly?: boolean;
+  skipListingRefresh?: boolean;
+  skipImages?: boolean;
+  onlyUnclassifiedImages?: boolean;
+  reuseFreshPage?: boolean;
+  siteOnly?: boolean;
+  signal?: AbortSignal;
+  budget?: InteractiveBudget;
+  consumeModelCall?: (roomId: string, now: number) => boolean;
+  publishInteractiveStages?: boolean;
+  onInteractiveStage?: (stage: "site" | "images") => void;
+  maxCriteria?: number;
+  deferExcess?: () => void;
 }
 
 /** An interactive lookup re-reads a provider only when its last read is older than this. */
@@ -913,6 +947,11 @@ async function scheduledLookup(
   target: RoomLookupTarget,
   intent: LookupIntent,
   reason?: LookupNowOptions["reason"],
+  priority: PipelinePriority = intent === "interactive" ? 0 : 3,
+  providerIntent: LookupIntent = intent,
+  reuseFreshPage = false,
+  signal?: AbortSignal,
+  siteOnly = false,
 ): Promise<LookupPass> {
   let host: string | undefined;
   try {
@@ -926,7 +965,7 @@ async function scheduledLookup(
     osmRef: target.osmRef,
     kind: "fetch.site" as const,
     criteria: [],
-    priority: intent === "interactive" ? 0 as const : 3 as const,
+    priority,
     intent,
     ...(host ? { host, purpose: "venue-site" as const } : {}),
     needsEpoch: 0,
@@ -934,10 +973,20 @@ async function scheduledLookup(
   };
   return pipelineScheduler.enqueue(
     { ...base, dedupeKey: pipelineDedupeKey(base) },
-    async (route): Promise<DispatchResult<LookupPass>> => ({
-      value: await lookup(db, target, intent, route),
-      actualRoute: route ?? "direct",
-    }),
+    async (route): Promise<DispatchResult<LookupPass>> => {
+      if (signal?.aborted) throw new DOMException("prefetch cancelled", "AbortError");
+      return {
+        value: await lookup(
+          db,
+          siteOnly ? { ...target, wikidata: undefined } : target,
+          providerIntent,
+          route,
+          reuseFreshPage,
+          siteOnly,
+        ),
+        actualRoute: route ?? "direct",
+      };
+    },
     { reason, present: intent === "interactive" },
   );
 }
@@ -949,6 +998,8 @@ async function refreshPipelineImages(
   target: RoomLookupTarget,
   current: Enrichment | undefined,
   passCandidates: ImageCandidate[],
+  budget?: InteractiveBudget,
+  allowWebsiteCandidateFetch = true,
 ): Promise<void> {
   if (!(await imageRefreshDue(db, target.osmRef, INTERACTIVE_STALE_MS))) return;
   const passTarget: LookupTarget = {
@@ -971,7 +1022,7 @@ async function refreshPipelineImages(
   };
   const websiteCandidates = passCandidates.length > 0
     ? passCandidates
-    : target.website
+    : target.website && allowWebsiteCandidateFetch
       ? await fetchInjectedWebsiteImageCandidates(db, passTarget)
       : [];
   const candidates = await imageCandidatesFor(
@@ -989,6 +1040,7 @@ async function refreshPipelineImages(
     candidates,
     intent: "interactive",
     imageWork,
+    ...(budget ? { consumeVision: () => budget.take("vision") } : {}),
     fetchForRoute: (route, purpose) => pipelineImageFetch(passTarget, route, purpose),
   });
 }
@@ -1473,6 +1525,8 @@ export function lookupNow(
       keys,
       criteria.map((criterion) => criterion.id).sort(),
       intent,
+      options.priority,
+      options.activeCriteriaOnly,
     ]);
   const existingJobs: Promise<string[]>[] = [];
   const fresh: RoomLookupTarget[] = [];
@@ -1515,7 +1569,7 @@ async function runLookupNow(
   // Interactive reads should benefit from listings immediately. Pool warm-up
   // is debounced below so its many incremental batches still cause one room-
   // wide request after the pool settles.
-  const listingRefresh = options.reason?.kind === "pool"
+  const listingRefresh = options.skipListingRefresh || options.reason?.kind === "pool"
     ? null
     : await refreshRoomListings(pool, roomId).catch(() => null);
   const wantedIds = [...new Set(targets.map((target) => target.candidateId))];
@@ -1559,6 +1613,12 @@ async function runLookupNow(
   for (const criterion of harvestRequirementCriteria(requirementRows.rows)) {
     activeCriteria.set(criterion.id, criterion);
   }
+  if (options.maxCriteria !== undefined && activeCriteria.size > options.maxCriteria) {
+    const retained = [...activeCriteria.entries()].slice(0, Math.max(0, options.maxCriteria));
+    activeCriteria.clear();
+    for (const [id, criterion] of retained) activeCriteria.set(id, criterion);
+    options.deferExcess?.();
+  }
   for (const row of rows) {
     const target = targetById.get(row.id);
     const listingWebsite = initialCache.get(row.osm_ref!)?.listing?.website;
@@ -1573,6 +1633,7 @@ async function runLookupNow(
     base?: AttributeLike[];
     texts?: ReturnType<typeof inferenceTexts>;
     openCriteria?: Criterion[];
+    imageCandidates?: ImageCandidate[];
   }
   const evaluations = new Map<string, CandidateEvaluation>();
   let cursor = 0;
@@ -1590,27 +1651,31 @@ async function runLookupNow(
       };
       evaluations.set(row.id, evaluation);
       try {
+        if (options.signal?.aborted) continue;
         let transientText: WebsiteTransientText | undefined;
         let passCandidates: ImageCandidate[] = [];
 
         // Provider freshness is independent: lookup retries only the due leg,
         // retains last-known-good facts, and preserves a failed leg's TTL.
         if (hasLookupSource(target)) {
-          const pass = await scheduledLookup(pool, roomId, row.id, target, intent, options.reason);
+          options.onInteractiveStage?.("site");
+          if (options.budget && !options.budget.take("fetch")) continue;
+          const pass = await scheduledLookup(
+            pool,
+            roomId,
+            row.id,
+            target,
+            intent,
+            options.reason,
+            options.priority,
+            options.reuseFreshPage ? "background" : intent,
+            options.reuseFreshPage,
+            options.signal,
+            options.siteOnly,
+          );
           current = pass.enrichment ?? undefined;
           transientText = pass.pageText;
           passCandidates = pass.imageCandidates ?? [];
-        }
-        if (intent === "interactive") {
-          await refreshPipelineImages(
-            pool,
-            roomId,
-            row,
-            target,
-            current,
-            passCandidates,
-          );
-          current = (await loadCached(pool, [row.osm_ref!])).get(row.osm_ref!);
         }
         evaluation.current = current;
         evaluation.base = applyGuesses(
@@ -1622,6 +1687,15 @@ async function runLookupNow(
           observedAt,
         );
         evaluation.texts = inferenceTexts(row, current, transientText);
+        evaluation.imageCandidates = passCandidates;
+        if (options.publishInteractiveStages) {
+          publishFacts(roomId, {
+            type: "facts",
+            candidateIds: [row.id],
+            reason: "interactive",
+            stage: "site",
+          });
+        }
       } catch {
         // A lookup is opportunistic. One broken site/model/database row must
         // not fail the caller or prevent the rest of the batch completing.
@@ -1631,6 +1705,7 @@ async function runLookupNow(
   await Promise.all(Array.from({ length: actionable.length }, () => worker()));
 
   const criteria = new Map(activeCriteria);
+  if (!options.activeCriteriaOnly) {
   for (const evaluation of evaluations.values()) {
     for (const key of options.keys ?? ATTRIBUTE_VOCABULARY) {
       if (!(ATTRIBUTE_VOCABULARY as readonly string[]).includes(key)) continue;
@@ -1646,6 +1721,7 @@ async function runLookupNow(
         label: ATTRIBUTE_LABELS[key as keyof typeof ATTRIBUTE_LABELS] ?? key,
       });
     }
+  }
   }
 
   const matrixPlaces: EvaluateMatrixInput["places"] = [];
@@ -1695,53 +1771,119 @@ async function runLookupNow(
   let inferenceChanged = false;
   if (matrixPlaces.length > 0 && matrixCriteria.size > 0 && inferenceEnabled()) {
     try {
-      const openByCandidate = new Map(
-        [...evaluations.values()].map((evaluation) => [
-          evaluation.row.id,
-          new Set((evaluation.openCriteria ?? []).map((criterion) => criterion.id)),
-        ]),
-      );
-      const claims = await evaluateMatrix({
-        places: matrixPlaces,
-        criteria: [...matrixCriteria.values()],
-      }, async (batch) => {
-        const answeredByCandidate = new Map<string, string[]>();
-        for (const cell of batch.answered) {
-          if (!openByCandidate.get(cell.candidateId)?.has(cell.criterionId)) continue;
-          const ids = answeredByCandidate.get(cell.candidateId) ?? [];
-          ids.push(cell.criterionId);
-          answeredByCandidate.set(cell.candidateId, ids);
-        }
-        const accepted = batch.claims.filter((claim) =>
-          openByCandidate.get(claim.candidateId)?.has(claim.criterionId)
+      if (options.signal?.aborted) return [];
+      const withinOpenBudget = !options.budget || options.budget.take("model");
+      const withinRoomBudget = withinOpenBudget &&
+        (!options.consumeModelCall || options.consumeModelCall(roomId, Date.now()));
+      if (!withinRoomBudget) {
+        options.deferExcess?.();
+      } else {
+        const openByCandidate = new Map(
+          [...evaluations.values()].map((evaluation) => [
+            evaluation.row.id,
+            new Set((evaluation.openCriteria ?? []).map((criterion) => criterion.id)),
+          ]),
         );
-        await saveInferences(
+        const matrixInput = {
+          places: matrixPlaces,
+          criteria: [...matrixCriteria.values()],
+        };
+        const processItems = matrixPlaces.flatMap((place) => matrixInput.criteria.map((criterion) => {
+          const base = {
+            roomId,
+            candidateId: place.candidateId,
+            osmRef: place.osmRef,
+            kind: "process.judge" as const,
+            criteria: [criterion],
+            priority: options.priority ?? (intent === "interactive" ? 0 as const : 3 as const),
+            intent,
+            evidenceHash: createHash("sha1").update(JSON.stringify(place.texts)).digest("hex"),
+            needsEpoch: 0,
+            enqueuedAt: Date.now(),
+          };
+          return { ...base, dedupeKey: pipelineDedupeKey(base) };
+        }));
+        const evaluate = () => options.signal?.aborted
+          ? Promise.resolve([] as EvaluatedInference[])
+          : evaluateMatrix(matrixInput, async (batch) => {
+            const answeredByCandidate = new Map<string, string[]>();
+            for (const cell of batch.answered) {
+              if (!openByCandidate.get(cell.candidateId)?.has(cell.criterionId)) continue;
+              const ids = answeredByCandidate.get(cell.candidateId) ?? [];
+              ids.push(cell.criterionId);
+              answeredByCandidate.set(cell.candidateId, ids);
+            }
+            const accepted = batch.claims.filter((claim) =>
+              openByCandidate.get(claim.candidateId)?.has(claim.criterionId)
+            );
+            await saveInferences(
+              pool,
+              batch.input.places.flatMap((place) => {
+                const evaluation = evaluations.get(place.candidateId);
+                if (!evaluation?.openCriteria?.length) return [];
+                const criterionIds = new Set(batch.input.criteria.map((criterion) => criterion.id));
+                return [{
+                  osmRef: evaluation.row.osm_ref!,
+                  criteria: evaluation.openCriteria.filter((criterion) => criterionIds.has(criterion.id)),
+                  claims: accepted.filter((claim) => claim.candidateId === place.candidateId),
+                  answeredCriterionIds: answeredByCandidate.get(place.candidateId) ?? [],
+                  observedAt: evaluation.observedAt,
+                }];
+              }),
+            );
+            if (accepted.length > 0) inferenceChanged = true;
+          }, pool, intent === "interactive" ? "refresh" : "reuse", intent);
+        const claims = await pipelineScheduler.enqueueBatch(processItems, evaluate, {
+          present: intent === "interactive",
+          reason: options.reason,
+        });
+        inferenceChanged ||= claims.length > 0;
+        const refreshed = await loadCached(
           pool,
-          batch.input.places.flatMap((place) => {
-            const evaluation = evaluations.get(place.candidateId);
-            if (!evaluation?.openCriteria?.length) return [];
-            const criterionIds = new Set(batch.input.criteria.map((criterion) => criterion.id));
-            return [{
-              osmRef: evaluation.row.osm_ref!,
-              criteria: evaluation.openCriteria.filter((criterion) => criterionIds.has(criterion.id)),
-              claims: accepted.filter((claim) => claim.candidateId === place.candidateId),
-              answeredCriterionIds: answeredByCandidate.get(place.candidateId) ?? [],
-              observedAt: evaluation.observedAt,
-            }];
-          }),
+          [...evaluations.values()].map((evaluation) => evaluation.row.osm_ref!).filter(Boolean),
         );
-        if (accepted.length > 0) inferenceChanged = true;
-      }, pool, intent === "interactive" ? "refresh" : "reuse", intent);
-      inferenceChanged ||= claims.length > 0;
-      const refreshed = await loadCached(
-        pool,
-        [...evaluations.values()].map((evaluation) => evaluation.row.osm_ref!).filter(Boolean),
-      );
-      for (const evaluation of evaluations.values()) {
-        evaluation.current = refreshed.get(evaluation.row.osm_ref!);
+        for (const evaluation of evaluations.values()) {
+          evaluation.current = refreshed.get(evaluation.row.osm_ref!);
+        }
       }
     } catch {
       // Model and persistence work are opportunistic; provider facts still land.
+    }
+  }
+  if (options.publishInteractiveStages) {
+    publishFacts(roomId, {
+      type: "facts",
+      candidateIds: actionable.map((row) => row.id),
+      reason: "interactive",
+      stage: "site",
+    });
+  }
+
+  if (intent === "interactive" && !options.skipImages && !options.signal?.aborted) {
+    options.onInteractiveStage?.("images");
+    for (const evaluation of evaluations.values()) {
+      const target = targetById.get(evaluation.row.id);
+      if (!target) continue;
+      if (options.onlyUnclassifiedImages && initialImageVersions.has(evaluation.row.osm_ref!)) continue;
+      await refreshPipelineImages(
+        pool,
+        roomId,
+        evaluation.row,
+        target,
+        evaluation.current,
+        evaluation.imageCandidates ?? [],
+        options.budget,
+        !options.siteOnly,
+      );
+      evaluation.current = (await loadCached(pool, [evaluation.row.osm_ref!])).get(evaluation.row.osm_ref!);
+      if (options.publishInteractiveStages) {
+        publishFacts(roomId, {
+          type: "facts",
+          candidateIds: [evaluation.row.id],
+          reason: "interactive",
+          stage: "images",
+        });
+      }
     }
   }
 
@@ -1757,7 +1899,13 @@ async function runLookupNow(
     return evaluation.before === after ? [] : [evaluation.row.id];
   });
   if (changed.length > 0) {
-    await publishInferenceChanges(pool, roomId, changed, inferenceChanged ? "inference" : "lookup");
+    await publishInferenceChanges(
+      pool,
+      roomId,
+      changed,
+      options.publishInteractiveStages ? "interactive" : inferenceChanged ? "inference" : "lookup",
+      options.publishInteractiveStages ? "site" : undefined,
+    );
   }
   const finalImageVersions = await loadImageVersions(
     pool,
@@ -1773,7 +1921,12 @@ async function runLookupNow(
   if (imageOnly.length > 0) {
     // An image does not change eligibility or invalidate private screening,
     // so it needs a facts frame but no room/map revision bump.
-    publishFacts(roomId, { type: "facts", candidateIds: imageOnly, reason: "lookup" });
+    publishFacts(roomId, {
+      type: "facts",
+      candidateIds: imageOnly,
+      reason: options.publishInteractiveStages ? "interactive" : "lookup",
+      ...(options.publishInteractiveStages ? { stage: "images" as const } : {}),
+    });
   }
   return [...new Set([
     ...changed,
@@ -1798,7 +1951,8 @@ export async function publishInferenceChanges(
   pool: pg.Pool,
   roomId: string,
   candidateIds: string[],
-  reason: "inference" | "lookup" = "inference",
+  reason: FactsMessage["reason"] = "inference",
+  stage?: FactsMessage["stage"],
 ): Promise<string[]> {
   const changed = [...new Set(candidateIds)].sort();
   if (changed.length === 0) return [];
@@ -1832,7 +1986,12 @@ export async function publishInferenceChanges(
     // ordered broadcast queue synchronously before a later command can.
     notifyCommit(notification);
   }
-  publishFacts(roomId, { type: "facts", candidateIds: changed, reason });
+  publishFacts(roomId, {
+    type: "facts",
+    candidateIds: changed,
+    reason,
+    ...(stage ? { stage } : {}),
+  });
   return changed;
 }
 

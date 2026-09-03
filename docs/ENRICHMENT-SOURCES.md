@@ -781,7 +781,8 @@ Work is separated into fetch stages (`fetch.site`, `fetch.search`,
 Ready evidence is byte-bounded to 4 MB for the process and 512 KB per room; a
 full room stops only that room's fetch admissions until a matrix drains it.
 Matrix cells wait no more than 300 ms for a rectangle of at most eight places
-by five criteria, while priority-zero work closes its batch immediately.
+by five criteria. A priority-zero cell closes immediately with only that
+place's cells; already collected background cells remain in the batcher.
 
 | Stage | Unit | Pool | Wired trigger |
 |---|---|---|---|
@@ -799,13 +800,17 @@ Sharp decode/resize and the classifier are separate admissions, so none can
 hold a site-lookup semaphore while waiting on another kind of work.
 
 The named pools are independently and continuously refilled: proxy 8, direct
-4, search 4, matrix 2, vision 1 and image decode 2. The proxy limit is tunable
+4, search 4, matrix 2, vision 1 and image decode 2. Inside those existing caps,
+priority zero reserves two direct slots and one slot each in search, matrix,
+vision and image decode. Background work sees `cap - reserve`; priority zero
+may use any free slot. The proxy limit is tunable
 from 8–12 with `POOL_PROXY`; the other `POOL_*` variables tune their matching
 pools. A fetch is selected only when its host gate appears open, and selection
 examines at most 32 queued items. The gate is a hint, never a reservation; the
 outbound client's existing per-host and pacing checks remain authoritative.
-Interactive site and asset reads prefer direct and retry exactly once through
-the proxy on 403, 429, 503 or a CONNECT-502-class failure.
+Priority and intent never choose a network route. The scheduler assigns a pool,
+then the outbound client's `routeFor` decision remains authoritative at
+dispatch, alongside its breaker, control group, host limits and pacing.
 
 Priorities are: 0 interactive, 1 uncertain active needs in scope, 2 stale
 facts, 3 background vocabulary, and 4 on-demand assets. Realtime volume counts
@@ -813,6 +818,30 @@ only priorities 0 and 1, by fetch and process stage. `done` and `total` are
 deduplicated by place. ETA uses the RFC 6298 smoothed mean/deviation constants
 and is sent for diagnostics, not presented as a promise to the user. The
 `pipeline` frame is coalesced to at most four per second.
+
+### Fast track and speculative prefetch
+
+Opening a place, including `inspect_candidates` with `intent: "open"`, returns
+cached dossier and listing content immediately and starts one priority-zero
+plan. It publishes `facts` frames with `reason: "interactive"` and the current
+`stage` as cache, site, images, adjudicate and (when needed) search land. At
+three seconds it emits the same stage with `deadlineExceeded: true`; this only
+changes the waiting copy and never cancels useful work.
+
+The order is fixed: cached facts/listing; one site pass reusing page text
+younger than seven days and one active-criteria judgement; due image
+decode/vision; one call for likely-row adjudication; then one Parallel `fast`
+search only when an active shared criterion is still unanswered. Each place
+gets a hard budget of one site pass, one search, two non-vision model calls and
+one vision call. Work beyond it wakes the ordinary refinement plan at its
+derived priority. Every completed open writes one content-free cost line with calls,
+tokens, search count and dollars. Interactive OpenAI calls request
+`service_tier: "default"`; background calls request `flex` where supported.
+
+Top-20 likely/eligible candidates and the `previewing` hover/focus socket hint
+use priority one. Speculation is capped at two places, expires after five
+seconds unless opened, and can run only cache, site and judge. It has no code
+path to search, asset decode or vision.
 
 These counters are deliberately single-process. The process holding a room's
 sockets emits its frame; a deployment with sockets and work split across

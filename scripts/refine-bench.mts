@@ -20,7 +20,7 @@ process.env.REFINE = "1";
 process.env.INFER = "1";
 process.env.SERVE_STATIC = "1";
 
-const [{ createRoom }, db, eligibility, refinement, enrichment, openai, configModule, pipeline] =
+const [{ createRoom }, db, eligibility, refinement, enrichment, openai, configModule, pipeline, spatial, progress] =
   await Promise.all([
     import("../apps/server/src/rooms.ts"),
     import("../apps/server/src/db.ts"),
@@ -30,6 +30,8 @@ const [{ createRoom }, db, eligibility, refinement, enrichment, openai, configMo
     import("../apps/server/src/nl/openai.ts"),
     import("../apps/server/src/config.ts"),
     import("../apps/server/src/pipeline/scheduler.ts"),
+    import("../apps/server/src/spatial.ts"),
+    import("../apps/server/src/enrich/progress.ts"),
   ]);
 
 const { pool } = db;
@@ -120,8 +122,16 @@ try {
   openai.resetResponseMetrics();
   await pool.query("DELETE FROM enrichments WHERE osm_ref = ANY($1)", [frozenRefs]);
   const stageCounts: Record<string, number> = {};
+  const activeJudgeCandidates = new Set<string>();
   const unsubscribe = pipeline.pipelineScheduler.onEnqueue((item) => {
     stageCounts[item.kind] = (stageCounts[item.kind] ?? 0) + 1;
+    if (
+      item.kind === "process.judge" && item.priority !== 0 &&
+      item.criteria.some((criterion) => criterion.kind === "key" && criterion.key === "dog-friendly")
+    ) {
+      activeJudgeCandidates.add(item.candidateId);
+      if (activeJudgeCandidates.size === frozenIds.length) refinement.stopRefinement(roomId);
+    }
   });
   const samples = Object.fromEntries(
     Object.keys(pipeline.pipelineScheduler.pools).map((name) => [name, [] as number[]]),
@@ -134,24 +144,68 @@ try {
   const sampler = setInterval(sample, 100);
   const started = performance.now();
   refinement.startRefinement(roomId);
-  const deadline = Date.now() + 5 * 60_000;
+  const saturationDeadline = Date.now() + 30_000;
+  const directBackgroundCap = pipeline.pipelineScheduler.pools.direct.limit -
+    pipeline.pipelineScheduler.pools.direct.reserved;
+  while (
+    pipeline.pipelineScheduler.queue.size === 0 ||
+    pipeline.pipelineScheduler.pools.direct.inFlight < directBackgroundCap
+  ) {
+    if (Date.now() >= saturationDeadline) throw new Error("background sweep did not start");
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  const backgroundQueueAtOpen = pipeline.pipelineScheduler.queue.size;
+  const backgroundInFlightAtOpen = pipeline.pipelineScheduler.accounting().inFlight;
+  const openedAt = performance.now();
+  let cachedFrameMs: number | undefined;
+  let siteFrameMs: number | undefined;
+  const unsubscribeFacts = progress.onFacts((candidateRoomId, message) => {
+    if (candidateRoomId !== roomId || message.reason !== "interactive") return;
+    if (!message.candidateIds.includes(frozenIds[0])) return;
+    if (message.stage === "cache" && cachedFrameMs === undefined) {
+      cachedFrameMs = performance.now() - openedAt;
+    }
+    if (message.stage === "site" && siteFrameMs === undefined) {
+      siteFrameMs = performance.now() - openedAt;
+    }
+  });
+  const panel = await spatial.inspectCandidates({
+    id: ownerId,
+    roomId,
+    displayName: "Pipeline benchmark",
+    role: "organizer",
+    readyState: "contributing",
+  }, [frozenIds[0]], { intent: "open" });
+  const usablePanelMs = performance.now() - openedAt;
+  if (!panel.ok || panel.candidates.length !== 1) throw new Error("interactive panel did not open");
+  // Live provider tails vary substantially. Eight minutes keeps this a full
+  // drain measurement instead of truncating slow but progressing work.
+  const deadline = Date.now() + 8 * 60_000;
   for (;;) {
     const accounting = pipeline.pipelineScheduler.accounting().inFlight;
     const inFlight = Object.values(accounting).reduce((sum, value) => sum + value, 0);
     const view = refinement.refinementView(roomId);
     if (
       (stageCounts["process.judge"] ?? 0) > 0 &&
+      activeJudgeCandidates.size === frozenIds.length &&
       view.queued === 0 &&
       pipeline.pipelineScheduler.queue.size === 0 &&
       inFlight === 0
     ) break;
-    if (Date.now() >= deadline) throw new Error("pipeline benchmark did not drain within five minutes");
+    if (Date.now() >= deadline) {
+      throw new Error(`pipeline benchmark did not drain: ${JSON.stringify({
+        view,
+        queue: pipeline.pipelineScheduler.queue.size,
+        inFlight: accounting,
+      })}`);
+    }
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
   const wallSeconds = (performance.now() - started) / 1_000;
   clearInterval(sampler);
   sample();
   unsubscribe();
+  unsubscribeFacts();
   refinement.stopRefinement(roomId);
   const metrics = openai.responseMetrics();
   const judgeCells = stageCounts["process.judge"] ?? 0;
@@ -172,6 +226,7 @@ try {
     stageCounts,
     occupancy,
     cellsJudged: judgeCells,
+    activeCandidatesJudged: activeJudgeCandidates.size,
     cellsJudgedPerMinute: Number((judgeCells / wallSeconds * 60).toFixed(2)),
     modelCalls: metrics.calls,
     schemaCalls: metrics.schemaCalls,
@@ -180,6 +235,13 @@ try {
     outputTokens: metrics.outputTokens,
     costUsd: Number(estimatedCost(metrics).toFixed(6)),
     model: configModule.config.nlFastModel,
+    fastTrack: {
+      backgroundQueueAtOpen,
+      backgroundInFlightAtOpen,
+      usablePanelMs: Number(usablePanelMs.toFixed(3)),
+      cachedFrameMs: cachedFrameMs === undefined ? null : Number(cachedFrameMs.toFixed(3)),
+      siteFrameMs: siteFrameMs === undefined ? null : Number(siteFrameMs.toFixed(3)),
+    },
   }, null, 2));
 } finally {
   refinement.resetRefinement();

@@ -22,7 +22,12 @@ export interface ViewingMessage {
   type: "viewing";
   candidateId: string | null;
 }
-export type ClientMessage = AuthMessage | ViewingMessage;
+/** A short-lived hover/focus hint. It starts cheap speculative work only. */
+export interface PreviewingMessage {
+  type: "previewing";
+  candidateId: string | null;
+}
+export type ClientMessage = AuthMessage | ViewingMessage | PreviewingMessage;
 
 export interface WelcomeMessage {
   type: "welcome";
@@ -133,7 +138,11 @@ export interface PipelineMessage {
 export interface FactsMessage {
   type: "facts";
   candidateIds: string[];
-  reason: "lookup" | "inference" | "pool" | "confirmation";
+  reason: "lookup" | "inference" | "pool" | "confirmation" | "interactive";
+  /** Progressive fast-track step; absent on ordinary background facts. */
+  stage?: "cache" | "site" | "images" | "adjudicate" | "search";
+  /** Soft only: presentation copy changes, work is never cancelled. */
+  deadlineExceeded?: boolean;
 }
 /**
  * Application-level keepalive, every few seconds to every authenticated
