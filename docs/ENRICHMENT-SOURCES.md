@@ -180,14 +180,19 @@ agent context.
 The model's stated confidence is capped by the evidence ladder in “Batched
 evaluation” below.
 
+Time-window criteria whose keys start with `open:` are never sent to the model
+and model output for such a key is rejected at the evaluator boundary. A time
+need is a deterministic predicate over structured opening hours, so prose must
+never manufacture its answer or promote it to a verified fact.
+
 Accepted claims are cached per criterion in `enrichments.inferred` for seven
 days. Only a cell the model explicitly returns with `lean: "abstain"` gets a
 24-hour omission sentinel. A cell missing from a partial or truncated answer
 stays open, as does every cell in a transport or JSON-parse failure, and is
 re-queued on the next pass. Every upsert also physically removes inference
 entries older than 30 days. Closed-vocabulary entries have no cardinality cap;
-question entries are separately capped at 64 per place, with the oldest
-evicted first, because their `q:` keyspace is unbounded.
+question entries and legacy `open:` entries are separately capped at 64 per
+place, with the oldest evicted first, because both keyspaces are unbounded.
 Inference is completely off when `ENRICH_NETWORK=0`, when
 `OPENAI_API_KEY` is absent, or when `INFER=0`; those paths make no model call
 and write no inference cache entry. Menu image reading remains a separate
@@ -220,7 +225,8 @@ Model confidence is an input to `Math.min`, never authority:
 | evidence source bucket | maximum confidence |
 |---|---:|
 | OSM tag / source record | not a model claim |
-| venue-site fetch (homepage or menu text) | 0.60 |
+| venue-site fetch (homepage text) | 0.60 |
+| venue menu text or reading | 0.69 |
 | explicit statement on the exact recorded venue host | 0.72 (record-grade) |
 | domain-scoped web search | 0.55 |
 | open-web search | 0.50 |
@@ -307,20 +313,26 @@ supervised guess about a real page, not a quotation the server checked. Split
 holds the snippet text and checks the span against words the server read.
 Neither mode can create a verified fact.
 
-`REFINE_QUERY_SHAPING=plain|shaped` selects the query. Both are capped at 400
-characters. `plain` is the place name, the city and the criterion labels.
-`shaped` adds the tagged street address (falling back to the area label), the
-place's untranslated category, and for a German area a small German lexicon
-beside the English labels (`barrierefrei`, `WLAN`, `Hunde erlaubt`,
-`Außenbereich` / `Terrasse`, `vegetarisch`, `vegan`, `glutenfrei`, `halal`,
-`laktosefrei`, `Lieferung`, `Mitnahme`). Free-text questions keep the person's
-own words in both and are never machine-translated.
+Combined claims carry a final `:combined` source suffix so presentation can
+distinguish a retrieved-page anchor from split mode's checked snippet span.
 
-`plain` is the default because it measured better. Over three live
-twelve-place Berlin runs the plain query returned 14 validated claims and the
-shaped query 11, losing in every run; the extra words narrow the search away
-from the pages that answer. `shaped` stays reachable so the comparison can be
-rerun on another area or another language.
+Every outbound search query is capped at 400 characters and contains only the
+place name, city, and words from shared active needs. Tagged addresses,
+categories, inactive vocabulary, and application-private sentences never enter
+a search query. An application-private criterion may be evaluated in the plain
+matrix call over place-site text or snippets already returned for a shared
+need. That matrix call has no tools, so its contents do not become search terms
+or reach a search index. If a place has no unresolved shared criterion, it does
+not cause a search. Combined mode excludes application-private criteria from
+the entire tool-enabled call. Agent-private content never enters refinement.
+
+There is one query shape and no setting for it. A richer shaper once carried
+the street address, the category and a German lexicon behind
+`REFINE_QUERY_SHAPING`; the privacy rule forbids all of those words leaving the
+server, so the setting had stopped changing anything and was removed rather
+than left to mislead. For the record, the plain query also measured better:
+over three live twelve-place Berlin runs it returned 14 validated claims to the
+richer query's 11.
 
 With nothing left to refine the loop backs off to `REFINE_IDLE_TICK_MS`
 (thirty times the working cadence) so an idle room is not reloaded every
@@ -329,12 +341,51 @@ a background path, so it waits `MATRIX_TIMEOUT_MS`, 45 seconds by default,
 rather than the interactive twenty.
 
 The per-room budgets refill continuously: `REFINE_MODEL_CALLS_PER_HOUR`
-defaults to 60 model calls and `REFINE_SEARCHES_PER_HOUR` defaults to 40
-searches. `REFINE=0` disables the loop. `ENRICH_NETWORK=0` disables all of its
-outbound work. `SEARCH_PROVIDER=tavily` selects the Tavily fallback and needs
+defaults to 200 model calls and `REFINE_SEARCHES_PER_HOUR` to 150 searches.
+A room working flat out for a full hour therefore costs on the order of
+**$1.80**, almost all of it the roughly one cent each search tool call is
+billed at; the fast-tier tokens for a twelve-place tick add well under a cent.
+A room only works flat out while somebody is watching it, and the loop stops
+ten minutes after the last person leaves, so the hourly ceiling is a worst
+case rather than a running rate.
+
+The earlier ceilings of 60 and 40 were measured too low: in a 343-place room
+the search budget was gone sixteen seconds after the first need, and the loop
+then reported itself paused for the rest of the hour.
+
+An empty search bucket no longer pauses anything. The loop keeps reading site
+text and running the batch matrix, which costs no search at all and still
+answers cells and clears the queue; only the search leg goes quiet. A tick
+pauses only when the model-call bucket is empty, because without a model call
+there is nothing for the tick to run. `refine.paused` on the spatial context
+says which is true: `"budget"` when model calls ran out, `"idle"` when nobody
+is present, and `null` while the loop is working.
+
+`refine.queued` counts places still needing work for an **active** need. The
+stale-fact and background vocabulary sweeps are real work but are not counted
+there, because a number that climbs while the room sits still is a number
+nobody can trust. `REFINE=0` disables the loop. `ENRICH_NETWORK=0` disables all
+of its outbound work. `SEARCH_PROVIDER=tavily` selects the Tavily fallback and needs
 `TAVILY_API_KEY`; otherwise split search uses OpenAI Responses `web_search` on
 `NL_FAST_MODEL` with low search context. Combined mode is intrinsically an
 OpenAI Responses tool call.
+
+Every frame the loop emits carries `reason: { kind: "refine" }`, with a label
+only when one shared need is behind the whole batch. When a pool warm-up is
+running at the same time, refinement wins the frame's single reason slot: it
+is the work a person is watching, and before this a concurrent fill left every
+busy ring either labelled `pool` or unattributed. Each tick also writes one
+structured log line with its place, criterion, call, search, claim and queue
+counts and an estimated cost. That line carries counts and dollars only, never
+a place name, a criterion, or a query, because a private need must not be
+readable from a log either.
+
+An unresolved place-and-criterion cell records each spent search leg in its
+small omission sentinel. After three attempts on the same UTC day, that cell
+is not queued again until the day changes. The marker is persisted in the
+cross-room `enrichments.inferred` blob, follows its 24-hour omission lifetime,
+and is pruned and cardinality-capped with the other synthetic keys. A local
+matrix abstention without a search does not spend an attempt.
 
 The only search-derived data stored is a claim that passed criterion, source,
 span, confidence and status validation, plus its `sourceUrl`. Search queries,

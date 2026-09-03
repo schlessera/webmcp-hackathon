@@ -32,19 +32,34 @@ function state(roomId: string): RoomProgress {
   return room;
 }
 
+/**
+ * One frame carries one reason, so overlapping batches have to agree on it.
+ * Refinement wins that contest whenever it is in the set: it is the work a
+ * person is watching and the only work the count block names, while a pool
+ * warm-up is background. Before this, a fill running alongside refinement
+ * left every ring either labelled "pool" or unattributed, and the page could
+ * not tell the user why anything was busy.
+ */
 export function currentLookups(roomId: string): LookupsMessage {
   const room = rooms.get(roomId);
   const pending = room ? [...room.counts.keys()].sort() : [];
-  const reasons = room ? [...room.batches.values()].map((batch) => batch.reason) : [];
+  const all = room ? [...room.batches.values()].map((batch) => batch.reason) : [];
+  const refining = all.filter((candidate) => candidate?.kind === "refine");
+  const reasons = refining.length > 0 ? refining : all;
   const reason = reasons[0];
   const reasonKey = reason ? JSON.stringify(reason) : undefined;
-  const reasonAgrees = Boolean(
-    reason && reasons.every((candidate) => JSON.stringify(candidate) === reasonKey),
-  );
+  const agrees = reasons.every((candidate) => JSON.stringify(candidate) === reasonKey);
+  // Mixed refinement labels collapse to the bare kind rather than picking one
+  // batch's need to speak for the rest.
+  const resolved = reason && !agrees && refining.length > 0
+    ? { kind: "refine" as const }
+    : reason;
   return {
     type: "lookups",
     pending,
-    ...(pending.length && reasonAgrees ? { reason } : {}),
+    ...(pending.length && resolved && (agrees || refining.length > 0)
+      ? { reason: resolved }
+      : {}),
   };
 }
 

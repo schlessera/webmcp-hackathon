@@ -466,7 +466,7 @@ export async function submitCommand(
   if (result.warmTargets.length > 0) {
     warmEnrichments(pool, actor.roomId, result.warmTargets);
   }
-  if (result.poolFill) startPoolFill(actor.roomId);
+  if (result.poolFill) startPoolFill(actor.roomId, true);
   return result.success;
 }
 

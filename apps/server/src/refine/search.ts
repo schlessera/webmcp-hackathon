@@ -30,7 +30,12 @@ export interface CombinedSearchInput {
   name: string;
   category: string;
   query: string;
-  criteria: Criterion[];
+  /**
+   * Shared active needs only. This call enables `web_search`, so everything
+   * in it may become a search term: an application-private sentence must
+   * never reach here. The caller filters on visibility; the name says so.
+   */
+  sharedCriteria: Criterion[];
   source: Extract<MatrixEvidenceBucket, "domain_search" | "open_web_search">;
   domains?: string[];
 }
@@ -152,7 +157,7 @@ export function combinedClaimsFromReply(
 ): EvaluatedInference[] {
   const answer = normalizeEvidence(reply.text ?? "");
   const citedUrls = retrievedSources(reply);
-  const criteria = new Map(input.criteria.map((criterion) => [criterion.id, criterion]));
+  const criteria = new Map(input.sharedCriteria.map((criterion) => [criterion.id, criterion]));
   const drafts = (parseJson<{ claims?: unknown }>(reply.text)?.claims ?? []) as unknown;
   if (!Array.isArray(drafts)) return [];
   const seen = new Set<string>();
@@ -187,7 +192,9 @@ export function combinedClaimsFromReply(
       status,
       confidence,
       evidence: safeEvidence,
-      source: `infer:${reply.model}:${input.source}`,
+      // Combined citations identify a retrieved page, not a span the server
+      // read. The suffix keeps that weaker mode distinct at the UI boundary.
+      source: `infer:${reply.model}:${input.source}:combined`,
       sourceIndex: 0,
       observedAt,
       sourceUrl,
@@ -208,8 +215,8 @@ export async function combinedSearch(input: CombinedSearchInput): Promise<Evalua
       role: "user",
       content: JSON.stringify({
         query: input.query,
-        place: { name: input.name, category: input.category },
-        criteria: input.criteria,
+        place: { name: input.name },
+        criteria: input.sharedCriteria,
       }),
     }],
     schema: { name: "venue_search_matrix_row", schema: COMBINED_SEARCH_SCHEMA },

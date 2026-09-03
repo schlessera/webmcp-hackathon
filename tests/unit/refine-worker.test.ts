@@ -4,13 +4,16 @@ import {
   buildRefinementQueue,
   buildRefinementQuery,
   exhaustRefinementBudgetsForTest,
+  exhaustRefinementSearchesForTest,
+  refinementView,
   REFINE_IDLE_STOP_MS,
   refinementActive,
   refinementBudgetSleepForTest,
   refinementLookupReason,
-  refineQueryShaping,
+  refinementQueueCounts,
   refinementTickDelay,
   REFINE_IDLE_TICK_MS,
+  REFINE_SEARCH_CONCURRENCY,
   REFINE_TICK_MS,
   resetRefinement,
   startRefinement,
@@ -59,12 +62,64 @@ describe("continuous refinement queue", () => {
       ["stale", 2],
       ["vocabulary", 3],
     ]);
+    expect(refinementQueueCounts(queue)).toEqual({ total: 4, tier1: 2 });
   });
 
   it("dedupes a place already evaluated for the same criterion set", () => {
     const evaluated = new Map([["active-near", new Set(["dog-friendly"])]]);
     expect(buildRefinementQueue(inputs(), { evaluated, providerChecked: new Set() }, "room")
       .some((item) => item.candidate.id === "active-near")).toBe(false);
+  });
+
+  it("honours the persisted three-attempt daily cell cap", () => {
+    const value = inputs();
+    const today = Date.parse("2026-09-03T12:00:00Z");
+    value.enrichments = new Map([["node/2", {
+      osmRef: "node/2",
+      fetchedAt: "2026-09-03T00:00:00Z",
+      website: null,
+      wikidata: null,
+      inferred: {
+        "dog-friendly": {
+          omitted: true,
+          observedAt: "2026-09-03T11:00:00Z",
+          searchDay: "2026-09-03",
+          searchAttempts: 3,
+        },
+      },
+      error: null,
+    }]]);
+    const state = { evaluated: new Map(), providerChecked: new Set() };
+    expect(buildRefinementQueue(value, state, "room", today)
+      .some((item) => item.candidate.id === "active-near")).toBe(false);
+    expect(buildRefinementQueue(value, state, "room", today + 24 * 60 * 60_000)
+      .some((item) => item.candidate.id === "active-near")).toBe(true);
+  });
+
+  it("does not queue a time-window criterion for model evaluation", () => {
+    const value = inputs();
+    value.candidates = [value.candidates[0]];
+    value.candidates[0].attributes = attributes();
+    value.requirements = [{
+      id: "time-need",
+      owner_id: "p",
+      visibility: "shared",
+      hardness: "hard",
+      payload: {
+        kind: "time",
+        window: {
+          start: "2026-09-04T12:00:00+02:00",
+          end: "2026-09-04T14:00:00+02:00",
+        },
+      },
+      withdrawn: false,
+      active: true,
+    }];
+    expect(buildRefinementQueue(
+      value,
+      { evaluated: new Map(), providerChecked: new Set() },
+      "room",
+    )).toEqual([]);
   });
 
   it("skips a place excluded by another active need and orders uncertain places by centre distance", () => {
@@ -113,11 +168,35 @@ describe("continuous refinement queue", () => {
   it("sleeps for refill and logs one line for a budget pause", () => {
     const log = vi.spyOn(console, "info").mockImplementation(() => undefined);
     exhaustRefinementBudgetsForTest("budget-room", 1_000);
-    const first = refinementBudgetSleepForTest("budget-room", 1, 1, 1_000);
-    const second = refinementBudgetSleepForTest("budget-room", 1, 1, 1_000);
+    const first = refinementBudgetSleepForTest("budget-room", 1, 1_000);
+    const second = refinementBudgetSleepForTest("budget-room", 1, 1_000);
     expect(first).toBeGreaterThan(0);
     expect(second).toBe(first);
     expect(log).toHaveBeenCalledTimes(1);
+    expect(refinementView("budget-room", undefined, 1_000).paused).toBe("budget");
+  });
+
+  it("keeps working on site text when only the searches run out", () => {
+    // The walk found a 343-place room out of searches 16 seconds after the
+    // first need. Searches going quiet must not stop the reading.
+    exhaustRefinementSearchesForTest("dry-room", 1_000);
+    expect(refinementBudgetSleepForTest("dry-room", 2, 1_000)).toBe(0);
+    const view = refinementView("dry-room", undefined, 1_000);
+    expect(view.budgetLeft.searches).toBe(0);
+    expect(view.budgetLeft.calls).toBeGreaterThan(0);
+    expect(view.paused).toBe(null);
+  });
+
+  it("says why a still room is still", () => {
+    process.env.ENRICH_NETWORK = "1";
+    process.env.INFER = "1";
+    process.env.OPENAI_API_KEY = "test";
+    expect(refinementView("absent-room").paused).toBe("idle");
+    startRefinement("present-room", false);
+    expect(refinementView("present-room").paused).toBe(null);
+    delete process.env.OPENAI_API_KEY;
+    delete process.env.INFER;
+    delete process.env.ENRICH_NETWORK;
   });
 
   it("stops ten minutes after the room becomes empty", () => {
@@ -144,10 +223,18 @@ describe("continuous refinement queue", () => {
     expect(REFINE_IDLE_TICK_MS).toBeGreaterThan(REFINE_TICK_MS);
   });
 
-  it("keeps 12 places in one batch and searches once per place for all criteria", async () => {
+  it("bounds searches globally across concurrent room batches", async () => {
     const criterionA = { id: "a", kind: "key" as const, key: "a", label: "first words" };
     const criterionB = { id: "b", kind: "key" as const, key: "b", label: "second words" };
-    const provider = vi.fn(async () => []);
+    let active = 0;
+    let peak = 0;
+    const provider = vi.fn(async () => {
+      active += 1;
+      peak = Math.max(peak, active);
+      await new Promise((resolve) => setTimeout(resolve, 2));
+      active -= 1;
+      return [];
+    });
     const requests = Array.from({ length: 12 }, (_, index) => ({
       candidateId: `p${index}`,
       osmRef: `node/${index}`,
@@ -156,18 +243,44 @@ describe("continuous refinement queue", () => {
       website: `https://place${index}.example/about`,
       siteTextUsable: true,
       criteria: [criterionA, criterionB],
+      searchCriteria: [criterionA, criterionB],
     }));
-    const responses = await searchRefinementPlaces(requests, {
+    const area = {
       city: "Berlin",
       label: "Berlin Mitte",
       countryCode: "DE",
-    }, provider, { queryShaping: "shaped" });
+    };
+    const responses = (await Promise.all([
+      searchRefinementPlaces(requests.slice(0, 6), area, provider),
+      searchRefinementPlaces(requests.slice(6), area, provider),
+    ])).flat();
     expect(responses).toHaveLength(12);
     expect(provider).toHaveBeenCalledTimes(12);
+    expect(peak).toBe(REFINE_SEARCH_CONCURRENCY);
     for (const [query, opts] of provider.mock.calls) {
-      expect(query).toContain("Berlin cafe first words second words");
+      expect(query).toMatch(/^Place \d+ Berlin first words second words$/);
       expect(opts).toBeUndefined();
     }
+  });
+
+  it("drops a cuisine-only item before lookup progress is announced", () => {
+    const value = inputs();
+    value.candidates = [value.candidates[0]];
+    value.candidates[0].attributes = attributes();
+    value.requirements = [{
+      id: "cuisine-need",
+      owner_id: "p",
+      visibility: "shared",
+      hardness: "hard",
+      payload: { kind: "inclusion", key: "cuisine", values: ["italian"] },
+      withdrawn: false,
+      active: true,
+    }];
+    expect(buildRefinementQueue(
+      value,
+      { evaluated: new Map(), providerChecked: new Set() },
+      "room",
+    )).toEqual([]);
   });
 
   it("uses a venue domain only when its site had no usable text", () => {
@@ -182,36 +295,46 @@ describe("continuous refinement queue", () => {
     })).toEqual(["venue.example"]);
   });
 
-  it("shapes locale-aware queries from address data without translating free text", () => {
+  it("keeps address, category, and private criteria out of outbound queries", () => {
     const criteria = [
       { id: "wheelchair-accessible", kind: "key" as const, key: "wheelchair-accessible", label: "step-free access" },
       { id: "q:one", kind: "question" as const, text: "room for a tandem stroller", label: "room for a tandem stroller" },
     ];
-    const request = { name: "Ort", category: "biergarten", address: "Teststraße 7, 10115 Berlin", criteria };
+    const request = {
+      name: "Ort",
+      category: "biergarten",
+      address: "Teststraße 7, 10115 Berlin",
+      criteria,
+      searchCriteria: [criteria[0]],
+    };
     const german = buildRefinementQuery(request, {
       city: "Berlin",
       label: "Berlin Mitte",
       countryCode: "DE",
     }, "shaped");
-    expect(german).toBe("Ort Teststraße 7 Berlin biergarten step-free access barrierefrei room for a tandem stroller");
+    expect(german).toBe("Ort Berlin step-free access");
     const english = buildRefinementQuery({ ...request, address: undefined }, {
       city: "San Francisco",
       label: "San Francisco SoMa",
       countryCode: "US",
     }, "shaped");
-    expect(english).toBe("Ort San Francisco SoMa San Francisco biergarten step-free access room for a tandem stroller");
-    expect(english).not.toContain("barrierefrei");
+    expect(english).toBe("Ort San Francisco step-free access");
+    expect(german).not.toContain("room for a tandem stroller");
   });
 
-  it("defaults to the plain query, which measured better than the shaped one", () => {
-    const criteria = [
-      { id: "wheelchair-accessible", kind: "key" as const, key: "wheelchair-accessible", label: "step-free access" },
-    ];
-    const request = { name: "Ort", category: "biergarten", address: "Teststraße 7, 10115 Berlin", criteria };
+  it("sends only the place identity and shared need words", () => {
+    const request = {
+      name: "Ort",
+      searchCriteria: [
+        { id: "wheelchair-accessible", kind: "key" as const, key: "wheelchair-accessible", label: "step-free access" },
+      ],
+    };
     const area = { city: "Berlin", label: "Berlin Mitte", countryCode: "DE" };
-    expect(refineQueryShaping(undefined)).toBe("plain");
-    expect(refineQueryShaping("shaped")).toBe("shaped");
-    expect(buildRefinementQuery(request, area)).toBe("Ort Berlin step-free access");
-    expect(buildRefinementQuery(request, area)).not.toContain("biergarten");
+    const query = buildRefinementQuery(request, area);
+    expect(query).toBe("Ort Berlin step-free access");
+    // The district, the category and a local-language lexicon were all in the
+    // query the privacy ruling retired. None of them may come back.
+    expect(query).not.toContain("Mitte");
+    expect(query).not.toContain("barrierefrei");
   });
 });

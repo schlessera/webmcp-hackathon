@@ -365,8 +365,16 @@ export interface SpatialContextResult {
    * clients retain the same context contract. */
   refine?: {
     active: boolean;
+    /** Places still needing work for an ACTIVE need. Background vocabulary and
+     * stale-fact sweeps are excluded, so this cannot climb while nothing in
+     * the room changes — a count that grows is a count nobody can trust. */
     queued: number;
+    /** The same number under its earlier name, kept for existing readers. */
+    tier1Queued: number;
     checkedToday: number;
+    /** Why nothing is moving: out of model budget, or nobody is present.
+     * `null` while the loop is working. */
+    paused: "budget" | "idle" | null;
     budgetLeft: { calls: number; searches: number };
   };
   feasibility: Feasibility;

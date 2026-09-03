@@ -11,6 +11,7 @@ import {
 } from "./helpers.ts";
 
 const TRANSIENT = "REFINE-TRANSIENT-PAGE-MARKER";
+const PRIVATE_SENTENCE = "private-zebra-741 needs a quiet courtyard";
 
 describe("continuous refinement over the API", () => {
   let server: TestServer;
@@ -63,6 +64,17 @@ describe("continuous refinement over the API", () => {
         JSON.stringify({ kind: "text", text: "free wifi" }),
       ],
     );
+    await room.pool.query(
+      `INSERT INTO requirements
+         (id, room_id, owner_id, visibility, hardness, delegation, payload, active)
+       VALUES ($1, $2, $3, 'application-private', 'hard', '{}', $4, true)`,
+      [
+        `need_private_refine_${room.roomId}`,
+        room.roomId,
+        room.participantIds.org,
+        JSON.stringify({ kind: "text", text: PRIVATE_SENTENCE }),
+      ],
+    );
     realtime = await openRealtime(server.baseUrl, room.tokens.org);
   });
 
@@ -77,9 +89,11 @@ describe("continuous refinement over the API", () => {
 
   it("fills two cited likely facts, abstains on one, and drains the queue", async () => {
     const initial = await context();
-    expect(initial.refine).toMatchObject({ active: true, queued: 3, checkedToday: 0 });
+    expect(initial.refine).toMatchObject({ active: true, checkedToday: 0 });
+    expect(initial.refine.tier1Queued).toBeLessThanOrEqual(initial.refine.queued);
 
     const key = questionKey("free wifi");
+    const privateKey = questionKey(PRIVATE_SENTENCE);
     await waitFor(async () => {
       const rows = (await room.pool.query(
         "SELECT inferred FROM enrichments WHERE osm_ref LIKE $1",
@@ -98,6 +112,7 @@ describe("continuous refinement over the API", () => {
       serialized: string;
     }>;
     expect(rows.filter((row) => row.inferred[key]?.lean === "yes")).toHaveLength(2);
+    expect(rows.filter((row) => row.inferred[privateKey]?.lean === "yes")).toHaveLength(3);
     for (const row of rows.filter((candidate) => !candidate.osm_ref.endsWith("/gamma"))) {
       expect(row.inferred[key]).toMatchObject({
         lean: "yes",
@@ -107,6 +122,14 @@ describe("continuous refinement over the API", () => {
     expect(rows.find((row) => row.osm_ref.endsWith("/gamma"))?.inferred[key])
       .toMatchObject({ omitted: true });
     for (const row of rows) expect(row.serialized).not.toContain(TRANSIENT);
+    // The fixture logs every request whose tools include web_search. The
+    // application-private sentence may appear in the plain matrix call, but
+    // never in a search query or tool-enabled prompt.
+    const searchBodies = server.logs().split("\n").filter((line) =>
+      line.includes("web-search-request")
+    ).join("\n");
+    expect(searchBodies).not.toContain(PRIVATE_SENTENCE);
+    expect(searchBodies).toContain("free wifi");
 
     await waitFor(async () => (await context()).refine.queued === 0, 8_000);
     expect((await context()).refine).toMatchObject({ queued: 0, checkedToday: 3 });
@@ -116,7 +139,45 @@ describe("continuous refinement over the API", () => {
       reason?: { kind?: string; label?: string };
     }).filter((frame) => frame.type === "lookups" && Boolean(frame.pending?.length));
     expect(lookupFrames.some((frame) => frame.reason?.kind === "refine")).toBe(true);
-    expect(lookupFrames.some((frame) => frame.reason?.label === "free wifi")).toBe(true);
+    expect(JSON.stringify(lookupFrames)).not.toContain(PRIVATE_SENTENCE);
+
+    const gammaSearches = () => server.logs().split("\n").filter((line) =>
+      line.includes("web-search-request") && line.includes("Gamma Berlin free wifi")
+    ).length;
+    expect(gammaSearches()).toBe(1);
+    const requirementId = `need_refine_${room.roomId}`;
+    const toggle = async (active: boolean) => {
+      const current = await contextWithRevision();
+      const changed = await apiPost<{ ok: boolean }>(
+        server.baseUrl,
+        "/api/commands",
+        room.tokens.org,
+        {
+          type: "SetRequirementActive",
+          input: { baseRevision: current.revision, requirementId, active },
+        },
+      );
+      expect(changed.body.ok).toBe(true);
+    };
+    for (const expected of [2, 3]) {
+      await toggle(false);
+      await toggle(true);
+      await waitFor(() => gammaSearches() === expected, 4_000);
+    }
+    const gammaRef = `refine/${room.roomId}/gamma`;
+    const attempt = (await room.pool.query(
+      "SELECT inferred->$2 AS entry FROM enrichments WHERE osm_ref = $1",
+      [gammaRef, key],
+    )).rows[0].entry as Record<string, unknown>;
+    expect(attempt).toMatchObject({
+      omitted: true,
+      searchDay: new Date().toISOString().slice(0, 10),
+      searchAttempts: 3,
+    });
+    await toggle(false);
+    await toggle(true);
+    await new Promise((resolve) => setTimeout(resolve, 1_200));
+    expect(gammaSearches()).toBe(3);
 
     realtime.close();
     await waitFor(async () => !(await context()).refine.active, 2_000);
@@ -124,9 +185,20 @@ describe("continuous refinement over the API", () => {
   });
 
   async function context(): Promise<{
+    refine: { active: boolean; queued: number; tier1Queued: number; checkedToday: number };
+  }> {
+    const response = await apiPost<{
+      refine: { active: boolean; queued: number; tier1Queued: number; checkedToday: number };
+    }>(server.baseUrl, "/api/spatial/context", room.tokens.org, {});
+    return response.body;
+  }
+
+  async function contextWithRevision(): Promise<{
+    revision: number;
     refine: { active: boolean; queued: number; checkedToday: number };
   }> {
     const response = await apiPost<{
+      revision: number;
       refine: { active: boolean; queued: number; checkedToday: number };
     }>(server.baseUrl, "/api/spatial/context", room.tokens.org, {});
     return response.body;

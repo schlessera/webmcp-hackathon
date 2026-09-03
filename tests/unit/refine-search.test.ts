@@ -108,7 +108,7 @@ describe("refinement web search", () => {
       category: "cafe",
       query: "Alpha Berlin cafe",
       source: "open_web_search" as const,
-      criteria: [
+      sharedCriteria: [
         { id: "delivery", kind: "key" as const, key: "delivery", label: "delivery" },
         { id: "takeaway", kind: "key" as const, key: "takeaway", label: "takeaway" },
         { id: "dog-friendly", kind: "key" as const, key: "dog-friendly", label: "dogs welcome" },
@@ -133,6 +133,7 @@ describe("refinement web search", () => {
       criterionId: "delivery",
       confidence: 0.5,
       status: "likely_true",
+      source: "infer:fast:open_web_search:combined",
       sourceUrl: "https://source.example/facts",
     })]);
   });
@@ -147,7 +148,7 @@ describe("refinement web search", () => {
       category: "cafe",
       query: "Alpha Berlin delivery",
       source: "open_web_search" as const,
-      criteria: [
+      sharedCriteria: [
         { id: "delivery", kind: "key" as const, key: "delivery", label: "delivery" },
         { id: "takeaway", kind: "key" as const, key: "takeaway", label: "takeaway" },
       ],

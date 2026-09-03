@@ -20,4 +20,19 @@ describe("shared token bucket", () => {
     bucket.reset();
     expect(bucket.remaining("r", 0)).toBe(3);
   });
+
+  it("evicts the oldest active key when the entry cap is full", () => {
+    const bucket = createTokenBucket({
+      capacity: 1,
+      windowMs: 1_000_000,
+      idleEvictMs: 1_000_000,
+      maxEntries: 2,
+    });
+    expect(bucket.consume("oldest", 1, 0)).toBe(true);
+    expect(bucket.consume("recent", 1, 1)).toBe(true);
+    expect(bucket.remaining("recent", 2)).toBe(0);
+    expect(bucket.consume("new", 1, 3)).toBe(true);
+    expect(bucket.remaining("oldest", 3)).toBe(1);
+    expect(bucket.remaining("recent", 3)).toBe(0);
+  });
 });

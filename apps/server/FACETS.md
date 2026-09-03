@@ -160,8 +160,9 @@ ten-minute grace period after it empties. The client can rely on question
 statuses moving only from validated place-site or cited search evidence,
 abstention remaining `unknown`, and `sourceUrl` being present for every
 search-derived fact. `SpatialContextResult.refine` reports whether the loop is
-active, how many places remain queued, how many places were checked since UTC
-midnight, and the remaining per-room model-call and search budgets.
+active, how many places remain queued, the tier-one count for active needs, how
+many places were checked since UTC midnight, and the remaining per-room
+model-call and search budgets.
 
 ### Temporal needs
 
@@ -233,10 +234,13 @@ need plus every need the viewer owns. It drops any other `q:` attribute and
 supplies an authorized row's label from the requirement payload, never from
 the cache.
 
-Shared and application-private needs may reach the server-side model evaluator;
-the latter tier permits application processing without making the content room
-visible. Agent-private content stays in its owner's agent context and is not
-harvested by the server-side evaluator.
+Shared and application-private needs may reach the server-side matrix evaluator
+over text already held by the application. That call has no tools. Only shared
+need words may enter a search query or a prompt with `web_search` enabled.
+Application-private criteria may be evaluated over snippets returned by a
+search caused by a shared need, but never cause a search themselves. Combined
+search excludes them from the tool-enabled call. Agent-private content stays in
+its owner's agent context and is not harvested by the server-side evaluator.
 
 The same boundary governs a place dossier's `needs[]`. The viewer's own needs
 and every shared need are full rows, each naming its requirement. Every

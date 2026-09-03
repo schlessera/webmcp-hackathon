@@ -44,7 +44,12 @@ export interface InferredClaim {
 
 export type StoredInference =
   | (InferredClaim & { observedAt: string })
-  | { omitted: true; observedAt: string };
+  | {
+      omitted: true;
+      observedAt: string;
+      searchDay?: string;
+      searchAttempts?: number;
+    };
 
 export const INFERENCE_CONFIDENCE_CAPS: Record<EvidenceSource, number> = {
   name_category: 0.45,

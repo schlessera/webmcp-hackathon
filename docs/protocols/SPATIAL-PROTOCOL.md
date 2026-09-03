@@ -190,13 +190,14 @@ recomputes missing refs for the new circle. Existing candidates are never
 removed, jobs resume from persisted candidate refs after a restart, and every
 write is bounded by `POOL_CAP`.
 
-Each background batch emits exactly one shared `candidates_added` event with
-`actor_id = null` and the additive payload discriminator
-`{ "source": "pool", "count": N }`. It projects at existence level for every
-viewer as "N more places on the map." The uniform discriminator/count shape
-allows consecutive pool rows to be collapsed without changing participant-
-driven `AddCandidates` projections. It is followed by a `facts` realtime frame
-with `reason: "pool"` and the inserted candidate IDs.
+Interim batches emit only a presentation-only `facts` realtime frame with
+`reason: "pool"` and the inserted candidate IDs. It carries no room revision.
+When the fill run completes, the server emits one shared `candidates_added`
+event with `actor_id = null` and payload `{ "source": "pool", "count": N }`
+for the whole run. It projects at existence level for every viewer as "N more
+places on the map." The fill plan is cached in memory per room and `scopeId`;
+a changed scope replaces it. Snapshot planning and candidate-ref reads happen
+without the room write lock. Only the final headroom check and insert hold it.
 
 The spatial context's `pool` object has additive fields `filling` and `target`:
 `filling` is true while the current circle still has missing snapshot venues
@@ -376,10 +377,15 @@ renders a question row only when the viewer owns the corresponding need or the
 need is shared, and takes its label from that viewer-authorized requirement,
 never from the cache. An unauthorized `q:` row is omitted completely.
 
-Shared and application-private needs may reach the server-side model evaluator.
-Application-private permits that evaluation but does not permit its sentence to
-enter shared storage or a peer's dossier. Agent-private needs are evaluated in
-the owner's agent context and never enter server-side criterion harvesting.
+Shared and application-private needs may reach the server-side matrix evaluator.
+That matrix is a plain model call over text already held by the server and has
+no tools. Application-private permits this evaluation but does not permit its
+sentence to enter an outbound search query, any prompt on a call with
+`web_search` enabled, shared storage, or a peer's dossier. Search queries contain
+only the place name, city, and words from shared needs. A place with no open
+shared criterion causes no search. Combined search excludes private criteria
+from its tool-enabled call entirely. Agent-private needs are evaluated in the
+owner's agent context and never enter server-side criterion harvesting.
 
 A matrix claim is record-grade only when all of these hold: the model marks it
 `explicit: true`, its evidence is a validated span from a `web` or `menu`

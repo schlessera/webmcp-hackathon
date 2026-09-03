@@ -21,6 +21,7 @@ import {
   publishInferenceChanges,
   readRefinementSource,
   saveInferences,
+  SEARCH_ATTEMPT_CAP,
   stableAttributeHash,
   type Enrichment,
   type LookupPass,
@@ -36,6 +37,7 @@ import { INFERABLE_KEYS, inferenceEnabled } from "../enrich/infer.ts";
 import { beginLookups, lookupPending } from "../enrich/progress.ts";
 import { onPresenceChange, presentIn } from "../presence.ts";
 import { createTokenBucket } from "../token-bucket.ts";
+import { responseMetrics } from "../nl/openai.ts";
 import {
   combinedSearch,
   search,
@@ -54,35 +56,60 @@ export const REFINE_TICK_MS = Number(process.env.REFINE_TICK_MS ?? 1_000);
 export const REFINE_IDLE_TICK_MS = Number(
   process.env.REFINE_IDLE_TICK_MS ?? 30 * REFINE_TICK_MS,
 );
+/**
+ * Per room per hour. The live walk found the old 40 searches gone 16 seconds
+ * after the first need in a 343-place room, which is not a budget, it is a
+ * stall. At roughly $0.01 a search plus fast-tier tokens these ceilings cost
+ * on the order of $1.80 an hour for a room working flat out, and a room only
+ * works flat out while someone is watching it.
+ */
 export const REFINE_MODEL_CALLS_PER_HOUR = positiveInt(
   process.env.REFINE_MODEL_CALLS_PER_HOUR,
-  60,
+  200,
 );
 export const REFINE_SEARCHES_PER_HOUR = positiveInt(
   process.env.REFINE_SEARCHES_PER_HOUR,
-  40,
+  150,
 );
 export type RefineSearchMode = "combined" | "split";
 export type RefineDomainRule = "domain-first" | "open-web-first";
-/** Measured 2026-09-03 over three live twelve-place Berlin runs: the plain
- * query won every run (14 validated claims to the shaped query's 11). Address,
- * category and local-language words narrow the search away from the pages that
- * actually answer, so `plain` is the default and `shaped` stays reachable
- * through REFINE_QUERY_SHAPING for a re-measurement on another area. */
-export type RefineQueryShaping = "plain" | "shaped";
-export const DEFAULT_REFINE_QUERY_SHAPING: RefineQueryShaping = "plain";
-
-export function refineQueryShaping(
-  value = process.env.REFINE_QUERY_SHAPING,
-): RefineQueryShaping {
-  return value === "shaped" || value === "plain" ? value : DEFAULT_REFINE_QUERY_SHAPING;
-}
 export const DEFAULT_REFINE_SEARCH_MODE: RefineSearchMode = "split";
 export const MAX_REFINE_QUERY_CHARS = 400;
 const HOUR_MS = 60 * 60_000;
 const STALE_MS = 7 * 24 * 60 * 60_000;
 const TEXT_TTL_MS = 10 * 60_000;
 const TEXT_CACHE_CAP = 500;
+export const REFINE_SEARCH_CONCURRENCY = 4;
+
+class AsyncLimiter {
+  private active = 0;
+  private readonly waiting: Array<() => void> = [];
+  private readonly limit: number;
+
+  constructor(limit: number) {
+    this.limit = limit;
+  }
+
+  async use<T>(work: () => Promise<T>): Promise<T> {
+    if (this.active >= this.limit) {
+      await new Promise<void>((resolve) => this.waiting.push(resolve));
+    } else {
+      this.active += 1;
+    }
+    try {
+      return await work();
+    } finally {
+      this.active -= 1;
+      const next = this.waiting.shift();
+      if (next) {
+        this.active += 1;
+        next();
+      }
+    }
+  }
+}
+
+const refinementSearchLimiter = new AsyncLimiter(REFINE_SEARCH_CONCURRENCY);
 
 function positiveInt(value: string | undefined, fallback: number): number {
   const parsed = Number(value);
@@ -112,7 +139,11 @@ interface RoomState {
   running: boolean;
   stopped: boolean;
   budgetLogged: boolean;
+  paused: "budget" | null;
+  /** Every tier, for logs only. Never the number the client renders. */
+  backlog: number;
   queued: number;
+  tier1Queued: number;
   criteriaKey: string;
   evaluated: Map<string, Set<string>>;
   providerChecked: Set<string>;
@@ -128,9 +159,24 @@ export interface RefinementQueueItem {
   criteria: Criterion[];
 }
 
+export function refinementQueueCounts(queue: RefinementQueueItem[]): {
+  total: number;
+  tier1: number;
+} {
+  return {
+    total: queue.length,
+    tier1: queue.filter((item) => item.tier === 1).length,
+  };
+}
+
 interface ActiveCriterion {
   criterion: Criterion;
   visibilities: Set<string>;
+}
+
+function modelCriterion(criterion: Criterion): boolean {
+  return !(criterion.kind === "key" &&
+    (criterion.key === "cuisine" || criterion.key.startsWith("open:")));
 }
 
 function refinementEnabled(): boolean {
@@ -150,7 +196,10 @@ function stateFor(roomId: string): RoomState {
       running: false,
       stopped: false,
       budgetLogged: false,
+      paused: null,
+      backlog: 0,
       queued: 0,
+      tier1Queued: 0,
       criteriaKey: "",
       evaluated: new Map(),
       providerChecked: new Set(),
@@ -181,10 +230,24 @@ function activeCriteria(inputs: EligibilityInputs): Map<string, ActiveCriterion>
   return result;
 }
 
-function unknown(candidate: CandidateRow, criterion: Criterion): boolean {
+function unknown(
+  inputs: EligibilityInputs,
+  candidate: CandidateRow,
+  criterion: Criterion,
+  now: number,
+): boolean {
   const key = criterion.kind === "key" ? criterion.key : criterion.id;
-  return (candidate.attributes.find((attribute) => attribute.key === key)?.status ?? "unknown") ===
-    "unknown";
+  if ((candidate.attributes.find((attribute) => attribute.key === key)?.status ?? "unknown") !==
+    "unknown") return false;
+  const stored = candidate.osm_ref
+    ? inputs.enrichments?.get(candidate.osm_ref)?.inferred?.[criterion.id]
+    : undefined;
+  return !(
+    stored &&
+    "omitted" in stored &&
+    stored.searchDay === utcDay(now) &&
+    (stored.searchAttempts ?? 0) >= SEARCH_ATTEMPT_CAP
+  );
 }
 
 function factsAreStale(candidate: CandidateRow, now: number): boolean {
@@ -204,7 +267,7 @@ export function buildRefinementQueue(
   now = Date.now(),
 ): RefinementQueueItem[] {
   const active = activeCriteria(inputs);
-  const activeList = [...active.values()].map((entry) => entry.criterion);
+  const activeList = [...active.values()].map((entry) => entry.criterion).filter(modelCriterion);
   const activeKeyIds = new Set(
     activeList.flatMap((criterion) => criterion.kind === "key" ? [criterion.key] : []),
   );
@@ -236,10 +299,10 @@ export function buildRefinementQueue(
     if (eligibility === "excluded") continue;
     const done = state.evaluated.get(candidate.id);
     const activeOpen = activeList.filter((criterion) =>
-      unknown(candidate, criterion) && !done?.has(criterion.id)
+      unknown(inputs, candidate, criterion, now) && !done?.has(criterion.id)
     );
     const inactiveOpen = inactiveVocabulary.filter((criterion) =>
-      unknown(candidate, criterion) && !done?.has(criterion.id)
+      unknown(inputs, candidate, criterion, now) && !done?.has(criterion.id)
     );
     let tier: RefinementQueueItem["tier"] | null = null;
     let criteria: Criterion[] = [];
@@ -383,7 +446,10 @@ export interface RefinementSearchRequest {
   website?: string;
   address?: string;
   siteTextUsable: boolean;
+  /** Every unresolved cell that may be evaluated over returned snippets. */
   criteria: Criterion[];
+  /** Shared active need words permitted to leave the server in the search leg. */
+  searchCriteria: Criterion[];
 }
 
 export interface RefinementSearchResponse extends RefinementSearchRequest {
@@ -399,7 +465,6 @@ export interface RefinementAreaContext {
 
 export interface RefinementSearchPolicy {
   domainRule?: RefineDomainRule;
-  queryShaping?: RefineQueryShaping;
 }
 
 export interface RefinementTickOptions extends RefinementSearchPolicy {
@@ -412,22 +477,6 @@ export function refineSearchMode(value = process.env.REFINE_SEARCH_MODE): Refine
   return value === "combined" || value === "split" ? value : DEFAULT_REFINE_SEARCH_MODE;
 }
 
-const GERMAN_CRITERION_WORDS: Readonly<Record<string, string>> = Object.freeze({
-  "internet-access": "WLAN",
-  "vegetarian-options": "vegetarisch",
-  "vegan-options": "vegan",
-  "gluten-free-options": "glutenfrei",
-  "halal-options": "halal",
-  "lactose-free-options": "laktosefrei",
-  "wheelchair-accessible": "barrierefrei",
-  "outdoor-seating": "Außenbereich Terrasse",
-  "dog-friendly": "Hunde erlaubt",
-  takeaway: "Mitnahme",
-  delivery: "Lieferung",
-  "price-level": "Preis",
-  cuisine: "Küche",
-});
-
 function boundedQuery(parts: string[]): string {
   const query = parts.join(" ").replace(/\s+/g, " ").trim();
   if (query.length <= MAX_REFINE_QUERY_CHARS) return query;
@@ -436,32 +485,26 @@ function boundedQuery(parts: string[]): string {
   return prefix.slice(0, boundary > 0 ? boundary : MAX_REFINE_QUERY_CHARS).trim();
 }
 
-/** Query words remain data-derived. Only vocabulary keys receive a small
- * locale lexicon; a person's free-text question is never translated. */
+/**
+ * The query is a privacy boundary, not a tuning knob. There used to be a
+ * second, richer shaper behind REFINE_QUERY_SHAPING, carrying the street
+ * address, the category and a German lexicon. The privacy ruling forbids
+ * every one of those words leaving the server, so the two shapers had become
+ * the same function and the knob only lied about it. It is gone. Measurement
+ * for the record: over three live twelve-place Berlin runs the plain query
+ * won every one, 14 validated claims to the richer query's 11.
+ */
 export function buildRefinementQuery(
-  request: Pick<RefinementSearchRequest, "name" | "category" | "address" | "criteria">,
+  request: Pick<RefinementSearchRequest, "name" | "searchCriteria">,
   area: RefinementAreaContext,
-  shaping: RefineQueryShaping = DEFAULT_REFINE_QUERY_SHAPING,
 ): string {
-  if (shaping === "plain") {
-    return boundedQuery([
-      request.name,
-      area.city,
-      ...request.criteria.map((criterion) => criterion.label),
-    ]);
-  }
-  const placeWords = request.address?.split(",")[0]?.trim() || area.label;
-  const criterionWords = request.criteria.flatMap((criterion) => {
-    if (criterion.kind === "question") return [criterion.text];
-    const translated = area.countryCode === "DE" ? GERMAN_CRITERION_WORDS[criterion.key] : undefined;
-    return translated ? [criterion.label, translated] : [criterion.label];
-  });
+  // This is the privacy boundary, not query tuning. Search receives only the
+  // place identity and words from shared active needs. Address/category,
+  // inactive vocabulary and application-private sentences stay server-side.
   return boundedQuery([
     request.name,
-    placeWords,
     area.city,
-    request.category,
-    ...criterionWords,
+    ...request.searchCriteria.map((criterion) => criterion.label),
   ]);
 }
 
@@ -484,14 +527,14 @@ export async function searchRefinementPlaces(
   provider = search,
   policy: RefinementSearchPolicy = {},
 ): Promise<RefinementSearchResponse[]> {
-  return Promise.all(requests.map(async (request) => {
+  return Promise.all(requests.filter((request) => request.searchCriteria.length > 0).map(async (request) => {
     const domains = refinementSearchDomains(request, policy.domainRule);
     let results: SearchResult[] = [];
     try {
-      results = await provider(
-        buildRefinementQuery(request, area, policy.queryShaping ?? refineQueryShaping()),
+      results = await refinementSearchLimiter.use(() => provider(
+        buildRefinementQuery(request, area),
         domains ? { domains } : undefined,
-      );
+      ));
     } catch {
       results = [];
     }
@@ -508,20 +551,13 @@ function modelCalls(places: number, criteria: number): number {
   return Math.ceil(places / MAX_MATRIX_PLACES) * Math.ceil(criteria / MAX_MATRIX_CRITERIA);
 }
 
-function budgetDelay(roomId: string, calls: number, searches: number, now: number): number {
-  const callDelay = modelBudget.remaining(roomId, now) >= calls
-    ? 0
-    : modelBudget.retryAfterMs(roomId, calls, now);
-  const searchDelay = searchBudget.remaining(roomId, now) >= searches
-    ? 0
-    : searchBudget.retryAfterMs(roomId, searches, now);
-  return Math.max(callDelay, searchDelay);
-}
-
 function markBudgetPause(roomId: string, state: RoomState): void {
+  state.paused = "budget";
   if (state.budgetLogged) return;
   state.budgetLogged = true;
-  console.info(`refinement paused for room ${roomId}: hourly budget exhausted`);
+  console.info(
+    `refinement paused for room ${roomId}: hourly model-call budget exhausted`,
+  );
 }
 
 async function roomPlace(roomId: string): Promise<RefinementAreaContext> {
@@ -629,25 +665,40 @@ export async function runRefinementTick(
       return item ? [item] : [];
     });
   }
-  state.queued = queue.length;
+  const queueCounts = refinementQueueCounts(queue);
+  // The number a person reads is work for needs they actually set. The
+  // vocabulary and stale sweeps are real work but they are background, and a
+  // count that climbs while the room sits still is a count nobody can trust.
+  state.queued = queueCounts.tier1;
+  state.tier1Queued = queueCounts.tier1;
+  state.backlog = queueCounts.total;
   if (queue.length === 0) return refinementTickDelay(0);
 
-  const searchLeft = searchBudget.remaining(roomId, now);
-  const batch = queue.slice(0, Math.min(REFINE_BATCH_SIZE, Math.max(1, searchLeft)));
+  const batch = queue.slice(0, REFINE_BATCH_SIZE);
   const criteria = [...new Map(batch.flatMap((item) => item.criteria).map((criterion) => [
     criterion.id,
     criterion,
-  ])).values()].filter((criterion) => !(criterion.kind === "key" && criterion.key === "cuisine"));
+  ])).values()].filter(modelCriterion);
   const searchMode = options.searchMode ?? refineSearchMode();
-  const queryShaping = options.queryShaping ?? refineQueryShaping();
   const firstCalls = modelCalls(batch.length, criteria.length);
-  const worstCalls = firstCalls + (searchMode === "combined" ? batch.length : firstCalls);
-  const delay = budgetDelay(roomId, worstCalls, criteria.length ? batch.length : 0, now);
+  // An empty search bucket is not a reason to stop. Site text plus the batch
+  // matrix costs no search at all and still moves places off the queue, so the
+  // loop keeps reading and only the search leg goes quiet. Only the model
+  // bucket can pause a tick, because without it there is nothing to run.
+  const searchLeft = searchBudget.remaining(roomId, now);
+  const canSearch = searchLeft >= batch.length;
+  const worstCalls = firstCalls +
+    (canSearch ? (searchMode === "combined" ? batch.length : firstCalls) : 0);
+  const delay = modelBudget.remaining(roomId, now) >= worstCalls
+    ? 0
+    : modelBudget.retryAfterMs(roomId, worstCalls, now);
   if (delay > 0) {
     markBudgetPause(roomId, state);
     return delay;
   }
   state.budgetLogged = false;
+  state.paused = null;
+  const spendBefore = responseMetrics();
 
   const endProgress = beginLookups(
     roomId,
@@ -682,12 +733,20 @@ export async function runRefinementTick(
     const firstCells = new Set(firstClaims.map((claim) => `${claim.candidateId}\u0000${claim.criterionId}`));
     const placeInfo = await roomPlace(roomId);
     const searchRequests: RefinementSearchRequest[] = [];
-    for (const preparedPlace of prepared) {
+    const searchedCells = new Set<string>();
+    const active = activeCriteria(inputs);
+    for (const preparedPlace of canSearch ? prepared : []) {
       const unresolved = preparedPlace.item.criteria.filter((criterion) =>
-        !(criterion.kind === "key" && criterion.key === "cuisine") &&
+        modelCriterion(criterion) &&
         !firstCells.has(`${preparedPlace.item.candidate.id}\u0000${criterion.id}`)
       );
       if (unresolved.length === 0) continue;
+      const searchCriteria = unresolved.filter((criterion) =>
+        active.get(criterion.id)?.visibilities.has("shared") === true
+      );
+      // A private criterion can be evaluated over text already fetched for a
+      // shared search, but it can never cause a search on its own.
+      if (searchCriteria.length === 0) continue;
       searchRequests.push({
         candidateId: preparedPlace.item.candidate.id,
         osmRef: preparedPlace.item.candidate.osm_ref!,
@@ -697,25 +756,33 @@ export async function runRefinementTick(
         address: preparedPlace.item.candidate.extras?.address,
         siteTextUsable: preparedPlace.siteTextUsable,
         criteria: unresolved,
+        searchCriteria,
       });
     }
     searchBudget.consume(roomId, searchRequests.length, now);
     let searchClaims: EvaluatedInference[] = [];
     if (searchMode === "combined") {
+      for (const request of searchRequests) {
+        for (const criterion of request.searchCriteria) {
+          searchedCells.add(`${request.candidateId}\u0000${criterion.id}`);
+        }
+      }
       modelBudget.consume(roomId, searchRequests.length, now);
       searchClaims = (await Promise.all(searchRequests.map(async (request) => {
         const domains = refinementSearchDomains(request, options.domainRule);
         try {
-          return await combinedSearch({
+          return await refinementSearchLimiter.use(() => combinedSearch({
             candidateId: request.candidateId,
             osmRef: request.osmRef,
             name: request.name,
             category: request.category,
-            query: buildRefinementQuery(request, placeInfo, queryShaping),
-            criteria: request.criteria,
+            query: buildRefinementQuery(request, placeInfo),
+            // Combined mode enables web_search in this very call, so private
+            // criteria are excluded from both its query and request body.
+            sharedCriteria: request.searchCriteria,
             source: domains ? "domain_search" : "open_web_search",
             ...(domains ? { domains } : {}),
-          });
+          }));
         } catch {
           return [];
         }
@@ -731,6 +798,12 @@ export async function runRefinementTick(
         ...entry,
         prepared: preparedById.get(entry.candidateId)!,
       }));
+      for (const entry of searched) {
+        const attempted = entry.results.length > 0 ? entry.criteria : entry.searchCriteria;
+        for (const criterion of attempted) {
+          searchedCells.add(`${entry.candidateId}\u0000${criterion.id}`);
+        }
+      }
       const withSnippets = searched.filter((entry) => entry.results.length > 0);
       if (withSnippets.length > 0) {
         const searchCriteria = [...new Map(withSnippets.flatMap((entry) => entry.criteria).map(
@@ -763,9 +836,7 @@ export async function runRefinementTick(
     const claims = [...firstClaims, ...searchClaims];
     const observedAt = new Date(now).toISOString();
     await saveInferences(pool, batch.flatMap((item) => {
-      const open = item.criteria.filter((criterion) =>
-        !(criterion.kind === "key" && criterion.key === "cuisine")
-      );
+      const open = item.criteria.filter(modelCriterion);
       return open.length ? [{
         osmRef: item.candidate.osm_ref!,
         criteria: open,
@@ -778,6 +849,9 @@ export async function runRefinementTick(
             answeredCells.has(`${item.candidate.id}\u0000${id}`) ||
             claims.some((claim) => claim.candidateId === item.candidate.id && claim.criterionId === id)
           ),
+        searchedCriterionIds: open
+          .map((criterion) => criterion.id)
+          .filter((id) => searchedCells.has(`${item.candidate.id}\u0000${id}`)),
         observedAt,
       }] : [];
     }));
@@ -789,7 +863,10 @@ export async function runRefinementTick(
       state.providerChecked.add(item.candidate.id);
       if (item.criteria.length > 0) state.checked.add(item.candidate.id);
     }
-    state.queued = Math.max(0, queue.length - batch.length);
+    const batchCounts = refinementQueueCounts(batch);
+    state.queued = Math.max(0, queueCounts.tier1 - batchCounts.tier1);
+    state.tier1Queued = state.queued;
+    state.backlog = Math.max(0, queueCounts.total - batchCounts.total);
 
     const refreshed = await loadEligibilityInputs(pool, roomId);
     const before = new Map(batch.map((item) => [
@@ -802,6 +879,15 @@ export async function runRefinementTick(
         : []
     );
     await publishInferenceChanges(pool, roomId, changed, "inference");
+    logTick(roomId, {
+      places: batch.length,
+      criteria: criteria.length,
+      searches: searchRequests.length,
+      claims: claims.length,
+      changed: changed.length,
+      queued: state.queued,
+      spend: spendBefore,
+    });
     // A tick that did work always re-ticks at the working cadence: finishing
     // a tier can open the next one, and only an empty queue may back off.
     return refinementTickDelay(1);
@@ -810,17 +896,66 @@ export async function runRefinementTick(
   }
 }
 
+/** Per-search fee charged by the built-in web-search tool, and the fast-tier
+ * token rates, both in dollars. Only used to print an estimate. */
+const SEARCH_FEE_USD = 0.01;
+const INPUT_USD_PER_TOKEN = 0.00000015;
+const OUTPUT_USD_PER_TOKEN = 0.0000006;
+
+/**
+ * One line per tick, so a walk can measure the loop instead of inferring it
+ * from the map. Counts and dollars only: no place name, no criterion text, no
+ * query. A private need must not be readable from a log either.
+ */
+function logTick(
+  roomId: string,
+  tick: {
+    places: number;
+    criteria: number;
+    searches: number;
+    claims: number;
+    changed: number;
+    queued: number;
+    spend: ReturnType<typeof responseMetrics>;
+  },
+): void {
+  const now = responseMetrics();
+  const calls = now.calls - tick.spend.calls;
+  const inputTokens = now.inputTokens - tick.spend.inputTokens;
+  const outputTokens = now.outputTokens - tick.spend.outputTokens;
+  const cost = tick.searches * SEARCH_FEE_USD +
+    inputTokens * INPUT_USD_PER_TOKEN +
+    outputTokens * OUTPUT_USD_PER_TOKEN;
+  console.info(JSON.stringify({
+    msg: "refine tick",
+    roomId,
+    places: tick.places,
+    criteria: tick.criteria,
+    calls,
+    searches: tick.searches,
+    claims: tick.claims,
+    changed: tick.changed,
+    queued: tick.queued,
+    costUsd: Number(cost.toFixed(4)),
+  }));
+}
+
 export function refinementView(
   roomId: string,
-  inputs?: EligibilityInputs,
+  _inputs?: EligibilityInputs,
   now = Date.now(),
 ): NonNullable<SpatialContextResult["refine"]> {
   const state = rooms.get(roomId);
-  const queued = inputs && state ? buildRefinementQueue(inputs, state, roomId, now).length : state?.queued ?? 0;
+  const active = Boolean(state && !state.stopped);
   return {
-    active: Boolean(state && !state.stopped),
-    queued,
+    active,
+    queued: state?.queued ?? 0,
+    tier1Queued: state?.tier1Queued ?? 0,
     checkedToday: state?.checkedDay === utcDay(now) ? state.checked.size : 0,
+    // An out-of-budget room and an empty room both look still; only the server
+    // knows which, and the page cannot say "paused for now" honestly without
+    // being told. Running searches dry no longer pauses anything.
+    paused: !active ? "idle" : state?.paused ?? null,
     budgetLeft: {
       calls: modelBudget.remaining(roomId, now),
       searches: searchBudget.remaining(roomId, now),
@@ -839,16 +974,23 @@ export function exhaustRefinementBudgetsForTest(roomId: string, now: number): vo
   searchBudget.consume(roomId, REFINE_SEARCHES_PER_HOUR, now);
 }
 
+/** Only the model bucket can pause a tick; searches merely go quiet. */
 export function refinementBudgetSleepForTest(
   roomId: string,
   calls: number,
-  searches: number,
   now: number,
 ): number {
   const state = stateFor(roomId);
-  const delay = budgetDelay(roomId, calls, searches, now);
+  const delay = modelBudget.remaining(roomId, now) >= calls
+    ? 0
+    : modelBudget.retryAfterMs(roomId, calls, now);
   if (delay > 0) markBudgetPause(roomId, state);
   return delay;
+}
+
+/** Empty the search bucket alone, leaving model calls available. */
+export function exhaustRefinementSearchesForTest(roomId: string, now: number): void {
+  searchBudget.consume(roomId, REFINE_SEARCHES_PER_HOUR, now);
 }
 
 /** Test-only reset for timers, cursors, budgets and transient prose. */

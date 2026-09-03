@@ -1,6 +1,6 @@
 {
   "toolContractVersion": "3",
-  "sha256": "a0728689ff4c0754cfe28a0c294831089a12b2cac6d36342ada00aebb702ac6d",
+  "sha256": "2c1f7a6d56f6dc356386eb0b89255962cbd96dc46d443a3098453622dbe0a3fa",
   "manifest": {
     "capabilityManifest": {
       "agreement": {
@@ -3224,7 +3224,25 @@
                   "checkedToday": {
                     "type": "number"
                   },
+                  "paused": {
+                    "anyOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "const": "budget",
+                        "type": "string"
+                      },
+                      {
+                        "const": "idle",
+                        "type": "string"
+                      }
+                    ]
+                  },
                   "queued": {
+                    "type": "number"
+                  },
+                  "tier1Queued": {
                     "type": "number"
                   }
                 },
@@ -3232,7 +3250,9 @@
                   "active",
                   "budgetLeft",
                   "checkedToday",
-                  "queued"
+                  "paused",
+                  "queued",
+                  "tier1Queued"
                 ],
                 "type": "object"
               },

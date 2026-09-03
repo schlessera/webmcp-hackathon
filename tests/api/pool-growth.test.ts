@@ -167,6 +167,13 @@ describe("whole-area pool growth", () => {
       resumed = await startServer({
         env: { POOL_FILL_INTERVAL_MS: "10", POOL_FILL_BATCH: "50" },
       });
+      await pollFor(
+        async () => Number((await database.query(
+          "SELECT count(*)::int AS count FROM candidates WHERE room_id = $1",
+          [opened.roomId],
+        )).rows[0].count),
+        (count) => count > POOL_SEED_SIZE,
+      );
       const complete = await pollFor(
         async () => (await apiPost<Context>(
           resumed!.baseUrl,
@@ -184,7 +191,7 @@ describe("whole-area pool growth", () => {
   }, 20_000);
 
   it("fills a fresh scope incrementally, emits pool frames, compresses, and fills a widening", async () => {
-    const { organizerToken } = await openRoom();
+    const { roomId, organizerToken } = await openRoom();
     const realtime = await openRealtime(server.baseUrl, organizerToken);
 
     const gzip = await fetch(`${server.baseUrl}/api/spatial/context`, {
@@ -205,13 +212,32 @@ describe("whole-area pool growth", () => {
     expect(initial.pool.size).toBeGreaterThanOrEqual(POOL_SEED_SIZE);
     expect(initial.pool.size).toBeLessThanOrEqual(initial.pool.target);
 
+    const ready = await apiPost<{ ok: boolean; revision?: number; error?: { code: string } }>(
+      server.baseUrl,
+      "/api/commands",
+      organizerToken,
+      {
+        type: "SetReadyState",
+        input: { baseRevision: initial.revision, state: "ready" },
+      },
+    );
+    expect(ready.body.ok).toBe(true);
+    expect(ready.body.error?.code).not.toBe("sync_required");
+
     const filled = await pollFor(
       () => context(organizerToken),
       (value) => value.pool.size === value.pool.target && !value.pool.filling,
     );
     expect(filled.pool).toMatchObject({ size: 343, target: 343, filling: false });
+    expect(filled.revision - ready.body.revision!).toBeLessThanOrEqual(2);
     expect(filled.area.poolSize).toBe(filled.pool.size);
     expect(filled.candidates).toHaveLength(filled.pool.target);
+    const poolEvents = Number((await database.query(
+      `SELECT count(*)::int AS count FROM events
+        WHERE room_id = $1 AND type = 'candidates_added' AND payload->>'source' = 'pool'`,
+      [roomId],
+    )).rows[0]?.count ?? 0);
+    expect(poolEvents).toBeLessThanOrEqual(2);
     for (const candidate of filled.candidates) {
       if (candidate.eligibility === "eligible") expect(candidate).not.toHaveProperty("why");
       else expect(candidate.why?.length).toBeLessThanOrEqual(60);
@@ -301,7 +327,7 @@ describe("whole-area pool growth", () => {
       try {
         // The seed is numbered 001-060, so anything past it belongs to a
         // batch the fill added — that is the place we need warmed.
-        const filled = /_(\d{3})$/;
+          const filled = /_(\d{3,})$/;
         const fromFill = (id: string) => {
           const match = filled.exec(id);
           return match !== null && Number(match[1]) > POOL_SEED_SIZE;
@@ -369,12 +395,12 @@ describe("whole-area pool growth", () => {
     expect(added.body.ok).toBe(true);
     const afterAdd = await context(organizerToken);
     expect(afterAdd.pool.size).toBe(filled.pool.size + 3);
-    expect(afterAdd.pool.target).toBe(filled.pool.target);
+    expect(afterAdd.pool.target).toBe(afterAdd.pool.size);
     expect(afterAdd.pool.filling).toBe(false);
     expect(afterAdd.area.poolSize).toBe(afterAdd.pool.size);
     for (const place of novel) {
       const candidate = afterAdd.candidates.find((row) => row.ref === place.ref);
-      expect(candidate?.candidateId).toMatch(/^pl_[a-f0-9]+_\d{3}$/);
+      expect(candidate?.candidateId).toMatch(/^pl_[a-f0-9]+_\d{3,}$/);
     }
 
     const peerSync = await apiPost<{

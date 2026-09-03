@@ -141,6 +141,7 @@ describe("batched matrix evaluation", () => {
       { id: "delivery", kind: "key", key: "delivery", label: "delivery" },
       { id: "outdoor-seating", kind: "key", key: "outdoor-seating", label: "outdoor seating" },
       { id: "takeaway", kind: "key", key: "takeaway", label: "takeaway" },
+      { id: "vegan-options", kind: "key", key: "vegan-options", label: "vegan options" },
     ];
     const sample: EvaluateMatrixInput = {
       places: [{
@@ -152,6 +153,7 @@ describe("batched matrix evaluation", () => {
           { source: "web", text: "Dogs may join guests in the courtyard." },
           { source: "domain_search", text: "Delivery is available across the local district." },
           { source: "open_web_search", text: "The terrace has outdoor tables under the trees." },
+          { source: "menu", text: "Plant-based dishes are marked clearly throughout the menu." },
         ],
       }],
       criteria,
@@ -164,6 +166,7 @@ describe("batched matrix evaluation", () => {
         { candidateId: "caps", criterionId: "delivery", lean: "yes", confidence: 0.99, evidence: "Delivery is available across", sourceIndex: bySource.get("domain_search") },
         { candidateId: "caps", criterionId: "outdoor-seating", lean: "yes", confidence: 0.99, evidence: "outdoor tables under the trees", sourceIndex: bySource.get("open_web_search") },
         { candidateId: "caps", criterionId: "takeaway", lean: "yes", confidence: 0.99, evidence: "Neighborhood Garden Café", sourceIndex: -1 },
+        { candidateId: "caps", criterionId: "vegan-options", lean: "yes", confidence: 0.99, evidence: "Plant-based dishes are marked clearly", sourceIndex: bySource.get("menu") },
       ]);
     });
     expect((await evaluateMatrix(sample)).map((claim) => claim.confidence)).toEqual([
@@ -171,6 +174,7 @@ describe("batched matrix evaluation", () => {
       MATRIX_CONFIDENCE_CAPS.domain_search,
       MATRIX_CONFIDENCE_CAPS.open_web_search,
       MATRIX_CONFIDENCE_CAPS.name_category,
+      MATRIX_CONFIDENCE_CAPS.menu,
     ]);
   });
 
@@ -195,6 +199,32 @@ describe("batched matrix evaluation", () => {
     }] }, sample, "test").claims[0];
     expect(other).toMatchObject({ status: "likely_true", confidence: 0.6 });
     expect(other.source).toMatch(/^infer:/);
+  });
+
+  it("never sends or accepts a time-window criterion", async () => {
+    const temporal: Criterion = {
+      id: "open:2026-09-04T12:00:00+02:00-2026-09-04T14:00:00+02:00",
+      kind: "key",
+      key: "open:2026-09-04T12:00:00+02:00-2026-09-04T14:00:00+02:00",
+      label: "open tomorrow 12:00 to 14:00",
+    };
+    const sample = input();
+    sample.criteria = [temporal];
+    sample.places[0].website = "https://alpha.example/";
+    sample.places[0].texts[0].text = "We are open tomorrow from noon until two.";
+    const transport = vi.fn(async () => response([]));
+    setTransport(transport);
+    expect(await evaluateMatrix(sample)).toEqual([]);
+    expect(transport).not.toHaveBeenCalled();
+    expect(matrixBatchFromAnswer({ claims: [{
+      candidateId: "alpha",
+      criterionId: temporal.id,
+      lean: "yes",
+      confidence: 0.99,
+      evidence: "open tomorrow from noon until two",
+      sourceIndex: 0,
+      explicit: true,
+    }] }, sample, "test").claims).toEqual([]);
   });
 
   it("lets an explicit own-site question claim make its text need eligible", () => {

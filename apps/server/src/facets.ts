@@ -18,7 +18,9 @@ import {
 } from "@webmcp-hackathon/contracts";
 import {
   classifyAll,
+  classifyCandidate,
   haversineMeters,
+  type CandidateEligibility,
   type CandidateRow,
   type EligibilityInputs,
   type RequirementRow,
@@ -73,15 +75,6 @@ export function inScope(
 }
 
 const isActive = (r: RequirementRow) => r.active !== false;
-const eligibleCount = (
-  candidates: CandidateRow[],
-  requirements: RequirementRow[],
-  inputs: EligibilityInputs,
-) =>
-  classifyAll(candidates, requirements, inputs.verdicts, inputs.scope, inputs.timezone).filter(
-    (r) => r.eligibility === "eligible",
-  ).length;
-
 /**
  * One pass over the room for one viewer. `suppressRequirementId` computes the
  * whole bundle AS IF that need were inactive — the press-and-hold preview,
@@ -91,16 +84,23 @@ export function computeFacetsBundle(
   inputs: EligibilityInputs,
   viewerId: string,
   suppressRequirementId?: string,
+  classified?: CandidateEligibility[],
 ): FacetsBundle {
   const candidates = inScope(inputs.candidates, inputs.scope);
   const effective = inputs.requirements.filter(
     (r) => r.id !== suppressRequirementId,
   );
   const active = effective.filter(isActive);
-  const matching = eligibleCount(candidates, active, inputs);
-  const likely = classifyAll(candidates, active, inputs.verdicts, inputs.scope, inputs.timezone).filter(
-    (r) => r.eligibility === "likely",
-  ).length;
+  const candidateIds = new Set(candidates.map((candidate) => candidate.id));
+  const rows = (classified ?? classifyAll(
+    candidates,
+    active,
+    inputs.verdicts,
+    inputs.scope,
+    inputs.timezone,
+  )).filter((row) => candidateIds.has(row.candidateId));
+  const matching = rows.filter((row) => row.eligibility === "eligible").length;
+  const likely = rows.filter((row) => row.eligibility === "likely").length;
 
   const activeNeeds: ActiveNeed[] = [];
   const privateEffects: PrivateEffect[] = [];
@@ -109,17 +109,32 @@ export function computeFacetsBundle(
       (a.created_at_revision ?? 0) - (b.created_at_revision ?? 0) ||
       a.id.localeCompare(b.id),
   );
+  // One candidate traversal builds every need's independent outcome. The
+  // main classification supplied by spatialContext is reused for totals;
+  // counterfactual eligible counts are then derived from these rows instead
+  // of running classifyAll once per need and facet.
+  const aloneByRequirement = new Map(ordered.map((requirement) => [
+    requirement.id,
+    candidates.map((candidate) => classifyCandidate(
+      candidate,
+      [{ ...requirement, active: true }],
+      inputs.verdicts,
+      inputs.scope,
+      inputs.timezone ?? "UTC",
+    )),
+  ]));
+  const scopeOnly = candidates.map((candidate) => classifyCandidate(
+    candidate,
+    [],
+    inputs.verdicts,
+    inputs.scope,
+    inputs.timezone ?? "UTC",
+  ));
 
   for (const req of ordered) {
     // What this need ALONE does, so its row's numbers do not depend on which
     // other need happened to exclude a place first (classify short-circuits).
-    const alone = classifyAll(
-      candidates,
-      [{ ...req, active: true }],
-      inputs.verdicts,
-      inputs.scope,
-      inputs.timezone,
-    );
+    const alone = aloneByRequirement.get(req.id)!;
     const ruledOut = alone.filter((r) => r.eligibility === "excluded").length;
 
     if (req.owner_id === viewerId || req.visibility === "shared") {
@@ -143,11 +158,13 @@ export function computeFacetsBundle(
           (r) => r.eligibility === "unlikely" && (r.likelyReasons ?? []).some((x) => x.requirementId === req.id),
         ).length,
         wouldReturn: stillActive
-          ? eligibleCount(
-              candidates,
-              active.filter((r) => r.id !== req.id),
-              inputs,
-            ) - matching
+          ? candidates.filter((_candidate, index) =>
+              scopeOnly[index].eligibility === "eligible" &&
+              active.every((other) =>
+                other.id === req.id ||
+                aloneByRequirement.get(other.id)![index].eligibility === "eligible"
+              )
+            ).length - matching
           : 0,
         active: stillActive,
         visibility: req.visibility as Visibility,
@@ -174,9 +191,9 @@ export function computeFacetsBundle(
     facets: [
       ...computeFacets(candidates, inputs.scope),
       ...temporalFacets(
-        candidates,
         active.filter((req) => req.owner_id === viewerId || req.visibility === "shared"),
         inputs,
+        aloneByRequirement,
       ),
     ],
     activeNeeds,
@@ -194,22 +211,16 @@ function criterionContext(inputs: EligibilityInputs): { timezone: string; now: D
 }
 
 function temporalFacets(
-  candidates: CandidateRow[],
   requirements: RequirementRow[],
   inputs: EligibilityInputs,
+  aloneByRequirement: Map<string, CandidateEligibility[]>,
 ): Facet[] {
   const facets = new Map<string, Facet>();
   for (const requirement of requirements) {
     if (requirement.payload?.kind !== "time") continue;
     const criterion = criterionFor(requirement.payload as never, criterionContext(inputs));
     if (!criterion || facets.has(criterion.id)) continue;
-    const rows = classifyAll(
-      candidates,
-      [{ ...requirement, hardness: "hard", active: true }],
-      inputs.verdicts,
-      null,
-      inputs.timezone,
-    );
+    const rows = aloneByRequirement.get(requirement.id) ?? [];
     const counts: NonNullable<Facet["counts"]> = {
       yes: 0,
       likely: 0,

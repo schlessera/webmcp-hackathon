@@ -19,7 +19,7 @@ import {
   type DossierHours,
 } from "@webmcp-hackathon/contracts";
 import { applyAttestations, loadAttestations } from "./attestations.ts";
-import { applyEnrichmentAttributes, loadCached } from "./enrich/index.ts";
+import { applyEnrichmentAttributes, loadCached, type Enrichment } from "./enrich/index.ts";
 import { applyInferredAttributes } from "./enrich/infer.ts";
 import { applyGuesses } from "./guess.ts";
 
@@ -292,6 +292,8 @@ export interface EligibilityInputs {
   timezone?: string;
   /** One read-time clock shared by labels and dossier projections. */
   now?: Date;
+  /** Server-only cache rows used by background scheduling guards. */
+  enrichments?: Map<string, Enrichment>;
 }
 
 /**
@@ -331,6 +333,7 @@ export async function loadEligibilityInputs(
     scope,
     timezone: areaById(room.rows[0]?.area_id as string)?.timezone ?? "UTC",
     now: new Date(),
+    enrichments,
   };
 }
 
@@ -387,10 +390,10 @@ export function classifyAll(
   scope: ScopeState | null,
   timezone = "UTC",
 ): CandidateEligibility[] {
-  return candidates.map((c) => classify(c, requirements, verdicts, scope, timezone));
+  return candidates.map((c) => classifyCandidate(c, requirements, verdicts, scope, timezone));
 }
 
-function classify(
+export function classifyCandidate(
   candidate: CandidateRow,
   requirements: RequirementRow[],
   verdicts: VerdictRow[],

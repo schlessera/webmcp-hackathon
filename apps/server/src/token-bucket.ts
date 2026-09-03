@@ -27,16 +27,33 @@ export function createTokenBucket(options: TokenBucketOptions): TokenBucket {
   const capacity = Math.max(0, options.capacity);
   const windowMs = Math.max(1, options.windowMs);
   const idleEvictMs = options.idleEvictMs ?? 10 * windowMs;
-  const maxEntries = options.maxEntries ?? 1_000;
+  const maxEntries = Math.max(1, options.maxEntries ?? 1_000);
   const buckets = new Map<string, Bucket>();
 
   const refill = (key: string, now: number, create: boolean): Bucket | undefined => {
-    if (buckets.size > maxEntries) {
+    let bucket = buckets.get(key);
+    if (!bucket && create && buckets.size >= maxEntries) {
+      let removed = false;
       for (const [candidate, bucket] of buckets) {
-        if (now - bucket.updatedAt > idleEvictMs) buckets.delete(candidate);
+        if (now - bucket.updatedAt > idleEvictMs) {
+          buckets.delete(candidate);
+          removed = true;
+        }
+      }
+      // Active callers can otherwise grow the map forever. When the idle
+      // sweep finds nothing, make room by dropping the least recently used
+      // key before inserting the new one.
+      if (!removed && buckets.size >= maxEntries) {
+        let oldest: { key: string; updatedAt: number } | undefined;
+        for (const [candidate, candidateBucket] of buckets) {
+          if (!oldest || candidateBucket.updatedAt < oldest.updatedAt) {
+            oldest = { key: candidate, updatedAt: candidateBucket.updatedAt };
+          }
+        }
+        if (oldest) buckets.delete(oldest.key);
       }
     }
-    let bucket = buckets.get(key);
+    bucket = buckets.get(key);
     if (!bucket) {
       if (!create) return undefined;
       bucket = { tokens: capacity, updatedAt: now };

@@ -56,12 +56,14 @@ export interface EvaluateMatrixInput {
 
 export type MatrixEvidenceBucket =
   | "venue_site"
+  | "menu"
   | "domain_search"
   | "open_web_search"
   | "name_category";
 
 export const MATRIX_CONFIDENCE_CAPS: Record<MatrixEvidenceBucket, number> = {
   venue_site: INFERENCE_CONFIDENCE_CAPS.description_website,
+  menu: INFERENCE_CONFIDENCE_CAPS.menu,
   domain_search: 0.55,
   open_web_search: 0.5,
   name_category: INFERENCE_CONFIDENCE_CAPS.name_category,
@@ -188,6 +190,7 @@ function evidenceBucket(source: MatrixInferenceTextSource): MatrixEvidenceBucket
     return "open_web_search";
   }
   if (source === "wikidata") return "open_web_search";
+  if (source === "menu") return "menu";
   return "venue_site";
 }
 
@@ -243,8 +246,13 @@ function uniqueInput(input: EvaluateMatrixInput): EvaluateMatrixInput {
     places: [
       ...new Map(input.places.map((place) => [place.candidateId, trimMatrixPlace(place)])).values(),
     ],
-    criteria: [...new Map(input.criteria.map((criterion) => [criterion.id, criterion])).values()],
+    criteria: [...new Map(input.criteria.map((criterion) => [criterion.id, criterion])).values()]
+      .filter((criterion) => !isTimeCriterion(criterion)),
   };
+}
+
+function isTimeCriterion(criterion: Criterion): boolean {
+  return criterion.kind === "key" && criterion.key.startsWith("open:");
 }
 
 /** Pure validation for one already-bounded matrix answer. */
@@ -265,7 +273,9 @@ export function matrixBatchFromAnswer(
   observedAt = new Date().toISOString(),
 ): EvaluatedMatrixBatch {
   const places = new Map(input.places.map((place) => [place.candidateId, place]));
-  const criteria = new Map(input.criteria.map((criterion) => [criterion.id, criterion]));
+  const criteria = new Map(input.criteria
+    .filter((criterion) => !isTimeCriterion(criterion))
+    .map((criterion) => [criterion.id, criterion]));
   const drafts = (answer as { claims?: unknown } | null)?.claims;
   if (!Array.isArray(drafts)) return { input, claims: [], answered: [] };
   const seen = new Set<string>();
@@ -306,7 +316,10 @@ export function matrixBatchFromAnswer(
     if (!safeEvidence) continue;
     if (typeof raw.confidence !== "number") continue;
     const rawConfidence = raw.confidence;
-    const recordGrade = isExplicitOwnSite(place, sourceIndex, raw.explicit);
+    // Time windows are deterministic predicates over structured hours. Even
+    // a direct own-site sentence can never promote an `open:*` cell.
+    const recordGrade = !isTimeCriterion(criterion) &&
+      isExplicitOwnSite(place, sourceIndex, raw.explicit);
     if (!Number.isFinite(rawConfidence) || (!recordGrade && rawConfidence <= 0)) continue;
     const bucket = sourceIndex === -1
       ? "name_category"

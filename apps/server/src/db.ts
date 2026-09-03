@@ -1,7 +1,9 @@
 import pg from "pg";
 import { config } from "./config.ts";
 
-export const pool = new pg.Pool({ connectionString: config.databaseUrl });
+// Twenty clients: background work (pool fill, refinement, warm-up) must never
+// starve a request, and no job may hold a client outside a transaction.
+export const pool = new pg.Pool({ connectionString: config.databaseUrl, max: 20 });
 
 export async function withTransaction<T>(
   fn: (client: pg.PoolClient) => Promise<T>,

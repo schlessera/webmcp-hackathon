@@ -41,10 +41,12 @@ if (!created.ok) throw new Error(created.error);
 const roomId = created.roomId;
 const ownerId = created.invites[0].participantId;
 const variants = [
-  { name: "baseline", searchMode: "split", domainRule: "domain-first", queryShaping: "plain" },
-  { name: "A", searchMode: "split", domainRule: "open-web-first", queryShaping: "plain" },
-  { name: "B", searchMode: "split", domainRule: "open-web-first", queryShaping: "shaped" },
-  { name: "C", searchMode: "combined", domainRule: "open-web-first", queryShaping: "shaped" },
+  // The query shaper is gone: the privacy ruling forbids every word it added,
+  // so a "shaped" row would have run the same query as "plain" under a
+  // different label. What still differs is the domain rule and the search mode.
+  { name: "baseline", searchMode: "split", domainRule: "domain-first" },
+  { name: "A", searchMode: "split", domainRule: "open-web-first" },
+  { name: "C", searchMode: "combined", domainRule: "open-web-first" },
 ] as const;
 
 interface Row {
@@ -104,7 +106,6 @@ try {
       frozenCandidateIds: frozenIds,
       searchMode: variant.searchMode,
       domainRule: variant.domainRule,
-      queryShaping: variant.queryShaping,
     });
     const wallSeconds = (performance.now() - started) / 1_000;
     const metrics = openai.responseMetrics();
