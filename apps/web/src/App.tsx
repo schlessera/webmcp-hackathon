@@ -21,6 +21,7 @@ import {
 } from "./ws-client.ts";
 import { diagnostics } from "./diagnostics-store.ts";
 import { registerCommandRunner, spatial } from "./spatial-store.ts";
+import { wire } from "./wire-store.ts";
 import type {
   ActiveNeed,
   CommandEnvelope,
@@ -311,6 +312,12 @@ export function App() {
       } | null> | null = null;
       const catchUp = () => {
         if (catchUpInFlight) return catchUpInFlight;
+        // One page span per catch-up; every sync page hangs under it.
+        const span = wire.begin({ lane: "page", label: "catch up" });
+        const signal = wire.child(span).signal;
+        let pages = 0;
+        let merged = 0;
+        let ending: { outcome: "ok" | "error"; note: string } | null = null;
         catchUpInFlight = (async () => {
           let firstPage: {
             revision: number;
@@ -323,9 +330,11 @@ export function App() {
           let consumedThrough = revisionWatermarks.projectedThroughRevision;
           for (;;) {
             const since = consumedThrough;
+            pages += 1;
             const sync = (await syncSession(
               cursor ? undefined : since,
               cursor,
+              signal,
             )) as {
               ok: boolean;
               revision?: number;
@@ -339,7 +348,10 @@ export function App() {
               outstanding?: OutstandingItem[];
               lastSyncedRevision?: number | null;
             };
-            if (!sync.ok || sync.revision === undefined || cancelled) return null;
+            if (!sync.ok || sync.revision === undefined || cancelled) {
+              ending = { outcome: "error", note: cancelled ? "page left" : (sync as { error?: { code?: string } }).error?.code ?? "no revision" };
+              return null;
+            }
             firstPage ??= {
               revision: sync.revision,
               lastSyncedRevision: sync.lastSyncedRevision,
@@ -352,7 +364,7 @@ export function App() {
               // R1: this is an explicit loss of incremental history. Replace
               // the projection at the named room revision before moving the
               // consumed watermark; never silently jump over omitted events.
-              diagnostics.log("sync backlog too large — replacing full projection");
+              ending = { outcome: "ok", note: "backlog · full replace" };
               const context = await spatial.refetch(sync.revision);
               if (context && context.revision >= sync.revision) {
                 setFeed([]);
@@ -364,6 +376,7 @@ export function App() {
             const fresh = sync.delta.events.filter(
               (e) => e.revision > revisionWatermarks.projectedThroughRevision,
             );
+            merged += fresh.length;
             if (fresh.length) setFeed((prev) => mergeFeed(fresh, prev));
             if (sync.delta.throughRevision !== undefined) {
               consumedThrough = Math.max(
@@ -379,7 +392,7 @@ export function App() {
               if (!sync.delta.cursor) {
                 // Compatibility with a server that can report truncation but
                 // cannot continue: retain the old watermark and retry later.
-                diagnostics.log("sync delta truncated without a cursor");
+                ending = { outcome: "error", note: "truncated · no cursor" };
                 return firstPage;
               }
               cursor = sync.delta.cursor;
@@ -392,6 +405,11 @@ export function App() {
           }
         })().finally(() => {
           catchUpInFlight = null;
+          const done = ending ?? { outcome: "ok" as const, note: `${pages} pages · ${merged} events` };
+          wire.end(span, {
+            ...done,
+            detail: { pages, events: merged, through: revisionWatermarks.projectedThroughRevision },
+          });
         });
         return catchUpInFlight;
       };

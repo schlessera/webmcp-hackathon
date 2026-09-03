@@ -33,7 +33,7 @@ const validateNavigationInput = readAjv.compile(PREPARE_NAVIGATION_INPUT);
 const validateLandmarksInput = readAjv.compile(FIND_LANDMARKS_INPUT);
 import { config } from "./config.ts";
 import { authenticateToken, exchangeInviteSecret } from "./auth.ts";
-import { submitCommand } from "./engine.ts";
+import { submitCommand, type CommandOrigin } from "./engine.ts";
 import { syncSession } from "./sync.ts";
 import {
   areaSummaries,
@@ -78,10 +78,17 @@ await app.register(import("@fastify/compress"), {
   encodings: ["br", "gzip"],
 });
 
-app.addHook("onSend", async (_req, reply, payload) => {
+app.addHook("onSend", async (req, reply, payload) => {
   if (config.originTrialToken) {
     reply.header("Origin-Trial", config.originTrialToken);
   }
+  // The page's wire timeline pairs a request with its frames by correlation
+  // id and splits the bar into network and server time. Same-origin app, so
+  // no CORS exposure is needed for the headers to be readable. A request
+  // that sent no id gets none back: a sentinel would read as a real id.
+  const requestId = requestCorrelationId(req);
+  if (requestId) reply.header("x-correlation-id", requestId);
+  reply.header("x-server-ms", String(Math.round(reply.elapsedTime)));
   return payload;
 });
 
@@ -496,6 +503,7 @@ app.post("/api/commands", async (req) => {
     rawIdempotencyKey && requestHash
       ? { key: rawIdempotencyKey, requestHash }
       : undefined,
+    commandOrigin(req),
   );
   req.log.info(
     {
@@ -523,8 +531,26 @@ function stableJson(value: unknown): string {
   return JSON.stringify(value) ?? "null";
 }
 
+/** The page's own id for this request, when it sent one. First value only
+ * if the header was repeated, and bounded so a hostile header cannot come
+ * back as a 16KB response header. */
+function requestCorrelationId(req: { headers: Record<string, unknown> }): string | undefined {
+  const raw = req.headers["x-correlation-id"];
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  if (typeof value !== "string" || value.length === 0) return undefined;
+  return value.slice(0, 128);
+}
+
+/** Log form: every command line carries a correlation id, `none` included. */
 function correlationId(req: { headers: Record<string, unknown> }): string {
-  return String(req.headers["x-correlation-id"] ?? "none");
+  return requestCorrelationId(req) ?? "none";
+}
+
+/** Wire form: only a request that identified itself can be named as the
+ * cause of a frame. */
+function commandOrigin(req: { headers: Record<string, unknown> }): CommandOrigin | undefined {
+  const id = requestCorrelationId(req);
+  return id ? { correlationId: id } : undefined;
 }
 
 /**
@@ -573,7 +599,7 @@ async function nlTurn(
   const stored = await storedTurn(participantId, key);
   if (stored) {
     return stored.request_hash === requestHash
-      ? stored.response
+      ? asReplay(stored.response)
       : invalidInput(
           "Idempotency-Key was already used with a different natural-language turn.",
           "Use a new key for different words or visibility.",
@@ -591,7 +617,15 @@ async function nlTurn(
   );
   if (inserted.rowCount === 1) return result;
   const winner = await storedTurn(participantId, key);
-  return winner && winner.request_hash === requestHash ? winner.response : result;
+  return winner && winner.request_hash === requestHash ? asReplay(winner.response) : result;
+}
+
+/** A stored turn served again is marked the way a replayed command is, so
+ * the page reads both the same way. The row itself stays as written. */
+function asReplay(response: unknown): unknown {
+  return response && typeof response === "object" && (response as { ok?: unknown }).ok === true
+    ? { ...(response as Record<string, unknown>), replayed: true }
+    : response;
 }
 
 async function storedTurn(
@@ -662,7 +696,9 @@ app.post("/api/nl/say", async (req) => {
       const routed = await say(text, scope, context, new Date(), clarifyOf, actor.id);
       let result: Record<string, unknown>;
       if (routed.intent === "ask" || routed.intent === "act") {
-        const outcome = await runAgent(actor, text, heldFor(actor.id));
+        const outcome = await runAgent(actor, text, heldFor(actor.id), {
+          correlationId: requestCorrelationId(req),
+        });
         result = {
           ok: true,
           intent: routed.intent,
@@ -751,7 +787,7 @@ app.post("/api/nl/condition", async (req) => {
       hardness: "hard",
       delegation: { mode: "approval_required" },
       scopeHint: { affects: "candidate-eligibility" },
-    });
+    }, undefined, commandOrigin(req));
     if (!declared.ok) {
       release(actor.id);
       return declared;

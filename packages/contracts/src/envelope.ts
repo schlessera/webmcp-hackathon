@@ -77,6 +77,9 @@ export interface SuccessEnvelope {
   staged?: boolean;
   outstanding: OutstandingItem[];
   syncHint?: { eventsSinceYourLastSync: number };
+  /** True when this envelope was served from the idempotency store: the
+   * logical action had already committed and this HTTP attempt was a retry. */
+  replayed?: true;
 }
 
 export interface FailureEnvelope {

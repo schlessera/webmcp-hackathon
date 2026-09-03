@@ -1,6 +1,6 @@
 {
   "toolContractVersion": "3",
-  "sha256": "6f1990f859e4ffa61295a30153572749d6d7aa6c5dde7cbbdc87c82f2f4633ed",
+  "sha256": "3b9b6ee0dc3393fe241a69ff51900404f36a5d27a72a430b2d7bd535495f4cdc",
   "manifest": {
     "capabilityManifest": {
       "agreement": {
@@ -2699,6 +2699,22 @@
           {
             "additionalProperties": false,
             "properties": {
+              "causedBy": {
+                "additionalProperties": false,
+                "properties": {
+                  "command": {
+                    "type": "string"
+                  },
+                  "correlationId": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "command",
+                  "correlationId"
+                ],
+                "type": "object"
+              },
               "events": {
                 "items": {
                   "additionalProperties": false,
@@ -5336,6 +5352,9 @@
                   ]
                 },
                 "type": "array"
+              },
+              "replayed": {
+                "type": "boolean"
               },
               "revision": {
                 "type": "number"

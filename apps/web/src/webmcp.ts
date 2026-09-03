@@ -9,6 +9,7 @@ import {
 } from "./api.ts";
 import { diagnostics } from "./diagnostics-store.ts";
 import { runCommand, spatial } from "./spatial-store.ts";
+import { trim, utf8Bytes, wire } from "./wire-store.ts";
 import type {
   CandidateSummary,
   SpatialContext,
@@ -161,10 +162,10 @@ function withOmissionMarker(value: unknown, omitted: OmittedCounts): Record<stri
 export function encodeToolResult(
   value: unknown,
   maxChars: number = BUDGETS.resultMax,
-): { content: Array<{ type: "text"; text: string }> } {
+): { content: Array<{ type: "text"; text: string }>; truncated: boolean } {
   const raw = JSON.stringify(value ?? null);
   if (raw.length <= maxChars) {
-    return { content: [{ type: "text", text: raw }] };
+    return { content: [{ type: "text", text: raw }], truncated: false };
   }
   const root = value && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>
@@ -186,6 +187,7 @@ export function encodeToolResult(
           },
         }),
       }],
+      truncated: true,
     };
   }
   for (const limits of [
@@ -198,7 +200,7 @@ export function encodeToolResult(
     const omitted: OmittedCounts = { arrayItems: 0, objectFields: 0, stringCharacters: 0 };
     const compacted = compactStructurally(value, limits, omitted);
     const text = JSON.stringify(withOmissionMarker(compacted, omitted));
-    if (text.length <= maxChars) return { content: [{ type: "text", text }] };
+    if (text.length <= maxChars) return { content: [{ type: "text", text }], truncated: true };
   }
 
   // The declared 1.5K budget always fits this last shape. Keep failures
@@ -221,7 +223,7 @@ export function encodeToolResult(
         omitted,
       }
     : { ok: source?.ok === true, truncated: true, omitted };
-  return { content: [{ type: "text", text: JSON.stringify(fallback) }] };
+  return { content: [{ type: "text", text: JSON.stringify(fallback) }], truncated: true };
 }
 
 /** Tool name → server command type for the mutating negotiation/spatial tools. */
@@ -466,7 +468,9 @@ export function registerWebMcpTools(): void {
   // registerTool is async and can reject (bad name chars, schema
   // serialization): await every registration so failures land visibly in the
   // diagnostics panel instead of as unhandled rejections.
+  const registration = wire.begin({ lane: "tool", label: "register tools" });
   void (async () => {
+    let registered = 0;
     try {
       for (const tool of TOOLS as ToolDefinition[]) {
         await mc.registerTool({
@@ -478,25 +482,57 @@ export function registerWebMcpTools(): void {
             // Native Chrome hands the parsed input object; the test shim may
             // pass the raw JSON string form.
             const parsed = typeof args === "string" ? safeParse(args) : args;
-            const result = await executeTool(tool.name, parsed, options?.signal);
-            return encodeToolResult(
-              result,
-              tool.name === "sync_session" ||
-                (result !== null && typeof result === "object" && "delta" in result)
-                ? BUDGETS.syncResultMax
-                : BUDGETS.resultMax,
-            );
+            // One span per call; the requests it makes hang under it through
+            // the signal they are handed (argument names only, never values).
+            const span = wire.begin({
+              lane: "tool",
+              label: tool.name,
+              detail: {
+                args: parsed && typeof parsed === "object" && !Array.isArray(parsed)
+                  ? Object.keys(parsed as object).join(", ") || undefined
+                  : undefined,
+              },
+            });
+            const child = wire.child(span, options?.signal);
+            let budget: number =
+              tool.name === "sync_session" ? BUDGETS.syncResultMax : BUDGETS.resultMax;
+            try {
+              const result = await executeTool(tool.name, parsed, child.signal);
+              if (result !== null && typeof result === "object" && "delta" in result) {
+                budget = BUDGETS.syncResultMax;
+              }
+              const encoded = encodeToolResult(result, budget);
+              const text = encoded.content[0]?.text ?? "";
+              const outcome = result as { ok?: boolean; effect?: string; error?: { code?: string } } | null;
+              const ok = outcome?.ok === true;
+              wire.end(span, {
+                outcome: ok ? "ok" : "error",
+                note: ok ? trim(outcome?.effect, 48) ?? "ok" : String(outcome?.error?.code ?? "error"),
+                bytes: utf8Bytes(text),
+                budget,
+                truncated: encoded.truncated,
+              });
+              return encoded;
+            } catch (err) {
+              // A throw anywhere above (the tool, or encoding its result)
+              // still closes the span.
+              wire.end(span, { outcome: "error", note: "threw", budget, detail: { error: trim(err, 120) } });
+              throw err;
+            } finally {
+              child.off();
+            }
           },
         });
-        diagnostics.log(`registered tool ${tool.name}`);
+        registered += 1;
       }
       diagnostics.update({ registration: "registered", registrationError: null });
+      wire.end(registration, { outcome: "ok", note: `${registered} tools` });
     } catch (err) {
       diagnostics.update({
         registration: "failed",
         registrationError: String(err),
       });
-      diagnostics.log(`registerTool FAILED: ${String(err)}`);
+      wire.end(registration, { outcome: "error", note: trim(err, 80), detail: { registered } });
     }
   })();
 }

@@ -1,6 +1,6 @@
 import { TOOL_CONTRACT_VERSION } from "@webmcp-hackathon/contracts";
 import { currentToken } from "./session.ts";
-import { diagnostics } from "./diagnostics-store.ts";
+import { trim, utf8Bytes, wire } from "./wire-store.ts";
 import type { ExplorePlace } from "./spatial-types.ts";
 
 /**
@@ -68,6 +68,35 @@ function finishLogicalAttempt(
   }
 }
 
+/** `x-server-ms`, when the serving process stamps it (older builds do not). */
+function serverMs(response: Response): number | undefined {
+  const raw = response.headers.get("x-server-ms");
+  if (raw === null) return undefined;
+  const value = Number(raw);
+  return Number.isFinite(value) ? value : undefined;
+}
+
+/**
+ * Read the body as text first, so the timeline knows its size, then parse.
+ * An empty or unparsable body throws, exactly as `response.json()` did, so
+ * every caller's transport-failure path stays what it was.
+ */
+export async function readJson(response: Response): Promise<{ body: unknown; bytes: number }> {
+  const text = await response.text();
+  if (!text) throw new SyntaxError("Empty response body");
+  return { body: JSON.parse(text), bytes: utf8Bytes(text) };
+}
+
+/** Timeline label for a route: the method and the path after `/api/`. */
+export function routeLabel(method: string, path: string): string {
+  const route = path.replace(/^\/api\//, "").replace(/\?.*$/, "");
+  return `${method} ${route}`;
+}
+
+function wasAborted(signal: AbortSignal | undefined, err: unknown): boolean {
+  return Boolean(signal?.aborted) || (err instanceof DOMException && err.name === "AbortError");
+}
+
 async function post(
   path: string,
   body: unknown,
@@ -76,12 +105,24 @@ async function post(
 ): Promise<unknown> {
   const token = currentToken();
   if (!token) {
-    diagnostics.log("command blocked: not_authenticated");
+    wire.mark({
+      lane: "http",
+      label: routeLabel("POST", path),
+      note: "not_authenticated",
+      outcome: "blocked",
+      parentId: wire.parentFor(signal),
+    });
     return notAuthenticated;
   }
   if (signal?.aborted) return cancelled;
   const correlationId = newCorrelationId();
-  diagnostics.log(`-> ${path} [${correlationId}]`);
+  const span = wire.begin({
+    lane: "http",
+    label: routeLabel("POST", path),
+    correlationId,
+    idempotencyKey,
+    parentId: wire.parentFor(signal),
+  });
   try {
     const response = await fetch(path, {
       method: "POST",
@@ -97,17 +138,47 @@ async function post(
       body: JSON.stringify(body),
       signal,
     });
-    const result = await response.json();
-    diagnostics.log(
-      `<- ${path} [${correlationId}] ${result.ok ? `ok rev ${result.revision}` : result.error?.code}`,
-    );
-    return result;
+    const { body: parsed, bytes } = await readJson(response);
+    const result = parsed as {
+      ok?: boolean;
+      revision?: number;
+      replayed?: boolean;
+      staged?: boolean;
+      effect?: string;
+      error?: { code?: string; message?: string; recovery?: string };
+    } | null;
+    const ok = result?.ok === true;
+    const revision = typeof result?.revision === "number" ? result.revision : undefined;
+    const verdict = ok
+      ? `${result?.replayed ? "replay" : "ok"}${revision !== undefined ? ` rev ${revision}` : ""}`
+      : String(result?.error?.code ?? `http ${response.status}`);
+    wire.end(span, {
+      outcome: ok ? "ok" : "error",
+      note: `${verdict}${result?.staged ? " · staged" : ""}`,
+      serverMs: serverMs(response),
+      revision,
+      replayed: result?.replayed === true,
+      bytes,
+      detail: {
+        path,
+        correlation: correlationId,
+        idempotency: idempotencyKey,
+        effect: trim(result?.effect, 120),
+        error: trim(result?.error?.message, 120),
+        recovery: trim(result?.error?.recovery, 120),
+      },
+    });
+    return parsed;
   } catch (err) {
-    if (signal?.aborted || (err instanceof DOMException && err.name === "AbortError")) {
-      diagnostics.log(`<- ${path} [${correlationId}] cancelled`);
+    if (wasAborted(signal, err)) {
+      wire.end(span, { outcome: "cancelled", note: "cancelled" });
       return cancelled;
     }
-    diagnostics.log(`<- ${path} [${correlationId}] network error`);
+    wire.end(span, {
+      outcome: "error",
+      note: "network",
+      detail: { path, correlation: correlationId, error: trim(err, 120) },
+    });
     const failure = {
       ok: false,
       error: {
@@ -128,13 +199,23 @@ async function post(
 export async function placeImageBlob(url: string, signal?: AbortSignal): Promise<Blob | null> {
   const token = currentToken();
   if (!token) return null;
+  const span = wire.begin({ lane: "http", label: "GET image", parentId: wire.parentFor(signal) });
   try {
     const response = await fetch(url, {
       headers: { authorization: `Bearer ${token}` },
       signal,
     });
-    return response.ok ? response.blob() : null;
-  } catch {
+    const blob = response.ok ? await response.blob() : null;
+    wire.end(span, {
+      outcome: response.ok ? "ok" : "error",
+      note: String(response.status),
+      serverMs: serverMs(response),
+      bytes: blob?.size,
+    });
+    return blob;
+  } catch (err) {
+    const aborted = wasAborted(signal, err);
+    wire.end(span, { outcome: aborted ? "cancelled" : "error", note: aborted ? "cancelled" : "network" });
     return null;
   }
 }
@@ -142,6 +223,7 @@ export async function placeImageBlob(url: string, signal?: AbortSignal): Promise
 export function syncSession(
   sinceRevision?: number,
   cursor?: string,
+  signal?: AbortSignal,
 ): Promise<unknown> {
   return post(
     "/api/sync",
@@ -149,6 +231,7 @@ export function syncSession(
       ...(sinceRevision === undefined ? {} : { sinceRevision }),
       ...(cursor === undefined ? {} : { cursor }),
     },
+    signal,
   );
 }
 
@@ -228,17 +311,41 @@ export function spatialNavigationRaw(
   return post("/api/spatial/navigation", input === undefined ? {} : input, signal);
 }
 
-export function landmarksRaw(input: unknown, signal?: AbortSignal): Promise<unknown> {
+export async function landmarksRaw(input: unknown, signal?: AbortSignal): Promise<unknown> {
   const query = (input as { query?: unknown } | null)?.query;
   const token = currentToken();
-  if (!token) return Promise.resolve(notAuthenticated);
+  if (!token) return notAuthenticated;
   if (typeof query !== "string") {
-    return Promise.resolve({ ok: false, error: { code: "invalid_input", message: "A landmark query is required." } });
+    return { ok: false, error: { code: "invalid_input", message: "A landmark query is required." } };
   }
-  return fetch(`/api/landmarks?q=${encodeURIComponent(query)}`, {
-    headers: { authorization: `Bearer ${token}`, "x-correlation-id": newCorrelationId() },
-    signal,
-  }).then((response) => response.json());
+  const correlationId = newCorrelationId();
+  const span = wire.begin({
+    lane: "http",
+    label: "GET landmarks",
+    correlationId,
+    parentId: wire.parentFor(signal),
+    detail: { correlation: correlationId },
+  });
+  try {
+    const response = await fetch(`/api/landmarks?q=${encodeURIComponent(query)}`, {
+      headers: { authorization: `Bearer ${token}`, "x-correlation-id": correlationId },
+      signal,
+    });
+    const { body, bytes } = await readJson(response);
+    const result = body as { ok?: boolean; error?: { code?: string } } | null;
+    const ok = result?.ok === true;
+    wire.end(span, {
+      outcome: ok ? "ok" : "error",
+      note: ok ? "ok" : String(result?.error?.code ?? `http ${response.status}`),
+      serverMs: serverMs(response),
+      bytes,
+    });
+    return body;
+  } catch (err) {
+    const aborted = wasAborted(signal, err);
+    wire.end(span, { outcome: aborted ? "cancelled" : "error", note: aborted ? "cancelled" : "network" });
+    throw err;
+  }
 }
 
 export interface ExplorePlacesResponse {
@@ -257,7 +364,13 @@ export async function fetchExplorePlaces(
   if (!token) return notAuthenticated;
   const correlationId = newCorrelationId();
   const path = `/api/rooms/${encodeURIComponent(roomId)}/places?bbox=${bbox.join(",")}`;
-  diagnostics.log(`-> explore places [${correlationId}]`);
+  const span = wire.begin({
+    lane: "http",
+    label: "GET places",
+    correlationId,
+    parentId: wire.parentFor(signal),
+    detail: { correlation: correlationId, bbox: bbox.map((v) => v.toFixed(4)).join(",") },
+  });
   try {
     const response = await fetch(path, {
       headers: {
@@ -266,8 +379,15 @@ export async function fetchExplorePlaces(
       },
       signal,
     });
-    const body = await response.json() as ExplorePlacesResponse & { error?: string };
+    const { body: parsed, bytes } = await readJson(response);
+    const body = parsed as ExplorePlacesResponse & { error?: string };
     if (!response.ok || body.ok !== true) {
+      wire.end(span, {
+        outcome: "error",
+        note: `http ${response.status}`,
+        serverMs: serverMs(response),
+        bytes,
+      });
       return {
         ok: false,
         error: {
@@ -276,13 +396,19 @@ export async function fetchExplorePlaces(
         },
       };
     }
-    diagnostics.log(`<- explore places [${correlationId}] ${body.places.length}`);
+    wire.end(span, {
+      outcome: "ok",
+      note: `${body.places.length} places${body.truncated ? " · truncated" : ""}`,
+      serverMs: serverMs(response),
+      bytes,
+    });
     return body;
   } catch (error) {
     if (signal?.aborted) {
+      wire.end(span, { outcome: "cancelled", note: "replaced" });
       return { ok: false, error: { code: "aborted", message: "Explore request replaced." } };
     }
-    diagnostics.log(`<- explore places [${correlationId}] network error`);
+    wire.end(span, { outcome: "error", note: "network" });
     return { ok: false, error: { code: "not_found", message: String(error).slice(0, 120) } };
   }
 }
@@ -299,18 +425,19 @@ export async function nlSay(
   scope: string,
   turnIdempotencyKey?: string,
   clarifyOf?: { said: string; question: string },
+  signal?: AbortSignal,
 ): Promise<unknown> {
   // X3: the whole routed/model/action loop is one side-effecting turn.
   const body = { text, scope, ...(clarifyOf ? { clarifyOf } : {}) };
   const signature = stableJson({ path: "/api/nl/say", body });
   const key = turnIdempotencyKey ?? retryKeys.get(signature) ?? newIdempotencyKey();
-  const result = await post("/api/nl/say", body, undefined, key);
+  const result = await post("/api/nl/say", body, signal, key);
   finishLogicalAttempt(signature, key, result);
   return result;
 }
 
-export function nlCondition(text: string): Promise<unknown> {
-  return post("/api/nl/condition", { text });
+export function nlCondition(text: string, signal?: AbortSignal): Promise<unknown> {
+  return post("/api/nl/condition", { text }, signal);
 }
 
 /**
@@ -350,9 +477,22 @@ export interface CreatedRoom {
 }
 
 export async function fetchAreas(): Promise<AreaSummary[]> {
-  const response = await fetch("/api/areas");
-  if (!response.ok) throw new Error(`areas ${response.status}`);
-  return ((await response.json()) as { areas: AreaSummary[] }).areas;
+  const span = wire.begin({ lane: "http", label: "GET areas" });
+  try {
+    const response = await fetch("/api/areas");
+    if (!response.ok) {
+      wire.end(span, { outcome: "error", note: `http ${response.status}`, serverMs: serverMs(response) });
+      throw new Error(`areas ${response.status}`);
+    }
+    const { body, bytes } = await readJson(response);
+    wire.end(span, { outcome: "ok", note: "ok", serverMs: serverMs(response), bytes });
+    return (body as { areas: AreaSummary[] }).areas;
+  } catch (err) {
+    // The status branch above closed the span itself; a throw before or
+    // after it (transport, non-JSON body) closes it here.
+    if (wire.isOpen(span)) wire.end(span, { outcome: "error", note: "network" });
+    throw err;
+  }
 }
 
 export async function createRoom(input: {
@@ -360,16 +500,27 @@ export async function createRoom(input: {
   organizerName: string;
   memberNames: string[];
 }): Promise<{ ok: true; room: CreatedRoom } | { ok: false; error: string }> {
+  // The invite secrets in the answer never reach the timeline: size only.
+  const span = wire.begin({ lane: "http", label: "POST rooms" });
   try {
     const response = await fetch("/api/rooms", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(input),
     });
-    const body = (await response.json()) as CreatedRoom & { error?: string };
+    // Parsed inside the try: a non-JSON body closes the span through the catch.
+    const { body: parsed, bytes } = await readJson(response);
+    const body = parsed as CreatedRoom & { error?: string };
+    wire.end(span, {
+      outcome: response.ok ? "ok" : "error",
+      note: response.ok ? "ok" : `http ${response.status}`,
+      serverMs: serverMs(response),
+      bytes,
+    });
     if (!response.ok) return { ok: false, error: body.error ?? `Could not open the room (${response.status}).` };
     return { ok: true, room: body };
   } catch {
+    wire.end(span, { outcome: "error", note: "network" });
     return { ok: false, error: "Could not reach the server. Try again in a moment." };
   }
 }

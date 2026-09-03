@@ -25,7 +25,7 @@ export interface SayOutcome {
   clarify: Clarification | null;
   reply: string | null;
   suggestions?: ClarifyChoice[];
-  meta: { model: string | null; ms: number };
+  meta: { model: string | null; provider?: string; ms: number };
 }
 
 interface DraftConcept {
@@ -264,7 +264,11 @@ export async function say(
       reply: draft?.reply ?? null,
       meta: { model: reply.model, ms: reply.ms, preparsedWhole: false },
     };
-    meta = { model: reply.model, ms: reply.ms };
+    meta = {
+      model: reply.model,
+      ...(reply.provider ? { provider: reply.provider } : {}),
+      ms: reply.ms,
+    };
   }
   const mapped = mapInterpretation(interpretation, input);
   const validNeeds = mapped.needs.filter((need) => validatePayload(need.payload));

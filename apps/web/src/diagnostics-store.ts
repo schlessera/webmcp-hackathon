@@ -1,4 +1,5 @@
 /** Development diagnostics panel state: registration errors must be visible. */
+import { wire } from "./wire-store.ts";
 
 export interface DiagnosticsState {
   modelContextPresent: boolean;
@@ -14,10 +15,12 @@ export interface DiagnosticsState {
   serverBuildId: string | null;
   /** The serving process can hand a sentence to the person's agent. */
   nlAvailable: boolean;
-  lines: string[];
   /** Which drawer folds the reader opened or closed (W13): survives the
    * drawer closing and reopening; a fold never seen falls back to its default. */
   folds: Record<string, boolean>;
+  /** Wire timeline lanes (and "ping") the reader switched off; same lifetime
+   * as `folds`. Keepalives are off until asked for. */
+  wireHidden: string[];
 }
 
 type Listener = () => void;
@@ -33,8 +36,8 @@ class DiagnosticsStore {
     buildId: null,
     serverBuildId: null,
     nlAvailable: false,
-    lines: [],
     folds: {},
+    wireHidden: ["ping"],
   };
   private listeners = new Set<Listener>();
 
@@ -46,9 +49,9 @@ class DiagnosticsStore {
     this.state = { ...this.state, ...partial };
     for (const l of this.listeners) l();
   }
+  /** A page moment on the wire timeline (the old text log's entry point). */
   log(line: string): void {
-    const stamped = `${new Date().toISOString().slice(11, 19)} ${line}`;
-    this.update({ lines: [...this.state.lines.slice(-49), stamped] });
+    wire.mark({ lane: "page", label: line });
   }
 }
 

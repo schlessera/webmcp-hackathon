@@ -60,6 +60,8 @@ export interface ToolCall {
 export interface Reply {
   /** The assistant's text, when it wrote any. */
   text: string | null;
+  /** The OpenRouter endpoint that served the call, when it named one. */
+  provider?: string;
   toolCalls: ToolCall[];
   /** Raw output items, re-fed verbatim on the next turn of a tool loop. */
   outputItems: unknown[];

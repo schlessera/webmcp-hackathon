@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { PROTOCOL_VERSIONS, TOOL_CONTRACT_VERSION } from "@webmcp-hackathon/contracts";
 import { diagnostics, type DiagnosticsState } from "../diagnostics-store.ts";
+import { WireTimeline } from "./WireTimeline.tsx";
 import type { SessionIdentity } from "../session.ts";
 import type { CommandEnvelope, SpatialContext } from "../spatial-types.ts";
 import type { LookupReason, PendingNeed, PipelineStage, PipelineView, InteractivePlan } from "../spatial-store.ts";
@@ -39,6 +40,8 @@ interface Props {
    state that matters and folds the rest. Native <details>: no state to keep,
    keyboard for free. Module scope, so a diagnostics tick never remounts the
    folds and a fold the reader closed stays closed. */
+const diagnosticsStore = diagnostics;
+
 function Section({
   title,
   open,
@@ -115,6 +118,14 @@ export function Drawer({
         </div>
 
         <div className="drawer-body">
+          <Section title="wire" open>
+            <WireTimeline
+              live={diagnostics.wsState === "open" && !diagnostics.wsStale}
+              hidden={diagnostics.wireHidden}
+              onHiddenChange={(wireHidden) => diagnosticsStore.update({ wireHidden })}
+            />
+          </Section>
+
           {context?.area && (
             <Section title="places" open>
               <div className="drawer-kv">
@@ -228,12 +239,6 @@ export function Drawer({
               </div>
             </Section>
           )}
-
-          <Section title="what crossed the wire" open>
-            <pre className="drawer-log" data-testid="diag-log">
-              {diagnostics.lines.join("\n")}
-            </pre>
-          </Section>
 
           <Section title="Pipeline">
             <div className="drawer-kv" data-testid="diag-pipeline">

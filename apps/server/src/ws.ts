@@ -405,6 +405,12 @@ async function broadcast(n: CommitNotification): Promise<void> {
       // is omitted by their privacy projection.
       fromRevision: n.storedRevisions[0] - 1,
       events,
+      // Only the actor's own sockets learn which request caused the frame.
+      // The projection hides the actor of a private move from peers, and an
+      // ungated causedBy would hand it back.
+      ...(n.causedBy && connection.participantId === n.causedBy.actorId
+        ? { causedBy: { correlationId: n.causedBy.correlationId, command: n.causedBy.command } }
+        : {}),
     });
   }
   // Position sharing is presentation state: after its durable owner-only
