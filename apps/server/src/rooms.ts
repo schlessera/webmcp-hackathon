@@ -12,6 +12,7 @@ import { pool } from "./db.ts";
 import { warmEnrichments } from "./enrich/index.ts";
 import { startPoolFill } from "./pool-fill.ts";
 import { warmTargetsFor } from "./candidate-write.ts";
+import { noteRefinementPresence, startRefinement } from "./refine/worker.ts";
 
 /**
  * Room creation from the area picker: one organizer, up to five members,
@@ -173,5 +174,9 @@ export async function createRoom(input: CreateRoomInput): Promise<CreateRoomResu
   // Creation returns after the deterministic seed. The rest of the current
   // scope circle arrives under the ordinary room write lock in the background.
   startPoolFill(roomId);
+  // Creation is itself a lifecycle signal: begin filling the scheduler now,
+  // even before the first page authenticates, then apply the ordinary
+  // ten-minute no-presence stop policy.
+  if (startRefinement(roomId)) noteRefinementPresence(roomId, new Set());
   return { ok: true, roomId, areaId: area.id, invites, dataSource: set.dataSource };
 }

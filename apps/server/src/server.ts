@@ -384,15 +384,21 @@ function parseExploreBbox(value: unknown): ExploreBbox | null {
 app.post("/api/spatial/inspect", async (req) => {
   const actor = await bearer(req);
   if (!actor) return notAuthenticated;
-  const body = (req.body ?? {}) as { candidateIds?: string[]; intent?: "open" };
+  const body = (req.body ?? {}) as { candidateIds?: string[]; intent?: "open"; force?: boolean };
   const intent = body.intent;
+  // Read before the guard: the compiled validator narrows the body to the
+  // schema's static type, which erases the optional flags.
+  const force = body.force === true;
   if (!validateInspectInput(body)) {
     return invalidInput(
       "candidateIds must be 1-3 candidate ID strings.",
       "Pass candidateIds from get_spatial_context.",
     );
   }
-  const result = await inspectCandidates(actor, body.candidateIds!, { intent });
+  const result = await inspectCandidates(actor, body.candidateIds!, {
+    intent,
+    force,
+  });
   logRead(req, actor.id, "InspectCandidates", result.ok);
   return result;
 });

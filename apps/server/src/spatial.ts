@@ -91,21 +91,27 @@ function publishInteractive(
   });
 }
 
-function runInteractiveTarget(roomId: string, target: RoomLookupTarget): Promise<void> {
+function runInteractiveTarget(
+  roomId: string,
+  target: RoomLookupTarget,
+  options: { force?: boolean } = {},
+): Promise<void> {
   const key = prefetchKey(roomId, target.candidateId);
-  prefetchManager.opened(key);
   const existing = interactiveInFlight.get(key);
   if (existing) return existing;
-  publishInteractive(roomId, target.candidateId, { stage: "site" });
+  if (!prefetchManager.admitInteractiveOpen(key, options)) return Promise.resolve();
   const budget = new InteractiveBudget(() => wakeRefinement(roomId));
   const before = responseMetrics();
   const steps: NonNullable<FactsMessage["steps"]> = [];
+  const stages: InteractiveStage[] = ["site"];
+  const changed = new Set<string>();
   let currentStage: InteractiveStage = "site";
   let stageStarted = Date.now();
   const beginStage = (stage: InteractiveStage) => {
     if (stage === currentStage) return;
     steps.push({ stage: currentStage, ms: Date.now() - stageStarted });
     currentStage = stage;
+    stages.push(stage);
     stageStarted = Date.now();
   };
   const finishStage = () => {
@@ -114,7 +120,7 @@ function runInteractiveTarget(roomId: string, target: RoomLookupTarget): Promise
   let paidSearches = 0;
   const pageCache: AdjudicationPageCache = new Map();
   const job = (async () => {
-    await lookupNow(pool, roomId, [target], {
+    const lookupChanged = await lookupNow(pool, roomId, [target], {
       keys: [],
       intent: "interactive",
       reason: { kind: "place" },
@@ -124,7 +130,6 @@ function runInteractiveTarget(roomId: string, target: RoomLookupTarget): Promise
       skipListingRefresh: true,
       reuseFreshPage: true,
       siteOnly: true,
-      publishInteractiveStages: true,
       onlyUnclassifiedImages: true,
       onInteractiveStage: (stage) => {
         beginStage(stage === "images" ? "photos" : "site");
@@ -134,10 +139,11 @@ function runInteractiveTarget(roomId: string, target: RoomLookupTarget): Promise
       consumeModelCall: consumeRefinementModelCall,
       deferExcess: () => wakeRefinement(roomId),
     }).catch(() => []);
+    for (const candidateId of lookupChanged) changed.add(candidateId);
     // The photo stage is part of lookupNow so its fresh page candidates and
     // existing image cache stay on the established materialisation path.
     beginStage("needs");
-    await adjudicateLikelyForRoom(pool, roomId, {
+    const adjudicated = await adjudicateLikelyForRoom(pool, roomId, {
       mode: "on_demand",
       candidateIds: [target.candidateId],
       pageCache,
@@ -147,7 +153,7 @@ function runInteractiveTarget(roomId: string, target: RoomLookupTarget): Promise
         return admitted;
       },
     }).catch(() => ({ calls: 0, cells: 0, changed: [] }));
-    publishInteractive(roomId, target.candidateId, { stage: "needs" });
+    for (const candidateId of adjudicated.changed) changed.add(candidateId);
 
     const webStarted = Date.now();
     const search = await searchInteractiveCandidate(roomId, target.candidateId, budget)
@@ -157,8 +163,9 @@ function runInteractiveTarget(roomId: string, target: RoomLookupTarget): Promise
       currentStage = "web";
       stageStarted = webStarted;
       paidSearches = search.paidSearch ? 1 : 0;
-      publishInteractive(roomId, target.candidateId, { stage: "web" });
+      stages.push("web");
     }
+    for (const candidateId of search.changed) changed.add(candidateId);
   })().finally(() => {
     finishStage();
     interactiveInFlight.delete(key);
@@ -172,6 +179,13 @@ function runInteractiveTarget(roomId: string, target: RoomLookupTarget): Promise
         ? reportedModelCost
         : (inputTokens * rates.input + outputTokens * rates.output) / 1_000_000);
     const roundedCostUsd = Number(costUsd.toFixed(6));
+    const usage = budget.snapshot();
+    const realPlan = usage.used.model > 0 || usage.used.vision > 0 ||
+      paidSearches > 0 || changed.size > 0;
+    if (!realPlan) return;
+    for (const stage of [...new Set(stages)]) {
+      publishInteractive(roomId, target.candidateId, { stage });
+    }
     publishInteractive(roomId, target.candidateId, {
       done: true,
       steps,
@@ -181,12 +195,12 @@ function runInteractiveTarget(roomId: string, target: RoomLookupTarget): Promise
       msg: "interactive open cost",
       roomId,
       candidateId: target.candidateId,
-      modelCalls: after.calls - before.calls,
+      modelCalls: usage.used.model,
       inputTokens,
       outputTokens,
       searches: paidSearches,
       costUsd: roundedCostUsd,
-      budget: budget.snapshot(),
+      budget: usage,
     }));
   });
   interactiveInFlight.set(key, job);
@@ -194,7 +208,11 @@ function runInteractiveTarget(roomId: string, target: RoomLookupTarget): Promise
 }
 
 /** Server-side half of viewing/inspect: start one bounded priority-zero plan. */
-export async function openCandidate(roomId: string, candidateId: string): Promise<void> {
+export async function openCandidate(
+  roomId: string,
+  candidateId: string,
+  options: { force?: boolean } = {},
+): Promise<void> {
   const row = (await pool.query(
     "SELECT id, osm_ref, name, location, extras FROM candidates WHERE room_id = $1 AND id = $2",
     [roomId, candidateId],
@@ -206,7 +224,7 @@ export async function openCandidate(roomId: string, candidateId: string): Promis
     location: { lat: number; lng: number };
     extras: Record<string, unknown> | null;
   });
-  if (target) await runInteractiveTarget(roomId, { candidateId, ...target });
+  if (target) await runInteractiveTarget(roomId, { candidateId, ...target }, options);
 }
 
 /** Priority-one cache/site/judge only. Search, assets and vision are impossible here. */
@@ -579,7 +597,7 @@ export async function spatialContext(
 export async function inspectCandidates(
   actor: Participant,
   candidateIds: string[],
-  options: { triggerLookup?: boolean; waitMs?: number; now?: Date; intent?: "open" } = {},
+  options: { triggerLookup?: boolean; waitMs?: number; now?: Date; intent?: "open"; force?: boolean } = {},
 ): Promise<InspectCandidatesResponse> {
   // R9: discover network targets without locking the room and without
   // checking out a client. The candidate rows are deliberately re-read in a
@@ -620,7 +638,9 @@ export async function inspectCandidates(
     if (options.intent === "open") {
       // Cache is returned immediately. Each place then owns an independent
       // bounded plan, so inspecting three candidates cannot pool their budgets.
-      for (const target of targets) void runInteractiveTarget(actor.roomId, target);
+      for (const target of targets) {
+        void runInteractiveTarget(actor.roomId, target, { force: options.force });
+      }
     } else {
       // Compatibility for callers that did not opt into the additive open
       // intent: keep the previous bounded wait and full focused lookup.

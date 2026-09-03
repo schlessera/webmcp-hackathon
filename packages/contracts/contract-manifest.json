@@ -1,6 +1,6 @@
 {
   "toolContractVersion": "3",
-  "sha256": "1f1861ae6568974a116932fc4a65c1edc7d7c3a5f61c36a30b361f399e8b45fa",
+  "sha256": "6f1990f859e4ffa61295a30153572749d6d7aa6c5dde7cbbdc87c82f2f4633ed",
   "manifest": {
     "capabilityManifest": {
       "agreement": {
@@ -6803,6 +6803,10 @@
               "maxItems": 3,
               "minItems": 1,
               "type": "array"
+            },
+            "force": {
+              "description": "Bypass the ten-minute interactive-open cooldown for an explicit Look again.",
+              "type": "boolean"
             },
             "intent": {
               "const": "open",

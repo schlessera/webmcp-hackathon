@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ATTRIBUTE_LABELS, PRICE_LEVEL_EUR } from "@webmcp-hackathon/contracts";
 import { blurhashDataUrl } from "../ui/blurhash.ts";
-import { placeImageBlob, spatialInspectRaw, spatialLookupRaw } from "../api.ts";
+import { placeImageBlob, spatialInspectRaw } from "../api.ts";
 import type { InteractiveStage } from "../spatial-store.ts";
 
 /** After this long without the open fast track closing, say so. */
@@ -355,17 +355,21 @@ export function PlaceDetails({
   }, [stillTimerArmed, factsFrame.nonce]);
   const [lookupChanged, setLookupChanged] = useState(0);
   const [refreshNonce, setRefreshNonce] = useState(0);
+  const openedCandidate = useRef<string | null>(null);
   const factsBefore = useRef<Map<string, string> | null>(null);
   const awaitingDiff = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
     let frame: number | null = null;
+    const initialOpen = openedCandidate.current !== candidate.candidateId;
+    openedCandidate.current = candidate.candidateId;
     void (async () => {
       const result = (await spatialInspectRaw({
         candidateIds: [candidate.candidateId],
-        // A person opened it: cached facts now, the rest on the fast track.
-        intent: "open",
+        // Only the first dossier read is an open. Facts/need/confirmation
+        // refreshes are reads of what just landed and must not start a plan.
+        ...(initialOpen ? { intent: "open" as const } : {}),
       })) as { ok?: boolean; candidates?: CandidateDossier[] };
       if (!cancelled && result.ok && result.candidates?.[0]) {
         const next = result.candidates[0];
@@ -641,7 +645,11 @@ export function PlaceDetails({
   const askLookup = () => {
     factsBefore.current = factSignatures(dossier);
     setLookupPhase("asked");
-    void spatialLookupRaw({ candidateIds: [candidate.candidateId], force: true });
+    void spatialInspectRaw({
+      candidateIds: [candidate.candidateId],
+      intent: "open",
+      force: true,
+    });
   };
   const minutesSinceLookup = dossier?.lookedUpAt
     ? Math.floor((Date.now() - new Date(dossier.lookedUpAt).getTime()) / 60_000)

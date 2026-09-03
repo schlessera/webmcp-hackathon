@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { createHash } from "node:crypto";
 import {
   apiPost,
   createTestRoom,
@@ -19,8 +20,10 @@ const KNOWN_ATTRIBUTES = [
 describe("pipeline over HTTP, WebSocket, and PostgreSQL", () => {
   let server: TestServer;
   let room: TestRoom;
+  let openRoom: TestRoom;
   let realtime: TestRealtime;
   let candidateId: string;
+  let openCandidateId: string;
 
   beforeAll(async () => {
     server = await startServer({
@@ -59,6 +62,36 @@ describe("pipeline over HTTP, WebSocket, and PostgreSQL", () => {
         ],
       );
     }
+    openRoom = await createTestRoom(server.baseUrl);
+    const openCandidate = (await openRoom.pool.query(
+      "SELECT id, name FROM candidates WHERE room_id = $1 ORDER BY name LIMIT 1",
+      [openRoom.roomId],
+    )).rows[0] as { id: string; name: string };
+    openCandidateId = openCandidate.id;
+    await openRoom.pool.query(
+      `UPDATE candidates
+          SET osm_ref = $2,
+              extras = $3::jsonb,
+              attributes = $4::jsonb
+        WHERE id = $1`,
+      [
+        openCandidateId,
+        `pipeline-open/${openRoom.roomId}/alpha`,
+        JSON.stringify({ website: `https://alpha.example/${openRoom.roomId}` }),
+        JSON.stringify(KNOWN_ATTRIBUTES),
+      ],
+    );
+    await openRoom.pool.query(
+      `INSERT INTO requirements
+         (id, room_id, owner_id, visibility, hardness, delegation, payload, active)
+       VALUES ($1, $2, $3, 'shared', 'hard', '{}', $4, true)`,
+      [
+        `pipeline_open_${openRoom.roomId}`,
+        openRoom.roomId,
+        openRoom.participantIds.org,
+        JSON.stringify({ kind: "text", text: "free wifi" }),
+      ],
+    );
     await room.pool.query(
       `INSERT INTO requirements
          (id, room_id, owner_id, visibility, hardness, delegation, payload, active)
@@ -83,6 +116,7 @@ describe("pipeline over HTTP, WebSocket, and PostgreSQL", () => {
       `pipeline/${room.roomId}/%`,
     ]);
     await room?.cleanup();
+    await openRoom?.cleanup();
     await server?.stop();
   });
 
@@ -106,6 +140,10 @@ describe("pipeline over HTTP, WebSocket, and PostgreSQL", () => {
     expect(pipelineFrames().some((frame) =>
       frame.outstanding.process + frame.inFlight.process > 0
     )).toBe(true);
+    expect(pipelineFrames().some((frame) => frame.done > 0)).toBe(true);
+    expect(countLog('"msg":"pipeline loop started"')).toBe(1);
+    expect(countLog('"msg":"pipeline tick"')).toBeGreaterThan(0);
+    expect(countLog('"command":"InspectCandidates"')).toBe(0);
   });
 
   it("keeps vision and decode out of the sweep and enqueues both when a place opens", async () => {
@@ -141,21 +179,108 @@ describe("pipeline over HTTP, WebSocket, and PostgreSQL", () => {
     }), 8_000, () => realtime.frames().slice(frameStart).join("|"));
   });
 
-  it("emits one cost-accounting line for each completed open", async () => {
-    await waitFor(() => countLog("interactive open cost") > 0, 8_000, () => server.logs());
-    const before = countLog("interactive open cost");
-    const response = await apiPost<{ ok: boolean }>(
+  it("runs one open plan inside the cooldown and facts-driven reads run none", async () => {
+    const planMarker = `\"candidateId\":\"${openCandidateId}\"`;
+    const modelMarker = `scripted-matrix-call candidates=${openCandidateId}`;
+    const plans = countLog(planMarker);
+    const modelCalls = countLog(modelMarker);
+    const firstOpen = await apiPost<{ ok: boolean }>(
       server.baseUrl,
       "/api/spatial/inspect",
-      room.tokens.org,
-      { candidateIds: [candidateId], intent: "open" },
+      openRoom.tokens.org,
+      { candidateIds: [openCandidateId], intent: "open" },
     );
-    expect(response.body.ok).toBe(true);
-    await waitFor(() => countLog("interactive open cost") === before + 1, 8_000, () => server.logs());
-    const line = server.logs().split("\n").filter((entry) => entry.includes("interactive open cost")).at(-1)!;
+    expect(firstOpen.body.ok).toBe(true);
+    await waitFor(() => countLog(planMarker) === plans + 1, 8_000, () => server.logs());
+    const callsAfterFirst = countLog(modelMarker);
+    expect(callsAfterFirst).toBeGreaterThan(modelCalls);
+    const secondOpen = await apiPost<{ ok: boolean }>(
+      server.baseUrl,
+      "/api/spatial/inspect",
+      openRoom.tokens.org,
+      { candidateIds: [openCandidateId], intent: "open" },
+    );
+    expect(secondOpen.body.ok).toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(countLog(planMarker), server.logs()).toBe(plans + 1);
+    expect(countLog(modelMarker)).toBe(callsAfterFirst);
+
+    const factsRead = await apiPost<{ ok: boolean }>(
+      server.baseUrl,
+      "/api/spatial/inspect",
+      openRoom.tokens.org,
+      { candidateIds: [openCandidateId] },
+    );
+    expect(factsRead.body.ok).toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(countLog(planMarker), server.logs()).toBe(plans + 1);
+    expect(countLog(modelMarker)).toBe(callsAfterFirst);
+
+    const freeWifiCriterion = `q:${createHash("sha1").update("free wifi").digest("hex")}`;
+    await openRoom.pool.query(
+      `UPDATE candidates
+          SET attributes = attributes || $2::jsonb
+        WHERE room_id = $1 AND id = $3`,
+      [
+        openRoom.roomId,
+        JSON.stringify([{
+          key: freeWifiCriterion,
+          status: "verified_true",
+          source: "curated:test",
+          confidence: 1,
+        }]),
+        openCandidateId,
+      ],
+    );
+    const noOpRealtime = await openRealtime(server.baseUrl, openRoom.tokens.org);
+    const frameStart = noOpRealtime.frames().length;
+    const cachedForce = await apiPost<{ ok: boolean }>(
+      server.baseUrl,
+      "/api/spatial/inspect",
+      openRoom.tokens.org,
+      { candidateIds: [openCandidateId], intent: "open", force: true },
+    );
+    expect(cachedForce.body.ok).toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(countLog(planMarker), server.logs()).toBe(plans + 1);
+    expect(noOpRealtime.frames().slice(frameStart).some((raw) => {
+      const frame = JSON.parse(raw) as { type?: string; reason?: string; candidateIds?: string[] };
+      return frame.type === "facts" && frame.reason === "interactive" &&
+        frame.candidateIds?.includes(openCandidateId);
+    })).toBe(false);
+    noOpRealtime.close();
+
+    const line = server.logs().split("\n").find((entry) => entry.includes(planMarker))!;
     expect(line).toContain('"modelCalls":');
     expect(line).toContain('"costUsd":');
     expect(line).not.toContain(PRIVATE_TEXT);
+  });
+
+  it("lets force bypass the interactive-open cooldown", async () => {
+    await openRoom.pool.query(
+      `INSERT INTO requirements
+         (id, room_id, owner_id, visibility, hardness, delegation, payload, active)
+       VALUES ($1, $2, $3, 'shared', 'hard', '{}', $4, true)`,
+      [
+        `pipeline_force_${openRoom.roomId}`,
+        openRoom.roomId,
+        openRoom.participantIds.org,
+        JSON.stringify({ kind: "text", text: "late-night counter service" }),
+      ],
+    );
+    const planMarker = `\"candidateId\":\"${openCandidateId}\"`;
+    const modelMarker = `scripted-matrix-call candidates=${openCandidateId}`;
+    const plans = countLog(planMarker);
+    const modelCalls = countLog(modelMarker);
+    const response = await apiPost<{ ok: boolean }>(
+      server.baseUrl,
+      "/api/spatial/inspect",
+      openRoom.tokens.org,
+      { candidateIds: [openCandidateId], intent: "open", force: true },
+    );
+    expect(response.body.ok).toBe(true);
+    await waitFor(() => countLog(planMarker) === plans + 1, 8_000, () => server.logs());
+    expect(countLog(modelMarker)).toBeGreaterThan(modelCalls);
   });
 
   it("runs previewing as cheap work without search or vision", async () => {
@@ -197,16 +322,20 @@ describe("pipeline over HTTP, WebSocket, and PostgreSQL", () => {
   function pipelineFrames(): Array<{
     outstanding: { fetch: number; process: number };
     inFlight: { fetch: number; process: number };
+    done: number;
   }> {
     return realtime.frames().map((raw) => JSON.parse(raw) as {
       type: string;
       outstanding?: { fetch: number; process: number };
       inFlight?: { fetch: number; process: number };
+      done?: number;
     }).filter((frame): frame is {
       type: "pipeline";
       outstanding: { fetch: number; process: number };
       inFlight: { fetch: number; process: number };
-    } => frame.type === "pipeline" && Boolean(frame.outstanding && frame.inFlight));
+      done: number;
+    } => frame.type === "pipeline" && Boolean(frame.outstanding && frame.inFlight) &&
+      typeof frame.done === "number");
   }
 
   function countLog(marker: string): number {

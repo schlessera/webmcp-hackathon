@@ -25,7 +25,10 @@ import {
 } from "../../apps/server/src/pipeline/scheduler.ts";
 import { refreshAssetsThroughPipeline } from "../../apps/server/src/pipeline/stages/assets.ts";
 import { InteractiveBudget } from "../../apps/server/src/pipeline/interactive.ts";
-import { PrefetchManager } from "../../apps/server/src/pipeline/prefetch.ts";
+import {
+  INTERACTIVE_OPEN_COOLDOWN_MS,
+  PrefetchManager,
+} from "../../apps/server/src/pipeline/prefetch.ts";
 import { judge } from "../../apps/server/src/pipeline/stages/judge.ts";
 import {
   searchRefinementPlaces,
@@ -486,6 +489,20 @@ describe("refinement pipeline", () => {
     await vi.waitFor(() => expect(stages).toHaveLength(3));
     expect(stages).not.toContain("fetch.search");
     expect(stages).not.toContain("process.vision");
+    manager.reset();
+  });
+
+  it("admits one interactive open per cooldown and lets force bypass it", () => {
+    const manager = new PrefetchManager();
+    expect(manager.admitInteractiveOpen("room\0place", { now: 1_000 })).toBe(true);
+    expect(manager.admitInteractiveOpen("room\0place", { now: 61_000 })).toBe(false);
+    expect(manager.admitInteractiveOpen("room\0place", { now: 61_000, force: true })).toBe(true);
+    expect(manager.admitInteractiveOpen("room\0place", {
+      now: 61_000 + INTERACTIVE_OPEN_COOLDOWN_MS - 1,
+    })).toBe(false);
+    expect(manager.admitInteractiveOpen("room\0place", {
+      now: 61_000 + INTERACTIVE_OPEN_COOLDOWN_MS,
+    })).toBe(true);
     manager.reset();
   });
 
