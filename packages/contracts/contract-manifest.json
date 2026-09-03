@@ -1,6 +1,6 @@
 {
   "toolContractVersion": "3",
-  "sha256": "678c5bd508ad4ac550e6e8780bf2abc69df8c7cb991adc74a99429f41bf921e6",
+  "sha256": "1d9bf38c10c1dc794fcb14bea2b87cc8ea58595ac7d3a7ca620b9b190083b59a",
   "manifest": {
     "capabilityManifest": {
       "agreement": {
@@ -1008,6 +1008,12 @@
                           "kind": {
                             "const": "self",
                             "type": "string"
+                          },
+                          "stepId": {
+                            "description": "Step whose chosen place this referent points at; omit for the current step (`s1` by default).",
+                            "maxLength": 40,
+                            "minLength": 1,
+                            "type": "string"
                           }
                         },
                         "required": [
@@ -1020,6 +1026,12 @@
                         "properties": {
                           "kind": {
                             "const": "scopeCenter",
+                            "type": "string"
+                          },
+                          "stepId": {
+                            "description": "Step whose chosen place this referent points at; omit for the current step (`s1` by default).",
+                            "maxLength": 40,
+                            "minLength": 1,
                             "type": "string"
                           }
                         },
@@ -1039,6 +1051,12 @@
                           "kind": {
                             "const": "candidate",
                             "type": "string"
+                          },
+                          "stepId": {
+                            "description": "Step whose chosen place this referent points at; omit for the current step (`s1` by default).",
+                            "maxLength": 40,
+                            "minLength": 1,
+                            "type": "string"
                           }
                         },
                         "required": [
@@ -1055,6 +1073,12 @@
                             "type": "string"
                           },
                           "participantId": {
+                            "maxLength": 40,
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "stepId": {
+                            "description": "Step whose chosen place this referent points at; omit for the current step (`s1` by default).",
                             "maxLength": 40,
                             "minLength": 1,
                             "type": "string"
@@ -1087,6 +1111,12 @@
                             "maximum": 180,
                             "minimum": -180,
                             "type": "number"
+                          },
+                          "stepId": {
+                            "description": "Step whose chosen place this referent points at; omit for the current step (`s1` by default).",
+                            "maxLength": 40,
+                            "minLength": 1,
+                            "type": "string"
                           }
                         },
                         "required": [
@@ -1105,6 +1135,12 @@
                           },
                           "landmarkId": {
                             "maxLength": 100,
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "stepId": {
+                            "description": "Step whose chosen place this referent points at; omit for the current step (`s1` by default).",
+                            "maxLength": 40,
                             "minLength": 1,
                             "type": "string"
                           }
@@ -5364,6 +5400,12 @@
                             "kind": {
                               "const": "self",
                               "type": "string"
+                            },
+                            "stepId": {
+                              "description": "Step whose chosen place this referent points at; omit for the current step (`s1` by default).",
+                              "maxLength": 40,
+                              "minLength": 1,
+                              "type": "string"
                             }
                           },
                           "required": [
@@ -5376,6 +5418,12 @@
                           "properties": {
                             "kind": {
                               "const": "scopeCenter",
+                              "type": "string"
+                            },
+                            "stepId": {
+                              "description": "Step whose chosen place this referent points at; omit for the current step (`s1` by default).",
+                              "maxLength": 40,
+                              "minLength": 1,
                               "type": "string"
                             }
                           },
@@ -5395,6 +5443,12 @@
                             "kind": {
                               "const": "candidate",
                               "type": "string"
+                            },
+                            "stepId": {
+                              "description": "Step whose chosen place this referent points at; omit for the current step (`s1` by default).",
+                              "maxLength": 40,
+                              "minLength": 1,
+                              "type": "string"
                             }
                           },
                           "required": [
@@ -5411,6 +5465,12 @@
                               "type": "string"
                             },
                             "participantId": {
+                              "maxLength": 40,
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            "stepId": {
+                              "description": "Step whose chosen place this referent points at; omit for the current step (`s1` by default).",
                               "maxLength": 40,
                               "minLength": 1,
                               "type": "string"
@@ -5443,6 +5503,12 @@
                               "maximum": 180,
                               "minimum": -180,
                               "type": "number"
+                            },
+                            "stepId": {
+                              "description": "Step whose chosen place this referent points at; omit for the current step (`s1` by default).",
+                              "maxLength": 40,
+                              "minLength": 1,
+                              "type": "string"
                             }
                           },
                           "required": [
@@ -5461,6 +5527,12 @@
                             },
                             "landmarkId": {
                               "maxLength": 100,
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            "stepId": {
+                              "description": "Step whose chosen place this referent points at; omit for the current step (`s1` by default).",
+                              "maxLength": 40,
                               "minLength": 1,
                               "type": "string"
                             }

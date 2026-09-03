@@ -20,7 +20,16 @@
  *   node scripts/build-area-snapshot.mjs --refresh  # re-download extracts first
  */
 import { execFileSync, spawnSync } from "node:child_process";
-import { createReadStream, existsSync, mkdirSync, statSync } from "node:fs";
+import {
+  createReadStream,
+  existsSync,
+  mkdirSync,
+  lstatSync,
+  readdirSync,
+  realpathSync,
+  statSync,
+  unlinkSync,
+} from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { createInterface } from "node:readline";
 import { dirname, join, resolve } from "node:path";
@@ -29,9 +38,12 @@ import {
   AREAS,
   BOOLEAN_ATTRS,
   KEPT_TAGS,
+  PLACE_CLASSES,
+  PLACE_CLASS_TABLE,
   POOL_PER_RING,
   dossierFromTags,
   isDecisive,
+  placeClassFromTags,
 } from "../packages/contracts/src/index.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -56,18 +68,43 @@ mkdirSync(OUT_DIR, { recursive: true });
 const hasLocalOsmium = spawnSync("osmium", ["--version"], { stdio: "ignore" }).status === 0;
 
 function osmium(argv) {
+  const outputIndex = argv.indexOf("-o");
+  const output = outputIndex >= 0 ? argv[outputIndex + 1] : undefined;
+  const outputPath = output ? join(DATA_DIR, output) : undefined;
+  // An ignored worktree cache may link old intermediates to another checkout.
+  // Never let --overwrite follow that link and mutate the other worktree.
+  if (outputPath && existsSync(outputPath) && lstatSync(outputPath).isSymbolicLink()) {
+    unlinkSync(outputPath);
+  }
   if (hasLocalOsmium) {
     return execFileSync("osmium", argv, { cwd: DATA_DIR, encoding: "utf8" });
   }
+  // Worktrees link the large extracts from the main checkout. A bind mount of
+  // DATA_DIR alone leaves those absolute host symlinks dangling in Docker, so
+  // mount their resolved targets read-only and rewrite only matching inputs.
+  const linkedExtracts = new Map(
+    readdirSync(DATA_DIR)
+      .filter((name) => name.endsWith("-latest.osm.pbf"))
+      .map((name) => [name, realpathSync(join(DATA_DIR, name))]),
+  );
+  const containerArgv = argv.map((arg) =>
+    linkedExtracts.has(arg) ? `/extracts/${arg}` : arg,
+  );
   // One container per call; apt is cached by Docker's layer cache only when
   // the image is built, so this installs on every call (~10 s). Acceptable
   // for a build step that runs a handful of times.
-  const script = `apt-get update -qq >/dev/null 2>&1 && apt-get install -y -qq osmium-tool >/dev/null 2>&1 && osmium ${argv
+  const script = `apt-get update -qq >/dev/null 2>&1 && apt-get install -y -qq osmium-tool >/dev/null 2>&1 && osmium ${containerArgv
     .map((a) => `'${a.replace(/'/g, "'\\''")}'`)
     .join(" ")}`;
   return execFileSync(
     "docker",
-    ["run", "--rm", "-v", `${DATA_DIR}:/data`, "-w", "/data", "debian:bookworm-slim", "sh", "-c", script],
+    [
+      "run", "--rm", "-v", `${DATA_DIR}:/data`,
+      ...[...linkedExtracts.entries()].flatMap(([name, path]) => [
+        "-v", `${path}:/extracts/${name}:ro`,
+      ]),
+      "-w", "/data", "debian:bookworm-slim", "sh", "-c", script,
+    ],
     { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 },
   );
 }
@@ -184,10 +221,11 @@ function spreadRing(ordered, center, limit) {
 }
 
 function poolOf(venues, area) {
+  const roomVenues = venues.filter((venue) => area.placeClasses.includes(venue.placeClass));
   const { narrow, wide, max } = area.radii;
   const ring = (from, to) =>
     spreadRing(
-      venues.filter((v) => v.distance > from && v.distance <= to),
+      roomVenues.filter((v) => v.distance > from && v.distance <= to),
       area.center,
       POOL_PER_RING,
     );
@@ -213,6 +251,12 @@ function coverageOf(venues, observedAt) {
   ];
   return {
     venues: n,
+    classCounts: Object.fromEntries(
+      PLACE_CLASSES.map((placeClass) => [
+        placeClass,
+        venues.filter((venue) => venue.placeClass === placeClass).length,
+      ]),
+    ),
     /** Boolean attribute slots (venues × facts) and how many the engine can
      * rule on. Absolute counts first: the UI never shows a percentage. */
     slots,
@@ -241,7 +285,13 @@ for (const area of areas) {
   const landmarkExported = `${area.id}-landmarks.geojsonseq`;
   const t0 = Date.now();
   osmium(["extract", "-b", `${w},${s},${e},${n}`, "-s", "smart", "-o", clipped, "--overwrite", regionFile]);
-  osmium(["tags-filter", clipped, `nwr/amenity=${area.amenities.join(",")}`, "-o", filtered, "--overwrite"]);
+  osmium([
+    "tags-filter", clipped,
+    ...Object.entries(PLACE_CLASS_TABLE).map(
+      ([tag, classes]) => `nwr/${tag}=${classes.join(",")}`,
+    ),
+    "-o", filtered, "--overwrite",
+  ]);
   osmium(["export", filtered, "-f", "geojsonseq", "-a", "id,type", "-o", exported, "--overwrite"]);
   osmium([
     "tags-filter", clipped,
@@ -268,7 +318,8 @@ for (const area of areas) {
     if (!line) continue;
     const f = JSON.parse(line);
     const p = f.properties ?? {};
-    if (!p.name || !area.amenities.includes(p.amenity)) continue;
+    const placeClass = placeClassFromTags(p);
+    if (!p.name || !placeClass) continue;
     const ref = `${p["@type"]}/${p["@id"]}`;
     if (seen.has(ref)) continue;
     const location = pointOf(f.geometry);
@@ -283,6 +334,7 @@ for (const area of areas) {
       ref,
       name: String(p.name),
       location: { lat: +location.lat.toFixed(7), lng: +location.lng.toFixed(7) },
+      placeClass,
       distance: Math.round(distance),
       tags,
     });
@@ -363,11 +415,13 @@ for (const area of areas) {
       builtWith: "scripts/build-area-snapshot.mjs",
       center: area.center,
       radii: area.radii,
-      amenities: area.amenities,
+      placeClasses: area.placeClasses,
       landmarks: cappedLandmarks.length,
       coverage,
     },
-    venues: venues.map(({ ref, name, location, tags }) => ({ ref, name, location, tags })),
+    venues: venues.map(({ ref, name, location, placeClass, tags }) => ({
+      ref, name, location, placeClass, tags,
+    })),
     landmarks: cappedLandmarks.map(({ id, name, kind, location, altNames }) => ({
       id, name, kind, location, ...(altNames ? { altNames } : {}),
     })),

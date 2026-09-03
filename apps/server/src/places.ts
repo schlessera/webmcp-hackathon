@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import {
   AREAS,
   dossierFromTags,
+  placeClassFromTags,
   type AreaDefinition,
   type DossierExtras,
   type ExplorePlacesResult,
@@ -29,6 +30,8 @@ export interface SnapshotVenue {
   ref: string;
   name: string;
   location: { lat: number; lng: number };
+  /** Absent from snapshots built before the full place-class pass landed. */
+  placeClass?: string;
   tags: Record<string, string>;
 }
 
@@ -47,6 +50,8 @@ export interface CoverageStats {
   decisivePct: number;
   tagCounts: Record<string, number>;
   tags: Record<string, number>;
+  /** Absent from snapshots built before the full place-class pass landed. */
+  classCounts?: Record<string, number>;
 }
 
 export interface SnapshotManifest {
@@ -59,7 +64,8 @@ export interface SnapshotManifest {
   builtAt: string;
   center: { lat: number; lng: number };
   radii: { narrow: number; wide: number; max: number };
-  amenities: string[];
+  /** Room pool classes recorded by newer snapshot builds. */
+  placeClasses?: string[];
   /** Absent from snapshots built before distance referents landed. */
   landmarks?: number;
   coverage: {
@@ -185,6 +191,11 @@ function stableRefOrder(a: LocatedVenue, b: LocatedVenue): number {
   return a.distance - b.distance || (a.ref < b.ref ? -1 : a.ref > b.ref ? 1 : 0);
 }
 
+function isRoomPoolVenue(area: AreaDefinition, venue: SnapshotVenue): boolean {
+  const placeClass = venue.placeClass ?? placeClassFromTags(venue.tags);
+  return placeClass !== undefined && area.placeClasses.includes(placeClass);
+}
+
 function gridPoint(
   center: { lat: number; lng: number },
   location: { lat: number; lng: number },
@@ -263,6 +274,9 @@ export function seedFor(
   // Whole metres, as the builder measures, so the pool and the coverage
   // numbers the picker shows are cut at exactly the same places.
   const ordered = snapshot.venues
+    // Snapshots hold every named class; rooms still pool only the classes
+    // configured by their area. The tag fallback keeps legacy snapshots valid.
+    .filter((venue) => isRoomPoolVenue(area, venue))
     .map((v) => ({ ...v, distance: Math.round(haversineMeters(center, v.location)) }))
     .filter((v) => v.distance <= radiusM)
     .sort(stableRefOrder);
@@ -281,7 +295,7 @@ export interface FillPlan {
  * refs are excluded; everything else stays nearest-first (ref breaks ties).
  */
 export function fillPlan(
-  _area: AreaDefinition,
+  area: AreaDefinition,
   snapshot: AreaSnapshot,
   center: { lat: number; lng: number },
   radiusM: number,
@@ -290,6 +304,9 @@ export function fillPlan(
 ): FillPlan {
   const existing = new Set(existingRefs);
   const ordered = snapshot.venues
+    // Keep incremental room filling on the same area-owned subset as seeding,
+    // even though viewport reads can see every class in the snapshot.
+    .filter((venue) => isRoomPoolVenue(area, venue))
     .map((venue) => ({
       ...venue,
       distance: Math.round(haversineMeters(center, venue.location)),
@@ -324,7 +341,7 @@ export function seedsForVenues(
     return {
       id: `pl_${suffix}_${String(startAt + i).padStart(3, "0")}`,
       name: v.name,
-      category: dossier.category,
+      category: v.placeClass ?? dossier.category,
       price_level: dossier.priceLevel,
       walk_min: Math.max(1, Math.round(v.distance / WALK_SPEED_M_PER_MIN)),
       location: v.location,
@@ -351,7 +368,9 @@ export function candidatesFor(
   const seed = seedFor(area, center, area.radii.narrow);
   const candidates = seedsForVenues(roomId, seed, observedAt);
   const focusVenues = snapshot.venues.filter(
-    (v) => Math.round(haversineMeters(center, v.location)) <= area.radii.wide,
+    (v) =>
+      isRoomPoolVenue(area, v) &&
+      Math.round(haversineMeters(center, v.location)) <= area.radii.wide,
   ).length;
   return {
     candidates,
@@ -392,7 +411,7 @@ export function explorePlaces(
       ref: venue.ref,
       name: venue.name,
       location: venue.location,
-      category: dossierFromTags(
+      category: venue.placeClass ?? dossierFromTags(
         venue.tags,
         snapshot.manifest.extract.timestamp,
       ).category,
