@@ -83,7 +83,7 @@ export interface LookupsMessage {
   pending: string[];
   /** Why they are being looked up, for the count block ("checking 12 places
    * for step-free access"). Absent for a warm-up nobody asked for. */
-  reason?: { kind: "need" | "place" | "pool"; label?: string };
+  reason?: { kind: "need" | "place" | "pool" | "refine"; label?: string };
 }
 /**
  * Facts about places changed outside the event stream (a lookup landed, an
