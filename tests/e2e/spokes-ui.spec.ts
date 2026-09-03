@@ -2373,6 +2373,153 @@ test("the room says what it is refining, a question need shows it was looked up,
   await expect(refineLine).toHaveText("paused for now");
 });
 
+test("a two-photo dossier renders the snap band, source credit, authenticated images, and reduced-motion pin", async ({ browser }) => {
+  const context = await browser.newContext({
+    viewport: { width: 1180, height: 900 },
+    reducedMotion: "reduce",
+  });
+  const page = await context.newPage();
+  const state: MockState = { context: fixture({ revision: 54 }), outstanding: [] };
+  await mockApi(page, state);
+  await page.route("**/api/spatial/inspect", (route) =>
+    route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        ok: true,
+        revision: 54,
+        candidates: [{
+          candidateId: "place_24",
+          name: "The Barn",
+          location: center,
+          category: "cafe",
+          priceLevel: 2,
+          hours: [],
+          attributes: [],
+          mapRevision: 1,
+          images: [
+            {
+              url: "/api/places/node%2F24/images/0",
+              width: 960,
+              height: 640,
+              source: "website",
+              pageUrl: "https://place.example/",
+            },
+            {
+              url: "/api/places/node%2F24/images/1",
+              width: 800,
+              height: 600,
+              source: "wikidata:Q24",
+              credit: "Ana Example",
+              license: "CC BY 4.0",
+              pageUrl: "https://commons.wikimedia.org/wiki/File:Place.jpg",
+            },
+          ],
+        }],
+      }),
+    }),
+  );
+  const imageAuth: string[] = [];
+  await page.route("**/api/places/*/images/*", (route) => {
+    imageAuth.push(route.request().headers().authorization ?? "");
+    return route.fulfill({
+      contentType: "image/webp",
+      body: Buffer.from("UklGRiIAAABXRUJQVlA4IBYAAAAwAQCdASoCAAIAAUAmJaQAA3AA/v89WAAAAA==", "base64"),
+    });
+  });
+  const socket = await scriptedSocket(page, 54);
+  await page.goto(`${BASE}/#invite=deadbeef`);
+  await socket.welcomed;
+  await page.getByTestId("pin-place_24").click();
+
+  const band = page.getByTestId("photo-band");
+  await expect(band).toBeVisible();
+  await expect(band.locator("img")).toHaveCount(2);
+  await expect(band.locator("img").nth(0)).toHaveAttribute("loading", "lazy");
+  await expect(band.locator("img").nth(0)).toHaveAttribute("alt", "The Barn");
+  await expect(band.getByTestId("photo-credit")).toHaveText("from the place's site ↗");
+  await expect.poll(() => imageAuth[0]).toMatch(/^Bearer /);
+
+  const dimensions = await band.locator(".details-photo-band").evaluate((element) => {
+    const style = getComputedStyle(element);
+    return {
+      snap: style.scrollSnapType,
+      ratio: style.aspectRatio,
+      settle: getComputedStyle(document.documentElement).getPropertyValue("--spoke-dur-settle").trim(),
+      pop: getComputedStyle(document.documentElement).getPropertyValue("--spoke-dur-pop").trim(),
+      breathe: getComputedStyle(document.documentElement).getPropertyValue("--spoke-dur-breathe").trim(),
+      busy: getComputedStyle(document.documentElement).getPropertyValue("--spoke-dur-busy").trim(),
+    };
+  });
+  expect(dimensions).toEqual({
+    snap: "x mandatory",
+    ratio: "3 / 2",
+    settle: "0ms",
+    pop: "0ms",
+    breathe: "0ms",
+    busy: "0ms",
+  });
+
+  await band.locator(".details-photo-band").evaluate((element) => {
+    element.scrollLeft = element.clientWidth;
+    element.dispatchEvent(new Event("scroll"));
+  });
+  await expect(band.getByTestId("photo-credit")).toHaveText("photo · Ana Example · CC BY 4.0 ↗");
+  await expect(band.getByTestId("photo-credit")).toHaveAttribute("target", "_blank");
+  await expect(band.getByTestId("photo-credit")).toHaveAttribute("rel", "noreferrer noopener");
+  await context.close();
+});
+
+test("the agent tool surface receives a photo count, never a route to the bytes", async ({ browser }) => {
+  const context = await browser.newContext({ viewport: { width: 1180, height: 900 } });
+  const page = await context.newPage();
+  const state: MockState = { context: fixture({ revision: 54 }), outstanding: [] };
+  await mockApi(page, state);
+  await page.route("**/api/spatial/inspect", (route) =>
+    route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        ok: true,
+        revision: 54,
+        candidates: [{
+          candidateId: "place_24",
+          name: "The Barn",
+          location: center,
+          category: "cafe",
+          hours: [],
+          attributes: [],
+          mapRevision: 1,
+          images: [
+            { url: "/api/places/node%2F24/images/0", width: 960, height: 640, source: "website" },
+            { url: "/api/places/node%2F24/images/1", width: 800, height: 600, source: "wikidata:Q24" },
+          ],
+        }],
+      }),
+    }),
+  );
+  const socket = await scriptedSocket(page, 54);
+  await page.goto(`${BASE}/?shim=webmcp#invite=deadbeef`);
+  await socket.welcomed;
+
+  // The reader gets the pictures; the model gets only their number. Bytes cost
+  // budget the agent's decision does not need, so no route to them is exposed.
+  const result = await page.evaluate(async () => {
+    const shim = (window as never as {
+      __webmcpTestShim: { executeTool(name: string, args: string): Promise<unknown> };
+    }).__webmcpTestShim;
+    return shim.executeTool(
+      "inspect_candidates",
+      JSON.stringify({ candidateIds: ["place_24"] }),
+    );
+  }) as { content: Array<{ text: string }> };
+  const payload = JSON.parse(result.content[0].text) as {
+    candidates: Array<Record<string, unknown>>;
+  };
+  expect(payload.candidates[0].images).toBeUndefined();
+  expect(payload.candidates[0].imageCount).toBe(2);
+  expect(result.content[0].text).not.toContain("/api/places/");
+  await context.close();
+});
+
 test("the refinement line and the fact rows are still under reduced motion", async ({ browser }) => {
   const context = await browser.newContext({ reducedMotion: "reduce", deviceScaleFactor: 3 });
   const page = await context.newPage();

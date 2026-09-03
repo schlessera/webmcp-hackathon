@@ -181,6 +181,8 @@ export interface CandidateSummary {
   walkMin: number;
   /** null when the place has no price band on record — never coerced to 0. */
   priceLevel: number | null;
+  /** Image count only. Agent-facing context never receives image URLs. */
+  imageCount?: number;
 }
 
 /** One participant's PUBLIC stance on a proposal. A stance the viewer may not
@@ -435,6 +437,16 @@ export interface CandidateDossier {
   description?: { text: string; source: string };
   rating?: DossierRating;
   awards?: Array<{ label: string; source: string }>;
+  images?: Array<{
+    /** Same-origin server route, never a third-party URL. */
+    url: string;
+    width: number;
+    height: number;
+    source: string;
+    credit?: string;
+    license?: string;
+    pageUrl?: string;
+  }>;
   attributes: Array<{
     key: string;
     /** Reader-facing name for a non-vocabulary fact, such as the question a lookup answered. */

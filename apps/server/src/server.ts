@@ -49,6 +49,7 @@ import { runAgent } from "./nl/agent.ts";
 import { heldFor, hold, release, screenPending } from "./nl/holder.ts";
 import { consumeLookupToken, LOOKUP_RATE_LIMIT_ERROR } from "./lookup-budget.ts";
 import { resumePoolFills } from "./pool-fill.ts";
+import { loadPlaceImage } from "./enrich/images.ts";
 
 /**
  * One Node process serves the production UI, API, and WebSocket endpoint.
@@ -194,6 +195,23 @@ const notAuthenticated = {
       "Wait for the page to finish its invite-token exchange, then retry.",
   },
 } as const;
+
+app.get("/api/places/:osmRef/images/:idx", async (req, reply) => {
+  const actor = await bearer(req);
+  if (!actor) return reply.code(401).send(notAuthenticated);
+  const { osmRef, idx: rawIdx } = req.params as { osmRef?: string; idx?: string };
+  const idx = Number(rawIdx);
+  if (!osmRef || !Number.isInteger(idx) || idx < 0 || idx >= 3) {
+    return reply.code(404).send({ error: "image not found" });
+  }
+  const image = await loadPlaceImage(pool, osmRef, idx);
+  if (!image) return reply.code(404).send({ error: "image not found" });
+  const etag = `"${createHash("sha256").update(image.bytes).digest("base64url")}"`;
+  reply.header("cache-control", "public, max-age=86400");
+  reply.header("etag", etag);
+  if (req.headers["if-none-match"] === etag) return reply.code(304).send();
+  return reply.type(image.mime).send(image.bytes);
+});
 
 app.post("/api/sync", async (req) => {
   const actor = await bearer(req);

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { ATTRIBUTE_LABELS, PRICE_LEVEL_EUR } from "@webmcp-hackathon/contracts";
-import { spatialInspectRaw, spatialLookupRaw } from "../api.ts";
+import { placeImageBlob, spatialInspectRaw, spatialLookupRaw } from "../api.ts";
 import type {
   ActiveNeed,
   CandidateDossier,
@@ -139,6 +139,63 @@ interface Props {
   run(type: string, input: Record<string, unknown>): Promise<CommandEnvelope>;
 }
 
+type DossierImage = NonNullable<CandidateDossier["images"]>[number];
+
+function PlacePhoto({ image, alt }: { image: DossierImage; alt: string }) {
+  const frame = useRef<HTMLDivElement>(null);
+  const [src, setSrc] = useState<string>();
+  useEffect(() => {
+    const element = frame.current;
+    if (!element) return;
+    const controller = new AbortController();
+    let objectUrl: string | undefined;
+    let started = false;
+    const load = () => {
+      if (started) return;
+      started = true;
+      void placeImageBlob(image.url, controller.signal).then((blob) => {
+        if (!blob || controller.signal.aborted) return;
+        objectUrl = URL.createObjectURL(blob);
+        setSrc(objectUrl);
+      });
+    };
+    const observer = "IntersectionObserver" in window
+      ? new IntersectionObserver((entries) => {
+          if (entries.some((entry) => entry.isIntersecting)) {
+            load();
+            observer?.disconnect();
+          }
+        }, { rootMargin: "120px" })
+      : null;
+    if (observer) observer.observe(element);
+    else load();
+    return () => {
+      observer?.disconnect();
+      controller.abort();
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [image.url]);
+  return (
+    <div className="details-photo-frame" ref={frame}>
+      <img
+        src={src}
+        alt={alt}
+        loading="lazy"
+        width={image.width}
+        height={image.height}
+      />
+    </div>
+  );
+}
+
+function photoCredit(image: DossierImage): string {
+  if (image.source === "website") return COPY.photoFromPlaceSite;
+  if (image.license) {
+    return COPY.photoCredit(image.credit ?? "Wikimedia Commons", image.license);
+  }
+  return COPY.photoFromOpenStreetMap;
+}
+
 /** One line per fact — status, source, value, note — so a re-read can say
  * how many facts a lookup changed without trusting a count from anywhere. */
 function factSignatures(dossier: CandidateDossier | null): Map<string, string> {
@@ -214,6 +271,7 @@ export function PlaceDetails({
   const [factsSettlingCandidate, setFactsSettlingCandidate] = useState<string | null>(null);
   const handledFactsNonce = useRef(0);
   const settleTimer = useRef<number | null>(null);
+  const [activePhoto, setActivePhoto] = useState(0);
   /* A facts frame naming this place re-reads the dossier in place — the
      rows update, the panel does not blank. */
   const factsNonce = factsFrame.ids.includes(candidate.candidateId) ? factsFrame.nonce : 0;
@@ -288,6 +346,7 @@ export function PlaceDetails({
   // A different place: the old dossier must not read as this one's.
   useEffect(() => {
     setDossier(null);
+    setActivePhoto(0);
     setLookupPhase("idle");
     setLookupChanged(0);
     setFactsSettlingCandidate(null);
@@ -493,6 +552,8 @@ export function PlaceDetails({
     const href = safeHttpUrl(link.url);
     return href ? [{ ...link, href }] : [];
   });
+  const photos = dossier?.images ?? [];
+  const creditPhoto = photos[Math.min(activePhoto, Math.max(0, photos.length - 1))];
 
   return (
     <aside
@@ -534,6 +595,44 @@ export function PlaceDetails({
       </div>
 
       <div className="details-body">
+        {photos.length > 0 && (
+          <div className="details-photo" data-testid="photo-band">
+            <div
+              className="details-photo-band"
+              data-count={photos.length}
+              onScroll={(event) => {
+                const element = event.currentTarget;
+                if (element.clientWidth > 0) {
+                  setActivePhoto(Math.round(element.scrollLeft / element.clientWidth));
+                }
+              }}
+              tabIndex={photos.length > 1 ? 0 : undefined}
+              aria-label={photos.length > 1 ? `Photos of ${candidate.name}` : undefined}
+            >
+              {photos.map((image) => (
+                <PlacePhoto image={image} alt={candidate.name} key={image.url} />
+              ))}
+            </div>
+            {creditPhoto &&
+              (creditPhoto.pageUrl ? (
+                <a
+                  className="details-photo-credit"
+                  href={creditPhoto.pageUrl}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  data-testid="photo-credit"
+                >
+                  {photoCredit(creditPhoto)}
+                </a>
+              ) : (
+                /* Attribution is owed whether or not there is somewhere to
+                   link; only the arrow belongs to the link. */
+                <span className="details-photo-credit" data-testid="photo-credit">
+                  {photoCredit(creditPhoto).replace(" \u2197", "")}
+                </span>
+              ))}
+          </div>
+        )}
         <div className="details-group">
           <div className="details-title">{candidate.name}</div>
           {meta && <div className="details-meta">{meta}</div>}

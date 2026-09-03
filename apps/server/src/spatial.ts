@@ -41,6 +41,7 @@ import {
 import { lookupPending } from "./enrich/progress.ts";
 import { pool } from "./db.ts";
 import { refinementView } from "./refine/worker.ts";
+import { loadImageCounts, loadPlaceImages } from "./enrich/images.ts";
 
 /** How long a place panel waits for a fresh lookup before opening with what
  * is cached. The lookup keeps running and lands for the next read. */
@@ -171,6 +172,12 @@ export async function spatialContext(
       disposition: string;
       visibility: string;
     }>;
+    const imageCounts = await loadImageCounts(
+      client,
+      inputs.candidates.flatMap((candidate) =>
+        candidate.osm_ref ? [candidate.osm_ref] : [],
+      ),
+    );
     const proposalViews = (proposals.rows as Array<{
       id: string;
       candidate_id: string;
@@ -332,6 +339,7 @@ export async function spatialContext(
           // null passes through: a phantom 0 would put mass at the bottom of
           // every price reading.
           priceLevel: r.priceLevel,
+          imageCount: r.ref ? (imageCounts.get(r.ref) ?? 0) : 0,
         };
       }),
       proposals: proposalViews,
@@ -443,6 +451,7 @@ export async function inspectCandidates(
       .map((row) => row.osm_ref as string | null)
       .filter((ref): ref is string => Boolean(ref));
     const enrichments = await loadCached(client, refs);
+    const images = await loadPlaceImages(client, refs);
     const inputs = await loadEligibilityInputs(client, actor.roomId);
     const timezone = areaById(room.area_id as string)?.timezone ?? inputs.timezone ?? "UTC";
     const readAt = options.now ?? inputs.now ?? new Date();
@@ -538,6 +547,7 @@ export async function inspectCandidates(
         // requirement rather than from cached inference metadata.
         return label === undefined ? [] : [{ ...attribute, label }];
       });
+      const placeImages = r.osm_ref ? (images.get(r.osm_ref as string) ?? []) : [];
       return {
         candidateId: r.id,
         name: r.name,
@@ -561,6 +571,19 @@ export async function inspectCandidates(
         ...(view.description ? { description: view.description } : {}),
         ...(view.rating ? { rating: view.rating } : {}),
         ...(view.awards ? { awards: view.awards } : {}),
+        ...(placeImages.length
+          ? {
+              images: placeImages.map((image) => ({
+                url: `/api/places/${encodeURIComponent(image.osmRef)}/images/${image.idx}`,
+                width: image.width,
+                height: image.height,
+                source: image.source,
+                ...(image.credit ? { credit: image.credit } : {}),
+                ...(image.license ? { license: image.license } : {}),
+                ...(image.pageUrl ? { pageUrl: image.pageUrl } : {}),
+              })),
+            }
+          : {}),
       };
     });
     return { ok: true as const, revision: room.revision as number, candidates: dossiers };

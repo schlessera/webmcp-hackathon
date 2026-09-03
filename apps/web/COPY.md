@@ -119,6 +119,10 @@ Work the room is doing is stated as what it is doing, never as a bare
 - A fact read from the web names where: `from example.org ↗` as a link,
   host only, always clickable. Sources in words: `found on the web`,
   `found on the place's site`, `a guess from what the place publishes`.
+- A photo from the recorded website reads `from the place's site ↗`. A
+  Creative Commons photo reads `photo · <credit> · <licence> ↗`, using the
+  source's actual credit and licence. An image linked by OpenStreetMap reads
+  `photo · from OpenStreetMap ↗` when it has no embedded credit.
 
 ## Agent phrasing
 

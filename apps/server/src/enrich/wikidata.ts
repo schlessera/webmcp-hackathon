@@ -18,6 +18,18 @@ export interface WikiFacts {
   awards: Array<{ item: string; label?: string }>;
   /** Item ids of P2012 (cuisine); labels are not resolved. */
   cuisineItems: string[];
+  /** Raw P18 filename, retained so an expired image can be resolved again
+   * without re-fetching the entity document. */
+  commonsFile?: string;
+  image?: CommonsImageCandidate;
+}
+
+export interface CommonsImageCandidate {
+  url: string;
+  source: string;
+  pageUrl: string;
+  license: string;
+  credit?: string;
 }
 
 const UA =
@@ -66,7 +78,81 @@ export function parseEntity(id: string, doc: unknown, fetchedAt: string): WikiFa
     if (item) facts.awards.push({ item, ...(KNOWN_AWARDS[item] ? { label: KNOWN_AWARDS[item] } : {}) });
   }
   facts.cuisineItems = (entity.claims?.P2012 ?? []).map(itemId).filter((x): x is string => Boolean(x));
+  const commonsFile = (entity.claims?.P18 ?? []).map(stringValue).find(Boolean);
+  if (commonsFile) facts.commonsFile = commonsFile;
   return facts;
+}
+
+function metadataText(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const text = value
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#(?:39|x27);/gi, "'")
+    .replace(/\s+/g, " ")
+    .trim();
+  return text || undefined;
+}
+
+/** Pure Commons `imageinfo.extmetadata` parser. Only Creative Commons
+ * licences are usable; public-domain and missing/opaque terms are rejected. */
+export function parseCommonsImageInfo(
+  doc: unknown,
+  source: string,
+): CommonsImageCandidate | null {
+  const pages = (doc as { query?: { pages?: Record<string, {
+    imageinfo?: Array<{
+      url?: unknown;
+      descriptionurl?: unknown;
+      extmetadata?: Record<string, { value?: unknown }>;
+    }>;
+  }> } })?.query?.pages;
+  const info = pages && Object.values(pages)[0]?.imageinfo?.[0];
+  const url = typeof info?.url === "string" ? info.url : undefined;
+  const pageUrl = typeof info?.descriptionurl === "string" ? info.descriptionurl : undefined;
+  const metadata = info?.extmetadata ?? {};
+  const license = metadataText(
+    metadata.LicenseShortName?.value ?? metadata.UsageTerms?.value,
+  );
+  if (!url || !pageUrl || !license || !/^CC(?:0|[ -]BY(?:[ -]SA)?)(?:\s|$|-\d)/i.test(license)) {
+    return null;
+  }
+  const credit = metadataText(metadata.Artist?.value ?? metadata.Credit?.value);
+  return {
+    url,
+    pageUrl,
+    source,
+    license: license.slice(0, 80),
+    ...(credit ? { credit: credit.slice(0, 180) } : {}),
+  };
+}
+
+export async function resolveCommonsImage(
+  file: string,
+  source: string,
+  fetchImpl: FetchLike = fetch,
+): Promise<CommonsImageCandidate | null> {
+  const title = file.replace(/^File:/i, "").trim();
+  if (!title || /^Category:/i.test(title)) return null;
+  const api = new URL("https://commons.wikimedia.org/w/api.php");
+  api.searchParams.set("action", "query");
+  api.searchParams.set("format", "json");
+  api.searchParams.set("formatversion", "2");
+  api.searchParams.set("prop", "imageinfo");
+  api.searchParams.set("iiprop", "url|extmetadata");
+  api.searchParams.set("titles", `File:${title}`);
+  try {
+    const response = await fetchImpl(api.toString(), {
+      headers: { "user-agent": UA, accept: "application/json" },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!response.ok) return null;
+    return parseCommonsImageInfo(await response.json(), source);
+  } catch {
+    return null;
+  }
 }
 
 export async function fetchWikidataFacts(
@@ -80,7 +166,12 @@ export async function fetchWikidataFacts(
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
     if (!res.ok) return { facts: null, error: `HTTP ${res.status}` };
-    return { facts: parseEntity(id, await res.json(), new Date().toISOString()) };
+    const facts = parseEntity(id, await res.json(), new Date().toISOString());
+    if (facts.commonsFile) {
+      const image = await resolveCommonsImage(facts.commonsFile, `wikidata:${id}`, fetchImpl);
+      if (image) facts.image = image;
+    }
+    return { facts };
   } catch (err) {
     const e = err as Error & { cause?: { message?: string } };
     return { facts: null, error: `${e?.name ?? "Error"}: ${e?.cause?.message ?? e?.message ?? String(err)}`.slice(0, 120) };

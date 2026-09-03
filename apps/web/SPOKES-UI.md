@@ -336,6 +336,17 @@ Where everyone stands             ← per person: avatar · sentence · mark
   "a guess" — never as a number.
 - Address, phone and opening hours sit in a "Where and when" group when the
   record carries them; hours group consecutive days with the same times.
+- **Photo band.** When the dossier carries images, the band sits at the top
+  of the scrolling panel, before the name. One image fills the width at a 3:2
+  crop (`object-fit: cover`). Two or three images form a horizontal
+  scroll-snap band with targets at least 44px; there is no autoplay or
+  auto-advance. Each image loads lazily, uses the place name as alt text, and
+  sits in a reserved 3:2 box while its authenticated same-origin bytes load,
+  so the panel does not shift. One source line below follows the visible
+  image: `from the place's site ↗`, or
+  `photo · <credit> · <actual licence> ↗` for Commons. It links the source
+  page in a new tab. With no images the entire band and source line are absent
+  — no placeholder, empty frame, or missing-photo copy.
 
 ---
 

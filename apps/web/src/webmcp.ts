@@ -310,6 +310,7 @@ function trimInspect(result: unknown): unknown {
     candidates?: Array<Record<string, unknown> & {
       attributes?: Array<{ key: string; value?: unknown; status: string; source: string }>;
       needs?: Array<{ label?: string; private?: true; verdict: string }>;
+      images?: unknown[];
     }>;
   };
   if (!r?.ok || !Array.isArray(r.candidates)) return result;
@@ -322,6 +323,10 @@ function trimInspect(result: unknown): unknown {
       // rows to "label=verdict" (a peer's private need stays "private").
       hours: undefined,
       location: undefined,
+      // Photos are for the reader, not the model: an agent learns that a place
+      // has pictures and never receives a route to their bytes.
+      images: undefined,
+      imageCount: d.images?.length ?? 0,
       attributes: d.attributes?.map(
         (a) =>
           `${a.key}=${a.status}${a.value !== undefined ? `(${String(a.value)})` : ""} [${a.source.split(":")[0]}]`,
