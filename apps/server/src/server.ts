@@ -466,9 +466,6 @@ app.post("/api/spatial/inspect", async (req) => {
   const result = await inspectCandidates(actor, body.candidateIds!, {
     intent,
     force,
-    // Browser facts refreshes omit `intent`; they are cache reads and must not
-    // recursively start another paid lookup after a facts frame lands.
-    triggerLookup: intent === "open",
   });
   logRead(req, actor.id, "InspectCandidates", result.ok);
   return result;

@@ -154,11 +154,15 @@ describe("viewing presence", () => {
         }),
       );
       expect(seen).toBe(true);
-      // The same place again is not a change: no extra frame for it.
-      const before = org.frames().length;
+      // The same place again is not a presence change. The interactive open
+      // may still finish in this window and publish its terminal facts frame.
+      const presenceCount = () => org.frames().filter((frame) =>
+        (JSON.parse(frame) as { type?: string }).type === "presence"
+      ).length;
+      const before = presenceCount();
       sarah.send({ type: "viewing", candidateId: place("b") });
       await new Promise((r) => setTimeout(r, 150));
-      expect(org.frames().length).toBe(before);
+      expect(presenceCount()).toBe(before);
 
       sarah.close();
       const cleared = await waitFor(() => {
