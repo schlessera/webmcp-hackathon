@@ -3125,3 +3125,39 @@ test("touch never shows a hover card", async ({ browser }) => {
   await expect(page.getByTestId("hover-card")).toHaveCount(0);
   await context.close();
 });
+
+test("the suggestion pills scroll sideways only, never up and down", async ({ browser }) => {
+  const browserContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const page = await browserContext.newPage();
+  const context = fixture({ revision: 22 });
+  // Long labels so the row certainly runs past the edge of a phone.
+  context.facets = [
+    { key: "outdoor-seating", label: "outdoor seating in the shade", type: "boolean", counts: { yes: 17, no: 2, unknown: 2 }, salience: 1 },
+    { key: "vegetarian-options", label: "vegetarian options on the menu", type: "boolean", counts: { yes: 15, no: 0, unknown: 6 }, salience: 0.9 },
+    { key: "wheelchair-accessible", label: "step-free access from the street", type: "boolean", counts: { yes: 9, no: 6, unknown: 6 }, salience: 0.8 },
+  ];
+  const state: MockState = { context, outstanding: [] };
+  await mockApi(page, state);
+  const socket = await scriptedSocket(page, 22);
+  await page.goto(`${BASE}/#invite=deadbeef`);
+  await socket.welcomed;
+  const row = page.getByTestId("facet-pills");
+  await expect(row).toBeVisible();
+
+  // The 44px tap extension and the drop shadow live inside the scrollport:
+  // nothing to scroll vertically, so no stray scrollbar and no clipped shadow.
+  const metrics = await row.evaluate((el) => ({
+    vertical: el.scrollHeight - el.clientHeight,
+    horizontal: el.scrollWidth - el.clientWidth,
+  }));
+  expect(metrics.vertical).toBe(0);
+  // Sideways still scrolls, and the fade cue follows the finger.
+  expect(metrics.horizontal).toBeGreaterThan(2);
+  await expect(row).toHaveAttribute("data-overflow", "right");
+  await row.evaluate((el) => {
+    el.scrollLeft = 9999;
+  });
+  await expect(row).toHaveAttribute("data-overflow", "left");
+  expect(await row.evaluate((el) => el.scrollLeft)).toBeGreaterThan(0);
+  await browserContext.close();
+});

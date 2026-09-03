@@ -1363,6 +1363,15 @@ body { overflow: hidden; }
   flex-wrap: nowrap;
   gap: 6px;
   overflow-x: auto;
+  /* `overflow-y: visible` cannot survive a scrolling overflow-x, so the row
+     scrolls in both axes. The 44px tap extension on .pill::before overflows
+     it by 10px and the drop shadow is clipped outright (a shadow is not part
+     of the scrollable overflow region). Pad the scrollport out to hold both
+     and pull the padding back, so nothing moves. */
+  padding-block: 10px;
+  margin-block: -10px;
+  padding-inline-end: 3px;
+  margin-inline-end: -3px;
   scrollbar-width: none;
 }
 .pill-row::-webkit-scrollbar { display: none; }
@@ -1383,7 +1392,7 @@ body { overflow: hidden; }
   cursor: pointer;
   position: relative;
 }
-/* ~28px tall: extend the target with a pseudo-element, don't grow the pill. */
+/* ~24px tall: extend the target with a pseudo-element, don't grow the pill. */
 .pill::before {
   content: "";
   position: absolute;
@@ -1400,7 +1409,9 @@ body { overflow: hidden; }
   font-variant-numeric: tabular-nums;
 }
 
-.composer-bar-wrap { position: relative; }
+/* The pill row's grown scrollport overlaps the flex gap below it; the bar
+   must win its own top edge back. */
+.composer-bar-wrap { position: relative; z-index: 1; }
 
 .composer-bar {
   display: flex;
