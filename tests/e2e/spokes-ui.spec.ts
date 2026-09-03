@@ -3000,6 +3000,13 @@ test("opening a place fills the panel step by step on the fast track, and hoveri
   // Done: the line steps back to the record's own words.
   socket.send({ type: "facts", candidateIds: ["place_1"], reason: "interactive", done: true, steps: [{ stage: "site", ms: 420 }, { stage: "needs", ms: 900 }], costUsd: 0.0012 });
   await expect(details.getByTestId("details-lookup")).not.toHaveText(/reading|checking|looking/);
+  await expect.poll(() => inspectBodies.length).toBeGreaterThanOrEqual(5);
+  expect(inspectBodies.slice(1).every((body) => body.intent === undefined)).toBe(true);
+  const terminalLine = await details.getByTestId("details-lookup").textContent();
+  const readsAtDone = inspectBodies.length;
+  await page.waitForTimeout(10_000);
+  await expect(details.getByTestId("details-lookup")).toHaveText(terminalLine ?? "");
+  expect(inspectBodies).toHaveLength(readsAtDone);
 
   // The drawer keeps the plan.
   await page.getByTestId("open-drawer").click();

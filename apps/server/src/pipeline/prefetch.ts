@@ -1,5 +1,6 @@
 export const PREFETCH_LIMIT = 2;
 export const PREFETCH_OPEN_WINDOW_MS = 5_000;
+export const INTERACTIVE_OPEN_COOLDOWN_MS = 10 * 60_000;
 
 export interface PrefetchContext {
   signal: AbortSignal;
@@ -26,6 +27,7 @@ export class PrefetchManager {
   readonly limit: number;
   readonly openWindowMs: number;
   private readonly entries = new Map<string, PrefetchEntry>();
+  private readonly interactiveOpenedAt = new Map<string, number>();
   private readonly queue: QueuedPrefetch[] = [];
   private active = 0;
 
@@ -57,6 +59,26 @@ export class PrefetchManager {
     if (!entry.running) this.entries.delete(key);
   }
 
+  /**
+   * Admit at most one interactive open plan for a room/place in the cooldown
+   * window. `force` is the explicit person's "Look again" escape hatch.
+   * The timestamp is taken on admission so two requests racing before either
+   * has reached its first await still collapse to one plan.
+   */
+  admitInteractiveOpen(
+    key: string,
+    options: { force?: boolean; now?: number } = {},
+  ): boolean {
+    this.opened(key);
+    const now = options.now ?? Date.now();
+    const previous = this.interactiveOpenedAt.get(key);
+    if (!options.force && previous !== undefined && now - previous < INTERACTIVE_OPEN_COOLDOWN_MS) {
+      return false;
+    }
+    this.interactiveOpenedAt.set(key, now);
+    return true;
+  }
+
   cancel(key: string): void {
     const entry = this.entries.get(key);
     if (!entry || entry.opened) return;
@@ -73,6 +95,7 @@ export class PrefetchManager {
       entry.controller.abort();
     }
     this.entries.clear();
+    this.interactiveOpenedAt.clear();
     this.queue.length = 0;
     this.active = 0;
   }

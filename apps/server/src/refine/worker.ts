@@ -126,6 +126,9 @@ interface RoomState {
   checkedDay: string;
   checked: Set<string>;
   priorityZeroEpoch: number;
+  calls: number;
+  searches: number;
+  costUsd: number;
 }
 
 const rooms = new Map<string, RoomState>();
@@ -211,6 +214,9 @@ function stateFor(roomId: string): RoomState {
       checkedDay: utcDay(),
       checked: new Set(),
       priorityZeroEpoch: -1,
+      calls: 0,
+      searches: 0,
+      costUsd: 0,
     };
     rooms.set(roomId, state);
   }
@@ -357,11 +363,15 @@ export function refinementPlanDelay(queueLength: number): number {
 
 export function startRefinement(roomId: string, scheduleLoop = true): boolean {
   if (!refinementEnabled()) return false;
+  const alreadyActive = refinementActive(roomId);
   const state = stateFor(roomId);
   state.stopped = false;
   if (state.idleTimer) clearTimeout(state.idleTimer);
   state.idleTimer = undefined;
   if (scheduleLoop) schedulePipelinePlan(roomId);
+  if (!alreadyActive) {
+    console.info(JSON.stringify({ msg: "pipeline loop started", roomId }));
+  }
   return true;
 }
 
@@ -375,6 +385,7 @@ export function stopRefinement(roomId: string): void {
   state.idleTimer = undefined;
   rooms.delete(roomId);
   pipelineLatestPlans.delete(roomId);
+  console.info(JSON.stringify({ msg: "pipeline loop stopped", roomId }));
 }
 
 export function noteRefinementPresence(roomId: string, present: Set<string>): void {
@@ -531,7 +542,23 @@ async function planPipelineRoom(roomId: string): Promise<void> {
     queueMicrotask(() => schedulePipelinePlan(roomId, REFINE_TICK_MS));
   } finally {
     pipelinePlanning.delete(roomId);
+    logPipelineTick(roomId, state);
   }
+}
+
+function logPipelineTick(roomId: string, state: RoomState): void {
+  const frame = pipelineScheduler.frames.currentPipeline(roomId);
+  console.info(JSON.stringify({
+    msg: "pipeline tick",
+    roomId,
+    pools: pipelineScheduler.accounting().inFlight,
+    outstanding: frame.outstanding,
+    inFlight: frame.inFlight,
+    done: frame.done,
+    calls: state.calls,
+    searches: state.searches,
+    costUsd: Number(state.costUsd.toFixed(4)),
+  }));
 }
 
 function domainOf(website: string | undefined): string | undefined {
@@ -1516,6 +1543,12 @@ function logBatch(
     listingCost +
     inputTokens * INPUT_USD_PER_TOKEN +
     outputTokens * OUTPUT_USD_PER_TOKEN;
+  const state = rooms.get(roomId);
+  if (state) {
+    state.calls += calls;
+    state.searches += batch.searches;
+    state.costUsd += cost;
+  }
   console.info(JSON.stringify({
     msg: "refine batch",
     roomId,

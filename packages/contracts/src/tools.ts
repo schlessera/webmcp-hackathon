@@ -93,6 +93,11 @@ export const INSPECT_CANDIDATES_INPUT = Type.Object(
         description: "A person opened the place: answer with what is cached and fast-track the rest.",
       }),
     ),
+    force: Type.Optional(
+      Type.Boolean({
+        description: "Bypass the ten-minute interactive-open cooldown for an explicit Look again.",
+      }),
+    ),
   },
   { additionalProperties: false },
 );

@@ -18,6 +18,7 @@ import { currentLookups, onFacts, onLookupProgress } from "./enrich/progress.ts"
 import { pipelineScheduler } from "./pipeline/scheduler.ts";
 import { openCandidate, previewCandidate } from "./spatial.ts";
 import { prefetchKey, prefetchManager } from "./pipeline/prefetch.ts";
+import { noteRefinementPresence } from "./refine/worker.ts";
 
 interface Connection {
   socket: WebSocket;
@@ -239,6 +240,11 @@ export function attachWebSocket(server: Server): void {
         };
         connections.add(connection);
         const becamePresent = markOpen(participant.roomId, participant.id);
+        // Ensure the room loop exists on every successful authentication.
+        // The presence listener handles the transition too; this idempotent
+        // call also covers later sockets and makes auth the explicit owner of
+        // the production lifecycle guarantee.
+        noteRefinementPresence(participant.roomId, presentIn(participant.roomId));
         const room = (
           await pool.query("SELECT revision FROM rooms WHERE id = $1", [
             participant.roomId,
