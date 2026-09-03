@@ -77,6 +77,8 @@ Each priority class is indexed by pool, so an admission probe considers only
 work that can use the pool being filled. Queued items are reprioritised against
 the latest room plan and queued work that left the active scope is rejected;
 already-running work finishes and may still populate shared evidence caches.
+All refinement tiers, including the tier-2 and tier-3 vocabulary sweep, skip
+candidates outside the room's current scope.
 Scope and need changes bump the room epoch and wake the planner immediately.
 
 Pool choice and route choice are separate decisions. The scheduler consults

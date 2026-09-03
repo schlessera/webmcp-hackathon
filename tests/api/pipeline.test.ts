@@ -19,6 +19,7 @@ const KNOWN_ATTRIBUTES = [
 
 describe("pipeline over HTTP, WebSocket, and PostgreSQL", () => {
   let server: TestServer;
+  let hangServer: TestServer;
   let room: TestRoom;
   let openRoom: TestRoom;
   let hangRoom: TestRoom;
@@ -43,9 +44,8 @@ describe("pipeline over HTTP, WebSocket, and PostgreSQL", () => {
         INFER: "1",
         REFINE: "1",
         REFINE_TICK_MS: "250",
-        REFINE_PLAN_WATCHDOG_MS: "300",
+        REFINE_PLAN_WATCHDOG_MS: "500",
         REFINE_IDLE_STOP_MS: "200",
-        PIPELINE_TIMEOUT_FETCH_SITE_MS: "2500",
         OPENAI_API_KEY: "scripted",
         PARALLEL_API_KEY: "scripted",
       },
@@ -121,7 +121,21 @@ describe("pipeline over HTTP, WebSocket, and PostgreSQL", () => {
     );
     realtime = await openRealtime(server.baseUrl, room.tokens.org);
 
-    hangRoom = await createTestRoom(server.baseUrl);
+    hangServer = await startServer({
+      entrypoint: "tests/api/fixtures/refine-server.ts",
+      env: {
+        ENRICH_NETWORK: "1",
+        INFER: "1",
+        REFINE: "1",
+        REFINE_TICK_MS: "250",
+        REFINE_PLAN_WATCHDOG_MS: "500",
+        REFINE_IDLE_STOP_MS: "200",
+        PIPELINE_TIMEOUT_FETCH_SITE_MS: "2500",
+        OPENAI_API_KEY: "scripted",
+        PARALLEL_API_KEY: "scripted",
+      },
+    });
+    hangRoom = await createTestRoom(hangServer.baseUrl);
     const hangCandidate = (await hangRoom.pool.query(
       "SELECT id FROM candidates WHERE room_id = $1 ORDER BY id LIMIT 1",
       [hangRoom.roomId],
@@ -152,7 +166,7 @@ describe("pipeline over HTTP, WebSocket, and PostgreSQL", () => {
         JSON.stringify({ kind: "text", text: "free wifi" }),
       ],
     );
-    hangRealtime = await openRealtime(server.baseUrl, hangRoom.tokens.org);
+    hangRealtime = await openRealtime(hangServer.baseUrl, hangRoom.tokens.org);
 
     const prepareFocusRoom = async (testRoom: TestRoom) => {
       const rows = (await testRoom.pool.query(
@@ -216,6 +230,7 @@ describe("pipeline over HTTP, WebSocket, and PostgreSQL", () => {
     await hangRoom?.cleanup();
     await focusRoom?.cleanup();
     await sharedFocusRoom?.cleanup();
+    await hangServer?.stop();
     await server?.stop();
   });
 
@@ -249,14 +264,14 @@ describe("pipeline over HTTP, WebSocket, and PostgreSQL", () => {
 
   it("times out a stuck dispatch, releases its slot, and replans the occupied room", async () => {
     const roomMarker = `\"roomId\":\"${hangRoom.roomId}\"`;
-    await waitFor(() => server.logs().split("\n").some((line) =>
+    await waitFor(() => hangServer.logs().split("\n").some((line) =>
       line.includes('"msg":"pipeline timeout"') && line.includes(roomMarker) &&
       line.includes('"kind":"fetch.site"')
-    ), 8_000, () => server.logs());
-    await waitFor(() => server.logs().split("\n").filter((line) =>
+    ), 8_000, () => hangServer.logs());
+    await waitFor(() => hangServer.logs().split("\n").filter((line) =>
       line.includes('"msg":"pipeline tick"') && line.includes(roomMarker)
-    ).length >= 2, 8_000, () => server.logs());
-    const timeoutLine = server.logs().split("\n").find((line) =>
+    ).length >= 2, 8_000, () => hangServer.logs());
+    const timeoutLine = hangServer.logs().split("\n").find((line) =>
       line.includes('"msg":"pipeline timeout"') && line.includes(roomMarker)
     );
     expect(timeoutLine).toContain('"timeoutMs":2500');

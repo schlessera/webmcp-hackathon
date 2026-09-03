@@ -131,6 +131,7 @@ export class PipelineScheduler {
   private readonly timeouts: Record<PipelineKind, number>;
   private pumping = false;
   private pumpAgain = false;
+  private pumpRuns = 0;
   private readonly inFlight = new Map<string, PipelineItem>();
   private readonly batches = new Map<string, PipelineItem[]>();
   private readonly roomEpochs = new Map<string, number>();
@@ -221,16 +222,20 @@ export class PipelineScheduler {
     options: EnqueueOptions & { buffered?: boolean } = {},
   ): Promise<T> {
     if (items.length === 0) return Promise.reject(new Error("pipeline batch is empty"));
-    const criteria = [...new Map(items.flatMap((entry) => entry.criteria).map((entry) => [
+    const plannedItems: PipelineItem[] = items.map((entry) => ({
+      ...entry,
+      predictedPool: poolForKind(entry as PipelineItem),
+    }));
+    const criteria = [...new Map(plannedItems.flatMap((entry) => entry.criteria).map((entry) => [
       entry.id,
       entry,
     ])).values()];
     const representativeBase = {
-      ...items[0],
+      ...plannedItems[0],
       criteria,
       dedupeKey: pipelineDedupeKey({
-        ...items[0],
-        osmRef: items.map((entry) => entry.dedupeKey).sort().join(","),
+        ...plannedItems[0],
+        osmRef: plannedItems.map((entry) => entry.dedupeKey).sort().join(","),
         criteria,
       }),
     };
@@ -244,17 +249,40 @@ export class PipelineScheduler {
       options.present === false ? 1 : 4,
     );
     if (queued.inserted) {
-      for (const entry of items) {
-        for (const listener of this.enqueueListeners) listener(entry as PipelineItem);
+      for (const entry of plannedItems) {
+        for (const listener of this.enqueueListeners) listener(entry);
       }
-      this.batches.set(representative.dedupeKey, items as PipelineItem[]);
+      this.batches.set(representative.dedupeKey, plannedItems);
       if (!options.buffered) {
-        for (const entry of items) {
-          this.volume.enqueue(entry as PipelineItem);
-          this.frames.update(entry as PipelineItem, "processing", options.reason);
+        for (const entry of plannedItems) {
+          this.volume.enqueue(entry);
+          this.frames.update(entry, "processing", options.reason);
         }
       }
       this.wake();
+    } else {
+      const tracked = this.batches.get(representative.dedupeKey);
+      if (!tracked) {
+        if (options.buffered) {
+          for (const entry of plannedItems) this.dropBuffered(entry);
+        }
+        return Promise.reject(new Error("pipeline batch dedupe representative is not a batch"));
+      }
+      const alreadyRunning = tracked.some((entry) => this.inFlight.has(entry.dedupeKey));
+      tracked.push(...plannedItems);
+      if (!options.buffered) {
+        for (const entry of plannedItems) {
+          this.volume.enqueue(entry);
+          this.frames.update(entry, "processing", options.reason);
+        }
+      }
+      if (alreadyRunning) {
+        for (const entry of plannedItems) {
+          this.inFlight.set(entry.dedupeKey, entry);
+          this.volume.start(entry);
+          this.frames.update(entry, "processing", options.reason);
+        }
+      }
     }
     return queued.promise as Promise<T>;
   }
@@ -308,8 +336,19 @@ export class PipelineScheduler {
     return dropped;
   }
 
-  reprioritise(roomId: string, ranking: Map<string, PipelinePriority>): PipelineItem[] {
-    const changed = this.queue.reprioritise(roomId, ranking);
+  reprioritise(
+    roomId: string,
+    ranking: Map<string, PipelinePriority>,
+    owned: (item: PipelineItem) => boolean = () => true,
+  ): PipelineItem[] {
+    const changed = this.queue.reprioritise(roomId, ranking, (item, priority) => {
+      const prioritised = { ...item, priority };
+      const predictedRoute = this.enqueueRoute(prioritised);
+      return {
+        predictedPool: poolForKind(prioritised, predictedRoute),
+        ...(predictedRoute ? { predictedRoute } : {}),
+      };
+    }, owned);
     if (changed.length > 0) {
       this.frames.changed(roomId);
       this.wake();
@@ -336,12 +375,18 @@ export class PipelineScheduler {
     };
   }
 
+  /** Monotonic diagnostic used to bound scheduler work in regression tests. */
+  get pumpCycles(): number {
+    return this.pumpRuns;
+  }
+
   reset(): void {
     this.queue.clear();
     this.frames.reset();
     this.inFlight.clear();
     this.batches.clear();
     this.roomEpochs.clear();
+    this.pumpRuns = 0;
     this.routeCompletions.direct = 0;
     this.routeCompletions.proxy = 0;
   }
@@ -384,6 +429,7 @@ export class PipelineScheduler {
     this.pumping = true;
     try {
       do {
+        this.pumpRuns += 1;
         this.pumpAgain = false;
         for (const [name, pool] of Object.entries(this.pools) as Array<[PoolName, PipelinePools[PoolName]]>) {
           while (pool.available > 0) {

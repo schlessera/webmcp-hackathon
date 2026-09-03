@@ -130,6 +130,8 @@ const interactiveSearchBudget = createTokenBucket({
 interface RoomState {
   timer?: ReturnType<typeof setTimeout>;
   idleTimer?: ReturnType<typeof setTimeout>;
+  /** Invalidates settle callbacks from older watchdog generations. */
+  planGeneration: number;
   /** Bumped by every wake. A batch that finishes after its epoch moved must not
    * write its cursor back: the need it was working from has since changed. */
   cursorEpoch: number;
@@ -155,6 +157,7 @@ const pipelineLatestPlans = new Map<string, {
   epoch: number;
   items: Map<string, RefinementQueueItem>;
   priorities: Map<string, PipelineItem["priority"]>;
+  activeIds: Set<string>;
 }>();
 
 export interface RefinementQueueItem {
@@ -221,6 +224,7 @@ function stateFor(roomId: string): RoomState {
   let state = rooms.get(roomId);
   if (!state) {
     state = {
+      planGeneration: 0,
       cursorEpoch: 0,
       stopped: false,
       budgetLogged: false,
@@ -306,19 +310,7 @@ export function buildRefinementQueue(
   now = Date.now(),
 ): RefinementQueueItem[] {
   lastQueueDeferred = false;
-  const active = activeCriteria(inputs);
-  const activeList = [...active.values()].map((entry) => entry.criterion).filter(modelCriterion);
-  const activeKeyIds = new Set(
-    activeList.flatMap((criterion) => criterion.kind === "key" ? [criterion.key] : []),
-  );
-  const inactiveVocabulary: Criterion[] = INFERABLE_KEYS
-    .filter((key) => !activeKeyIds.has(key))
-    .map((key) => ({
-      id: key,
-      kind: "key" as const,
-      key,
-      label: ATTRIBUTE_LABELS[key as keyof typeof ATTRIBUTE_LABELS] ?? key,
-    }));
+  const { activeList, inactiveVocabulary } = refinementCriterionSets(inputs);
   const inScopeIds = new Set(inScope(inputs.candidates, inputs.scope).map((candidate) => candidate.id));
   const classified = new Map(
     classifyAll(inputs.candidates, inputs.requirements, inputs.verdicts, inputs.scope)
@@ -373,6 +365,45 @@ export function buildRefinementQueue(
   );
 }
 
+function refinementCriterionSets(inputs: EligibilityInputs): {
+  activeList: Criterion[];
+  inactiveVocabulary: Criterion[];
+} {
+  const activeList = [...activeCriteria(inputs).values()]
+    .map((entry) => entry.criterion)
+    .filter(modelCriterion);
+  const activeKeyIds = new Set(
+    activeList.flatMap((criterion) => criterion.kind === "key" ? [criterion.key] : []),
+  );
+  const inactiveVocabulary: Criterion[] = INFERABLE_KEYS
+    .filter((key) => !activeKeyIds.has(key))
+    .map((key) => ({
+      id: key,
+      kind: "key" as const,
+      key,
+      label: ATTRIBUTE_LABELS[key as keyof typeof ATTRIBUTE_LABELS] ?? key,
+    }));
+  return { activeList, inactiveVocabulary };
+}
+
+function refinementScopeNeeds(
+  inputs: EligibilityInputs,
+  state: Pick<RoomState, "evaluated">,
+  now = Date.now(),
+): { inScopeIds: Set<string>; openCandidateIds: Set<string> } {
+  const inScopeIds = new Set(inScope(inputs.candidates, inputs.scope).map((candidate) => candidate.id));
+  const { activeList, inactiveVocabulary } = refinementCriterionSets(inputs);
+  const criteria = [...activeList, ...inactiveVocabulary];
+  const openCandidateIds = new Set<string>();
+  for (const candidate of inputs.candidates) {
+    const done = state.evaluated.get(candidate.id);
+    if (candidate.osm_ref && criteria.some((criterion) =>
+      unknown(inputs, candidate, criterion, now) && !done?.has(criterion.id)
+    )) openCandidateIds.add(candidate.id);
+  }
+  return { inScopeIds, openCandidateIds };
+}
+
 /** How long the planner waits before rebuilding a room. An empty queue must not
  * reload every candidate in the room once a second; a need commit wakes the
  * planner immediately, so the long gap costs no responsiveness. */
@@ -423,6 +454,7 @@ export function wakeRefinement(roomId: string): void {
   const state = rooms.get(roomId);
   if (!state || state.stopped) return;
   state.cursorEpoch += 1;
+  state.planGeneration += 1;
   cancelStalePipelineCells(roomId, state.cursorEpoch);
   // Forget the cursor for need-shaped cells so the changed need is re-queued,
   // but keep the background vocabulary sweep's progress. Restarting the sweep
@@ -455,6 +487,7 @@ async function planPipelineRoom(roomId: string): Promise<void> {
   const state = rooms.get(roomId);
   if (!state || state.stopped || pipelinePlanning.has(roomId)) return;
   pipelinePlanning.add(roomId);
+  const generation = ++state.planGeneration;
   try {
     let inputs = await loadEligibilityInputs(pool, roomId);
     const proactive = await adjudicateLikelyForRoom(pool, roomId, {
@@ -463,43 +496,56 @@ async function planPipelineRoom(roomId: string): Promise<void> {
       consumeModelCall: consumeRefinementModelCall,
     });
     if (proactive.changed.length > 0) inputs = await loadEligibilityInputs(pool, roomId);
-    pipelineScheduler.needsChanged(
-      roomId,
-      state.cursorEpoch,
-      new Set(activeCriteria(inputs).keys()),
-    );
+    const activeIds = new Set(activeCriteria(inputs).keys());
+    pipelineScheduler.needsChanged(roomId, state.cursorEpoch, activeIds);
     const queue = buildRefinementQueue(inputs, state, roomId);
+    const { inScopeIds, openCandidateIds } = refinementScopeNeeds(inputs, state);
     const counts = refinementQueueCounts(queue);
     state.queued = counts.tier1;
     state.tier1Queued = counts.tier1;
     state.backlog = counts.total;
     pipelineScheduler.volume.pause(roomId, state.paused);
+    pipelineScheduler.dropQueued(roomId, (item) =>
+      item.intent === "background" && item.kind !== "process.judge" &&
+      item.plannerOwned === true &&
+      (!inScopeIds.has(item.candidateId) || !openCandidateIds.has(item.candidateId))
+    );
     if (queue.length === 0) {
       pipelineLatestPlans.set(roomId, {
         epoch: state.cursorEpoch,
         items: new Map(),
         priorities: new Map(),
+        activeIds,
       });
-      pipelineScheduler.dropQueued(roomId, (item) => item.intent === "background");
       pipelineScheduler.frames.changed(roomId);
       const delay = refinementQueueDeferred() ? REFINE_TICK_MS : refinementPlanDelay(0);
-      queueMicrotask(() => schedulePipelinePlan(roomId, delay));
+      queueMicrotask(() => {
+        if (rooms.get(roomId) === state && state.planGeneration === generation) {
+          schedulePipelinePlan(roomId, delay);
+        }
+      });
       return;
     }
-    const ranking = new Map<string, PipelineItem["priority"]>(queue.map((planned) => [
+    const priorities = new Map<string, PipelineItem["priority"]>(queue.map((planned) => [
       planned.candidate.id,
+      planned.tier,
+    ]));
+    const ranking = new Map<string, PipelineItem["priority"]>(queue.map((planned) => [
+      pipelineDedupeKey({
+        kind: "fetch.site",
+        osmRef: planned.candidate.osm_ref!,
+        criteria: [],
+        intent: "background",
+      }),
       planned.tier,
     ]));
     pipelineLatestPlans.set(roomId, {
       epoch: state.cursorEpoch,
       items: new Map(queue.map((entry) => [entry.candidate.id, entry])),
-      priorities: ranking,
+      priorities,
+      activeIds,
     });
-    const relevant = new Set(queue.map((planned) => planned.candidate.id));
-    pipelineScheduler.reprioritise(roomId, ranking);
-    pipelineScheduler.dropQueued(roomId, (item) =>
-      item.intent === "background" && !relevant.has(item.candidateId)
-    );
+    pipelineScheduler.reprioritise(roomId, ranking, (item) => item.plannerOwned === true);
     const plannedNow = queue.slice(0, REFINE_PLAN_WIDTH);
     const placeInfo = await roomPlace(roomId);
     const cached = await loadCached(
@@ -523,8 +569,9 @@ async function planPipelineRoom(roomId: string): Promise<void> {
         // need change join the queued/in-flight read instead of buying it a
         // second time; the completion is rematched through `pipelineLatestPlans`.
         criteria: [],
-        priority: ranking.get(planned.candidate.id) ?? planned.tier,
+        priority: priorities.get(planned.candidate.id) ?? planned.tier,
         intent: "background" as const,
+        plannerOwned: true,
         ...(host ? { host, purpose: "venue-site" as const } : {}),
         needsEpoch: state.cursorEpoch,
         enqueuedAt: Date.now(),
@@ -560,12 +607,17 @@ async function planPipelineRoom(roomId: string): Promise<void> {
           { ...prepared, item: rematched },
           latest.priorities.get(rematched.candidate.id) ?? rematched.tier,
           latest.epoch,
+          latest.activeIds,
           { ...reason, ...(reason.label ? { visibility: "shared" as const } : {}) },
         );
       });
       return [promise];
     });
-    void refinementPlanSettled(promises).then((delay) => schedulePipelinePlan(roomId, delay));
+    void refinementPlanSettled(promises).then((delay) => {
+      if (rooms.get(roomId) === state && state.planGeneration === generation) {
+        schedulePipelinePlan(roomId, delay);
+      }
+    });
   } catch (error) {
     console.warn("pipeline planning failed:", error instanceof Error ? error.message : String(error));
     queueMicrotask(() => schedulePipelinePlan(roomId, REFINE_TICK_MS));
@@ -1036,6 +1088,7 @@ function queuePreparedForJudging(
   prepared: PreparedPlace,
   priority: PipelineItem["priority"],
   needsEpoch: number,
+  activeIds: Set<string>,
   reason: PipelineReason,
 ): Promise<number> {
   // A fetch that crossed a need change is still useful: its page text is now
@@ -1082,7 +1135,8 @@ function queuePreparedForJudging(
         priority,
         intent: "background" as const,
         evidenceHash,
-        sweep: prepared.item.tier === 3,
+        predictedPool: "llm-matrix" as const,
+        sweep: !activeIds.has(criterion.id),
         needsEpoch,
         enqueuedAt: Date.now(),
       };
@@ -1124,7 +1178,41 @@ function queuePreparedForJudging(
   });
 }
 
+class PipelineDispatchSemaphore {
+  private active = 0;
+  private readonly waiters: Array<() => void> = [];
+  private readonly limit: number;
+
+  constructor(limit: number) {
+    this.limit = limit;
+  }
+
+  async run<T>(body: () => Promise<T>): Promise<T> {
+    if (this.active >= this.limit) {
+      await new Promise<void>((resolve) => this.waiters.push(resolve));
+    } else {
+      this.active += 1;
+    }
+    try {
+      return await body();
+    } finally {
+      this.active -= 1;
+      const next = this.waiters.shift();
+      if (next) {
+        this.active += 1;
+        next();
+      }
+    }
+  }
+}
+
+const pipelineDispatchSemaphore = new PipelineDispatchSemaphore(4);
+
 async function dispatchPipelineBatch(cells: Array<ReadyCell<PipelineReadyValue>>): Promise<void> {
+  return pipelineDispatchSemaphore.run(() => dispatchPipelineBatchBody(cells));
+}
+
+async function dispatchPipelineBatchBody(cells: Array<ReadyCell<PipelineReadyValue>>): Promise<void> {
   pipelineScheduler.ready.take((candidate) => cells.includes(candidate as ReadyCell<PipelineReadyValue>));
   const live = cells.filter((cell) =>
     rooms.get(cell.roomId)?.cursorEpoch === cell.value.needsEpoch
@@ -1341,16 +1429,20 @@ async function processRefinementBatch(
       for (const cell of batch.answered) answeredCells.add(`${cell.candidateId}\u0000${cell.criterionId}`);
     };
     let firstClaims: EvaluatedInference[] = [];
-    if (criteria.length > 0) modelBudget.consume(roomId, firstCalls, now);
-    firstClaims = await phases.first(() => criteria.length > 0
-      ? evaluateMatrix(
+    firstClaims = await phases.first(() => {
+      if (criteria.length === 0) return Promise.resolve([]);
+      if (!modelBudget.consume(roomId, firstCalls, now)) {
+        markBudgetPause(roomId, state);
+        throw new Error("refinement model budget was exhausted while waiting for admission");
+      }
+      return evaluateMatrix(
         { places: prepared.map((place) => place.matrix), criteria },
         collectAnswered,
         pool,
         "reuse",
         "background",
-      )
-      : Promise.resolve([]));
+      );
+    });
     const openByCandidate = new Map(batch.map((item) => [
       item.candidate.id,
       new Map(item.criteria.map((criterion) => [criterion.id, criterion])),
@@ -1439,7 +1531,6 @@ async function processRefinementBatch(
         })),
       }));
       const secondCalls = modelCalls(searchPlaces.length, searchCriteria.length);
-      modelBudget.consume(roomId, secondCalls, now);
       const searchPlacesById = new Map(searchPlaces.map((place) => [place.candidateId, place]));
       const secondItems = withSnippets.flatMap((entry) => entry.criteria.map((criterion) => {
         const place = searchPlacesById.get(entry.candidateId)!;
@@ -1452,7 +1543,8 @@ async function processRefinementBatch(
           priority: entry.prepared.item.tier,
           intent: "background" as const,
           evidenceHash: matrixEvidenceHash(place),
-          sweep: entry.prepared.item.tier === 3,
+          predictedPool: "llm-matrix" as const,
+          sweep: !active.has(criterion.id),
           needsEpoch: epoch,
           enqueuedAt: Date.now(),
         };
@@ -1460,11 +1552,17 @@ async function processRefinementBatch(
       }));
       const evaluatedClaims = await phases.subsequent(
         secondItems,
-        () => evaluateMatrix(
-          { places: searchPlaces, criteria: searchCriteria },
-          collectAnswered,
-          pool,
-        ),
+        () => {
+          if (!modelBudget.consume(roomId, secondCalls, now)) {
+            markBudgetPause(roomId, state);
+            throw new Error("refinement model budget was exhausted while waiting for admission");
+          }
+          return evaluateMatrix(
+            { places: searchPlaces, criteria: searchCriteria },
+            collectAnswered,
+            pool,
+          );
+        },
       );
       const unresolvedByCandidate = new Map(withSnippets.map((entry) => [
         entry.prepared.item.candidate.id,

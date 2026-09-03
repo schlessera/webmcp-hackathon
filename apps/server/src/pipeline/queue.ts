@@ -25,7 +25,9 @@ export interface PipelineItem {
   host?: string;
   purpose?: OutboundPurpose;
   predictedRoute?: OutboundRoute;
-  predictedPool?: PoolName;
+  predictedPool: PoolName;
+  /** True only for site fetches created by the background refinement planner. */
+  plannerOwned?: boolean;
   dedupeKey: string;
   evidenceHash?: string;
   /** Vocabulary-sweep work survives need-epoch changes while it stays queued. */
@@ -54,6 +56,7 @@ export interface QueuedPipelineItem<T = unknown> {
   item: PipelineItem;
   run: (route?: OutboundRoute, signal?: AbortSignal) => Promise<T>;
   completion: Deferred<T>;
+  eligibleErrors?: number;
 }
 
 export interface EnqueueResult<T> {
@@ -93,8 +96,15 @@ export class PipelineQueue {
     run: (route?: OutboundRoute, signal?: AbortSignal) => Promise<T>,
     quantum = 4,
   ): EnqueueResult<T> {
+    if (!item.predictedPool) throw new Error("pipeline item has no predicted pool");
     const existing = this.byKey.get(item.dedupeKey) as QueuedPipelineItem<T> | undefined;
     if (existing) {
+      // A preview may join a planner fetch because site evidence is deliberately
+      // criterion-independent. Once that happens the planner no longer owns
+      // the representative's priority or lifetime.
+      if (existing.item.plannerOwned && !item.plannerOwned) {
+        existing.item.plannerOwned = false;
+      }
       if (
         item.priority < existing.item.priority &&
         this.move(existing, item.priority, item.predictedPool)
@@ -173,11 +183,15 @@ export class PipelineQueue {
           let admitted = false;
           try {
             admitted = eligible(entry.item);
+            entry.eligibleErrors = 0;
           } catch (error) {
-            entries.splice(i, 1);
-            i -= 1;
-            if (onError) onError(entry, error);
-            else this.settle(entry, undefined, error);
+            entry.eligibleErrors = (entry.eligibleErrors ?? 0) + 1;
+            if (entry.eligibleErrors >= 3) {
+              entries.splice(i, 1);
+              i -= 1;
+              if (onError) onError(entry, error);
+              else this.settle(entry, undefined, error);
+            }
             continue;
           }
           if (!admitted) continue;
@@ -209,18 +223,24 @@ export class PipelineQueue {
   reprioritise(
     roomId: string,
     ranking: Map<string, PipelinePriority>,
+    routeFor: (
+      item: PipelineItem,
+      priority: PipelinePriority,
+    ) => Pick<PipelineItem, "predictedPool" | "predictedRoute"> = (item) => item,
+    owned: (item: PipelineItem) => boolean = () => true,
   ): PipelineItem[] {
     const room = this.rooms.get(roomId);
     if (!room) return [];
     const changed: PipelineItem[] = [];
     for (const entry of [...this.entries(room)]) {
-      const next = ranking.get(entry.item.dedupeKey) ??
-        ranking.get(entry.item.candidateId) ?? ranking.get(entry.item.osmRef);
+      if (!owned(entry.item)) continue;
+      const next = ranking.get(entry.item.dedupeKey);
       if (next === undefined || next === entry.item.priority) continue;
-      const nextPool = entry.item.predictedPool;
-      this.move(entry, next, nextPool);
+      const prediction = routeFor(entry.item, next);
+      if (!this.move(entry, next, prediction.predictedPool)) continue;
       entry.item.priority = next;
-      entry.item.predictedPool = nextPool;
+      entry.item.predictedPool = prediction.predictedPool;
+      entry.item.predictedRoute = prediction.predictedRoute;
       changed.push(entry.item);
     }
     return changed;
@@ -257,8 +277,10 @@ export class PipelineQueue {
           }
           if (
             entry.item.kind === "process.judge" &&
-            !entry.item.sweep &&
-            entry.item.criteria.some((criterion) => !activeCriterionIds.has(criterion.id))
+            !entry.item.sweep && (
+              entry.item.needsEpoch !== needsEpoch ||
+              entry.item.criteria.some((criterion) => !activeCriterionIds.has(criterion.id))
+            )
           ) {
             entries.splice(index, 1);
             this.byKey.delete(entry.item.dedupeKey);
@@ -306,7 +328,7 @@ export class PipelineQueue {
   }
 
   private poolOf(item: PipelineItem): PoolName {
-    return item.predictedPool ?? "llm-matrix";
+    return item.predictedPool;
   }
 
   private poolEntries(
@@ -343,7 +365,7 @@ export class PipelineQueue {
   ): boolean {
     const room = this.rooms.get(entry.item.roomId);
     if (!room || !this.remove(entry)) return false;
-    this.poolEntries(room, priority, pool ?? this.poolOf(entry.item)).push(entry);
+    this.poolEntries(room, priority, pool).push(entry);
     return true;
   }
 }
