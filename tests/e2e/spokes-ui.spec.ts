@@ -1270,6 +1270,7 @@ test("place details read the server's verdicts, address and hours, and say when 
   await expect(roster.getByTestId("roster-p_org")).toContainText("organizer");
   await page.keyboard.press("Escape");
   await expect(roster).toHaveCount(0);
+  await expect(page.getByTestId("avatars")).toBeFocused();
 
   // The scopes explain themselves at the point of choice.
   await page.getByTestId("composer-scope").click();

@@ -118,13 +118,21 @@ export function readableWhy(why: string): string {
     text = text.replace(new RegExp(`\\b${key}\\b`, "g"), label);
   }
   return text
+    // The classifier's pending phrases (eligibility.ts), one by one.
+    .replace(/your private screening is pending/g, "your agent hasn't said")
+    .replace(/your screening verdict: unacceptable/g, "your agent ruled it out")
+    .replace(/private evidence pending/g, "a private condition not yet checked")
+    .replace(/excluded by a private requirement/g, "ruled out by a private condition")
+    .replace(/scope evidence pending/g, "distance not yet checked")
+    .replace(/budget evidence pending/g, "price not yet checked")
+    .replace(/(inclusion|exclusion) evidence pending/g, "the kind of place not yet checked")
+    .replace(/unevaluated requirement/g, "a need not yet checked")
     .replace(/\bunverified\b/g, "not confirmed")
     .replace(/\bverified_true\b/g, "yes")
     .replace(/\bverified_false\b/g, "no")
     .replace(/\blikely_true\b/g, "likely")
     .replace(/\blikely_false\b/g, "unlikely")
-    .replace(/private evidence pending/g, "a private condition not yet checked")
-    .replace(/excluded by a private requirement/g, "ruled out by a private condition")
+    .replace(/\bprobably\b/g, "likely")
     .replace(/; /g, " · ")
     .replace(/^\w/, (c) => c.toUpperCase());
 }

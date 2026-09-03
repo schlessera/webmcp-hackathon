@@ -213,19 +213,24 @@ class SpatialStore {
    * The context now shows needs this page has not seen: bind them, oldest
    * first, to the pending rows that were committed and are still unbound.
    */
-  bindPendingNeeds(newNeedIds: string[]): void {
-    if (newNeedIds.length === 0) return;
+  bindPendingNeeds(newNeedIds: string[]): string[] {
+    if (newNeedIds.length === 0) return [];
     const queue = [...newNeedIds];
-    let changed = false;
+    const bound: string[] = [];
     const pendingNeeds = this.state.pendingNeeds.map((n) => {
       if (n.needId !== null || n.committedAt === null) return n;
       const needId = queue.shift();
       if (!needId) return n;
-      changed = true;
+      bound.push(needId);
       return { ...n, needId, boundAt: Date.now() };
     });
-    if (changed) this.update({ pendingNeeds });
+    if (bound.length > 0) this.update({ pendingNeeds });
     this.reconcilePending();
+    return bound;
+  }
+  /** A row said and sent, whose commit the page has not heard back on. */
+  get awaitingCommit(): boolean {
+    return this.state.pendingNeeds.some((n) => n.needId === null && n.committedAt === null);
   }
   /**
    * A pending need settles once it is bound and the room has been quiet

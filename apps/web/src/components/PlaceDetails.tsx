@@ -154,6 +154,10 @@ export function PlaceDetails({
   /* A facts frame naming this place re-reads the dossier in place — the
      rows update, the panel does not blank. */
   const factsNonce = factsFrame.ids.includes(candidate.candidateId) ? factsFrame.nonce : 0;
+  /* The per-need rows are the server's verdicts for the need set as it
+     stands: a peer adding, toggling or withdrawing a need while this panel
+     is open must re-read them, or the ledger contradicts the strip above. */
+  const needSignature = `${activeNeeds.map((n) => `${n.id}:${n.active ? 1 : 0}`).join(",")}|${privateEffects.length}`;
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -176,7 +180,7 @@ export function PlaceDetails({
     return () => {
       cancelled = true;
     };
-  }, [candidate.candidateId, factsNonce]);
+  }, [candidate.candidateId, factsNonce, needSignature]);
   // A different place: the old dossier must not read as this one's.
   useEffect(() => {
     setDossier(null);

@@ -323,9 +323,16 @@ export function App() {
       return;
     }
     const fresh = own.filter((id) => !seenNeedIds.current!.has(id));
-    for (const id of own) seenNeedIds.current.add(id);
-    if (fresh.length > 0) spatial.bindPendingNeeds(fresh);
-  }, [spatialState.context, session]);
+    if (fresh.length === 0) return;
+    // The commit's realtime event can bring the context before the HTTP
+    // response marks the row committed. An id is burnt only once a row took
+    // it, or when no row is still waiting to hear back — otherwise it stays
+    // fresh for the next pass, which runs when the commit lands.
+    const bound = new Set(spatial.bindPendingNeeds(fresh));
+    for (const id of fresh) {
+      if (bound.has(id) || !spatial.awaitingCommit) seenNeedIds.current.add(id);
+    }
+  }, [spatialState.context, spatialState.pendingNeeds, session]);
 
   const run = useCallback(
     async (

@@ -35,10 +35,14 @@ export function Header({ title, subtitle, participants, onOpenDrawer }: Props) {
      it closes on Escape, on an outside tap, or on the row again. */
   const [rosterOpen, setRosterOpen] = useState(false);
   const rosterRef = useRef<HTMLDivElement>(null);
+  const avatarsRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     if (!rosterOpen) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setRosterOpen(false);
+      if (e.key === "Escape") {
+        setRosterOpen(false);
+        avatarsRef.current?.focus();
+      }
     };
     const onPointer = (e: PointerEvent) => {
       if (!rosterRef.current?.contains(e.target as Node)) setRosterOpen(false);
@@ -70,6 +74,7 @@ export function Header({ title, subtitle, participants, onOpenDrawer }: Props) {
         <button
           className="avatars"
           data-testid="avatars"
+          ref={avatarsRef}
           type="button"
           aria-haspopup="dialog"
           aria-expanded={rosterOpen}

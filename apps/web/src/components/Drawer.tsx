@@ -31,6 +31,27 @@ interface Props {
   run(type: string, input: Record<string, unknown>): Promise<CommandEnvelope>;
 }
 
+/* Collapsible groups (W13): the raw dumps are long; the drawer opens on the
+   state that matters and folds the rest. Native <details>: no state to keep,
+   keyboard for free. Module scope, so a diagnostics tick never remounts the
+   folds and a fold the reader closed stays closed. */
+function Section({
+  title,
+  open,
+  children,
+}: {
+  title: string;
+  open?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <details className="drawer-section" open={open}>
+      <summary className="drawer-section-title">{title}</summary>
+      {children}
+    </details>
+  );
+}
+
 export function Drawer({
   identity,
   diagnostics,
@@ -42,23 +63,6 @@ export function Drawer({
   onClose,
   run,
 }: Props) {
-  /* Collapsible groups (W13): the raw dumps are long; the drawer opens on
-     the state that matters and folds the rest. Native <details>: no state
-     to keep, keyboard for free. */
-  const Section = ({
-    title,
-    open,
-    children,
-  }: {
-    title: string;
-    open?: boolean;
-    children: React.ReactNode;
-  }) => (
-    <details className="drawer-section" open={open}>
-      <summary className="drawer-section-title">{title}</summary>
-      {children}
-    </details>
-  );
   return (
     <div className="drawer" data-testid="diagnostics" role="dialog" aria-label="Under the hood">
       <button className="drawer-scrim" aria-label="Close" onClick={onClose} />
