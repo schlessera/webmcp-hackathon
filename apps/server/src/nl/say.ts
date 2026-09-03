@@ -28,7 +28,7 @@ export interface SayOutcome {
   meta: { model: string | null; ms: number };
 }
 
-interface DraftConcept {
+export interface DraftConcept {
   role: ConceptRole;
   surface: string;
   polarity: "include" | "exclude";
@@ -49,7 +49,7 @@ interface DraftConcept {
   gist: string;
 }
 
-interface Draft {
+export interface Draft {
   intent: "need" | "ask" | "act" | "other";
   confidence: number;
   concepts: DraftConcept[];
@@ -57,7 +57,9 @@ interface Draft {
 }
 
 const NULLABLE_STRING = { type: ["string", "null"] };
-const SCHEMA = {
+/** Stage A's answer shape. The plan stage derives its own from this one
+ * (nl/plan.ts) rather than restating it. */
+export const SCHEMA = {
   type: "object",
   additionalProperties: false,
   required: ["intent", "confidence", "concepts", "reply"],
@@ -123,7 +125,7 @@ function localIso(now: Date, timezone: string): string {
   return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:${parts.second}${offset}`;
 }
 
-function modelInstructions(
+export function modelInstructions(
   context: SpatialContextResult,
   input: UnderstandInput,
   preparsed: Concept[],
@@ -166,7 +168,7 @@ function modelInstructions(
   ].join("\n");
 }
 
-function conceptFromDraft(draft: DraftConcept): Concept {
+export function conceptFromDraft(draft: DraftConcept): Concept {
   return {
     role: draft.role,
     surface: draft.surface,
