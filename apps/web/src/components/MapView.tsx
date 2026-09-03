@@ -3,9 +3,10 @@ import { Layer, Map, Marker, Source, type MapRef } from "@vis.gl/react-maplibre"
 import type { Map as MapLibreMap } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import "../map-worker.ts";
-import { MAP_THEME, TILE_STYLE } from "../map-theme.ts";
+import { BASEMAP_SOURCE, MAP_THEME, TILE_STYLE } from "../map-theme.ts";
 import { loadTileStyle, type TileStyle } from "../map-style.ts";
 import { spatial } from "../spatial-store.ts";
+import { fetchAreaLandmarks, type AreaLandmark } from "../api.ts";
 import type {
   CandidateSummary,
   CommandEnvelope,
@@ -18,6 +19,8 @@ import type {
 import type { LookupReason, PipelineStage, PipelineView } from "../spatial-store.ts";
 import { COPY, initials, numberWord, personColor, stillWorkVerb, tiltFor } from "../ui/copy.ts";
 import { HoverCard } from "./HoverCard.tsx";
+import { MapFind } from "./MapFind.tsx";
+import { MapLayers, type MapLayerKey } from "./MapLayers.tsx";
 
 /**
  * The shared map.
@@ -557,6 +560,24 @@ export function MapView({
   }, []);
   const [scopeOffscreen, setScopeOffscreen] = useState(false);
   const [panned, setPanned] = useState(false);
+  /* Optional context layers (MapLayers.tsx). Off by default: the room's own
+     marks are what the map is for, and every layer here sits under them. */
+  const [layers, setLayers] = useState<Record<MapLayerKey, boolean>>({
+    buildings: false,
+    explore: true,
+    landmarks: false,
+    transit: false,
+  });
+  const [landmarks, setLandmarks] = useState<AreaLandmark[]>([]);
+  /** The camera's tilt, republished when a move settles: the 3D layer's own
+   * evidence that it took, and what a spec reads to see the map level again. */
+  const [pitch, setPitch] = useState(0);
+  /** The basemap's first text layer: optional fills go beneath it, so a road
+   * name is never buried under a building. Undefined until the style is in,
+   * and while the basemap is missing entirely there is nothing to draw the
+   * buildings or transit lines from — both read the basemap's own source. */
+  const [firstLabelLayer, setFirstLabelLayer] = useState<string | undefined>();
+  const [basemapSource, setBasemapSource] = useState<string | null>(null);
   const [selectedExploreRef, setSelectedExploreRef] = useState<string | null>(null);
   const [exploreAnnouncement, setExploreAnnouncement] = useState("");
   const [addingExplore, setAddingExplore] = useState(false);
@@ -1626,6 +1647,83 @@ export function MapView({
     return () => cancelAnimationFrame(frame);
   }, [selectedExplore]);
 
+  /* 3D is a camera state as much as a layer: extruded bodies only read as
+     bodies from an angle. An explicit toggle is the user's own action, so
+     moving the camera here is the §8 exception, not a set change moving the
+     map. Reduced motion gets the same pitch, arrived at instantly. */
+  useEffect(() => {
+    if (!loaded) return;
+    mapRef.current?.easeTo({
+      pitch: layers.buildings ? 48 : 0,
+      duration: motion.reduced ? 0 : motion.settleMs,
+    });
+  }, [layers.buildings, loaded, motion.reduced, motion.settleMs]);
+
+  /* Landmarks follow the viewport the viewer panned to, exactly as the
+     explore layer does: loading follows the viewport, never the reverse. */
+  useEffect(() => {
+    if (!layers.landmarks || !loaded) {
+      setLandmarks([]);
+      return;
+    }
+    const bounds = mapRef.current?.getBounds();
+    if (!bounds) return;
+    const controller = new AbortController();
+    void (async () => {
+      const result = await fetchAreaLandmarks(
+        roomId,
+        [bounds.getSouth(), bounds.getWest(), bounds.getNorth(), bounds.getEast()],
+        controller.signal,
+      );
+      if (!controller.signal.aborted && result.ok) setLandmarks(result.landmarks);
+    })();
+    return () => controller.abort();
+  }, [layers.landmarks, loaded, roomId, viewTick]);
+
+  const landmarkGeoJson = useMemo(
+    () => ({
+      type: "FeatureCollection" as const,
+      features: landmarks.map((landmark) => ({
+        type: "Feature" as const,
+        id: landmark.id,
+        properties: { name: landmark.name, kind: landmark.kindLabel },
+        geometry: {
+          type: "Point" as const,
+          coordinates: [landmark.location.lng, landmark.location.lat] as [number, number],
+        },
+      })),
+    }),
+    [landmarks],
+  );
+
+  /** Where the viewer is looking, for ranking what they type. */
+  const viewportCenter = useMemo(() => {
+    const middle = mapRef.current?.getCenter();
+    return middle ? { lat: middle.lat, lng: middle.lng } : center;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewTick, center.lat, center.lng]);
+
+  /* Choosing a found place is an explicit action, so it may move the map
+     (§8). A place the room already holds opens as itself; one it does not
+     enters the explore cache first, so its card can open on arrival. */
+  const chooseFound = (place: ExplorePlace) => {
+    const map = mapRef.current;
+    map?.flyTo({
+      center: [place.location.lng, place.location.lat],
+      zoom: Math.max(map.getZoom(), 16),
+      duration: motion.reduced ? 0 : 600,
+    });
+    if (place.candidateId) {
+      setSelectedExploreRef(null);
+      dispatchSelect(place.candidateId);
+      return;
+    }
+    spatial.adoptExplore([place]);
+    dispatchSelect(null);
+    focusExploreAction.current = false;
+    setSelectedExploreRef(place.ref);
+  };
+
   const viewportSettled = () => {
     const map = mapRef.current;
     if (!map) return;
@@ -1638,6 +1736,7 @@ export function MapView({
       center.lng > bounds.getEast(),
     );
     setPanned(distanceMeters(center, { lat: mapCenter.lat, lng: mapCenter.lng }) > 50);
+    setPitch(Math.round(map.getPitch()));
     setViewTick((tick) => tick + 1);
     if (!context.pool?.explorable) return;
     if (exploreTimer.current) clearTimeout(exploreTimer.current);
@@ -1819,6 +1918,8 @@ export function MapView({
       data-loaded={loaded ? "true" : undefined}
       aria-busy={busyCount > 0 || pendingCount > 0 || context.pool?.filling || undefined}
       data-explore-count={explorePlaces.length}
+      data-layers={Object.entries(layers).filter(([, on]) => on).map(([key]) => key).join(" ")}
+      data-pitch={pitch}
     >
       {tileStyle && (
       <Map
@@ -1830,6 +1931,10 @@ export function MapView({
           const map = mapRef.current?.getMap();
           if (map) {
             map.setMissingStyleImageResolver((id) => resolveRingImage(map, id));
+            setFirstLabelLayer(
+              map.getStyle().layers?.find((layer) => layer.type === "symbol")?.id,
+            );
+            setBasemapSource(map.getSource(BASEMAP_SOURCE) ? BASEMAP_SOURCE : null);
             // Symbol layers mount only after this handler marks the map
             // loaded, so both DPR-specific images exist before first paint.
             addRingImages(map, ringPixelRatio);
@@ -1884,6 +1989,11 @@ export function MapView({
             return;
           }
 
+          if (!layers.explore) {
+            setSelectedExploreRef(null);
+            dispatchSelect(null);
+            return;
+          }
           const features = map?.queryRenderedFeatures(
             [
               [event.point.x - TAP_REACH, event.point.y - TAP_REACH],
@@ -1924,10 +2034,82 @@ export function MapView({
           dispatchSelect(null);
         }}
       >
+        {layers.buildings && basemapSource && (
+          <Layer
+            id="layer-buildings"
+            type="fill-extrusion"
+            source={basemapSource}
+            source-layer="building"
+            minzoom={13}
+            beforeId={firstLabelLayer}
+            paint={{
+              "fill-extrusion-color": MAP_THEME.layers.buildings.color,
+              "fill-extrusion-opacity": MAP_THEME.layers.buildings.opacity,
+              // OSM records a height for some buildings and not others. A
+              // storey-and-a-half default gives the rest a body without
+              // claiming a measurement the data does not have.
+              "fill-extrusion-height": ["coalesce", ["get", "render_height"], 6],
+              "fill-extrusion-base": ["coalesce", ["get", "render_min_height"], 0],
+            }}
+          />
+        )}
+        {layers.transit && basemapSource && (
+          <Layer
+            id="layer-transit"
+            type="line"
+            source={basemapSource}
+            source-layer="transportation"
+            beforeId={firstLabelLayer}
+            filter={["match", ["get", "class"], ["rail", "transit"], true, false]}
+            paint={{
+              "line-color": MAP_THEME.layers.transit.color,
+              "line-opacity": MAP_THEME.layers.transit.opacity,
+              "line-width": MAP_THEME.layers.transit.width,
+            }}
+          />
+        )}
+        {layers.landmarks && (
+          <Source id="landmarks" type="geojson" data={landmarkGeoJson}>
+            {/* A mark on the anchor itself, then the name under it: the point
+                a distance need measures from is the point drawn, and the pair
+                never reads as a second copy of a basemap label. */}
+            <Layer
+              id="layer-landmark-marks"
+              type="circle"
+              paint={{
+                "circle-radius": 2.5,
+                "circle-color": MAP_THEME.layers.landmark.color,
+                "circle-opacity": 0.7,
+                "circle-stroke-color": MAP_THEME.layers.landmark.halo,
+                "circle-stroke-width": 1,
+              }}
+            />
+            <Layer
+              id="layer-landmarks"
+              type="symbol"
+              layout={{
+                "text-field": ["get", "name"],
+                "text-font": ["Noto Sans Regular"],
+                "text-size": 11,
+                "text-max-width": 8,
+                "text-padding": 6,
+                "text-offset": [0, 0.9],
+                "text-anchor": "top",
+                "text-optional": true,
+              }}
+              paint={{
+                "text-color": MAP_THEME.layers.landmark.color,
+                "text-halo-color": MAP_THEME.layers.landmark.halo,
+                "text-halo-width": 1.4,
+              }}
+            />
+          </Source>
+        )}
         <Source id="explore" type="geojson" data={exploreGeoJson} promoteId="ref">
           <Layer
             id="explore-dots"
             type="circle"
+            layout={{ visibility: layers.explore ? "visible" : "none" }}
             paint={{
               "circle-radius": 4,
               "circle-color": MAP_THEME.exploreDot.color,
@@ -2540,6 +2722,14 @@ export function MapView({
           </span>
         </div>
       )}
+
+      <div className="map-top-right">
+        <MapFind roomId={roomId} near={viewportCenter} onChoose={chooseFound} />
+        <MapLayers
+          active={layers}
+          onToggle={(key, on) => setLayers((current) => ({ ...current, [key]: on }))}
+        />
+      </div>
 
       {(scopeOffscreen || (isOrganizer && panned)) && (
         <div

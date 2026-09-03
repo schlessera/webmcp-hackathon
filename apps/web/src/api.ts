@@ -413,6 +413,125 @@ export async function fetchExplorePlaces(
   }
 }
 
+export interface AreaLandmark {
+  id: string;
+  name: string;
+  kind: string;
+  kindLabel: string;
+  location: { lat: number; lng: number };
+}
+
+export interface AreaLandmarksResponse {
+  ok: true;
+  landmarks: AreaLandmark[];
+}
+
+/** The orientation layer: snapshot landmarks inside the current viewport. */
+export async function fetchAreaLandmarks(
+  roomId: string,
+  bbox: [number, number, number, number],
+  signal?: AbortSignal,
+): Promise<AreaLandmarksResponse | { ok: false }> {
+  const token = currentToken();
+  if (!token) return { ok: false };
+  const correlationId = newCorrelationId();
+  const path = `/api/rooms/${encodeURIComponent(roomId)}/landmarks?bbox=${bbox.join(",")}`;
+  const span = wire.begin({
+    lane: "http",
+    label: "GET landmarks",
+    correlationId,
+    parentId: wire.parentFor(signal),
+    detail: { correlation: correlationId, bbox: bbox.map((v) => v.toFixed(4)).join(",") },
+  });
+  try {
+    const response = await fetch(path, {
+      headers: {
+        authorization: `Bearer ${token}`,
+        "x-correlation-id": correlationId,
+      },
+      signal,
+    });
+    const { body: parsed, bytes } = await readJson(response);
+    const body = parsed as AreaLandmarksResponse;
+    if (!response.ok || body.ok !== true) {
+      wire.end(span, { outcome: "error", note: `http ${response.status}`, serverMs: serverMs(response), bytes });
+      return { ok: false };
+    }
+    wire.end(span, {
+      outcome: "ok",
+      note: `${body.landmarks.length} landmarks`,
+      serverMs: serverMs(response),
+      bytes,
+    });
+    return body;
+  } catch {
+    wire.end(span, { outcome: signal?.aborted ? "cancelled" : "error", note: signal?.aborted ? "replaced" : "network" });
+    return { ok: false };
+  }
+}
+
+/** Authenticated name search over the room area's already-loaded snapshot. */
+export async function fetchPlaceSearch(
+  roomId: string,
+  query: string,
+  near: { lat: number; lng: number } | null,
+  signal?: AbortSignal,
+): Promise<ExplorePlacesResponse | typeof notAuthenticated | { ok: false; error: { code: string; message: string } }> {
+  const token = currentToken();
+  if (!token) return notAuthenticated;
+  const correlationId = newCorrelationId();
+  const params = new URLSearchParams({ q: query });
+  if (near) params.set("near", `${near.lat.toFixed(5)},${near.lng.toFixed(5)}`);
+  const path = `/api/rooms/${encodeURIComponent(roomId)}/places/search?${params}`;
+  const span = wire.begin({
+    lane: "http",
+    label: "GET place search",
+    correlationId,
+    parentId: wire.parentFor(signal),
+    detail: { correlation: correlationId, q: trim(query, 40) },
+  });
+  try {
+    const response = await fetch(path, {
+      headers: {
+        authorization: `Bearer ${token}`,
+        "x-correlation-id": correlationId,
+      },
+      signal,
+    });
+    const { body: parsed, bytes } = await readJson(response);
+    const body = parsed as ExplorePlacesResponse & { error?: string };
+    if (!response.ok || body.ok !== true) {
+      wire.end(span, {
+        outcome: "error",
+        note: `http ${response.status}`,
+        serverMs: serverMs(response),
+        bytes,
+      });
+      return {
+        ok: false,
+        error: {
+          code: response.status === 400 ? "invalid_input" : "not_found",
+          message: body.error ?? `Place search failed (${response.status}).`,
+        },
+      };
+    }
+    wire.end(span, {
+      outcome: "ok",
+      note: `${body.places.length} matches${body.truncated ? " · more" : ""}`,
+      serverMs: serverMs(response),
+      bytes,
+    });
+    return body;
+  } catch (error) {
+    if (signal?.aborted) {
+      wire.end(span, { outcome: "cancelled", note: "replaced" });
+      return { ok: false, error: { code: "aborted", message: "Place search replaced." } };
+    }
+    wire.end(span, { outcome: "error", note: "network" });
+    return { ok: false, error: { code: "not_found", message: String(error).slice(0, 120) } };
+  }
+}
+
 /**
  * The natural-language surface (docs/NL-AGENT.md), page-only. `nlSay` routes
  * a composer sentence: a need comes back as payloads the page submits itself

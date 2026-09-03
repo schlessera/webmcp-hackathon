@@ -215,6 +215,17 @@ Each states what's true, then the one thing to do.
 - Desktop batch action: **“Bring in all here (N)”**, where N is the absolute
   number that will be brought in and never exceeds 40.
 
+## Finding a place, and layers
+
+- Find control: **“Find a place”** — both the chip and the field's
+  placeholder. It finds by name; never offer to find "restaurants near you"
+  or any other kind of place.
+- Nothing matched: **“No place here goes by that name.”** Never "No results".
+- Layers control: **“Layers”**, and its rows read **“Buildings in 3D”**,
+  **“Places not in the room”**, **“Landmarks”**, **“Transit lines”**.
+- “Search here” keeps its own meaning — moving the room's area to the middle
+  of the map. Never call finding a place a search in visible copy.
+
 Use **bring in** for moving a place from the map's explore layer into the
 room. Never expose “ref”, endpoint names, command names, or pool vocabulary in
 the visible copy.

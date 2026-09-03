@@ -292,6 +292,45 @@ disappears when sharing stops or the person's last socket closes. This is the
 The header avatar carries a small square showing mark while its position row is
 present; the round dot continues to mean here now.
 
+### Find a place, and the layers control
+
+Both live in one right-anchored row at the map's top (`.map-top-right`,
+`z-index: 6`), so the count block keeps the top-left corner it owns.
+
+**Find a place** (`MapFind.tsx`) is a `Find a place` chip until it is asked
+for, then a field of `min(300px, 100vw − 190px)` with the matches beneath it
+in a `--spoke-surface` card. Matching runs server-side over the room area's
+snapshot — the same rows the explore layer draws — by name only, forgiving
+accents, punctuation, word order and one wrong letter. At most 8 matches, each
+a ≥44px row with the name above its place class. Choosing one flies the map to
+it (an explicit action, the §8 exception) and opens it: a place already in the
+room opens as itself; one that is not opens the explore card, so the next
+gesture is `Bring into the room`. ↓/↑ move, Enter chooses, Escape clears then
+closes, and the match count goes out on `aria-live`.
+
+**Layers** (`MapLayers.tsx`) is a `Layers` chip whose panel carries one
+checkbox per optional layer: buildings in 3D, places not in the room,
+landmarks, transit lines. The chip's border goes to `--spoke-ink` while any
+layer is on. Every layer is *context under the room* and is painted in the
+plate's own family (`MAP_THEME.layers`) — never in a state colour, which would
+read as a verdict about a place. Nothing the room decided is ever behind a
+switch.
+
+- **Buildings in 3D** — `fill-extrusion` from the basemap's own building
+  layer, beneath the first label layer, `render_height` where OSM has one and
+  6m where it does not. Turning it on pitches the camera to 48°, which is a
+  camera state, not an animation; reduced motion arrives at the same pitch
+  instantly.
+- **Places not in the room** — the explore dots' own visibility. On by
+  default; while off, the layer takes no taps either.
+- **Landmarks** — the area snapshot's landmark rows (the same rows a distance
+  need measures from): a 2.5px `--spoke-ink-soft` mark on the anchor with the
+  name under it, halo'd in `--spoke-surface`, loaded for the viewport the
+  viewer panned to. The mark is what keeps it from reading as a second copy of
+  a basemap label.
+- **Transit lines** — rail and transit from the basemap's transportation
+  layer, `--spoke-ink` at 40%.
+
 ### Attribution
 
 7px, 9px line-height, no min-height, 62% white plate, 42% ink. It is a legal

@@ -17,6 +17,7 @@
  * | #e9e5da                   | --spoke-surface-sunk (map plate) |
  * | #a8a291                   | --spoke-out       |
  * | rgba(51, 65, 54, 0.55)    | --spoke-line      |
+ * | #5b6158                   | --spoke-ink-soft  |
  */
 export const MAP_THEME = {
   /** --spoke-ink at 8%: everything outside the scope circle (SPOKES-UI §3). */
@@ -31,6 +32,19 @@ export const MAP_THEME = {
   plate: "#e9e5da",
   /** Cheap snapshot places beneath the room's DOM stickers. */
   exploreDot: { color: "#a8a291", opacity: 0.55, stroke: "rgba(51, 65, 54, 0.55)" },
+  /** The optional layers (SPOKES-UI "Layers"). Each is context under the
+   * room, so each is drawn in the plate's own family — never in a state
+   * colour, which would read as a verdict about a place (§2). */
+  layers: {
+    /** --spoke-surface-sunk: building bodies, given depth by MapLibre's own
+     * vertical shading rather than by a second colour. */
+    buildings: { color: "#e9e5da", opacity: 0.92 },
+    /** --spoke-ink, thin and faint: rail and transit lines. */
+    transit: { color: "#334136", opacity: 0.4, width: 1.6 },
+    /** --spoke-ink-soft on --spoke-surface: landmark names, halo'd so they
+     * stay legible over the plate without a plate of their own. */
+    landmark: { color: "#5b6158", halo: "#fffdf7" },
+  },
   /** Candidate marks: each literal is the exact value of its paired token. */
   marks: {
     /** --spoke-works. */
@@ -47,5 +61,10 @@ export const MAP_THEME = {
     outOpacity: 0.6,
   },
 } as const;
+
+/** The vector source every OpenMapTiles-schema basemap names, and the one the
+ * optional building and transit layers read. Absent when the style failed to
+ * load, which is why those layers check for it before they mount. */
+export const BASEMAP_SOURCE = "openmaptiles";
 
 export const TILE_STYLE = "https://tiles.openfreemap.org/styles/positron";

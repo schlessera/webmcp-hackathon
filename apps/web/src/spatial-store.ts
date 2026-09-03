@@ -570,6 +570,20 @@ export class SpatialStore {
     if (explore !== this.state.explore) this.update({ explore });
   }
 
+  /**
+   * Take places the viewer found by name into the explore cache, so the map
+   * can draw and open one the moment it is chosen — before the viewport it
+   * sits in has been loaded.
+   */
+  adoptExplore(places: ExplorePlace[]): void {
+    if (places.length === 0) return;
+    const anchor = places[0].location;
+    const explore = mergeExploreCache(this.state.explore, places, [
+      anchor.lat, anchor.lng, anchor.lat, anchor.lng,
+    ]);
+    if (explore !== this.state.explore) this.update({ explore });
+  }
+
   markExploreAdded(refs: string[]): void {
     if (refs.length === 0) return;
     const explore = new Map(this.state.explore);
