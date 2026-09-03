@@ -48,23 +48,13 @@ import { Start } from "./components/Start.tsx";
 import { Landing } from "./components/Landing.tsx";
 import { provenanceLine } from "./ui/copy.ts";
 import { RevisionWatermarks } from "./revision-watermarks.ts";
+import { mergeFeed, type FeedLine } from "./feed.ts";
 
 /**
  * The room is the whole app: one screen, no nav bar, no tab bar, no
  * hamburger (CLAUDE.md §11). Header, map and composer are fixed; only the
  * brief scrolls. Everything protocol-shaped lives behind `{ }`.
  */
-
-interface FeedLine extends ProjectedEvent {}
-
-/** Newest first, deduplicated by revision (live WS and catch-up can overlap). */
-function mergeFeed(incoming: FeedLine[], prev: FeedLine[]): FeedLine[] {
-  const seen = new Set<number>();
-  return [...incoming, ...prev]
-    .filter((e) => (seen.has(e.revision) ? false : (seen.add(e.revision), true)))
-    .sort((a, b) => b.revision - a.revision)
-    .slice(0, 40);
-}
 
 /** Events that state a need, newest first — the "just applied" highlight. */
 const NEED_EVENTS = new Set([
