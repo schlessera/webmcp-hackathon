@@ -179,7 +179,7 @@ describe("eligibility against the Berlin Mitte dataset", () => {
     expect(by.c_miss.eligibility).toBe("excluded");
     expect(whyFor(by.c_miss, "p_peer")).toBe("not asian");
     expect(by.c_none.eligibility).toBe("uncertain");
-    expect(whyFor(by.c_none, "p_peer")).toBe("cuisine unverified");
+    expect(whyFor(by.c_none, "p_peer")).toBe("cuisine not on record");
   });
 
   it("application-private exclusions never cite content in peer why-strings; owners see their own", () => {
@@ -198,7 +198,7 @@ describe("eligibility against the Berlin Mitte dataset", () => {
       if (row.eligibility !== "excluded") continue;
       const peerWhy = whyFor(row, "p_sarah");
       if (peerWhy === "outside the current search area") continue;
-      expect(peerWhy).toBe("excluded by a private requirement");
+      expect(peerWhy).toBe("ruled out by a private condition");
       expect(peerWhy).not.toContain("lactose");
       expect(whyFor(row, "p_joe")).toContain("lactose");
     }

@@ -47,9 +47,9 @@ describe("classifier", () => {
     );
     const by = Object.fromEntries(rows.map((r) => [r.candidateId, r]));
     expect(by.c_likely).toMatchObject({ eligibility: "likely", confidence: 0.3 });
-    expect(whyFor(by.c_likely, "p_peer")).toBe("vegan-options likely; outdoor-seating likely");
+    expect(whyFor(by.c_likely, "p_peer")).toBe("vegan options likely; outdoor seating likely");
     expect(by.c_unlikely).toMatchObject({ eligibility: "unlikely", confidence: 0.55 });
-    expect(whyFor(by.c_unlikely, "p_peer")).toBe("vegan-options unlikely");
+    expect(whyFor(by.c_unlikely, "p_peer")).toBe("vegan options unlikely");
     // A gap outranks a guess for it: honest uncertainty first.
     expect(by.c_mixed.eligibility).toBe("uncertain");
     expect(by.c_sure.eligibility).toBe("eligible");

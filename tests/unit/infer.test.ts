@@ -1,3 +1,4 @@
+import { mergedAttributes } from "../../apps/server/src/eligibility.ts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   applyInferredAttributes,
@@ -159,6 +160,38 @@ describe("inference merge", () => {
     expect(by["wheelchair-accessible"]).toMatchObject({ status: "likely_true", source: "infer:m", note: "step-free access" });
     expect(by.delivery).toMatchObject({ status: "likely_false", source: "infer:m", note: "cafe" });
     expect(out.some((attribute) => attribute.status.startsWith("verified_") && attribute.source === "infer:m")).toBe(false);
+  });
+});
+
+describe("inference merge order", () => {
+  it("lets a quoted span outrank a kind-of-place rule, and both stay likely", () => {
+    // A vegetarian-cuisine rule would fill vegan-options at 0.5 from the
+    // category alone; an inference with a quoted span from the place's own
+    // description must reach the slot first (V6, 2026-09-03).
+    const out = mergedAttributes(
+      {
+        id: "c1",
+        category: "restaurant",
+        attributes: [
+          { key: "cuisine", status: "verified_true", value: "vegetarian", source: "osm:cuisine", observedAt: "2026-08-31T00:00:00Z", confidence: 0.8 },
+          { key: "vegan-options", status: "unknown", source: "osm:diet:vegan", observedAt: "2026-08-31T00:00:00Z", confidence: 0.6 },
+        ],
+      },
+      {
+        osmRef: "node/1",
+        fetchedAt: "2026-09-03T00:00:00Z",
+        website: null,
+        wikidata: null,
+        inferred: {
+          "vegan-options": { key: "vegan-options", lean: "no", confidence: 0.6, evidence: "no vegan dishes at present", source: "infer:m", observedAt: "2026-09-03T00:00:00Z" },
+        },
+        inferredAt: "2026-09-03T00:00:00Z",
+        error: null,
+      } as never,
+      [],
+    );
+    const vegan = out.find((attribute) => attribute.key === "vegan-options");
+    expect(vegan).toMatchObject({ status: "likely_false", source: "infer:m", note: "no vegan dishes at present" });
   });
 });
 

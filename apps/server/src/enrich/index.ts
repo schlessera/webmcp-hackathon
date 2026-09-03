@@ -421,9 +421,11 @@ function mergedForLookup(
 ): AttributeLike[] {
   const normalised = (row.attributes ?? []).map((attribute) => normalizeStatus(attribute));
   const enriched = applyEnrichmentAttributes(normalised, enrichment);
-  const guessed = applyGuesses(row.category, enriched, observedAt);
-  const inferred = applyInferredAttributes(guessed, enrichment?.inferred);
-  return applyAttestations(row.id, inferred, attestations);
+  // Same order as eligibility.ts mergedAttributes: inference before the
+  // kind-of-place rules, so a quoted span is never shadowed by a rule.
+  const inferred = applyInferredAttributes(enriched, enrichment?.inferred);
+  const guessed = applyGuesses(row.category, inferred, observedAt);
+  return applyAttestations(row.id, guessed, attestations);
 }
 
 /** A deterministic factual hash: order-independent and deliberately omits
@@ -442,18 +444,18 @@ function inferenceTexts(row: LookupCandidateRow, enrichment: Enrichment | undefi
   const web = enrichment?.website;
   if (web?.description) texts.push({ source: "web", text: web.description });
   if (web) {
+    // Only what the place itself wrote may serve as evidence. Facts the
+    // server already parsed into slots (price band, wheelchair, hours) are
+    // not prose: a synthesized "Price level: 2" line must never come back
+    // as the quoted evidence for an unrelated key.
     const facts = [
       web.cuisine?.length ? `Cuisine: ${web.cuisine.join(", ")}` : "",
-      web.priceLevel ? `Price level: ${web.priceLevel}` : "",
-      web.wheelchair !== undefined ? `Wheelchair accessible: ${web.wheelchair ? "yes" : "no"}` : "",
-      web.hours?.length ? `Opening hours: ${web.hours.join("; ")}` : "",
     ].filter(Boolean);
     if (facts.length) texts.push({ source: "web", text: facts.join(". ") });
     const menu = [
       ...(web.menuMentions ?? []).map((key) => `${key} mentioned on the menu`),
       ...(web.menuReading?.claims ?? []).map((claim) => claim.evidence),
       ...(web.menuReading?.cuisine ?? []),
-      web.menuReading?.priceLevel ? `Menu price level: ${web.menuReading.priceLevel}` : "",
     ].filter(Boolean);
     if (menu.length) texts.push({ source: "menu", text: menu.join(". ") });
   }

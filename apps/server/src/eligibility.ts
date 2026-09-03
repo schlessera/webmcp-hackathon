@@ -1,10 +1,14 @@
 import type pg from "pg";
 import type { Feasibility } from "@webmcp-hackathon/contracts";
-import { PRICE_LEVEL_EUR, leans, isVerified, normalizeStatus } from "@webmcp-hackathon/contracts";
+import { ATTRIBUTE_LABELS, PRICE_LEVEL_EUR, leans, isVerified, normalizeStatus } from "@webmcp-hackathon/contracts";
 import { applyAttestations, loadAttestations } from "./attestations.ts";
 import { applyEnrichmentAttributes, loadCached } from "./enrich/index.ts";
 import { applyInferredAttributes } from "./enrich/infer.ts";
 import { applyGuesses } from "./guess.ts";
+
+/** Reason texts are reader-facing (CLAUDE.md §6): the label, never the key. */
+const labelOf = (key: string | undefined): string =>
+  (key && (ATTRIBUTE_LABELS as Record<string, string>)[key]) || (key ?? "this").replace(/-/g, " ");
 
 /**
  * Deterministic eligibility per SPATIAL-PROTOCOL.md §8:
@@ -126,8 +130,8 @@ export interface CandidateEligibility {
   priceLevel: number | null;
 }
 
-const PRIVATE_EXCLUDED = "excluded by a private requirement";
-const PRIVATE_PENDING = "private evidence pending";
+const PRIVATE_EXCLUDED = "ruled out by a private condition";
+const PRIVATE_PENDING = "a private condition not yet checked";
 
 /**
  * The viewer-safe why-string. Shared reasons pass through; every contribution
@@ -163,7 +167,7 @@ export function whyFor(row: CandidateEligibility, viewerId: string): string {
     if (hasHiddenPrivate) parts.push(PRIVATE_PENDING);
     return parts.join("; ").slice(0, 120);
   }
-  return "meets all evaluable requirements";
+  return "clears every need on record";
 }
 
 export function haversineMeters(
@@ -264,9 +268,13 @@ export function mergedAttributes(
   const normalised = (c.attributes ?? []).map((a) => normalizeStatus(a));
   return applyAttestations(
     c.id,
-    applyInferredAttributes(
-      applyGuesses(c.category, applyEnrichmentAttributes(normalised, enrichment), observedAt),
-      enrichment?.inferred,
+    // Record → looked-up facts → inference over what the place publishes →
+    // the kind-of-place rules. Evidence with a quoted span outranks a rule
+    // about cafés in general; both stay likely, never verified.
+    applyGuesses(
+      c.category,
+      applyInferredAttributes(applyEnrichmentAttributes(normalised, enrichment), enrichment?.inferred),
+      observedAt,
     ),
     attestations,
   );
@@ -358,13 +366,13 @@ function classify(
         const wanted = expect === "verified_true";
         const lean = leans(status);
         if (lean === null) {
-          pending.push({ ...owner, text: `${p.key} unverified` });
+          pending.push({ ...owner, text: `${labelOf(p.key)} not on record` });
         } else if (isVerified(status)) {
           if (lean !== wanted) {
             // A verified status contradicting the expectation hard-excludes.
             return excluded(candidate, {
               ...owner,
-              text: wanted ? `no verified ${p.key}` : `verified ${p.key}`,
+              text: wanted ? `no ${labelOf(p.key)} on record` : `${labelOf(p.key)} on record`,
             });
           }
         } else {
@@ -373,7 +381,7 @@ function classify(
             ...owner,
             lean: lean === wanted,
             confidence: attr?.confidence ?? 0.5,
-            text: lean === wanted ? `${p.key} likely` : `${p.key} unlikely`,
+            text: lean === wanted ? `${labelOf(p.key)} likely` : `${labelOf(p.key)} unlikely`,
           });
         }
         break;
@@ -388,14 +396,14 @@ function classify(
           }
         } else if (p.dimension === "radius_m" && typeof p.max === "number") {
           if (!scope?.area?.center) {
-            pending.push({ ...owner, text: "scope evidence pending" });
+            pending.push({ ...owner, text: "distance not on record" });
           } else if (
             haversineMeters(candidate.location, scope.area.center) > p.max
           ) {
             return excluded(candidate, { ...owner, text: `beyond ${p.max} m` });
           }
         } else {
-          pending.push({ ...owner, text: "scope evidence pending" });
+          pending.push({ ...owner, text: "distance not on record" });
         }
         break;
       }
@@ -406,7 +414,7 @@ function classify(
           PRICE_LEVEL_EUR[candidate.price_level as keyof typeof PRICE_LEVEL_EUR];
         const max = p.perPersonMax?.amount;
         if (band === undefined || typeof max !== "number") {
-          pending.push({ ...owner, text: "budget evidence pending" });
+          pending.push({ ...owner, text: "price not on record" });
         } else if (band > max) {
           return excluded(candidate, {
             ...owner,
@@ -430,7 +438,7 @@ function classify(
               ? attr.value.split(";").map((t) => t.trim()).filter(Boolean)
               : [];
           if (tokens.length === 0) {
-            pending.push({ ...owner, text: "cuisine unverified" });
+            pending.push({ ...owner, text: "cuisine not on record" });
           } else if (!tokens.some((t) => p.values?.includes(t))) {
             if (attr?.status === "likely_true") {
               likely.push({ ...owner, lean: false, confidence: attr.confidence ?? 0.5, text: `probably not ${(p.values ?? []).join(" or ")}` });
@@ -441,7 +449,7 @@ function classify(
             likely.push({ ...owner, lean: true, confidence: attr.confidence ?? 0.5, text: `probably ${(p.values ?? []).join(" or ")}` });
           }
         } else {
-          pending.push({ ...owner, text: "inclusion evidence pending" });
+          pending.push({ ...owner, text: "cuisine not on record" });
         }
         break;
       }
@@ -463,7 +471,7 @@ function classify(
             }
           }
         } else {
-          pending.push({ ...owner, text: "exclusion evidence pending" });
+          pending.push({ ...owner, text: "cuisine not on record" });
         }
         break;
       }
