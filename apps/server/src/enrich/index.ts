@@ -982,9 +982,25 @@ export function warmEnrichments(
   roomId: string,
   targets: RoomLookupTarget[],
 ): void {
-  void lookupNow(pool, roomId, targets, { reason: { kind: "pool" } }).catch(() => {
-    /* warm-up never holds room creation hostage */
-  });
+  void warmEnrichmentsDone(pool, roomId, targets);
+}
+
+/**
+ * The same warm-up, awaitable. A caller adding places in batches chains on
+ * this so the room warms one batch at a time and the outbound fetches stay
+ * inside WARM_CONCURRENCY, instead of every batch opening its own four.
+ */
+export function warmEnrichmentsDone(
+  pool: pg.Pool,
+  roomId: string,
+  targets: RoomLookupTarget[],
+): Promise<void> {
+  if (targets.length === 0) return Promise.resolve();
+  return lookupNow(pool, roomId, targets, { reason: { kind: "pool" } })
+    .then(() => undefined)
+    .catch(() => {
+      /* warm-up never holds room creation, or the fill, hostage */
+    });
 }
 
 // --- merging into a dossier -----------------------------------------------

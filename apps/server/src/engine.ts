@@ -56,7 +56,11 @@ import {
 } from "./places.ts";
 import { warmEnrichments, type RoomLookupTarget } from "./enrich/index.ts";
 import { notifyCommit } from "./commit-notifications.ts";
-import { insertCandidateSeeds, numberCandidateSeeds } from "./candidate-write.ts";
+import {
+  insertCandidateSeeds,
+  numberCandidateSeeds,
+  warmTargetsFor,
+} from "./candidate-write.ts";
 import { startPoolFill } from "./pool-fill.ts";
 export {
   notifyCommit,
@@ -1274,20 +1278,6 @@ function candidatesAddedEvent(actor: Participant, seeds: CandidateSeed[]): Appen
       names: seeds.slice(0, 3).map((seed) => seed.name),
     },
   };
-}
-
-function warmTargetsFor(seeds: CandidateSeed[]): RoomLookupTarget[] {
-  return seeds.flatMap((seed) => {
-    const extras = seed.extras;
-    return seed.osmRef && (extras?.website || extras?.wikidata)
-      ? [{
-          candidateId: seed.id,
-          osmRef: seed.osmRef,
-          ...(extras.website ? { website: extras.website } : {}),
-          ...(extras.wikidata ? { wikidata: extras.wikidata } : {}),
-        }]
-      : [];
-  });
 }
 
 async function proposeDestination(

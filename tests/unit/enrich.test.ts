@@ -20,6 +20,7 @@ import {
   type Enrichment,
 } from "../../apps/server/src/enrich/index.ts";
 import { dossierFromTags, linksFromTags } from "../../packages/contracts/src/dossier.ts";
+import { warmTargetsFor } from "../../apps/server/src/candidate-write.ts";
 
 /**
  * The enrichment layer (docs/ENRICHMENT-SOURCES.md): parsing what a place
@@ -453,5 +454,39 @@ describe("merge rules", () => {
       "https://example.org",
       "https://www.instagram.com/x.y/",
     ]);
+  });
+});
+
+describe("warm targets for a pool batch", () => {
+  const seed = (id: string, extras?: Record<string, string>) => ({
+    id,
+    name: id,
+    category: "cafe",
+    price_level: null,
+    walk_min: 3,
+    location: { lat: 52.5, lng: 13.4 },
+    attributes: [],
+    hours: null,
+    osmRef: `node/${id}`,
+    ...(extras ? { extras } : {}),
+  }) as never;
+
+  it("keeps only the seeds with somewhere to look", () => {
+    const targets = warmTargetsFor([
+      seed("with-site", { website: "https://example.test" }),
+      seed("with-wikidata", { wikidata: "Q42" }),
+      seed("with-nothing"),
+    ]);
+    expect(targets.map((target) => target.candidateId)).toEqual(["with-site", "with-wikidata"]);
+    expect(targets[0]).toMatchObject({
+      osmRef: "node/with-site",
+      website: "https://example.test",
+    });
+    expect(targets[1]).not.toHaveProperty("website");
+  });
+
+  it("drops a seed the snapshot could not resolve to an OSM ref", () => {
+    const orphan = { ...seed("orphan", { website: "https://example.test" }), osmRef: undefined };
+    expect(warmTargetsFor([orphan as never])).toEqual([]);
   });
 });

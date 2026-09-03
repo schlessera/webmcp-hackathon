@@ -1,5 +1,6 @@
 import type pg from "pg";
 import type { CandidateSeed } from "./places.ts";
+import type { RoomLookupTarget } from "./enrich/index.ts";
 
 /** Continue a room's numeric candidate suffix while preserving creation ids. */
 export function numberCandidateSeeds(
@@ -58,4 +59,19 @@ export async function insertCandidateSeeds(
       WHERE id = $1`,
     [roomId],
   );
+}
+
+/** The seeds worth a warm-up: only those carrying somewhere to look. */
+export function warmTargetsFor(seeds: CandidateSeed[]): RoomLookupTarget[] {
+  return seeds.flatMap((seed) => {
+    const extras = seed.extras;
+    return seed.osmRef && (extras?.website || extras?.wikidata)
+      ? [{
+          candidateId: seed.id,
+          osmRef: seed.osmRef,
+          ...(extras.website ? { website: extras.website } : {}),
+          ...(extras.wikidata ? { wikidata: extras.wikidata } : {}),
+        }]
+      : [];
+  });
 }

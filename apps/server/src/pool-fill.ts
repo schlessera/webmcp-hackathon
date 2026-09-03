@@ -1,7 +1,12 @@
 import { POOL_CAP, areaById } from "@webmcp-hackathon/contracts";
-import { insertCandidateSeeds, numberCandidateSeeds } from "./candidate-write.ts";
+import {
+  insertCandidateSeeds,
+  numberCandidateSeeds,
+  warmTargetsFor,
+} from "./candidate-write.ts";
 import { notifyCommit } from "./commit-notifications.ts";
-import { withTransaction } from "./db.ts";
+import { pool as database, withTransaction } from "./db.ts";
+import { warmEnrichmentsDone, type RoomLookupTarget } from "./enrich/index.ts";
 import { publishFacts } from "./enrich/progress.ts";
 import type { ScopeState } from "./eligibility.ts";
 import { fillPlan, loadSnapshot, seedsForVenues } from "./places.ts";
@@ -19,6 +24,9 @@ interface Job {
   timer?: ReturnType<typeof setTimeout>;
   /** A scope/read requested another derivation while this job was active. */
   rerun: boolean;
+  /** Batches warm one after another, so the whole room still only ever holds
+   * WARM_CONCURRENCY outbound fetches open rather than four per batch. */
+  warming: Promise<void>;
 }
 
 interface BatchResult {
@@ -26,6 +34,8 @@ interface BatchResult {
   hasMore: boolean;
   revision?: number;
   candidateIds: string[];
+  /** Places in this batch with somewhere to look, for the warm-up chain. */
+  warmTargets: RoomLookupTarget[];
 }
 
 const jobs = new Map<string, Job>();
@@ -45,14 +55,14 @@ async function insertNextBatch(roomId: string): Promise<BatchResult> {
       scope: ScopeState | null;
     } | undefined;
     if (!room) {
-      return { roomExists: false, hasMore: false, candidateIds: [] };
+      return { roomExists: false, hasMore: false, candidateIds: [], warmTargets: [] };
     }
 
     const area = room.area_id ? areaById(room.area_id) : undefined;
     const snapshot = area ? loadSnapshot(area.id) : null;
     const circle = room.scope?.area;
     if (!area || !snapshot || circle?.kind !== "circle") {
-      return { roomExists: true, hasMore: false, candidateIds: [] };
+      return { roomExists: true, hasMore: false, candidateIds: [], warmTargets: [] };
     }
 
     const existingRows = (
@@ -63,7 +73,7 @@ async function insertNextBatch(roomId: string): Promise<BatchResult> {
     ).rows as Array<{ id: string; osm_ref: string | null }>;
     const headroom = Math.max(0, POOL_CAP - existingRows.length);
     if (headroom === 0) {
-      return { roomExists: true, hasMore: false, candidateIds: [] };
+      return { roomExists: true, hasMore: false, candidateIds: [], warmTargets: [] };
     }
     const existingRefs = existingRows.flatMap((row) => row.osm_ref ? [row.osm_ref] : []);
     const plan = fillPlan(
@@ -76,7 +86,7 @@ async function insertNextBatch(roomId: string): Promise<BatchResult> {
     );
     const venues = (plan.batches[0] ?? []).slice(0, headroom);
     if (venues.length === 0) {
-      return { roomExists: true, hasMore: false, candidateIds: [] };
+      return { roomExists: true, hasMore: false, candidateIds: [], warmTargets: [] };
     }
 
     const seeds = seedsForVenues(
@@ -100,6 +110,7 @@ async function insertNextBatch(roomId: string): Promise<BatchResult> {
       hasMore: remaining > seeds.length && existingRows.length + seeds.length < POOL_CAP,
       revision,
       candidateIds: seeds.map((seed) => seed.id),
+      warmTargets: warmTargetsFor(seeds),
     };
   });
 }
@@ -128,6 +139,11 @@ async function run(roomId: string, job: Job): Promise<void> {
         candidateIds: result.candidateIds,
         reason: "pool",
       });
+      // The cheap leg only: fetch each new place's own site so its dossier is
+      // not empty the moment it lands. Inference is the refine worker's job.
+      job.warming = job.warming.then(() =>
+        warmEnrichmentsDone(database, roomId, result.warmTargets),
+      );
     }
     if (!result.roomExists || (!result.hasMore && !job.rerun)) {
       jobs.delete(roomId);
@@ -149,7 +165,7 @@ export function startPoolFill(roomId: string): void {
     existing.rerun = true;
     return;
   }
-  const job: Job = { rerun: false };
+  const job: Job = { rerun: false, warming: Promise.resolve() };
   jobs.set(roomId, job);
   schedule(roomId, job);
 }

@@ -263,6 +263,70 @@ describe("whole-area pool growth", () => {
     realtime.close();
   }, 20_000);
 
+  it("warms every batch the fill adds, one batch at a time", async () => {
+    const warm = await startServer({
+      entrypoint: "tests/api/fixtures/live-network-server.ts",
+      env: {
+        ENRICH_NETWORK: "1",
+        INFER: "0",
+        // Small batches: the first one past the seed is all this needs, and
+        // a warm-up server that fetches for the whole circle would starve the
+        // suites running beside it.
+        POOL_FILL_INTERVAL_MS: "20",
+        POOL_FILL_BATCH: "5",
+      },
+    });
+    try {
+      const opened = await fetch(`${warm.baseUrl}/api/rooms`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          areaId: "berlin-mitte",
+          organizerName: "Warm",
+          memberNames: [],
+        }),
+      });
+      const room = await opened.json() as {
+        roomId: string;
+        invites: Array<{ inviteSecret: string }>;
+      };
+      created.push(room.roomId);
+      const exchanged = await fetch(`${warm.baseUrl}/api/session/exchange`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ inviteSecret: room.invites[0].inviteSecret }),
+      });
+      const token = ((await exchanged.json()) as { participantToken: string }).participantToken;
+      const realtime = await openRealtime(warm.baseUrl, token);
+      try {
+        // The seed is numbered 001-060, so anything past it belongs to a
+        // batch the fill added — that is the place we need warmed.
+        const filled = /_(\d{3})$/;
+        const fromFill = (id: string) => {
+          const match = filled.exec(id);
+          return match !== null && Number(match[1]) > POOL_SEED_SIZE;
+        };
+        await pollFor(
+          () => realtime.frames().map((raw) => JSON.parse(raw) as {
+            type: string;
+            pending?: string[];
+            reason?: { kind: string };
+          }),
+          (frames) => frames.some(
+            (frame) =>
+              frame.type === "lookups" &&
+              frame.reason?.kind === "pool" &&
+              (frame.pending ?? []).some(fromFill),
+          ),
+        );
+      } finally {
+        realtime.close();
+      }
+    } finally {
+      await warm.stop();
+    }
+  }, 30_000);
+
   it("keeps participant additions actor-driven and enforces the expanded cap", async () => {
     const { roomId, organizerToken, memberToken } = await openRoom();
     const filled = await pollFor(
