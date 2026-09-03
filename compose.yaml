@@ -37,6 +37,7 @@ services:
       # keeps its label matching and no agent card ever appears.
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_PROVIDERS: ${OPENROUTER_PROVIDERS:-}
       LLM_PROVIDER: ${LLM_PROVIDER:-}
       LLM_MODEL: ${LLM_MODEL:-z-ai/glm-5.3-flash}
       LLM_MODEL_ROUTE: ${LLM_MODEL_ROUTE:-}

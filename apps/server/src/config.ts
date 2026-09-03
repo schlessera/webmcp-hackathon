@@ -39,6 +39,19 @@ export const config = {
   get openrouterApiKey(): string {
     return process.env.OPENROUTER_API_KEY ?? "";
   },
+  /**
+   * OpenRouter providers to pin, in order of preference (comma-separated
+   * provider slugs, e.g. "together,fireworks"). Unset: OpenRouter routes
+   * freely among the endpoints that honour the request's parameters.
+   * Pinning removes the per-call provider rotation that made benchmark runs
+   * incomparable (2026-09-03).
+   */
+  get openrouterProviders(): string[] {
+    return (process.env.OPENROUTER_PROVIDERS ?? "")
+      .split(",")
+      .map((slug) => slug.trim())
+      .filter((slug) => slug.length > 0);
+  },
   parallelApiKey: process.env.PARALLEL_API_KEY ?? "",
   dataForSeoLogin: process.env.DATAFORSEO_LOGIN ?? "",
   dataForSeoPassword: process.env.DATAFORSEO_PASSWORD ?? "",

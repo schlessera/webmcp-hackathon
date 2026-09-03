@@ -20,6 +20,7 @@ outbound proxy variables passed through to the app service.
 | `APP_URL` | recommended | The public URL Coolify assigns (e.g. `https://spokes.example.coolify.app`). The seed prints participant invite URLs against it. |
 | `ORIGIN_TRIAL_TOKEN` | for the ChatGPT/WebMCP path | Chrome WebMCP origin-trial token registered **for the deployed origin** (see §4). Without it the page still works as a normal web app, but ChatGPT's built-in browser will not discover the WebMCP tools on the hosted origin. |
 | `OPENROUTER_API_KEY` | recommended | Enables the natural-language surface, matrix evaluation, menu reading, and model-backed refinement through OpenRouter. Leave both provider keys empty for a deterministic no-model deployment. |
+| `OPENROUTER_PROVIDERS` | optional | Comma-separated OpenRouter provider slugs to pin, in order (`allow_fallbacks` off). Unset: free routing among endpoints that honour the request. Pin when benchmark runs must be comparable. |
 | `OPENAI_API_KEY` | fallback only | Enables the retained OpenAI Responses backend when `LLM_PROVIDER=openai`, or when no OpenRouter key exists. |
 | `LLM_PROVIDER` | optional | `openrouter` or `openai`. Defaults to OpenRouter when `OPENROUTER_API_KEY` exists, otherwise OpenAI. |
 | `LLM_MODEL` | optional | Default for every LLM job; defaults to `z-ai/glm-5.3-flash`. |

@@ -308,10 +308,15 @@ function requestBody(call: Call, provider: Provider, privatePath: boolean): Reco
     body.reasoning = effort === "none" || effort === "minimal"
       ? { effort: "low", exclude: true }
       : { effort };
-    if (call.schema || privatePath) {
+    const pinned = config.openrouterProviders;
+    if (call.schema || privatePath || pinned.length > 0) {
       body.provider = {
         ...(call.schema ? { require_parameters: true } : {}),
         ...(privatePath ? { data_collection: "deny", zdr: true } : {}),
+        // A pinned order stops the per-call rotation across endpoints whose
+        // quality differs; no fallback, so a refusal surfaces instead of a
+        // silent swap.
+        ...(pinned.length > 0 ? { order: pinned, allow_fallbacks: false } : {}),
       };
     }
     if (hasInputFile(call.input)) {
@@ -344,6 +349,8 @@ interface RawResponse {
   output?: Array<Record<string, unknown>>;
   error?: { message?: string } | null;
   status?: string;
+  /** OpenRouter names the endpoint that served the call. */
+  provider?: string;
   service_tier?: unknown;
   incomplete_details?: { reason?: string } | null;
   usage?: {
@@ -502,6 +509,8 @@ async function respondWithPolicy(call: Call, privatePath: boolean): Promise<Repl
     (total, response) => total + (Number(response.usage?.cost ?? 0) || 0),
     0,
   );
+  const servedBy = [...raws].reverse().find((response) => typeof response.provider === "string")
+    ?.provider;
   return {
     text: texts.length ? texts.join("\n") : null,
     toolCalls,
@@ -510,6 +519,7 @@ async function respondWithPolicy(call: Call, privatePath: boolean): Promise<Repl
     ...(webSearchCalls.length ? { webSearchCalls } : {}),
     ms: Date.now() - started,
     model: call.model,
+    ...(servedBy ? { provider: servedBy } : {}),
     inputTokens,
     outputTokens,
     usage: {

@@ -328,3 +328,37 @@ describe("LLM Responses transport", () => {
     })).resolves.toMatchObject({ text: "still usable" });
   });
 });
+
+
+describe("OpenRouter provider pinning and attribution", () => {
+  it("emits the pinned provider order with fallbacks off, and reads the serving provider", async () => {
+    const previous = process.env.OPENROUTER_PROVIDERS;
+    process.env.OPENROUTER_PROVIDERS = "together, fireworks";
+    let sent: Record<string, unknown> | null = null;
+    setTransport(async (body) => {
+      sent = body;
+      return {
+        provider: "Together",
+        output: [{ type: "message", content: [{ type: "output_text", text: "{}", annotations: [] }] }],
+        usage: { input_tokens: 1, output_tokens: 1 },
+      };
+    });
+    try {
+      const reply = await respond({
+        model: "z-ai/glm-5.3-flash",
+        instructions: "test",
+        input: [{ role: "user", content: "hi" }],
+        schema: { name: "t", schema: { type: "object", properties: {}, additionalProperties: false } },
+      });
+      const provider = (sent as unknown as { provider?: Record<string, unknown> })?.provider;
+      expect(provider?.order).toEqual(["together", "fireworks"]);
+      expect(provider?.allow_fallbacks).toBe(false);
+      expect(provider?.require_parameters).toBe(true);
+      expect(reply.provider).toBe("Together");
+    } finally {
+      if (previous === undefined) delete process.env.OPENROUTER_PROVIDERS;
+      else process.env.OPENROUTER_PROVIDERS = previous;
+      setTransport(null);
+    }
+  });
+});
