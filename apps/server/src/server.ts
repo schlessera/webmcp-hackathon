@@ -50,6 +50,10 @@ import { heldFor, hold, release, screenPending } from "./nl/holder.ts";
 import { consumeLookupToken, LOOKUP_RATE_LIMIT_ERROR } from "./lookup-budget.ts";
 import { resumePoolFills } from "./pool-fill.ts";
 import { loadPlaceImage } from "./enrich/images.ts";
+import {
+  outboundDiagnostics,
+  startOutboundDiagnosticLogging,
+} from "./net/outbound.ts";
 
 /**
  * One Node process serves the production UI, API, and WebSocket endpoint.
@@ -60,6 +64,7 @@ const app = Fastify({
   logger: { level: process.env.LOG_LEVEL ?? "info" },
   disableRequestLogging: true,
 });
+startOutboundDiagnosticLogging((fields, message) => app.log.info(fields, message));
 
 // HTTP payloads negotiate Brotli or gzip. This onSend-based plugin is
 // registered before routes and does not participate in WebSocket upgrades.
@@ -195,6 +200,12 @@ const notAuthenticated = {
       "Wait for the page to finish its invite-token exchange, then retry.",
   },
 } as const;
+
+app.get("/api/diag/outbound", async (req, reply) => {
+  const actor = await bearer(req);
+  if (!actor) return reply.code(401).send(notAuthenticated);
+  return outboundDiagnostics();
+});
 
 // The OSM ref rides as two path segments (node/123), never as an encoded
 // slash: proxies in front of the app decode %2F and the route stops matching.
