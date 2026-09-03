@@ -437,6 +437,36 @@ export const AttestAttributeInput = Type.Object(
   { additionalProperties: false },
 );
 
+/**
+ * A permanent, cross-room fact verified by a person. Only vocabulary keys and
+ * opaque question commitments are accepted: absolute open:* windows expire by
+ * meaning, and a private question's words must never enter shared storage.
+ */
+const ConfirmableCriterionEnum = Type.Union([
+  ...ATTRIBUTE_VOCABULARY.map((v) => Type.Literal(v)),
+  Type.String({ pattern: "^q:[0-9a-f]{40}$", maxLength: 42 }),
+]);
+export const ConfirmFactInput = Type.Object(
+  {
+    baseRevision: BaseRevision,
+    candidateId: Type.String({ maxLength: 40 }),
+    criterionId: ConfirmableCriterionEnum,
+    lean: Type.Boolean(),
+    note: Type.Optional(Type.String({ minLength: 1, maxLength: 200 })),
+    sourceUrl: Type.Optional(Type.String({ maxLength: 300, format: "uri" })),
+  },
+  { additionalProperties: false },
+);
+
+export const UnconfirmFactInput = Type.Object(
+  {
+    baseRevision: BaseRevision,
+    candidateId: Type.String({ maxLength: 40 }),
+    criterionId: ConfirmableCriterionEnum,
+  },
+  { additionalProperties: false },
+);
+
 /** Command bus registry: one shared entry point for UI gestures and WebMCP tools. */
 export const COMMAND_SCHEMAS = {
   SubmitRequirement: SubmitRequirementInput,
@@ -451,6 +481,8 @@ export const COMMAND_SCHEMAS = {
   ProposeDestination: ProposeDestinationInput,
   PlanArrival: PlanArrivalInput,
   AttestAttribute: AttestAttributeInput,
+  ConfirmFact: ConfirmFactInput,
+  UnconfirmFact: UnconfirmFactInput,
   ResolvePrivateRequest: ResolvePrivateRequestInput,
   ConfirmPrivateRequest: ConfirmPrivateRequestInput,
   ConfirmAgreement: ConfirmAgreementInput,

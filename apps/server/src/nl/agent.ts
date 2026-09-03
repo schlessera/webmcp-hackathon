@@ -97,6 +97,7 @@ const MUTATIONS: Record<string, string> = {
   propose_destination: "ProposeDestination",
   plan_arrival: "PlanArrival",
   attest_attribute: "AttestAttribute",
+  confirm_fact: "ConfirmFact",
 };
 
 /** The page-local and session-bootstrap tools have no meaning on the server. */

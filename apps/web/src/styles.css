@@ -1806,6 +1806,35 @@ body { overflow: hidden; }
 .ledger-answer[data-mark="private"] { color: var(--spoke-scope-text); }
 .check-row[data-mark="private"] .ledger-label { color: var(--spoke-scope-text); }
 .check-row[data-mark="out"] .ledger-label { color: var(--spoke-ink-soft); }
+.check-row { flex-wrap: wrap; }
+.fact-confirm-controls {
+  flex: 0 0 100%;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  min-height: var(--spoke-tap-min);
+  margin: -8px 0 -8px;
+}
+.fact-confirm-action {
+  border: none;
+  background: transparent;
+  color: var(--spoke-works-text);
+  font: inherit;
+  font-size: var(--spoke-size-detail);
+  font-weight: var(--spoke-weight-strong);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+  min-height: var(--spoke-tap-min);
+  margin: -12px 0;
+  padding: 12px 6px;
+}
+.fact-confirmed-copy {
+  color: var(--spoke-ink-soft);
+  font-size: var(--spoke-size-detail);
+  font-weight: var(--spoke-weight-quiet);
+}
 
 /* ── Facts on record: pills, not rows ──────────────────────────────────── */
 .fact-row {

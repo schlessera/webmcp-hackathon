@@ -470,6 +470,10 @@ export interface CandidateDossier {
     confidence: number;
     /** Participant who supplied an attestation, when this fact is attested. */
     attestedBy?: string;
+    /** Present when a permanent, cross-room person confirmation decided it. */
+    confirmedByName?: string;
+    confirmedByParticipant?: string;
+    confirmedAt?: string;
     /** Why the source says so: a rule's reason, a verbatim evidence span an
      * inference rests on, an attester's note. Rendered in the ledger. */
     note?: string;

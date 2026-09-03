@@ -239,6 +239,7 @@ const MUTATION_COMMANDS: Record<string, string> = {
   propose_destination: "ProposeDestination",
   plan_arrival: "PlanArrival",
   attest_attribute: "AttestAttribute",
+  confirm_fact: "ConfirmFact",
   // Deliberately absent: ConfirmPrivateRequest and CommitAgreement are
   // page-confirmation commands with no tool route — the human confirms in
   // the UI, not the agent. Both also require a confirmation nonce the server

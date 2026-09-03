@@ -32,7 +32,6 @@ import {
   poolTarget as targetForPool,
   startPoolFill,
 } from "./pool-fill.ts";
-import { loadAttestations } from "./attestations.ts";
 import {
   enrichmentView,
   loadCached,
@@ -457,7 +456,6 @@ export async function inspectCandidates(
         },
       };
     }
-    const attestations = await loadAttestations(client, actor.roomId);
     const refs = rows
       .map((row) => row.osm_ref as string | null)
       .filter((ref): ref is string => Boolean(ref));
@@ -546,11 +544,7 @@ export async function inspectCandidates(
       const current = recordHours || siteHours
         ? openNow(recordHours ?? siteHours!, timezone, readAt)
         : null;
-      const attributes = mergedAttributes(
-        { id: r.id as string, category: r.category as string, attributes: r.attributes ?? [] },
-        enrichment,
-        attestations,
-      ).flatMap((attribute) => {
+      const attributes = (candidateById.get(r.id as string)?.attributes ?? []).flatMap((attribute) => {
         if (!attribute.key.startsWith("q:")) return [attribute];
         const label = entitledQuestionLabels.get(attribute.key);
         // The cache is cross-room. A question row exists only when this viewer

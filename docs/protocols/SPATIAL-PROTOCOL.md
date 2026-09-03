@@ -229,6 +229,8 @@ Transport-agnostic, like the negotiation command set. Mutations carry
 | `FocusDestination { candidateId }` | local | pans/highlights the caller's own map view; **no shared state change** |
 | `PlanArrival { mode, pickupNote? }` | mutate | per-participant walk/bike/car mode and note; emits `arrival_plan_updated` |
 | `AttestAttribute { candidateId, key, status, confidence, note, sourceUrl? }` | mutate | records shared participant-supplied evidence |
+| `ConfirmFact { candidateId, criterionId, lean, note?, sourceUrl? }` | mutate | permanently records person-verified evidence for every room holding the place |
+| `UnconfirmFact { candidateId, criterionId }` | mutate | confirmer/organizer withdrawal of a permanent fact |
 | `PrepareNavigation { candidateId?, from? }` | read | one-click handoff links for that candidate or the committed destination (§9) |
 
 Negotiation-meaningful map actions do **not** get spatial commands: vetoing a
@@ -326,6 +328,35 @@ vocabulary and question criterion keys matching `q:<40 lowercase hex>`; a
 person may therefore confirm or contradict a free-text need without placing
 its sentence in the shared attestation record.
 
+#### Confirmed facts (amendment, 2026-09-03)
+
+`ConfirmFact { baseRevision, candidateId, criterionId, lean, note?, sourceUrl? }`
+records what a person verified themselves. It uses the attestation merge path
+but is keyed globally by `(osm_ref, criterion_id)`, has no TTL, and applies to
+every room holding that OpenStreetMap ref. Its read-time fact is
+`verified_true` / `verified_false` at confidence **0.95**, source
+`person:confirmed`. `UnconfirmFact` removes it and is available only to the
+recorded confirmer or the current room's organizer.
+
+The precedence order is record (`osm:*` / `curated:*`), looked-up facts,
+inference over published material, kind-of-place guesses, room attestations,
+then confirmed facts. A confirmed fact therefore replaces every looked-up,
+inferred, guessed or room-attested answer. It does not silently replace a
+contradictory verified OSM/curated record: that combination reads as
+`unknown`, source `disputed:<record-source>|person:confirmed`, and the ledger
+shows both the record and the named confirmer.
+
+Only a vocabulary key or `q:<40 lowercase hex>` is storable. An `open:*`
+absolute window is rejected because it becomes meaningless later; synthetic
+value criteria and raw question sentences are rejected too. For a private
+question, the permanent row stores only the `q:` hash, lean, confirmer name/id,
+origin room and timestamp; `note` and `source_url` are forced to null, so they
+cannot be used to smuggle the sentence into shared storage. The owner may see
+the answer alongside the label recovered from their requirement. A peer or a
+participant in another room receives neither that label nor the opaque `q:`
+row. Its shared event says only “a question”. A shared question may put its
+authorized requirement label in the event.
+
 ### 8.2 Graded evidence (amendment, 2026-09-02)
 
 A fact is one of five things, and every fact carries the confidence of
@@ -364,7 +395,8 @@ never rules a place out. The candidate's `confidence` travels on the wire.
 Precedence of sources when a dossier is read: the record (`osm:*`,
 `curated:*`), then looked-up facts (`web:*`, `wikidata:*`) into open slots,
 then guesses (`guess:*`) into slots still unknown, then attestations
-(`agent:*`), which may dispute any of the above.
+(`agent:*`), which may dispute any of the above, then permanent confirmed
+facts (`person:confirmed`) under the dispute rule in §8.1.
 
 `mapRevision` is the candidate fact-version boundary. Every path that changes
 the merged facts MUST increment it in the same transaction. A private

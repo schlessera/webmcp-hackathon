@@ -94,7 +94,7 @@ export interface LookupsMessage {
 export interface FactsMessage {
   type: "facts";
   candidateIds: string[];
-  reason: "lookup" | "inference" | "pool";
+  reason: "lookup" | "inference" | "pool" | "confirmation";
 }
 /**
  * Application-level keepalive, every few seconds to every authenticated

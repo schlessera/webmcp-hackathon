@@ -82,6 +82,43 @@ describe("applyAttestations", () => {
     expect(out[0]).toMatchObject({ key: "dog-friendly", status: "verified_true", source: "agent:p_sarah" });
   });
 
+  it("lets a permanent confirmation beat inferred evidence at confidence 0.95", () => {
+    const inferred = {
+      key: "dog-friendly",
+      status: "likely_false",
+      source: "guess:category",
+      confidence: 0.7,
+    };
+    const [a] = applyAttestations("c1", [inferred], [row({
+      key: "dog-friendly",
+      evidence_kind: "confirmed",
+      confirmed_by_name: "Sarah",
+      confirmed_at: "2026-09-03T10:00:00.000Z",
+    })]);
+    expect(a).toMatchObject({
+      status: "verified_true",
+      source: "person:confirmed",
+      confidence: 0.95,
+      confirmedByName: "Sarah",
+      confirmedByParticipant: "p_sarah",
+      confirmedAt: "2026-09-03T10:00:00.000Z",
+    });
+  });
+
+  it("shows both sides when a permanent confirmation contradicts the record", () => {
+    const [a] = applyAttestations("c1", [osmNo], [row({
+      evidence_kind: "confirmed",
+      confirmed_by_name: "Sarah",
+      confirmed_at: "2026-09-03T10:00:00.000Z",
+    })]);
+    expect(a).toMatchObject({
+      status: "unknown",
+      confidence: 0,
+      source: "disputed:osm:diet:lactose_free|person:confirmed",
+      confirmedByName: "Sarah",
+    });
+  });
+
   it("only ever emits the five statuses", () => {
     const cases = [
       applyAttestations("c1", [unknown], [row({})]),

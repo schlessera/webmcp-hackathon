@@ -81,6 +81,23 @@ A guess carries its confidence as a word, never a number: **fairly sure**
 guess), **a guess** (thin evidence). The evidence itself is quoted where
 there is one: "the menu mentions a vegan bowl".
 
+## Confirming a fact
+
+Every confirmable need row in a place panel offers the text actions `Confirm`
+and `Rule out`. After this person confirms it, the row reads `confirmed by you
+· Sep 3` and offers `undo`. Another person's confirmation reads `confirmed by
+Sarah · Sep 3`; only its confirmer or an organizer gets `undo`.
+
+The fact ledger's source phrase is `confirmed by Sarah` (or `confirmed by you`
+to Sarah). When this evidence is what clears a need, the explanation is
+`Sarah confirmed it`. A contradiction is explicit: `the record and confirmed
+by Sarah disagree`. For a private question, peers and other rooms see neither
+the sentence nor its hashed fact row; the shared history says only `Sarah
+confirmed a question at The Barn.`
+
+These controls are schema-driven. The page ships no fact-specific or
+domain-specific control or label.
+
 ## Privacy phrasing
 
 This is the highest-stakes copy in the app. A private need's **effect** is

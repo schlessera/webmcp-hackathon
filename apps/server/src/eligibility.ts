@@ -18,7 +18,13 @@ import {
   windowSpan,
   type DossierHours,
 } from "@webmcp-hackathon/contracts";
-import { applyAttestations, loadAttestations } from "./attestations.ts";
+import {
+  applyAttestations,
+  confirmedForCandidate,
+  loadAttestations,
+  loadConfirmedFacts,
+  type ConfirmedFactRow,
+} from "./attestations.ts";
 import { applyEnrichmentAttributes, loadCached, type Enrichment } from "./enrich/index.ts";
 import { applyInferredAttributes } from "./enrich/infer.ts";
 import { applyGuesses } from "./guess.ts";
@@ -78,6 +84,11 @@ export interface CandidateRow {
     source?: string;
     confidence?: number;
     attestedBy?: string;
+    confirmedByName?: string;
+    confirmedByParticipant?: string;
+    confirmedAt?: string;
+    note?: string;
+    sourceUrl?: string;
     explicit?: boolean;
   }>;
   /** Parsed OSM hours stored with the candidate record. */
@@ -338,13 +349,21 @@ export async function loadEligibilityInputs(
     }
   }
   const refs = (candidates.rows as CandidateRow[]).map((c) => c.osm_ref).filter((r): r is string => Boolean(r));
-  const enrichments = await loadCached(q, refs);
+  const [enrichments, confirmedFacts] = await Promise.all([
+    loadCached(q, refs),
+    loadConfirmedFacts(q, refs),
+  ]);
   return {
     // Merged here, at read time, so every classifier pass (facets, impasse,
     // previews) sees the same dossier the ledger shows.
     candidates: (candidates.rows as CandidateRow[]).map((c) => ({
       ...c,
-      attributes: mergedAttributes(c, enrichments.get(c.osm_ref ?? ""), attestations),
+      attributes: mergedAttributes(
+        c,
+        enrichments.get(c.osm_ref ?? ""),
+        attestations,
+        confirmedFacts,
+      ),
       website_hours: enrichments.get(c.osm_ref ?? "")?.website?.hours,
       walk_min: walkMinutesFrom(center, c.location, c.walk_min),
     })),
@@ -366,13 +385,15 @@ export async function loadEligibilityInputs(
  * (SPATIAL-PROTOCOL.md §8.1–8.2): the record, normalised to the graded
  * vocabulary; looked-up facts (cached only — the classifier never waits on
  * the network) into slots the record left open; guesses from the kind of
- * place into slots still unknown; attestations last, so a person's word can
- * dispute any of the above.
+ * place into slots still unknown; room attestations next; confirmed facts
+ * last, so permanent person evidence outranks every server-derived fact while
+ * retaining the record-dispute rule.
  */
 export function mergedAttributes(
-  c: Pick<CandidateRow, "id" | "category" | "attributes">,
+  c: Pick<CandidateRow, "id" | "category" | "attributes" | "osm_ref">,
   enrichment: Parameters<typeof applyEnrichmentAttributes>[1],
   attestations: Parameters<typeof applyAttestations>[2],
+  confirmedFacts: ConfirmedFactRow[] = [],
 ): CandidateRow["attributes"] {
   const observedAt = new Date().toISOString();
   const normalised = (c.attributes ?? []).map((a) => normalizeStatus(a));
@@ -389,7 +410,10 @@ export function mergedAttributes(
       ),
       observedAt,
     ),
-    attestations,
+    [
+      ...attestations,
+      ...confirmedForCandidate(c.osm_ref, c.id, confirmedFacts),
+    ],
   );
 }
 
@@ -498,6 +522,11 @@ export function classifyCandidate(
             return excluded(candidate, {
               ...owner,
               text: wanted ? `no ${labelOf(p.key)} on record` : `${labelOf(p.key)} on record`,
+            });
+          } else if (attr?.source === "person:confirmed") {
+            satisfied.push({
+              ...owner,
+              text: `${attr.confirmedByName ?? "Someone"} confirmed it`,
             });
           }
         } else {
@@ -622,7 +651,14 @@ export function classifyCandidate(
             attr.source?.startsWith("web:") === true &&
             (attr.confidence ?? 0) >= 0.7;
           if (isVerified(status) && (attested || explicitOwnSite)) {
-            if (lean) satisfied.push({ ...owner, text: label });
+            if (lean) {
+              satisfied.push({
+                ...owner,
+                text: attr?.source === "person:confirmed"
+                  ? `${attr.confirmedByName ?? "Someone"} confirmed it`
+                  : label,
+              });
+            }
             else return excluded(candidate, { ...owner, text: `${label} is not confirmed` });
           } else {
             likely.push({

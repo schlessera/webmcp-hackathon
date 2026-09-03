@@ -218,9 +218,13 @@ export function projectEvent(
       // the point of an attestation.
       return full(
         event,
-        `${isActor ? "You" : actorName} checked ${p.label ?? p.key} at ${p.candidateName ?? p.candidateId}: ${
-          p.status === "verified_true" ? "yes" : "no"
-        }.`,
+        p.confirmed === true
+          ? p.withdrawn === true
+            ? `${isActor ? "You" : actorName} withdrew the confirmation of ${p.label ?? p.key} at ${p.candidateName ?? p.candidateId}.`
+            : `${isActor ? "You" : actorName} confirmed ${p.label ?? p.key} at ${p.candidateName ?? p.candidateId}.`
+          : `${isActor ? "You" : actorName} checked ${p.label ?? p.key} at ${p.candidateName ?? p.candidateId}: ${
+              p.status === "verified_true" ? "yes" : "no"
+            }.`,
       );
 
     case "impasse_detected":

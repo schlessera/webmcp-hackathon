@@ -24,6 +24,7 @@ type Need = {
   visibility: "shared" | "application-private";
   hardness: "hard";
   ownerId: string;
+  criterionId?: string;
 };
 
 type Candidate = {
@@ -2445,6 +2446,101 @@ test("the room says what it is refining, a question need shows it was looked up,
   refine.budgetLeft.searches = 0;
   socket.send({ type: "facts", candidateIds: ["place_24"], reason: "inference" });
   await expect(refineLine).toHaveText("paused for now");
+});
+
+test("Confirm in the place panel updates the row and the count", async ({ page }) => {
+  const need: Need = {
+    id: "need-dogs",
+    label: "dogs welcome",
+    ruledOut: 0,
+    wouldReturn: 0,
+    unknown: 1,
+    active: true,
+    visibility: "shared",
+    hardness: "hard",
+    ownerId: "p_sarah",
+    criterionId: "dog-friendly",
+  };
+  const context = fixture({
+    revision: 70,
+    eligibleIds: ["place_2"],
+    uncertainIds: ["place_1"],
+    activeNeeds: [need],
+  });
+  let confirmed = false;
+  const state: MockState = {
+    context,
+    outstanding: [],
+    command(request, current) {
+      expect(request).toMatchObject({
+        type: "ConfirmFact",
+        input: {
+          candidateId: "place_1",
+          criterionId: "dog-friendly",
+          lean: true,
+        },
+      });
+      confirmed = true;
+      const candidate = current.context.candidates.find((row) => row.candidateId === "place_1")!;
+      candidate.eligibility = "eligible";
+      candidate.why = "Alex confirmed it";
+      current.context.matching += 1;
+      current.context.feasibility.eligible += 1;
+      current.context.feasibility.uncertain -= 1;
+      current.context.revision += 1;
+      return {
+        ok: true,
+        revision: current.context.revision,
+        effect: "Alex confirmed dogs welcome at The Barn.",
+        outstanding: [],
+      };
+    },
+  };
+  await mockApi(page, state);
+  await page.route("**/api/spatial/inspect", (route) =>
+    route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        ok: true,
+        revision: context.revision,
+        candidates: [{
+          candidateId: "place_1",
+          name: context.candidates.find((candidate) => candidate.candidateId === "place_1")!.name,
+          location: context.candidates.find((candidate) => candidate.candidateId === "place_1")!.location,
+          category: "cafe",
+          priceLevel: null,
+          hours: [],
+          mapRevision: confirmed ? 2 : 1,
+          needs: [{
+            requirementId: "need-dogs",
+            label: "dogs welcome",
+            verdict: confirmed ? "yes" : "unknown",
+            ...(confirmed ? { why: "Alex confirmed it" } : {}),
+          }],
+          attributes: [{
+            key: "dog-friendly",
+            status: confirmed ? "verified_true" : "unknown",
+            source: confirmed ? "person:confirmed" : "osm:dog",
+            observedAt: "2026-09-03T00:00:00.000Z",
+            confidence: confirmed ? 0.95 : 0,
+            ...(confirmed ? {
+              confirmedByName: "Alex",
+              confirmedByParticipant: "p_org",
+              confirmedAt: "2026-09-03T10:00:00.000Z",
+            } : {}),
+          }],
+        }],
+      }),
+    }),
+  );
+  await page.goto(`${BASE}/?shim=webmcp#invite=deadbeef`);
+  await closeDrawer(page);
+  await expect(page.getByTestId("count-number")).toHaveText("1");
+  await page.getByTestId("pin-place_1").click({ force: true });
+  await page.getByTestId("confirm-need-dogs").click();
+  await expect(page.getByTestId("unconfirm-need-dogs")).toHaveText("undo");
+  await expect(page.getByTestId("fit-ledger")).toContainText("confirmed by you · Sep 3");
+  await expect(page.getByTestId("count-number")).toHaveText("2");
 });
 
 test("a two-photo dossier renders the snap band, source credit, authenticated images, and reduced-motion pin", async ({ browser }) => {

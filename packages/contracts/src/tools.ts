@@ -1,6 +1,7 @@
 import { Type, type TSchema } from "@sinclair/typebox";
 import {
   AttestAttributeInput,
+  ConfirmFactInput,
   ConfirmAgreementInput,
   EvaluateCandidatesInput,
   PlanArrivalInput,
@@ -319,6 +320,13 @@ const spatialTools: ToolDefinition[] = [
       "and an optional pickup note. Available once the room has agreed on a " +
       "destination.",
     inputSchema: PlanArrivalInput,
+    annotations: {},
+  },
+  {
+    name: "confirm_fact",
+    description:
+      "Record what you verified yourself; this is kept permanently for every room",
+    inputSchema: ConfirmFactInput,
     annotations: {},
   },
   {

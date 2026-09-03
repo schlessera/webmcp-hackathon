@@ -67,6 +67,22 @@ interface Check {
   /** The model assembled this from a search rather than a page the server
    * read, so the citation is offered, not quoted (W8). */
   combined?: boolean;
+  criterionId?: string;
+  confirmed?: {
+    byName: string;
+    byParticipant: string;
+    at: string;
+  };
+}
+
+function confirmedDate(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "unknown date";
+  return date.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    timeZone: "UTC",
+  });
 }
 
 /** A server verdict → the mark it is drawn with. A private need that passes
@@ -411,6 +427,16 @@ export function PlaceDetails({
   const nameOf = (pid: string) =>
     pid === meId ? "you" : (participants.find((p) => p.participantId === pid)?.displayName ?? "someone");
   const sourceOf = (a: { source: string; attestedBy?: string }) => {
+    const confirmed = a as typeof a & {
+      confirmedByName?: string;
+      confirmedByParticipant?: string;
+    };
+    if (a.source.startsWith("disputed:") && a.source.includes("person:confirmed")) {
+      return `the record and confirmed by ${confirmed.confirmedByName ?? nameOf(confirmed.confirmedByParticipant ?? "")} disagree`;
+    }
+    if (a.source === "person:confirmed") {
+      return `confirmed by ${confirmed.confirmedByName ?? nameOf(confirmed.confirmedByParticipant ?? "")}`;
+    }
     if (a.source.startsWith("disputed:") && a.attestedBy) return `disputed by ${nameOf(a.attestedBy)}`;
     if (a.source.startsWith("agent:") && a.attestedBy) return `checked by ${nameOf(a.attestedBy)}`;
     return sourceLabel(a.source);
@@ -436,18 +462,27 @@ export function PlaceDetails({
           )?.[0]
         : undefined;
     const attr = key ? dossier?.attributes.find((a) => a.key === key) : undefined;
-    if (key && attr && attr.status !== "unknown") askedKeys.add(key);
+    if (key && attr && (attr.status !== "unknown" || attr.source.startsWith("disputed:"))) askedKeys.add(key);
+    const confirmation = attr?.confirmedAt && attr.confirmedByParticipant
+      ? {
+          byName: attr.confirmedByName ?? nameOf(attr.confirmedByParticipant),
+          byParticipant: attr.confirmedByParticipant,
+          at: attr.confirmedAt,
+        }
+      : undefined;
     return {
       id: v.requirementId,
       mark,
       label: v.private ? "A private condition" : (v.label ?? own?.label ?? "a need"),
       answer: answerOf(v),
       note: attr?.note,
-      source: attr && attr.status !== "unknown" ? sourceOf(attr) : undefined,
-      sourceUrl: attr && attr.status !== "unknown"
+      source: attr && (attr.status !== "unknown" || attr.source.startsWith("disputed:")) ? sourceOf(attr) : undefined,
+      sourceUrl: attr && (attr.status !== "unknown" || attr.source.startsWith("disputed:"))
         ? safeHttpUrl(attr.sourceUrl) ?? undefined
         : undefined,
       combined: attr ? isCombinedClaim(attr.source) : undefined,
+      criterionId: own?.criterionId,
+      confirmed: confirmation,
     };
   });
   /* No verdicts yet (the dossier is still loading): every stated need is a
@@ -519,6 +554,24 @@ export function PlaceDetails({
     proposal?.stances.find((s) => s.participantId === participantId)?.stance ?? "none";
 
   const negotiable = phase === "gathering" || phase === "deliberation";
+  const organizer = participants.find((participant) => participant.participantId === meId)?.role === "organizer";
+  const confirmable = (criterionId: string | undefined) =>
+    Boolean(criterionId && (criterionId in ATTRIBUTE_LABELS || /^q:[0-9a-f]{40}$/.test(criterionId)));
+  const changeConfirmation = async (criterionId: string, lean: boolean) => {
+    const result = await run("ConfirmFact", {
+      candidateId: candidate.candidateId,
+      criterionId,
+      lean,
+    });
+    if (result.ok) setRefreshNonce((nonce) => nonce + 1);
+  };
+  const undoConfirmation = async (criterionId: string) => {
+    const result = await run("UnconfirmFact", {
+      candidateId: candidate.candidateId,
+      criterionId,
+    });
+    if (result.ok) setRefreshNonce((nonce) => nonce + 1);
+  };
   // `priceLevel` is a 1–4 band, not an amount. PRICE_LEVEL_EUR is the
   // manifest's own band → per-person cap mapping, the same one the server
   // measures a budget need against, so both read the same number. A band
@@ -713,6 +766,43 @@ export function PlaceDetails({
                     </span>
                     {c.answer}
                   </span>
+                  {negotiable && confirmable(c.criterionId) && (
+                    <span className="fact-confirm-controls">
+                      {c.confirmed ? (
+                        <>
+                          <span className="fact-confirmed-copy">
+                            confirmed by {c.confirmed.byParticipant === meId ? "you" : c.confirmed.byName} · {confirmedDate(c.confirmed.at)}
+                          </span>
+                          {(c.confirmed.byParticipant === meId || organizer) && (
+                            <button
+                              className="fact-confirm-action"
+                              data-testid={`unconfirm-${c.id}`}
+                              onClick={() => void undoConfirmation(c.criterionId!)}
+                            >
+                              undo
+                            </button>
+                          )}
+                        </>
+                      ) : (
+                        <>
+                          <button
+                            className="fact-confirm-action"
+                            data-testid={`confirm-${c.id}`}
+                            onClick={() => void changeConfirmation(c.criterionId!, true)}
+                          >
+                            Confirm
+                          </button>
+                          <button
+                            className="fact-confirm-action"
+                            data-testid={`rule-out-${c.id}`}
+                            onClick={() => void changeConfirmation(c.criterionId!, false)}
+                          >
+                            Rule out
+                          </button>
+                        </>
+                      )}
+                    </span>
+                  )}
                 </div>
               ))}
             </div>
