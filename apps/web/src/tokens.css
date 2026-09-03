@@ -100,6 +100,14 @@
   --spoke-size-meta:    11px;   /* subtitles, chip labels            */
   --spoke-size-micro:   10px;   /* row indices, badge numerals       */
 
+  /* Landing page only (2026-09-03): the front door speaks at wall size.
+     Never used inside a room. */
+  --spoke-size-hero:    clamp(38px, 6.4vw, 68px);
+  --spoke-size-h2:      clamp(24px, 3.4vw, 36px);
+  --spoke-size-h3:      clamp(19px, 2.2vw, 23px);
+  --spoke-size-lede:    clamp(16px, 1.6vw, 19px);
+  --spoke-size-read:    15px;
+
   --spoke-weight-display: 800;
   --spoke-weight-strong:  700;
   --spoke-weight-body:    600;  /* body text runs semibold here */

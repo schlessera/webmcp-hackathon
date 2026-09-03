@@ -10,6 +10,7 @@ import type { ProjectedEvent } from "@webmcp-hackathon/contracts";
 import { submitCommand, syncSession } from "./api.ts";
 import {
   clearSession,
+  currentToken,
   establishSession,
   inviteSecretFromFragment,
   type SessionState,
@@ -45,6 +46,7 @@ import { PlaceDetails } from "./components/PlaceDetails.tsx";
 import { ArrivalBar } from "./components/ArrivalBar.tsx";
 import { Drawer } from "./components/Drawer.tsx";
 import { Start } from "./components/Start.tsx";
+import { Landing } from "./components/Landing.tsx";
 import { provenanceLine } from "./ui/copy.ts";
 import { RevisionWatermarks } from "./revision-watermarks.ts";
 
@@ -133,8 +135,30 @@ function writeLastSeen(roomId: string, revision: number): void {
   }
 }
 
+/**
+ * Someone arriving at `/` with no invite in the hash, no stored session and
+ * no agent surface flag is a visitor, not a participant: they get the
+ * landing page, and "Start a room" (`#start`) opens the area picker. Decided
+ * before the session resolves so the first paint is the page, not a splash.
+ */
+function coldArrival(): boolean {
+  return (
+    !inviteSecretFromFragment() &&
+    !currentToken() &&
+    !new URLSearchParams(window.location.search).has("surface")
+  );
+}
+const frontDoor = (): "landing" | "start" =>
+  window.location.hash === "#start" ? "start" : "landing";
+
 export function App() {
   const [session, setSession] = useState<SessionState | null>(null);
+  const [door, setDoor] = useState<"landing" | "start">(frontDoor);
+  useEffect(() => {
+    const onHash = () => setDoor(frontDoor());
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
   const [revision, setRevision] = useState<number>(0);
   const [feed, setFeed] = useState<FeedLine[]>([]);
   const [staleBanner, setStaleBanner] = useState(false);
@@ -564,6 +588,16 @@ export function App() {
     [feed, away],
   );
 
+  if (door === "landing" && !session?.identity && coldArrival()) {
+    return (
+      <Landing
+        onStart={() => {
+          window.location.hash = "start";
+          setDoor("start");
+        }}
+      />
+    );
+  }
   if (!session) {
     return (
       <div className="connect-screen">
