@@ -94,6 +94,7 @@ export interface EvaluatedInference {
   context?: string;
   pageTitle?: string;
   publisherNames?: string[];
+  adjudication?: NonNullable<import("./infer.ts").InferredClaim["adjudication"]>;
   explicit: boolean;
   value?: string;
   // Deliberately absent: a question's sentence never travels on a claim. It

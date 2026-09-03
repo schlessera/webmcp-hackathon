@@ -154,9 +154,14 @@ function isOmitted(
 function inferenceSourceBucket(
   inference: Exclude<StoredCriterionInference, { omitted: true }>,
 ): InferenceSourceBucket {
-  if (inference.source.startsWith("web:")) return "record";
+  if (inference.source.startsWith("web:") || inference.source.startsWith("adjudicated:")) {
+    return "record";
+  }
   const bucket = inference.source.split(":").at(-1);
   if (bucket === "venue_site" || bucket === "menu") {
+    // Explicit third-party prose does not become first-party proof merely
+    // because the focused reread recognized that it was explicit.
+    if (inference.adjudication?.publisher === "third_party") return "own_site_inferred";
     return inference.explicit === true ? "own_site_explicit" : "own_site_inferred";
   }
   if (bucket === "domain_search") return "domain_search";
@@ -191,15 +196,28 @@ export function resolveInference(
   }
   if (isOmitted(previous)) return fresh;
 
+  // Cache metadata is monotonic metadata on this evidence cell, not a second
+  // fact path. Retain it even when the evidence comparison keeps the old fact.
+  const retainedPrevious = fresh.adjudication
+    ? { ...previous, adjudication: fresh.adjudication }
+    : previous;
+
+  // A focused reread may flip a likely claim, never a fact already verified.
+  if (
+    fresh.source.startsWith("adjudicated:") &&
+    fresh.lean !== previous.lean &&
+    previous.confidence >= 0.7
+  ) return retainedPrevious;
+
   const previousRank = INFERENCE_SOURCE_BUCKET_RANK[inferenceSourceBucket(previous)];
   const freshRank = INFERENCE_SOURCE_BUCKET_RANK[inferenceSourceBucket(fresh)];
   if (fresh.lean === previous.lean) {
     return fresh.confidence > previous.confidence || freshRank > previousRank
       ? fresh
-      : previous;
+      : retainedPrevious;
   }
   if (fresh.explicit === true && freshRank >= previousRank) return fresh;
-  return { ...previous, note: INFERENCE_DISAGREEMENT_NOTE };
+  return { ...retainedPrevious, note: INFERENCE_DISAGREEMENT_NOTE };
 }
 const WARM_CONCURRENCY = 4;
 export const ON_DEMAND_CONCURRENCY = 4;
@@ -911,6 +929,7 @@ export async function saveInferences(
           ...(claim.context ? { context: claim.context } : {}),
           ...(claim.pageTitle ? { pageTitle: claim.pageTitle } : {}),
           ...(claim.publisherNames?.length ? { publisherNames: claim.publisherNames } : {}),
+          ...(claim.adjudication ? { adjudication: claim.adjudication } : {}),
         };
       } else if (answered.has(criterion.id) || searched.has(criterion.id)) {
         inferred[key] = {
@@ -1531,9 +1550,13 @@ export function applyEnrichmentAttributes<T extends AttributeLike>(
     };
     const recordGrade =
       questionStored.explicit === true &&
-      questionStored.source.startsWith("web:") &&
+      (questionStored.source.startsWith("web:") ||
+        questionStored.source.startsWith("adjudicated:")) &&
       questionStored.confidence >= 0.7;
-    const confidence = Math.min(questionStored.confidence, recordGrade ? 0.72 : 0.6);
+    const confidence = Math.min(
+      questionStored.confidence,
+      questionStored.source.startsWith("adjudicated:") ? 0.75 : recordGrade ? 0.72 : 0.6,
+    );
     set(key, {
       status: graded(questionStored.lean === "yes", confidence),
       source: questionStored.source,
