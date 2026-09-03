@@ -32,12 +32,28 @@ describe("OpenAI web-search transport", () => {
       include: ["web_search_call.action.sources"],
     });
     expect(sent).toMatchObject({
+      service_tier: "default",
       tools: [{ type: "web_search", filters: { allowed_domains: ["place.example"] }, search_context_size: "low" }],
       include: ["web_search_call.action.sources"],
     });
     expect(reply.citations).toEqual([{ url: "https://place.example/access", title: "Access", start: 0, end: 9 }]);
     expect(reply.webSearchCalls).toEqual([search]);
     expect(reply.outputItems[0]).toBe(search);
+  });
+
+  it.each(["priority", "fast"])("refuses the paid %s service tier before transport", async (serviceTier) => {
+    let calls = 0;
+    setTransport(async () => {
+      calls += 1;
+      return { output: [] };
+    });
+    await expect(respond({
+      model: "test",
+      instructions: "test",
+      input: [],
+      serviceTier,
+    } as never)).rejects.toThrow(`service tier ${serviceTier} is not allowed`);
+    expect(calls).toBe(0);
   });
 
   it("rebases citation offsets when Responses returns several text parts", async () => {

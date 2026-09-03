@@ -27,12 +27,12 @@ let contexts: BrowserContext[] = [];
 let spatialReady = false;
 
 test.beforeAll(async () => {
-  server = spawn("node", [join(repoRoot, "apps", "server", "src", "server.ts")], {
+  server = spawn("node", [join(repoRoot, "tests", "e2e", "fixtures", "model-disabled-server.ts")], {
     env: {
       ...process.env,
       DATABASE_URL,
       PORT: String(PORT),
-      // Test servers never talk to the model: the composer takes its offline path.
+      // The fixture installs a throwing scripted transport as a second guard.
       OPENAI_API_KEY: "",
       BUILD_ID: "e2e-flow-1",
       LOG_LEVEL: "warn",
@@ -61,6 +61,34 @@ test.afterAll(async () => {
   await browser?.close().catch(() => {});
   await room?.cleanup();
   server?.kill("SIGTERM");
+});
+
+test("offline composer creates a metric distance need", async () => {
+  test.skip(!spatialReady, "server spatial endpoints not available yet");
+  const localRoom = await createTestRoom(BASE, { berlin: true });
+  try {
+    const context = await browser.newContext({ viewport: { width: 900, height: 760 } });
+    contexts.push(context);
+    const page = await context.newPage();
+    let nlRequests = 0;
+    page.on("request", (request) => {
+      if (request.url().endsWith("/api/nl/say")) nlRequests += 1;
+    });
+    await page.goto(`${BASE}/?shim=webmcp#invite=${localRoom.inviteSecrets.org}`);
+    await page.getByTestId("close-drawer").click();
+    const input = page.getByLabel("What matters to you?");
+    const command = page.waitForResponse((response) =>
+      response.url().endsWith("/api/commands") &&
+      response.request().postDataJSON()?.type === "SubmitRequirement",
+    );
+    await input.fill("max 500m distance");
+    await input.press("Enter");
+    await command;
+    await expect(page.locator('[data-testid^="need-"]').filter({ hasText: "within 500 m" })).toBeVisible();
+    expect(nlRequests).toBe(0);
+  } finally {
+    await localRoom.cleanup();
+  }
 });
 
 test("demo trajectory through the product UI", async () => {

@@ -4,6 +4,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { createServer as createNetServer } from "node:net";
 import { fileURLToPath } from "node:url";
+import { createServer } from "node:net";
 import { dirname, join } from "node:path";
 import pg from "pg";
 import { config } from "../../apps/server/src/config.ts";
@@ -101,6 +102,10 @@ export async function startServer(options: TestServerOptions = {}): Promise<Test
     logs: () => captured,
     stop: () =>
       new Promise((resolve) => {
+        if (child.exitCode !== null || child.signalCode !== null) {
+          resolve();
+          return;
+        }
         child.once("exit", () => resolve());
         child.kill("SIGTERM");
         setTimeout(() => child.kill("SIGKILL"), 3000).unref();

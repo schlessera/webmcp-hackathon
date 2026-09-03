@@ -927,14 +927,23 @@ export function App() {
             <AgentReplies
               replies={spatialState.agentReplies}
               onDismiss={(rid) => spatial.dismissAgentReply(rid)}
-              onChoose={(rid, choice) => {
-                spatial.dismissAgentReply(rid);
-                void run("SubmitRequirement", {
-                  visibility: choice.visibility,
-                  hardness: "hard",
-                  delegation: { mode: "approval_required" },
-                  payload: choice.payload,
-                });
+              onChoose={async (reply, choice) => {
+                for (const need of choice.needs) {
+                  const visibility = reply.scope ?? "shared";
+                  const localId = spatial.beginPendingNeed(need.label, visibility, need.assumed);
+                  const result = await run("SubmitRequirement", {
+                    visibility,
+                    hardness: "hard",
+                    delegation: { mode: "approval_required" },
+                    payload: need.payload,
+                  });
+                  spatial.settlePendingCommit(localId, result.ok);
+                }
+                spatial.dismissAgentReply(reply.id);
+              }}
+              onRephrase={(reply) => {
+                if (reply.clarify) spatial.prefillComposer(reply.clarify.said, reply.clarify.question);
+                spatial.dismissAgentReply(reply.id);
               }}
             />
 
@@ -1008,6 +1017,7 @@ export function App() {
               facets={context?.facets ?? []}
               activeNeeds={activeNeeds}
               placeCount={context?.total ?? 0}
+              hasOwnOrigin={Boolean(me?.origin)}
               disabled={!context}
               run={run}
             />

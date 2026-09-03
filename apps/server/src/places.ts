@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import {
   AREAS,
+  TRAVEL_SPEED_M_PER_MIN,
   dossierFromTags,
   placeClassFromTags,
   type AreaDefinition,
@@ -322,8 +323,6 @@ export function fillPlan(
   return { total: ordered.length, batches };
 }
 
-const WALK_SPEED_M_PER_MIN = 4500 / 60;
-
 export interface CandidateSet {
   candidates: CandidateSeed[];
   dataSource: DataSource;
@@ -343,7 +342,7 @@ export function seedsForVenues(
       name: v.name,
       category: v.placeClass ?? dossier.category,
       price_level: dossier.priceLevel,
-      walk_min: Math.max(1, Math.round(v.distance / WALK_SPEED_M_PER_MIN)),
+      walk_min: Math.max(1, Math.round(v.distance / TRAVEL_SPEED_M_PER_MIN.walk)),
       location: v.location,
       attributes: dossier.attributes,
       hours: dossier.hours,
@@ -505,7 +504,7 @@ function curatedCandidates(roomId: string, area: AreaDefinition): CandidateSet |
     price_level: v.priceLevel,
     walk_min: Math.max(
       1,
-      Math.round(haversineMeters(v.location, center) / WALK_SPEED_M_PER_MIN),
+      Math.round(haversineMeters(v.location, center) / TRAVEL_SPEED_M_PER_MIN.walk),
     ),
     location: v.location,
     attributes: v.attributes,

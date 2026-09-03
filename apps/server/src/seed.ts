@@ -7,6 +7,7 @@ import {
   PROTOCOL_VERSIONS,
   AGREEMENT_RULE,
   ALLOWED_VISIBILITIES,
+  TRAVEL_SPEED_M_PER_MIN,
   areaById,
 } from "@webmcp-hackathon/contracts";
 import { haversineMeters } from "./eligibility.ts";
@@ -69,8 +70,6 @@ const center = {
   lat: dataset.manifest.demoCenter.lat,
   lng: dataset.manifest.demoCenter.lng,
 };
-
-const WALK_SPEED_M_PER_MIN = 4500 / 60;
 
 const reset = process.argv.includes("--reset");
 
@@ -202,7 +201,7 @@ await withTransaction(async (client) => {
   for (const v of dataset.venues) {
     const walkMin = Math.max(
       1,
-      Math.round(haversineMeters(v.location, center) / WALK_SPEED_M_PER_MIN),
+      Math.round(haversineMeters(v.location, center) / TRAVEL_SPEED_M_PER_MIN.walk),
     );
     await client.query(
       `INSERT INTO candidates (id, room_id, name, category, price_level, walk_min, location, attributes, hours, osm_ref)

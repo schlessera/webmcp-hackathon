@@ -17,7 +17,7 @@ setTransport(async (body) => {
       type: "message",
       content: [{
         type: "output_text",
-        text: JSON.stringify({ intent: "ask", needs: [], reply: null }),
+        text: JSON.stringify({ intent: "ask", confidence: 1, concepts: [], reply: null }),
       }],
     }],
   };

@@ -46,7 +46,11 @@ export interface Call {
   reasoning?: "none" | "minimal" | "low" | "medium" | "high";
   maxOutputTokens?: number;
   timeoutMs?: number;
+  /** Foreground work uses default. Flex is reserved for later background work. */
+  serviceTier?: "default" | "flex";
 }
+
+export const ALLOWED_SERVICE_TIERS = ["default", "flex"] as const;
 
 export interface ToolCall {
   callId: string;
@@ -156,6 +160,7 @@ export async function respond(call: Call): Promise<Reply> {
     instructions: call.instructions,
     input: call.input,
     store: false,
+    service_tier: call.serviceTier ?? "default",
   };
   if (call.schema) {
     body.text = {
@@ -172,6 +177,9 @@ export async function respond(call: Call): Promise<Reply> {
   if (call.reasoning) body.reasoning = { effort: call.reasoning };
   if (call.maxOutputTokens) body.max_output_tokens = call.maxOutputTokens;
 
+  if (!(ALLOWED_SERVICE_TIERS as readonly unknown[]).includes(body.service_tier)) {
+    throw new NlError(`service tier ${String(body.service_tier)} is not allowed`, 400);
+  }
   const raw = (await transport(body, call.timeoutMs ?? 30_000)) as {
     output?: Array<Record<string, unknown>>;
     error?: { message?: string } | null;

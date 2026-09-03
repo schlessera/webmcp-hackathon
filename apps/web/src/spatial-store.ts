@@ -43,6 +43,8 @@ export interface SpatialState {
   /** What the person's agent last said, newest first. Dismissed by the
    * reader; nothing here is room state. */
   agentReplies: AgentReply[];
+  /** A clarify card can return the original words to the pinned composer. */
+  composerPrefill: { text: string; question?: string; nonce: number } | null;
   /** A sentence is with the agent right now. */
   agentBusy: boolean;
   /** What the agent is doing with it, for the composer's status line. */
@@ -114,6 +116,7 @@ export interface PendingNeed {
   /** The need's id once the context shows it. */
   needId: string | null;
   boundAt: number | null;
+  assumed?: string;
 }
 
 /** After the commit, how long the room may stay quiet before a pending need
@@ -129,11 +132,17 @@ export interface AgentReply {
   actions: Array<{ tool: string; ok: boolean; effect: string }>;
   /** true for a question answered, false for a move made. */
   answer: boolean;
-  choices?: Array<{
-    label: string;
-    payload: Record<string, unknown>;
-    visibility: "shared" | "application-private";
-  }>;
+  scope?: "shared" | "application-private";
+  clarify?: {
+    question: string;
+    choices: Array<{
+      id: string;
+      label: string;
+      needs: Array<{ payload: Record<string, unknown>; label: string; gist: string; topic?: string; assumed?: string }>;
+    }>;
+    allowFreeText: boolean;
+    said: string;
+  };
 }
 
 type Listener = () => void;
@@ -210,6 +219,7 @@ export class SpatialStore {
     viewing: {},
     positions: {},
     agentReplies: [],
+    composerPrefill: null,
     agentBusy: false,
     agentPhase: null,
     busy: [],
@@ -288,6 +298,9 @@ export class SpatialStore {
   dismissAgentReply(id: string): void {
     this.update({ agentReplies: this.state.agentReplies.filter((r) => r.id !== id) });
   }
+  prefillComposer(text: string, question?: string): void {
+    this.update({ composerPrefill: { text, ...(question ? { question } : {}), nonce: Date.now() } });
+  }
   setAgentBusy(agentBusy: boolean, agentPhase: SpatialState["agentPhase"] = null): void {
     if (this.state.agentBusy !== agentBusy || this.state.agentPhase !== agentPhase) {
       this.update({ agentBusy, agentPhase: agentBusy ? agentPhase : null });
@@ -328,12 +341,12 @@ export class SpatialStore {
   }
 
   /** A need this page just said. Returns the local id the row is keyed by. */
-  beginPendingNeed(label: string, visibility: string): string {
+  beginPendingNeed(label: string, visibility: string, assumed?: string): string {
     const localId = `n_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
     this.update({
       pendingNeeds: [
         ...this.state.pendingNeeds,
-        { localId, label, visibility, startedAt: Date.now(), committedAt: null, needId: null, boundAt: null },
+        { localId, label, visibility, startedAt: Date.now(), committedAt: null, needId: null, boundAt: null, ...(assumed ? { assumed } : {}) },
       ],
     });
     this.reconcilePending();
