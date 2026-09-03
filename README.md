@@ -4,13 +4,13 @@ A shared map where a small group and their personal AI agents privately
 negotiate a meeting venue — state requirements (shared / application-private /
 agent-private), see live eligibility, resolve impasses with quantified
 counterfactuals under in-page consent, reach an organizer-committed agreement,
-and hand off to navigation. Built on **WebMCP**: 16 tools on
+and hand off to navigation. Built on **WebMCP**: 19 tools on
 `document.modelContext` expose two custom protocols (`negotiation/v1` +
 `spatial-destination/v1`), so a personal agent acts in the same live session the
 human sees, one command model for clicks and tool calls alike.
 
-**Status: pre-submission.** The vertical slice is built and passes 77 automated
-tests (unit + three-user API + three-browser e2e); two adversarial reviews ran
+**Status: pre-submission.** The vertical slice is built and passes 344 automated
+tests (210 unit + 123 three-user API + 11 browser e2e); two adversarial reviews ran
 with the critical findings fixed. Not yet done: live eyes-on verification, the
 WebMCP-in-ChatGPT gate for the new tools, UX polish. Read
 [docs/PROJECT-STATUS.md](docs/PROJECT-STATUS.md) first, then
@@ -33,7 +33,7 @@ apps/server          Fastify: UI serving, API, WebSocket, command bus, event log
                      (eligibility + impasse counterfactuals), spatial read routes
 apps/web             React/Vite: MapLibre map UI (pins, requirement/decisions
                      panels, arrival), invite exchange, sessionStorage identity,
-                     15 WebMCP tools registered at page load, diagnostics panel
+                     19 WebMCP tools registered at page load, diagnostics panel
 scripts              one-time OSM extract + curation; open-participants launcher
 tests/unit           lane 1 — schemas, budgets, contract hash, eligibility,
                      projection redaction
@@ -74,16 +74,18 @@ DATABASE_URL=postgres://webmcp:webmcp@127.0.0.1:5432/webmcp \
   node apps/server/src/server.ts
 ```
 
-## WebMCP tools (15)
+## WebMCP tools (19)
 
 All registered through `document.modelContext.registerTool()` at page load from
 the top-level document (imperative only; no iframes, no declarative forms;
-static surface — no phase-gated registration). 8 negotiation + 7 spatial:
+static surface — no phase-gated registration). 9 negotiation + 10 spatial:
 `sync_session`, `submit_requirement`, `withdraw_requirement`,
-`evaluate_candidates`, `respond_to_proposal`, `resolve_private_request`,
-`set_ready_state`, `confirm_agreement`; `get_spatial_context`,
-`inspect_candidates`, `set_search_scope`, `propose_destination`,
-`focus_destination` (page-local), `plan_arrival`, `prepare_navigation`. Two
+`set_requirement_active`, `evaluate_candidates`, `respond_to_proposal`,
+`resolve_private_request`, `set_ready_state`, `confirm_agreement`;
+`get_spatial_context`, `inspect_candidates`, `look_up_places`,
+`set_search_scope`, `add_candidates`, `propose_destination`,
+`focus_destination` (page-local), `plan_arrival`, `attest_attribute`,
+`prepare_navigation`. Two
 applying commands (`ConfirmPrivateRequest`, `CommitAgreement`) are UI-only —
 in the schema registry but bound to no tool, so an agent can stage but only a
 human commits on the page. `sync_session`'s first call (no `sinceRevision`)
