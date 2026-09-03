@@ -198,7 +198,7 @@ describe("continuous refinement queue", () => {
     expect(REFINE_IDLE_TICK_MS).toBeGreaterThan(REFINE_TICK_MS);
   });
 
-  it("keeps 12 places in one batch and searches once per place for all criteria", async () => {
+  it("bounds searches globally across concurrent room batches", async () => {
     const criterionA = { id: "a", kind: "key" as const, key: "a", label: "first words" };
     const criterionB = { id: "b", kind: "key" as const, key: "b", label: "second words" };
     let active = 0;
@@ -220,11 +220,15 @@ describe("continuous refinement queue", () => {
       criteria: [criterionA, criterionB],
       searchCriteria: [criterionA, criterionB],
     }));
-    const responses = await searchRefinementPlaces(requests, {
+    const area = {
       city: "Berlin",
       label: "Berlin Mitte",
       countryCode: "DE",
-    }, provider, { queryShaping: "shaped" });
+    };
+    const responses = (await Promise.all([
+      searchRefinementPlaces(requests.slice(0, 6), area, provider, { queryShaping: "shaped" }),
+      searchRefinementPlaces(requests.slice(6), area, provider, { queryShaping: "shaped" }),
+    ])).flat();
     expect(responses).toHaveLength(12);
     expect(provider).toHaveBeenCalledTimes(12);
     expect(peak).toBe(REFINE_SEARCH_CONCURRENCY);
