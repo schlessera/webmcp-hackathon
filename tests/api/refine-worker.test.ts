@@ -25,10 +25,10 @@ describe("continuous refinement over the API", () => {
         ENRICH_NETWORK: "1",
         INFER: "1",
         REFINE: "1",
-        REFINE_SEARCH_MODE: "split",
         REFINE_TICK_MS: "500",
         REFINE_IDLE_STOP_MS: "200",
         OPENAI_API_KEY: "test",
+        PARALLEL_API_KEY: "test",
       },
     });
     room = await createTestRoom(server.baseUrl);
@@ -125,11 +125,11 @@ describe("continuous refinement over the API", () => {
       expect(row.inferred[privateKey]?.context).toContain(TRANSIENT);
       expect(String(row.inferred[privateKey]?.context).length).toBeLessThanOrEqual(1_200);
     }
-    // The fixture logs every request whose tools include web_search. The
+    // The fixture logs every Parallel request. The
     // application-private sentence may appear in the plain matrix call, but
     // never in a search query or tool-enabled prompt.
     const searchBodies = server.logs().split("\n").filter((line) =>
-      line.includes("web-search-request")
+      line.includes("parallel-search-request")
     ).join("\n");
     expect(searchBodies).not.toContain(PRIVATE_SENTENCE);
     expect(searchBodies).toContain("free wifi");
@@ -145,7 +145,7 @@ describe("continuous refinement over the API", () => {
     expect(JSON.stringify(lookupFrames)).not.toContain(PRIVATE_SENTENCE);
 
     const gammaSearches = () => server.logs().split("\n").filter((line) =>
-      line.includes("web-search-request") && line.includes("Gamma Berlin free wifi")
+      line.includes("parallel-search-request") && line.includes("Gamma Berlin free wifi")
     ).length;
     expect(gammaSearches()).toBe(1);
     const requirementId = `need_refine_${room.roomId}`;
@@ -206,93 +206,6 @@ describe("continuous refinement over the API", () => {
     }>(server.baseUrl, "/api/spatial/context", room.tokens.org, {});
     return response.body;
   }
-});
-
-describe("combined continuous refinement over the API", () => {
-  let server: TestServer;
-  let room: TestRoom;
-  let realtime: TestRealtime;
-
-  beforeAll(async () => {
-    server = await startServer({
-      entrypoint: "tests/api/fixtures/refine-server.ts",
-      env: {
-        ENRICH_NETWORK: "1",
-        INFER: "1",
-        REFINE: "1",
-        REFINE_SEARCH_MODE: "combined",
-        REFINE_TICK_MS: "500",
-        REFINE_IDLE_STOP_MS: "200",
-        OPENAI_API_KEY: "test",
-      },
-    });
-    room = await createTestRoom(server.baseUrl);
-    await room.pool.query("UPDATE rooms SET area_id = 'berlin-mitte' WHERE id = $1", [room.roomId]);
-    const candidates = (await room.pool.query(
-      "SELECT id, name FROM candidates WHERE room_id = $1 ORDER BY name",
-      [room.roomId],
-    )).rows as Array<{ id: string; name: string }>;
-    for (const [index, candidate] of candidates.entries()) {
-      await room.pool.query(
-        `UPDATE candidates
-            SET osm_ref = $2,
-                extras = $3::jsonb,
-                attributes = '[]'::jsonb,
-                walk_min = $4
-          WHERE id = $1`,
-        [
-          candidate.id,
-          `refine-combined/${room.roomId}/${candidate.name.toLowerCase()}`,
-          JSON.stringify({ website: `https://${candidate.name.toLowerCase()}.example` }),
-          index + 1,
-        ],
-      );
-    }
-    await room.pool.query(
-      `INSERT INTO requirements
-         (id, room_id, owner_id, visibility, hardness, delegation, payload, active)
-       VALUES ($1, $2, $3, 'shared', 'hard', '{}', $4, true)`,
-      [
-        `need_refine_combined_${room.roomId}`,
-        room.roomId,
-        room.participantIds.org,
-        JSON.stringify({ kind: "text", text: "free wifi" }),
-      ],
-    );
-    realtime = await openRealtime(server.baseUrl, room.tokens.org);
-  });
-
-  afterAll(async () => {
-    realtime?.close();
-    await room?.pool.query("DELETE FROM enrichments WHERE osm_ref LIKE $1", [
-      `refine-combined/${room.roomId}/%`,
-    ]);
-    await room?.cleanup();
-    await server?.stop();
-  });
-
-  it("stores cited claims with exactly one combined call per unresolved place", async () => {
-    const key = questionKey("free wifi");
-    await waitFor(async () => {
-      const rows = (await room.pool.query(
-        "SELECT inferred FROM enrichments WHERE osm_ref LIKE $1",
-        [`refine-combined/${room.roomId}/%`],
-      )).rows as Array<{ inferred: Record<string, { lean?: string }> }>;
-      return rows.filter((row) => row.inferred?.[key]?.lean === "yes").length === 2;
-    });
-    const rows = (await room.pool.query(
-      "SELECT inferred FROM enrichments WHERE osm_ref LIKE $1 ORDER BY osm_ref",
-      [`refine-combined/${room.roomId}/%`],
-    )).rows as Array<{ inferred: Record<string, Record<string, unknown>> }>;
-    expect(rows.filter((row) => row.inferred[key]?.lean === "yes")).toHaveLength(2);
-    for (const row of rows.filter((candidate) => candidate.inferred[key]?.lean === "yes")) {
-      expect(row.inferred[key]).toMatchObject({
-        sourceUrl: expect.stringMatching(/^https:\/\/(alpha|beta)\.example\/connectivity$/),
-      });
-    }
-    await waitFor(() => (server.logs().match(/combined refinement call/g) ?? []).length === 3);
-    expect(server.logs().match(/combined refinement call/g)).toHaveLength(3);
-  });
 });
 
 async function waitFor(check: () => Promise<boolean> | boolean, ms = 5_000): Promise<void> {

@@ -1,7 +1,6 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   citedSpans,
-  combinedClaimsFromReply,
   findVerbatimPageSpan,
   openAiSearchProvider,
   parallelSearchProvider,
@@ -21,13 +20,15 @@ afterEach(() => {
   setParallelFetch(null);
   delete process.env.PARALLEL_API_KEY;
   delete process.env.SEARCH_PROVIDER;
+  vi.unstubAllEnvs();
 });
+
+beforeEach(() => vi.stubEnv("LLM_PROVIDER", "openrouter"));
 
 describe("refinement web search", () => {
   it("uses one low-context domain search and reads the statement a marker cites", async () => {
     let wire: Record<string, unknown> | undefined;
-    // Responses annotates the inline "([domain](url))" marker, never the
-    // sentence it supports, so the evidence is the prose that runs up to it.
+    // OpenRouter supplies a source excerpt on each zero-offset annotation.
     const text = "Free wireless internet is available. ([place.example](https://place.example/visit))" +
       "\n\nThe terrace seats forty. ([other.example](https://other.example/terrace))";
     const firstMarker = text.indexOf(" ([place.example");
@@ -37,15 +38,15 @@ describe("refinement web search", () => {
       wire = body;
       return {
         output: [
-          { type: "web_search_call", id: "search_1", action: { type: "search" } },
+          { type: "openrouter:web_search", id: "search_1", action: { type: "search" } },
           {
             type: "message",
             content: [{
               type: "output_text",
               text,
               annotations: [
-                { type: "url_citation", start_index: firstMarker, end_index: firstMarkerEnd, url: "https://place.example/visit", title: "Visit" },
-                { type: "url_citation", start_index: secondMarker, end_index: text.length, url: "https://other.example/terrace" },
+                { type: "url_citation", start_index: 0, end_index: 0, url: "https://place.example/visit", title: "Visit", content: "Free wireless internet is available." },
+                { type: "url_citation", start_index: 0, end_index: 0, url: "https://other.example/terrace", content: "The terrace seats forty." },
                 { type: "url_citation", start_index: 4, end_index: 2, url: "ftp://nope.example" },
               ],
             }],
@@ -69,13 +70,15 @@ describe("refinement web search", () => {
     ]);
     expect(wire).toMatchObject({
       tools: [{
-        type: "web_search",
-        filters: { allowed_domains: ["place.example"] },
-        search_context_size: "low",
+        type: "openrouter:web_search",
+        parameters: {
+          allowed_domains: ["place.example"],
+          search_context_size: "low",
+        },
       }],
-      include: ["web_search_call.action.sources"],
       store: false,
     });
+    expect(wire).not.toHaveProperty("include");
   });
 
   it("never returns a bare citation marker as evidence", () => {
@@ -108,78 +111,6 @@ describe("refinement web search", () => {
       { url: "https://one.example/dogs", title: "https://one.example/dogs", snippet: first },
       { url: "https://two.example/access", title: "https://two.example/access", snippet: second },
     ]);
-  });
-
-  it("validates combined rows against citations and the answer, then applies the search cap", () => {
-    const input = {
-      candidateId: "p1",
-      osmRef: "node/1",
-      name: "Alpha",
-      category: "cafe",
-      query: "Alpha Berlin cafe",
-      source: "open_web_search" as const,
-      sharedCriteria: [
-        { id: "delivery", kind: "key" as const, key: "delivery", label: "delivery" },
-        { id: "takeaway", kind: "key" as const, key: "takeaway", label: "takeaway" },
-        { id: "dog-friendly", kind: "key" as const, key: "dog-friendly", label: "dogs welcome" },
-        { id: "outdoor-seating", kind: "key" as const, key: "outdoor-seating", label: "outdoor seating" },
-      ],
-    };
-    const claims = [
-      { criterionId: "delivery", lean: "yes", confidence: 0.95, evidence: "Delivery is offered every evening", sourceUrl: "https://source.example/facts" },
-      { criterionId: "takeaway", lean: "yes", confidence: 0.9, evidence: "Takeaway meals are available", sourceUrl: "https://wrong.example/facts" },
-      { criterionId: "dog-friendly", lean: "yes", confidence: 0.9, evidence: "Pets may enter the courtyard", sourceUrl: "https://source.example/facts" },
-      { criterionId: "outdoor-seating", lean: "yes", confidence: 0.9, evidence: "outdoor seating", sourceUrl: "https://source.example/facts" },
-    ];
-    const text = JSON.stringify({ claims }).replace(
-      "Pets may enter the courtyard",
-      "Pets\\u0020may\\u0020enter\\u0020the\\u0020courtyard",
-    );
-    expect(combinedClaimsFromReply({
-      text,
-      model: "fast",
-      citations: [{ url: "https://source.example/facts?utm_source=openai" }],
-    }, input)).toEqual([expect.objectContaining({
-      criterionId: "delivery",
-      confidence: 0.5,
-      status: "likely_true",
-      source: "infer:fast:open_web_search:combined",
-      sourceUrl: "https://source.example/facts",
-    })]);
-  });
-
-  it("anchors a combined claim on a url the tool really retrieved", () => {
-    // A strict JSON schema suppresses url_citation annotations entirely
-    // (verified live), so the retrieved-source list is the only anchor.
-    const input = {
-      candidateId: "c1",
-      osmRef: "node/1",
-      name: "Alpha",
-      category: "cafe",
-      query: "Alpha Berlin delivery",
-      source: "open_web_search" as const,
-      sharedCriteria: [
-        { id: "delivery", kind: "key" as const, key: "delivery", label: "delivery" },
-        { id: "takeaway", kind: "key" as const, key: "takeaway", label: "takeaway" },
-      ],
-    };
-    const claims = [
-      { criterionId: "delivery", lean: "yes", confidence: 0.95, evidence: "Delivery is offered every evening", sourceUrl: "https://retrieved.example/menu" },
-      { criterionId: "takeaway", lean: "yes", confidence: 0.9, evidence: "Takeaway meals are available", sourceUrl: "https://never-read.example/menu" },
-    ];
-    expect(combinedClaimsFromReply({
-      text: JSON.stringify({ claims }),
-      model: "fast",
-      citations: [],
-      webSearchCalls: [{
-        type: "web_search_call",
-        action: { type: "search", sources: [{ type: "url", url: "https://retrieved.example/menu?utm_source=openai" }] },
-      }],
-    }, input)).toEqual([expect.objectContaining({
-      criterionId: "delivery",
-      sourceUrl: "https://retrieved.example/menu",
-      confidence: 0.5,
-    })]);
   });
 
   it("maps Tavily results onto the same thin interface", async () => {
@@ -263,14 +194,14 @@ describe("refinement web search", () => {
     expect(wire).not.toContain(privateSentence);
   });
 
-  it("selects Parallel, then OpenAI, then Tavily by available credentials", () => {
+  it("keeps Parallel as the default regardless of available credentials", () => {
     process.env.PARALLEL_API_KEY = "parallel";
     process.env.OPENAI_API_KEY = "openai";
     expect(searchProviderId()).toBe("parallel");
     delete process.env.PARALLEL_API_KEY;
-    expect(searchProviderId()).toBe("openai");
+    expect(searchProviderId()).toBe("parallel");
     delete process.env.OPENAI_API_KEY;
-    expect(searchProviderId()).toBe("tavily");
+    expect(searchProviderId()).toBe("parallel");
     process.env.SEARCH_PROVIDER = "openai";
     expect(searchProviderId()).toBe("openai");
   });

@@ -40,10 +40,9 @@ import { takeListingSpendUsd } from "../enrich/listings.ts";
 import { beginLookups, lookupPending } from "../enrich/progress.ts";
 import { onPresenceChange, presentIn } from "../presence.ts";
 import { createTokenBucket } from "../token-bucket.ts";
-import { responseMetrics } from "../nl/openai.ts";
+import { responseMetrics } from "../nl/llm.ts";
 import { adjudicateLikelyForRoom } from "../enrich/adjudication-runner.ts";
 import {
-  combinedSearch,
   search,
   SEARCH_PROVIDER_COST_USD,
   searchProviderId,
@@ -78,9 +77,7 @@ export const REFINE_SEARCHES_PER_HOUR = positiveInt(
   process.env.REFINE_SEARCHES_PER_HOUR,
   150,
 );
-export type RefineSearchMode = "combined" | "split";
 export type RefineDomainRule = "domain-first" | "open-web-first";
-export const DEFAULT_REFINE_SEARCH_MODE: RefineSearchMode = "split";
 export const MAX_REFINE_QUERY_CHARS = 400;
 const HOUR_MS = 60 * 60_000;
 const STALE_MS = 7 * 24 * 60 * 60_000;
@@ -557,13 +554,8 @@ export interface RefinementSearchPolicy {
 }
 
 export interface RefinementTickOptions extends RefinementSearchPolicy {
-  searchMode?: RefineSearchMode;
   /** Benchmark seam: keep queue membership and order fixed across variants. */
   frozenCandidateIds?: string[];
-}
-
-export function refineSearchMode(value = process.env.REFINE_SEARCH_MODE): RefineSearchMode {
-  return value === "combined" || value === "split" ? value : DEFAULT_REFINE_SEARCH_MODE;
 }
 
 function boundedQuery(parts: string[]): string {
@@ -821,7 +813,6 @@ export async function runRefinementTick(
     criterion.id,
     criterion,
   ])).values()].filter(modelCriterion);
-  const searchMode = options.searchMode ?? refineSearchMode();
   const firstCalls = modelCalls(batch.length, criteria.length);
   // An empty search bucket is not a reason to stop. Site text plus the batch
   // matrix costs no search at all and still moves places off the queue, so the
@@ -830,8 +821,7 @@ export async function runRefinementTick(
   // Searches are handed out in queue order, so a short bucket is spent on
   // tier 1 first and the background sweep takes whatever is left over.
   const searchSlots = Math.min(searchBudget.remaining(roomId, now), batch.length);
-  const worstCalls = firstCalls +
-    (searchSlots > 0 ? (searchMode === "combined" ? searchSlots : firstCalls) : 0);
+  const worstCalls = firstCalls + (searchSlots > 0 ? firstCalls : 0);
   const delay = modelBudget.remaining(roomId, now) >= worstCalls
     ? 0
     : modelBudget.retryAfterMs(roomId, worstCalls, now);
@@ -842,9 +832,7 @@ export async function runRefinementTick(
   state.budgetLogged = false;
   state.paused = null;
   const spendBefore = responseMetrics();
-  // Combined mode is the OpenAI Responses web-search path regardless of the
-  // separately configured split-mode provider.
-  const providerName = searchMode === "combined" ? "openai" : searchProviderId();
+  const providerName = searchProviderId();
 
   const endProgress = beginLookups(
     roomId,
@@ -912,144 +900,93 @@ export async function runRefinementTick(
     searchBudget.consume(roomId, searchRequests.length, now);
     let searchClaims: EvaluatedInference[] = [];
     let paidSearches = 0;
-    if (searchMode === "combined") {
-      for (const request of searchRequests) {
-        for (const criterion of request.searchCriteria) {
-          searchedCells.add(`${request.candidateId}\u0000${criterion.id}`);
+    const preparedById = new Map(prepared.map((item) => [item.item.candidate.id, item]));
+    const searched = (await searchRefinementPlaces(
+      searchRequests,
+      placeInfo,
+      search,
+      { ...options, cacheDb: pool, providerName, roomId },
+    )).map((entry) => ({
+      ...entry,
+      prepared: preparedById.get(entry.candidateId)!,
+    }));
+    paidSearches = searched.filter((entry) => !entry.cacheHit).length;
+    for (const entry of searched) {
+      // searchAttempts measures paid outbound legs. Replaying snippets or
+      // derived claims must not consume another attempt merely because a
+      // requirement toggle caused the worker to revisit the cell.
+      if (!entry.cacheHit) {
+        const attempted = entry.results.length > 0 || entry.cachedClaims
+          ? entry.criteria
+          : entry.searchCriteria;
+        for (const criterion of attempted) {
+          searchedCells.add(`${entry.candidateId}\u0000${criterion.id}`);
         }
       }
-      modelBudget.consume(roomId, searchRequests.length, now);
-      searchClaims = (await Promise.all(searchRequests.map(async (request) => {
-        const domains = refinementSearchDomains(request, options.domainRule);
-        const query = buildRefinementQuery(request, placeInfo);
-        const cachedSearch = await loadSearchCache(
-          pool,
-          request.osmRef,
-          query,
-          "openai",
-          domains,
-        ).catch(() => null);
-        if (cachedSearch?.claims) return cachedSearch.claims.map((claim) => ({
-          ...claim,
-          candidateId: request.candidateId,
-          osmRef: request.osmRef,
-        }));
-        paidSearches += 1;
-        try {
-          const claims = await refinementSearchLimiter.use(() => combinedSearch({
-            candidateId: request.candidateId,
-            osmRef: request.osmRef,
-            name: request.name,
-            category: request.category,
-            query,
-            // Combined mode enables web_search in this very call, so private
-            // criteria are excluded from both its query and request body.
-            sharedCriteria: request.searchCriteria,
-            source: domains ? "domain_search" : "open_web_search",
-            ...(domains ? { domains } : {}),
-          }));
-          await storeSearchCache(pool, {
-            osmRef: request.osmRef,
-            query,
-            provider: "openai",
-            ...(domains ? { domains } : {}),
-            claims,
-            answeredIds: claims.map((claim) => claim.criterionId),
-          }).catch(() => undefined);
-          return claims;
-        } catch {
-          return [];
-        }
-      }))).flat();
-    } else {
-      const preparedById = new Map(prepared.map((item) => [item.item.candidate.id, item]));
-      const searched = (await searchRefinementPlaces(
-        searchRequests,
-        placeInfo,
-        search,
-        { ...options, cacheDb: pool, providerName, roomId },
-      )).map((entry) => ({
-        ...entry,
-        prepared: preparedById.get(entry.candidateId)!,
+      for (const id of entry.cachedAnsweredIds ?? []) {
+        answeredCells.add(`${entry.candidateId}\u0000${id}`);
+      }
+    }
+    const cachedClaims = searched.flatMap((entry) => entry.cachedClaims ?? []);
+    const withSnippets = searched.filter((entry) => entry.results.length > 0);
+    if (withSnippets.length > 0) {
+      const searchCriteria = [...new Map(withSnippets.flatMap((entry) => entry.criteria).map(
+        (criterion) => [criterion.id, criterion],
+      )).values()];
+      const searchPlaces = withSnippets.map((entry) => ({
+        ...entry.prepared.matrix,
+        texts: entry.results.map((result) => ({
+          source: entry.source,
+          text: result.snippet,
+          url: result.url,
+          title: result.title,
+        })),
       }));
-      paidSearches = searched.filter((entry) => !entry.cacheHit).length;
-      for (const entry of searched) {
-        // searchAttempts measures paid outbound legs. Replaying snippets or
-        // derived claims must not consume another attempt merely because a
-        // requirement toggle caused the worker to revisit the cell.
-        if (!entry.cacheHit) {
-          const attempted = entry.results.length > 0 || entry.cachedClaims
-            ? entry.criteria
-            : entry.searchCriteria;
-          for (const criterion of attempted) {
-            searchedCells.add(`${entry.candidateId}\u0000${criterion.id}`);
-          }
-        }
-        for (const id of entry.cachedAnsweredIds ?? []) {
-          answeredCells.add(`${entry.candidateId}\u0000${id}`);
-        }
-      }
-      const cachedClaims = searched.flatMap((entry) => entry.cachedClaims ?? []);
-      const withSnippets = searched.filter((entry) => entry.results.length > 0);
-      if (withSnippets.length > 0) {
-        const searchCriteria = [...new Map(withSnippets.flatMap((entry) => entry.criteria).map(
-          (criterion) => [criterion.id, criterion],
-        )).values()];
-        const searchPlaces = withSnippets.map((entry) => ({
-          ...entry.prepared.matrix,
-          texts: entry.results.map((result) => ({
-            source: entry.source,
-            text: result.snippet,
-            url: result.url,
-            title: result.title,
-          })),
-        }));
-        const secondCalls = modelCalls(searchPlaces.length, searchCriteria.length);
-        modelBudget.consume(roomId, secondCalls, now);
-        const evaluatedClaims = await evaluateMatrix(
-          { places: searchPlaces, criteria: searchCriteria },
-          collectAnswered,
-          pool,
-        );
-        const unresolvedByCandidate = new Map(withSnippets.map((entry) => [
-          entry.prepared.item.candidate.id,
-          new Set(entry.criteria.map((criterion) => criterion.id)),
-        ]));
-        const acceptedClaims = evaluatedClaims.filter((claim) =>
-          unresolvedByCandidate.get(claim.candidateId)?.has(claim.criterionId)
-        );
-        if (providerName === "openai") {
-          await Promise.all(withSnippets.map((entry) => {
-            const answeredIds = entry.criteria
-              .map((criterion) => criterion.id)
-              .filter((id) => answeredCells.has(`${entry.candidateId}\u0000${id}`));
-            if (!answeredIds.length) return Promise.resolve();
-            return storeSearchCache(pool, {
-              osmRef: entry.osmRef,
-              query: entry.cacheQuery!,
-              provider: "openai",
-              ...(entry.cacheDomains ? { domains: entry.cacheDomains } : {}),
-              claims: acceptedClaims.filter((claim) => claim.candidateId === entry.candidateId),
-              answeredIds,
-            }).catch(() => undefined);
-          }));
-        }
-        searchClaims = [...cachedClaims, ...acceptedClaims];
-      } else {
-        searchClaims = cachedClaims;
-      }
+      const secondCalls = modelCalls(searchPlaces.length, searchCriteria.length);
+      modelBudget.consume(roomId, secondCalls, now);
+      const evaluatedClaims = await evaluateMatrix(
+        { places: searchPlaces, criteria: searchCriteria },
+        collectAnswered,
+        pool,
+      );
+      const unresolvedByCandidate = new Map(withSnippets.map((entry) => [
+        entry.prepared.item.candidate.id,
+        new Set(entry.criteria.map((criterion) => criterion.id)),
+      ]));
+      const acceptedClaims = evaluatedClaims.filter((claim) =>
+        unresolvedByCandidate.get(claim.candidateId)?.has(claim.criterionId)
+      );
       if (providerName === "openai") {
-        await Promise.all(searched
-          .filter((entry) => entry.results.length === 0 && entry.cachedClaims === undefined)
-          .map((entry) => storeSearchCache(pool, {
+        await Promise.all(withSnippets.map((entry) => {
+          const answeredIds = entry.criteria
+            .map((criterion) => criterion.id)
+            .filter((id) => answeredCells.has(`${entry.candidateId}\u0000${id}`));
+          if (!answeredIds.length) return Promise.resolve();
+          return storeSearchCache(pool, {
             osmRef: entry.osmRef,
             query: entry.cacheQuery!,
             provider: "openai",
             ...(entry.cacheDomains ? { domains: entry.cacheDomains } : {}),
-            claims: [],
-            answeredIds: [],
-          }).catch(() => undefined)));
+            claims: acceptedClaims.filter((claim) => claim.candidateId === entry.candidateId),
+            answeredIds,
+          }).catch(() => undefined);
+        }));
       }
+      searchClaims = [...cachedClaims, ...acceptedClaims];
+    } else {
+      searchClaims = cachedClaims;
+    }
+    if (providerName === "openai") {
+      await Promise.all(searched
+        .filter((entry) => entry.results.length === 0 && entry.cachedClaims === undefined)
+        .map((entry) => storeSearchCache(pool, {
+          osmRef: entry.osmRef,
+          query: entry.cacheQuery!,
+          provider: "openai",
+          ...(entry.cacheDomains ? { domains: entry.cacheDomains } : {}),
+          claims: [],
+          answeredIds: [],
+        }).catch(() => undefined)));
     }
 
     const claims = [...firstClaims, ...searchClaims];
@@ -1128,11 +1065,6 @@ export async function runRefinementTick(
   }
 }
 
-/** Per-search fee charged by the built-in web-search tool, and the fast-tier
- * token rates, both in dollars. Only used to print an estimate. */
-const INPUT_USD_PER_TOKEN = 0.00000015;
-const OUTPUT_USD_PER_TOKEN = 0.0000006;
-
 /**
  * One line per tick, so a walk can measure the loop instead of inferring it
  * from the map. Counts and dollars only: no place name, no criterion text, no
@@ -1153,13 +1085,15 @@ function logTick(
 ): void {
   const now = responseMetrics();
   const calls = now.calls - tick.spend.calls;
-  const inputTokens = now.inputTokens - tick.spend.inputTokens;
-  const outputTokens = now.outputTokens - tick.spend.outputTokens;
+  const modelCost = now.costUsd - tick.spend.costUsd;
   const listingCost = takeListingSpendUsd(roomId);
-  const cost = tick.searches * SEARCH_PROVIDER_COST_USD[tick.providerName] +
-    listingCost +
-    inputTokens * INPUT_USD_PER_TOKEN +
-    outputTokens * OUTPUT_USD_PER_TOKEN;
+  // OpenRouter reports built-in web-search spend in usage.cost. External
+  // Parallel/Tavily fees remain separate because they never cross the model
+  // transport.
+  const searchCost = tick.providerName === "openai"
+    ? 0
+    : tick.searches * SEARCH_PROVIDER_COST_USD[tick.providerName];
+  const cost = modelCost + searchCost + listingCost;
   console.info(JSON.stringify({
     msg: "refine tick",
     roomId,

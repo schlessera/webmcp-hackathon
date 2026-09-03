@@ -410,7 +410,6 @@ describe("Parallel provider switch over the refinement API", () => {
         ENRICH_NETWORK: "1",
         INFER: "1",
         REFINE: "1",
-        REFINE_SEARCH_MODE: "split",
         REFINE_TICK_MS: "300",
         REFINE_IDLE_STOP_MS: "200",
         OPENAI_API_KEY: "test",

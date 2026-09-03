@@ -47,54 +47,7 @@ setTransport(async (body) => {
   if (Array.isArray(body.tools)) {
     console.info(`web-search-request ${JSON.stringify(body)}`);
     const content = String((body.input as Array<{ content?: string }>)[0]?.content ?? "");
-    const combined = (body.text as { format?: { name?: string } } | undefined)?.format?.name ===
-      "venue_search_matrix_row";
-    const query = combined
-      ? String((JSON.parse(content) as { place?: { name?: string } }).place?.name ?? "")
-      : content;
-    const name = query.startsWith("Alpha") ? "alpha" : query.startsWith("Beta") ? "beta" : "gamma";
-    if (combined) {
-      console.info(`combined refinement call ${name}`);
-      const criteria = (JSON.parse(content) as {
-        criteria: Array<{ id: string }>;
-      }).criteria;
-      const sourceUrl = `https://${name}.example/connectivity`;
-      const claims = criteria.map((criterion) => name === "gamma"
-        ? {
-            criterionId: criterion.id,
-            lean: "abstain",
-            confidence: 0,
-            evidence: "",
-            sourceUrl: null,
-          }
-        : {
-            criterionId: criterion.id,
-            lean: "yes",
-            confidence: 0.95,
-            evidence: "Free wireless internet is available",
-            sourceUrl,
-          });
-      const text = JSON.stringify({ claims });
-      return {
-        output: [
-          { type: "web_search_call", id: `search_${name}`, action: { type: "search" } },
-          {
-            type: "message",
-            content: [{
-              type: "output_text",
-              text,
-              annotations: name === "gamma" ? [] : [{
-                type: "url_citation",
-                start_index: text.indexOf(sourceUrl),
-                end_index: text.indexOf(sourceUrl) + sourceUrl.length,
-                url: `${sourceUrl}?utm_source=openai`,
-                title: `${name} connectivity`,
-              }],
-            }],
-          },
-        ],
-      };
-    }
+    const name = content.startsWith("Alpha") ? "alpha" : content.startsWith("Beta") ? "beta" : "gamma";
     if (name === "gamma") {
       return {
         output: [{
@@ -110,7 +63,7 @@ setTransport(async (body) => {
     const text = `${statement}.${marker}`;
     return {
       output: [
-        { type: "web_search_call", id: `search_${name}`, action: { type: "search" } },
+        { type: "openrouter:web_search", id: `search_${name}`, action: { type: "search" } },
         {
           type: "message",
           content: [{
@@ -122,6 +75,7 @@ setTransport(async (body) => {
               end_index: text.length,
               url: `https://${name}.example/connectivity`,
               title: `${name} connectivity`,
+              content: statement,
             }],
           }],
         },
