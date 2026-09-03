@@ -58,6 +58,7 @@ type MockContext = {
   refine?: {
     active: boolean;
     queued: number;
+    tier1Queued?: number;
     checkedToday: number;
     budgetLeft: { calls: number; searches: number };
     paused?: "budget" | "idle" | null;
@@ -2201,11 +2202,26 @@ test("the room says what it is refining, a question need shows it was looked up,
       ownerId: "p_org",
       criterionId: "q:0123456789abcdef0123456789abcdef01234567",
     },
+    {
+      id: "need-quiet",
+      label: "a quiet room",
+      ruledOut: 0,
+      wouldReturn: 0,
+      unknown: 9,
+      likely: 2,
+      unlikely: 0,
+      active: true,
+      visibility: "shared" as const,
+      hardness: "hard" as const,
+      ownerId: "p_org",
+      criterionId: "q:1111111111111111111111111111111111111111",
+    },
   ];
   const context = fixture({ matching: 4, revision: 50, activeNeeds: needs });
   context.refine = {
     active: true,
     queued: 5,
+    tier1Queued: 5,
     checkedToday: 84,
     budgetLeft: { calls: 40, searches: 20 },
   };
@@ -2232,6 +2248,7 @@ test("the room says what it is refining, a question need shows it was looked up,
             ],
             needs: [
               { requirementId: "need-wifi", label: "free wifi", verdict: "likely", confidence: 0.5 },
+              { requirementId: "need-quiet", label: "a quiet room", verdict: "likely", confidence: 0.5 },
             ],
             attributes: [
               {
@@ -2243,6 +2260,16 @@ test("the room says what it is refining, a question need shows it was looked up,
                 confidence: 0.5,
                 note: "free Wi-Fi for guests",
                 sourceUrl: "https://www.example.org/berlin/the-barn",
+              },
+              {
+                key: "q:1111111111111111111111111111111111111111",
+                label: "a quiet room",
+                status: "likely_true",
+                source: "infer:gpt-5.6-luna:open_web_search:combined",
+                observedAt: "2026-09-03T00:00:00Z",
+                confidence: 0.5,
+                note: "a quiet back room",
+                sourceUrl: "https://www.combined.test/berlin/the-barn",
               },
               {
                 key: "q:ffffffffffffffffffffffffffffffffffffffff",
@@ -2282,7 +2309,7 @@ test("the room says what it is refining, a question need shows it was looked up,
 
   // The refinement line, quiet under the count, absolute both sides.
   const refineLine = page.getByTestId("count-refine");
-  await expect(refineLine).toHaveText("checked 84 places for 1 need · 5 to go");
+  await expect(refineLine).toHaveText("checked 84 places for 2 needs · 5 to go");
   await expect(page.getByTestId("count-busy")).toHaveCount(0);
 
   // The worker names the places it is on: rings on them, the count says how many.
@@ -2308,7 +2335,7 @@ test("the room says what it is refining, a question need shows it was looked up,
   // exercised an older context where the field was absent.
   context.refine.paused = null;
   socket.send({ type: "facts", candidateIds: [], reason: "inference" });
-  await expect(refineLine).toHaveText("checked 84 places for 1 need · 5 to go");
+  await expect(refineLine).toHaveText("checked 84 places for 2 needs · 5 to go");
 
   // A question need that has answers says it was looked up, beside its counts.
   const row = page.getByTestId("need-need-wifi");
@@ -2332,6 +2359,18 @@ test("the room says what it is refining, a question need shows it was looked up,
   await expect(cite).toHaveAttribute("rel", /noopener/);
   const citeBox = await cite.boundingBox();
   expect(citeBox && citeBox.height).toBeGreaterThanOrEqual(44);
+  // A claim the model assembled from a search keeps its link, but must not be
+  // worded as though the room had read that page.
+  const combined = details
+    .getByTestId("fit-ledger")
+    .locator(".check-row")
+    .filter({ hasText: "a quiet room" });
+  await expect(combined).toHaveCount(1);
+  const combinedCite = combined.getByTestId("fact-cite");
+  await expect(combinedCite).toHaveText("a page at combined.test");
+  await expect(combinedCite).toHaveAttribute("href", "https://www.combined.test/berlin/the-barn");
+  await expect(combinedCite).toHaveAttribute("rel", /noopener/);
+  await expect(combined).not.toContainText("from combined.test");
   // A question nobody in this view may see (no label) stays out of the record
   // and does not inflate the unknown count, even when it carries an answer.
   const facts = details.getByTestId("facts");
@@ -2357,15 +2396,22 @@ test("the room says what it is refining, a question need shows it was looked up,
   ).toBeVisible();
   await expect(details).not.toHaveAttribute("data-facts-settling", "true");
 
-  // The server's full queue can exceed this hour's reach. In that case the
-  // room keeps its in-progress register but drops the un-actionable promise.
+  // The line counts the work the stated needs are waiting on, not the whole
+  // background sweep the server also tracks.
   const refine = state.context.refine!;
   refine.queued = 2_500;
+  refine.tier1Queued = 7;
   socket.send({ type: "facts", candidateIds: [], reason: "inference" });
-  await expect(refineLine).toHaveText("checked 84 places for 1 need");
+  await expect(refineLine).toHaveText("checked 84 places for 2 needs · 7 to go");
   socket.send({ type: "lookups", pending: ["place_1", "place_2"], reason: { kind: "refine" } });
-  await expect(page.getByTestId("count-busy")).toHaveText("looking up 2");
+  await expect(page.getByTestId("count-busy")).toHaveText("looking up 2 · 7 to go");
   socket.send({ type: "lookups", pending: [] });
+
+  // Nothing is moving: the register stays, the promise goes.
+  refine.paused = "idle";
+  socket.send({ type: "facts", candidateIds: [], reason: "inference" });
+  await expect(refineLine).toHaveText("checked 84 places for 2 needs");
+  refine.paused = null;
 
   // Either exhausted budget pauses the line; searches normally run out first.
   refine.budgetLeft.searches = 0;
@@ -2380,6 +2426,7 @@ test("the refinement line and the fact rows are still under reduced motion", asy
   (ctx as MockContext & { refine?: unknown }).refine = {
     active: true,
     queued: 2,
+    tier1Queued: 2,
     checkedToday: 3,
     budgetLeft: { calls: 10, searches: 5 },
   };

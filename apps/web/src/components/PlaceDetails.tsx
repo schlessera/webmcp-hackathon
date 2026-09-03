@@ -22,6 +22,7 @@ import {
   personColor,
   readableWhy,
   citationLabel,
+  isCombinedClaim,
   sourceLabel,
   UNKNOWN_SOURCE,
 } from "../ui/copy.ts";
@@ -63,6 +64,9 @@ interface Check {
   source?: string;
   /** Where a web-derived fact was read; rendered as a link, always. */
   sourceUrl?: string;
+  /** The model assembled this from a search rather than a page the server
+   * read, so the citation is offered, not quoted (W8). */
+  combined?: boolean;
 }
 
 /** A server verdict → the mark it is drawn with. A private need that passes
@@ -381,6 +385,7 @@ export function PlaceDetails({
       sourceUrl: attr && attr.status !== "unknown"
         ? safeHttpUrl(attr.sourceUrl) ?? undefined
         : undefined,
+      combined: attr ? isCombinedClaim(attr.source) : undefined,
     };
   });
   /* No verdicts yet (the dossier is still loading): every stated need is a
@@ -586,7 +591,7 @@ export function PlaceDetails({
                         rel="noopener noreferrer"
                         data-testid="fact-cite"
                       >
-                        {citationLabel(c.sourceUrl)}
+                        {citationLabel(c.sourceUrl, !c.combined)}
                       </a>
                     )}
                   </span>
@@ -718,7 +723,7 @@ export function PlaceDetails({
                         rel="noopener noreferrer"
                         data-testid="fact-cite"
                       >
-                        {citationLabel(sourceUrl)}
+                        {citationLabel(sourceUrl, !isCombinedClaim(a.source))}
                       </a>
                     )}
                   </span>

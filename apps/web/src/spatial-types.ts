@@ -236,6 +236,9 @@ export interface RefineView {
   budgetLeft: { calls: number; searches: number };
   /** Why work is not advancing. Older servers omit this field. */
   paused?: "budget" | "idle" | null;
+  /** Places still needing work for an ACTIVE need, excluding the background
+   * sweeps. Older servers omit it; `queued` is the fallback. */
+  tier1Queued?: number;
 }
 
 /** The room's pool of places as it stands (contracts PoolView). */
