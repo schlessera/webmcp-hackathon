@@ -17,7 +17,7 @@ Three sources ship, all server-side, all evidence-labelled:
 | # | source | licence | gives | how |
 |---|---|---|---|---|
 | S1 | OpenStreetMap's own long tail | ODbL | menu URL, opening-hours page, Instagram, description, vegan / gluten-free / halal, takeaway, delivery, Wikidata id | more tags kept in the snapshot (`KEPT_TAGS`); no request at all |
-| S2 | the place's own website | the venue's | schema.org facts (cuisine, price range, hours, accessibility, self-published rating, menu, reservations), menu link discovery, one-line description | one fetch per place, robots.txt honoured, cached 7 days, parsed facts only |
+| S2 | the place's own website | the venue's | schema.org facts (cuisine, price range, hours, accessibility, self-published rating, menu, reservations), menu link discovery, one-line description; selected visible text for same-pass inference only | one homepage fetch plus an optional menu follow, robots.txt honoured; parsed facts cached 7 days, page text held only in memory for that lookup pass |
 | S3 | Wikidata | CC0 | description, Wikipedia article, official site, awards (Michelin star, Bib Gourmand) | one entity fetch for places carrying a `wikidata` tag, cached 7 days |
 
 Ratings from review platforms are **not** available under our constraints
@@ -156,28 +156,34 @@ redistributable, no attribution obligation (we attribute anyway).
 When the record, looked-up web facts and the small deterministic guess table
 still leave a requested attribute unknown, the server may ask the fast NL
 model for a lean. The input is limited to the place name, category, cuisine
-tokens, OSM/Wikidata descriptions, parsed website facts and description, and
-menu words/readings already gathered by the enrichment layer. The output key
-must be one of the dossier's boolean attributes or `price-level` (band 1–4).
+tokens, OSM/Wikidata descriptions, parsed website facts and description,
+menu words/readings, and — only when this lookup just fetched them — selected
+visible text from the homepage and followed menu page. That transient text is
+title, meta description, headings, paragraphs and list items after scripts,
+styles, navigation and footer are stripped, capped separately at 6,000
+characters per page. A cache-only read has no page text to replay. The output
+key must be one of the dossier's boolean attributes or `price-level` (band
+1–4).
 
 Inference is never verification. Every accepted claim is merged through the
 graded status path as `likely_true` or `likely_false`, with source
 `infer:<model>` and its evidence span in `note`. It fills only a slot that is
 still `unknown`; record, web, deterministic guess and attested facts keep
 their precedence. The server drops a claim unless its evidence is at least 12
-characters and two words, appears at whole-word boundaries in the exact input
-bucket the model named, and is not just the attribute key or label. Whitespace
-runs are collapsed to one ASCII space on both sides before that comparison.
-Control and markup characters are stripped before the note is stored; notes
-are fenced as untrusted venue data whenever a tool result enters agent context.
+characters and two words, appears case-insensitively at whole-word boundaries
+in the exact input bucket the model named, and is not just the attribute key
+or label. Whitespace runs are collapsed to one ASCII space on both sides before
+that comparison. Control and markup characters are stripped before the note is
+stored; notes are fenced as untrusted venue data whenever a tool result enters
+agent context.
 
 The model's stated confidence is capped in code:
 
 | evidence used | maximum confidence |
 |---|---:|
 | name, category or cuisine token only | 0.45 |
-| OSM/Wikidata description or parsed website text | 0.60 |
-| menu words or a prior menu reading | 0.69 |
+| OSM/Wikidata description, parsed website description or transient homepage text | 0.60 |
+| menu words, a prior menu reading or transient menu-page text | 0.69 |
 
 Accepted claims are cached per attribute key in `enrichments.inferred` for
 seven days. A requested key the model omits gets a 24-hour omission sentinel,
@@ -205,13 +211,16 @@ smart-tier job.
 
 ## How it lands in a room
 
-- `enrichments` (migrations 010 and 013), keyed by OSM ref and shared by every
+- `enrichments` (migrations 010, 013 and 015), keyed by OSM ref and shared by every
   room that holds the place. Website and Wikidata each carry their own fetch
   status, error and expiry. A successful provider value is kept for seven
   days; a transient failure preserves that provider's last good value and
   retries only that provider after about one hour. A short database lease per
   OSM ref prevents separate server processes from refreshing the same place at
-  once.
+  once. Website and menu HTML never enter this row: selected text lives only
+  as a sibling of the fetched facts on the in-memory return value, reaches the
+  inference validator during that same pass, and is then discarded. Only a
+  validated short evidence span may survive inside an inferred claim.
 - **When**: a new room's pool is warmed in the background (4 at a time);
   `inspect_candidates` (the place panel, or an agent) waits up to 3.5 s for
   a fresh lookup and otherwise opens with what is cached, the lookup
@@ -242,4 +251,5 @@ smart-tier job.
   are not looked up.
 - Parsing `openingHoursSpecification` objects into the hours table (only the
   `openingHours` string form is read, and only to `unverified`).
-- Reading a menu's contents. The link is offered; the text stays the venue's.
+- Persisting or returning full homepage/menu text. It remains the venue's and
+  is held only long enough to validate same-pass inference evidence.
