@@ -76,11 +76,49 @@ function useReveal() {
   return { ref, open };
 }
 
+/**
+ * The top bar takes the drawer's ground while the ink half is under it, so
+ * the wordmark and the action never sit on a cream strip over ink. A scroll
+ * check on the page's own scroll container; nothing animates under reduced
+ * motion because the colour transition runs on the settle token.
+ */
+function useInkBar(
+  scrollRef: React.RefObject<HTMLDivElement | null>,
+  inkRef: React.RefObject<HTMLDivElement | null>,
+): boolean {
+  const [ink, setInk] = useState(false);
+  useEffect(() => {
+    const root = scrollRef.current;
+    const el = inkRef.current;
+    if (!root || !el) return;
+    let raf = 0;
+    const check = () => {
+      raf = 0;
+      const bar = root.querySelector(".ld-top")?.getBoundingClientRect().bottom ?? 56;
+      const r = el.getBoundingClientRect();
+      setInk(r.top <= bar && r.bottom > bar);
+    };
+    const onScroll = () => {
+      if (!raf) raf = requestAnimationFrame(check);
+    };
+    root.addEventListener("scroll", onScroll, { passive: true });
+    check();
+    return () => {
+      root.removeEventListener("scroll", onScroll);
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, [scrollRef, inkRef]);
+  return ink;
+}
+
 export function Landing({ onStart }: Props) {
   const reveal = useReveal();
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const inkRef = useRef<HTMLDivElement | null>(null);
+  const barInk = useInkBar(scrollRef, inkRef);
   return (
-    <div className="landing" data-testid="landing">
-      <header className="ld-top">
+    <div className="landing" data-testid="landing" ref={scrollRef}>
+      <header className="ld-top" data-ink={barInk || undefined}>
         <a className="ld-brand" href="/" aria-label="Spokes">
           <Wordmark />
         </a>
@@ -148,6 +186,7 @@ export function Landing({ onStart }: Props) {
         </section>
 
         <section className="ld-problem">
+          <div className="ld-problem-copy">
           <p className="ld-read">
             Picking somewhere to go with other people is a negotiation nobody
             runs. The needs are scattered and arrive piecemeal: a diet here, a
@@ -162,6 +201,34 @@ export function Landing({ onStart }: Props) {
             Your agent can act for you inside the same room, within the
             authority you gave it and nothing more.
           </p>
+          </div>
+          <aside className="ld-problem-aside" aria-hidden="true">
+            <span className="ld-brief-label">What matters</span>
+            <div className="ld-rows">
+              <div className="need-row ld-row">
+                <Mark />
+                <span className="ld-row-label">vegetarian options · Sarah</span>
+                <span className="ld-row-delta">−4</span>
+              </div>
+              <div className="need-row ld-row">
+                <Mark />
+                <span className="ld-row-label">within 15 min walk · Joe</span>
+                <span className="ld-row-delta">−13</span>
+              </div>
+              <div className="need-row ld-row" data-variant="private">
+                <Mark kind="private" />
+                <span className="ld-row-label ld-row-private">A private condition</span>
+                <span className="ld-row-delta">−2</span>
+                <span className="ld-chip" data-tone="scope">private</span>
+              </div>
+              <div className="need-row ld-row" data-variant="silent">
+                <Mark kind="silent" />
+                <span className="ld-row-label ld-row-private">Joe&rsquo;s agent holds one condition</span>
+                <span className="ld-chip" data-tone="scope">agent only</span>
+              </div>
+            </div>
+            <span className="ld-brief-note">Three people, four needs, one map. Two of them stay private and still count.</span>
+          </aside>
         </section>
 
         {/* The beats: a brief, not a feature grid. */}
@@ -207,7 +274,9 @@ export function Landing({ onStart }: Props) {
                 never moves under you; your memory of where things are is the
                 point.
               </p>
-              <div className="ld-count" aria-hidden="true">
+            </div>
+            <div className="ld-drawn" aria-hidden="true">
+              <div className="ld-count">
                 <div className="count-block ld-count-block" data-state="works">
                   <span className="ld-count-big">12</span>
                   <span className="ld-count-word">still work</span>
@@ -216,6 +285,17 @@ export function Landing({ onStart }: Props) {
                 <span className="ld-delta">
                   <b>+9</b> if &ldquo;vegetarian options&rdquo; went optional
                 </span>
+              </div>
+              <div className="ld-rows">
+                <div className="need-row ld-row" data-variant="applied">
+                  <Mark />
+                  <span className="ld-row-label">outdoor seating</span>
+                  <span className="ld-row-delta">−5</span>
+                </div>
+                <div className="need-row ld-row" data-variant="pending">
+                  <Mark kind="busy" />
+                  <span className="ld-row-label">step-free access <span className="ld-row-note">checking 12 places…</span></span>
+                </div>
               </div>
             </div>
           </article>
@@ -257,7 +337,9 @@ export function Landing({ onStart }: Props) {
                 it removed. Both halves are the design: hiding the effect would
                 be a lie, showing the reason would be a leak.
               </p>
-              <div className="ld-rows" aria-hidden="true">
+            </div>
+            <div className="ld-drawn" aria-hidden="true">
+              <div className="ld-rows">
                 <div className="need-row ld-row">
                   <Mark />
                   <span className="ld-row-label">vegetarian options · Sarah</span>
@@ -270,6 +352,14 @@ export function Landing({ onStart }: Props) {
                   <span className="ld-chip" data-tone="scope">private</span>
                 </div>
               </div>
+              <div className="ld-count">
+                <div className="count-block ld-count-block" data-state="works">
+                  <span className="ld-count-big">6</span>
+                  <span className="ld-count-word">still work</span>
+                  <span className="ld-count-sub">of 21 · 3 unsure</span>
+                </div>
+              </div>
+              <span className="ld-brief-note">What the room sees. The owner sees the condition itself.</span>
             </div>
           </article>
 
@@ -338,7 +428,13 @@ export function Landing({ onStart }: Props) {
                 to get there and a one-tap handoff to the map app everyone
                 already has.
               </p>
-              <div className="ld-rows" aria-hidden="true">
+            </div>
+            <div className="ld-drawn" aria-hidden="true">
+              <div className="ld-rows">
+                <div className="need-row ld-row">
+                  <Mark kind="veto" />
+                  <span className="ld-row-label">Someone said no to Mishba</span>
+                </div>
                 <div className="need-row ld-row" data-variant="applied">
                   <Mark />
                   <span className="ld-row-label">Settled: Café Einstein</span>
@@ -351,6 +447,7 @@ export function Landing({ onStart }: Props) {
 
         {/* Unknown is a state you draw. */}
         <section className="ld-legend" aria-labelledby="ld-legend-h">
+          <div className="ld-legend-copy">
           <h2 className="ld-label" id="ld-legend-h">
             Unsure is drawn, not dropped
           </h2>
@@ -361,42 +458,28 @@ export function Landing({ onStart }: Props) {
             apart, and looked up when it starts to matter. A guess with a reason
             is drawn dashed. Only a verified fact ever rules a place in or out.
           </p>
-          <ul className="ld-marks">
-            <li>
-              <Mark /> works
-            </li>
-            <li>
-              <Mark kind="likely" /> likely
-            </li>
-            <li>
-              <Mark kind="unknown" /> unsure
-            </li>
-            <li>
-              <Mark kind="unlikely" /> unlikely
-            </li>
-            <li>
-              <Mark kind="out" /> ruled out
-            </li>
-            <li>
-              <Mark kind="private" /> private
-            </li>
-            <li>
-              <Mark kind="veto" /> a veto
-            </li>
-            <li>
-              <Mark kind="busy" /> being looked up
-            </li>
-          </ul>
           <p className="ld-read ld-quiet">
             Nothing on these screens names a kind of place. The same room
             serves a park where the dog can run, an exhibition, a screening in
             a given language, a quiet room to work in, or dinner. Every control
             is generated from what the data can say about the places in view.
           </p>
+          </div>
+          <dl className="ld-marks">
+            <div><dt><Mark /> works</dt><dd>clears every need the room has stated</dd></div>
+            <div><dt><Mark kind="likely" /> likely</dt><dd>a guess with a reason leans yes; drawn dashed, counted apart</dd></div>
+            <div><dt><Mark kind="unknown" /> unsure</dt><dd>nobody could confirm it; not a failure</dd></div>
+            <div><dt><Mark kind="unlikely" /> unlikely</dt><dd>a guess leans no; still never ruled out</dd></div>
+            <div><dt><Mark kind="out" /> ruled out</dt><dd>a verified fact contradicts a need</dd></div>
+            <div><dt><Mark kind="private" /> private</dt><dd>a condition only its owner can read</dd></div>
+            <div><dt><Mark kind="veto" /> a veto</dt><dd>someone said no to a proposal</dd></div>
+            <div><dt><Mark kind="busy" /> being looked up</dt><dd>a fact is being fetched right now</dd></div>
+          </dl>
         </section>
       </main>
 
       {/* ── The drawer opens ─────────────────────────────────────────── */}
+      <div className="ld-ink" ref={inkRef}>
       <section
         className="ld-reveal"
         ref={reveal.ref as React.RefObject<HTMLElement>}
@@ -539,6 +622,9 @@ export function Landing({ onStart }: Props) {
               </dd>
             </div>
             <div>
+              <figure className="ld-wire-shot">
+                <img src="/landing/drawer-mobile.webp" width="430" height="932" loading="lazy" decoding="async" alt="The { } drawer: an ink slide-over with the connection state, the session, and timestamped wire lines in monospace." />
+              </figure>
               <dt>Return, don&rsquo;t throw</dt>
               <dd>
                 Rejected promises reach an agent with no detail, so every
@@ -556,9 +642,9 @@ export function Landing({ onStart }: Props) {
           </h2>
           <div className="ld-numbers" role="list">
             <div role="listitem">
-              <span className="ld-num">344</span>
+              <span className="ld-num">364</span>
               <span className="ld-num-l">automated tests</span>
-              <span className="ld-num-s">210 unit · 123 three-user API · 11 browser</span>
+              <span className="ld-num-s">222 unit · 128 three-user API · 14 browser</span>
             </div>
             <div role="listitem">
               <span className="ld-num">19</span>
@@ -579,6 +665,9 @@ export function Landing({ onStart }: Props) {
 
           <dl className="ld-facts">
             <div>
+              <figure className="ld-wire-shot">
+                <img src="/landing/roster-mobile.webp" width="430" height="932" loading="lazy" decoding="async" alt="The roster opened from the header: Alex, organizer, here now; Sarah, here now; Joe, not arrived. Below, three need rows, one of them a private condition." />
+              </figure>
               <dt>Three privacy tiers, projected server-side</dt>
               <dd>
                 <code>shared</code> reaches everyone. <code>application-private</code>{" "}
@@ -795,6 +884,7 @@ export function Landing({ onStart }: Props) {
             Start a room
           </button>
         </section>
+      </div>
       </div>
 
       <footer className="ld-foot">

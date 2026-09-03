@@ -9,8 +9,8 @@ and hand off to navigation. Built on **WebMCP**: 19 tools on
 `spatial-destination/v1`), so a personal agent acts in the same live session the
 human sees, one command model for clicks and tool calls alike.
 
-**Status: pre-submission.** The vertical slice is built and passes 344 automated
-tests (210 unit + 123 three-user API + 11 browser e2e); two adversarial reviews ran
+**Status: pre-submission.** The vertical slice is built and passes 364 automated
+tests (222 unit + 128 three-user API + 14 browser e2e); two adversarial reviews ran
 with the critical findings fixed. Not yet done: live eyes-on verification, the
 WebMCP-in-ChatGPT gate for the new tools, UX polish. Read
 [docs/PROJECT-STATUS.md](docs/PROJECT-STATUS.md) first, then

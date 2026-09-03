@@ -31,8 +31,7 @@ and hand off to navigation. Built on WebMCP: 19 tools on
 ## Current state (honest)
 
 **Built and green.** The product vertical slice is implemented on top of the
-validation-spike-1 core. Automated tests: **51 unit + 49 API + 6 e2e = 106
-passing** (lanes 1–3). Two independent adversarial reviews ran (GPT-5.6 code
+validation-spike-1 core. Automated tests: **222 unit + 128 API + 14 e2e = 364 enumerated** (lanes 1–3). Two independent adversarial reviews ran (GPT-5.6 code
 review + a protocol-invariant audit); the critical/high privacy and
 agreement-integrity findings were fixed and are covered by tests, and the two
 biggest deferred findings were closed on 2026-09-01: a realtime-only
