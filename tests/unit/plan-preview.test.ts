@@ -175,6 +175,18 @@ describe("plan preview", () => {
     expect(preview.steps[0].title).toBe("dinner");
   });
 
+  it("resolves a pre-parsed relative time into the step's window without the model", async () => {
+    // The pre-parser already read "for dinner"; the model sees only the remainder.
+    scripted({ placeClass: "food", concepts: [] });
+    const preview = await planPreview(planRows[4].text, area, NOW);
+    expect(preview.steps[0].needs.map((need) => need.payload.kind)).toEqual(["time"]);
+    expect(preview.steps[0].when).toEqual({
+      start: "2026-09-03T18:00:00+02:00",
+      end: "2026-09-03T21:00:00+02:00",
+      phrase: "dinner",
+    });
+  });
+
   it("falls back to the class label when the goal names nothing to title it with", async () => {
     scripted(DRAFTS["plan-003"]);
     const preview = await planPreview(planRows[2].text, area, NOW);

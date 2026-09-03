@@ -316,13 +316,16 @@ interface TimeHit<T> {
 }
 
 const WEEKDAY_FORMS: ReadonlyArray<readonly [number, readonly string[]]> = [
-  [0, ["sunday", "sun", "sonntag", "so"]],
-  [1, ["monday", "mon", "montag", "mo"]],
-  [2, ["tuesday", "tues", "tue", "dienstag", "di"]],
-  [3, ["wednesday", "wed", "mittwoch", "mi"]],
-  [4, ["thursday", "thurs", "thu", "donnerstag", "do"]],
-  [5, ["friday", "fri", "freitag", "fr"]],
-  [6, ["saturday", "sat", "samstag", "sa"]],
+  // Two-letter German abbreviations (Mo, Di, Do, So) collide with ordinary
+  // words in both languages ("do you have", "so gegen acht"); only the dotted
+  // forms count.
+  [0, ["sunday", "sun", "sonntag", "so."]],
+  [1, ["monday", "mon", "montag", "mo."]],
+  [2, ["tuesday", "tues", "tue", "dienstag", "di."]],
+  [3, ["wednesday", "wed", "mittwoch", "mi."]],
+  [4, ["thursday", "thurs", "thu", "donnerstag", "do."]],
+  [5, ["friday", "fri", "freitag", "fr."]],
+  [6, ["saturday", "sat", "samstag", "sa."]],
 ];
 
 const TIME_PART_FORMS: ReadonlyArray<readonly [TimePart, readonly string[]]> = [
@@ -417,7 +420,11 @@ function clockIn(text: string, start: number, end: number): TimeHit<{ hour: numb
     };
   }
 
-  const numeric = /(?<![\p{L}\d])(?:(?:at|around|about|um|gegen)\s+)?([01]?\d|2[0-3])[:.]([0-5]\d)(?!\d)/iu.exec(clause);
+  // A colon is always a clock; a dot ("7.30") is a clock only after an
+  // introducer, or "7.30" in "under €7.30" becomes a spurious time.
+  const numeric =
+    /(?<![\p{L}\d€$£])(?:(?:at|around|about|um|gegen)\s+)?([01]?\d|2[0-3]):([0-5]\d)(?!\d)/iu.exec(clause) ??
+    /(?<![\p{L}\d€$£])(?:at|around|about|um|gegen)\s+([01]?\d|2[0-3])\.([0-5]\d)(?!\d)/iu.exec(clause);
   if (numeric) {
     return {
       value: { hour: Number(numeric[1]), minute: Number(numeric[2]) },

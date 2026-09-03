@@ -161,7 +161,8 @@ export function resolveTimeSpec(
       date = addDays(date, 7);
       start = civilInstant(date, startMinute, timezone);
       end = civilInstant(date, endMinute, timezone);
-    } else if (spec.clock && (!spec.day || spec.day.kind === "today")) {
+    } else if (spec.clock && !spec.day) {
+      // "at 8" after eight o'clock means tomorrow; "today at 8" stays today.
       const impliedPm = (spec.part === "evening" || spec.part === "tonight") && spec.clock.hour < 12;
       const centreMinute = (spec.clock.hour + (impliedPm ? 12 : 0)) * 60 + spec.clock.minute;
       const centre = civilInstant(date, centreMinute, timezone);

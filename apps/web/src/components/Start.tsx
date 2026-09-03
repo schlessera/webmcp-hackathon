@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   createRoom,
   fetchAreas,
@@ -187,7 +187,13 @@ export function Start({ onOpen, onBack }: Props) {
   const selectedArea = areas?.find((area) => area.id === areaId);
   const availableClasses = plan?.classes ?? areaClasses(selectedArea);
 
+  // A preview can take a while; editing the goal or switching the area while
+  // it is in flight supersedes it, and its answer must not come back as the plan.
+  const previewSeq = useRef(0);
+
   const selectArea = (area: AreaSummary) => {
+    previewSeq.current += 1;
+    setBusy(null);
     setAreaId(area.id);
     setPlaceClass(areaClasses(area)[0]!.key);
     setPlan(null);
@@ -196,9 +202,11 @@ export function Start({ onOpen, onBack }: Props) {
 
   const readPlan = async (words: string, retained: ParsedNeed[] = []) => {
     if (!areaId) return;
+    const seq = ++previewSeq.current;
     setBusy("preview");
     setError(null);
     const preview = await previewPlan({ areaId, goal: words });
+    if (seq !== previewSeq.current) return;
     const fallbackClasses = areaClasses(selectedArea);
     if (!preview || preview.steps.length === 0) {
       const selected = fallbackClasses.find((item) => item.key === placeClass) ?? fallbackClasses[0]!;
@@ -352,6 +360,8 @@ export function Start({ onOpen, onBack }: Props) {
           placeholder={COPY.startGoalPlaceholder}
           data-testid="start-goal"
           onChange={(event) => {
+            previewSeq.current += 1;
+            setBusy(null);
             setGoal(event.target.value);
             setPlan(null);
             setClarifyText("");

@@ -241,11 +241,8 @@ function titleFor(concepts: Concept[], stepClass: StepClass): string {
   const time = concepts.find((concept) => concept.role === "time");
   const subject = concepts.find((concept) => concept.role === "subject");
   const kind = concepts.find((concept) => concept.role === "kind" && concept.polarity === "include");
-  // A pre-parsed time phrase keeps its connective ("for dinner", "zum
-  // Mittagessen"); a title wants the noun.
-  const timeWords = time?.phrase?.trim().replace(/^(?:open|offen|geöffnet|for|at|on|zum|zur|zu|um|am)\s+/i, "").trim();
   const candidate =
-    timeWords ||
+    timeWords(time?.phrase) ||
     subject?.gist.trim() ||
     subject?.surface.trim() ||
     kind?.values.join(" or ").replace(/_/g, " ").trim() ||
@@ -254,13 +251,27 @@ function titleFor(concepts: Concept[], stepClass: StepClass): string {
   return title.length > 0 && title.length <= TITLE_MAX ? title : stepClass.label;
 }
 
-function whenFor(concepts: Concept[]): PlanStep["when"] {
+/** A pre-parsed time phrase keeps its connective ("for dinner", "zum
+ * Mittagessen"); a title or a window label wants the noun. */
+function timeWords(phrase: string | null | undefined): string {
+  return (phrase ?? "").trim().replace(/^(?:open|offen|geöffnet|for|at|on|zum|zur|zu|um|am)\s+/i, "").trim();
+}
+
+function whenFor(needs: ParsedNeed[], concepts: Concept[]): PlanStep["when"] {
+  // Stage B resolves relative times (lunch, Friday evening) from timeSpec;
+  // read the window it produced, not the concept's raw field.
+  const need = needs.find((row) => row.payload.kind === "time");
+  const window = need?.payload.window as { start?: unknown; end?: unknown } | undefined;
+  if (typeof window?.start === "string" && typeof window?.end === "string") {
+    const phrase = typeof need?.payload.phrase === "string" ? need.payload.phrase : need?.label ?? "";
+    return { start: window.start, end: window.end, phrase: timeWords(phrase).slice(0, 60) };
+  }
   const time = concepts.find((concept) => concept.role === "time" && concept.window);
   if (!time?.window) return null;
   return {
     start: time.window.start,
     end: time.window.end,
-    phrase: (time.phrase ?? time.surface).slice(0, 60),
+    phrase: timeWords(time.phrase ?? time.surface).slice(0, 60),
   };
 }
 
@@ -367,7 +378,7 @@ export async function planPreview(
       title: titleFor(concepts, stepClass),
       placeClass: { key: stepClass.key, label: stepClass.label },
       needs,
-      when: whenFor(concepts),
+      when: whenFor(needs, concepts),
     }],
     classes: areaClassCounts(area.id),
     clarify,

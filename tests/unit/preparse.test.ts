@@ -187,6 +187,19 @@ describe("time pre-parser grammar", () => {
     expect(parsed.concepts).toMatchObject([{ role: "time", timeSpec, phrase: text }]);
   });
 
+  it("does not read short English or German words as weekday abbreviations", () => {
+    expect(preparse("do you have vegan options?", { currency: "EUR" }).concepts.some((concept) => concept.role === "time")).toBe(false);
+    expect(preparse("so gegen 8", { currency: "EUR" }).concepts).toMatchObject([{ role: "time", timeSpec: { day: null, clock: { hour: 8, minute: 0 } } }]);
+    expect(preparse("Do. abends", { currency: "EUR" }).concepts).toMatchObject([{ role: "time", timeSpec: { day: { kind: "weekday", weekday: 4 }, part: "evening" } }]);
+  });
+
+  it("does not read a price's decimals as a clock", () => {
+    const parsed = preparse("under €7.30", { currency: "EUR" });
+    expect(parsed.concepts.some((concept) => concept.role === "time")).toBe(false);
+    expect(parsed.concepts).toMatchObject([{ role: "money" }]);
+    expect(preparse("um 7.30", { currency: "EUR" }).concepts).toMatchObject([{ role: "time", timeSpec: { clock: { hour: 7, minute: 30 } } }]);
+  });
+
   it("does not steal durations or unrelated uses of late", () => {
     expect(preparse("in 5 min", { currency: "EUR" }).concepts).toMatchObject([{ role: "travel_time" }]);
     expect(preparse("in 5 min", { currency: "EUR" }).concepts.some((concept) => concept.role === "time")).toBe(false);

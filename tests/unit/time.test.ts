@@ -36,6 +36,13 @@ describe("deterministic time resolution", () => {
     });
   });
 
+  it("keeps an explicit today on today even after the clock time passed", () => {
+    expect(resolveTimeSpec({ day: { kind: "today" }, part: null, clock: { hour: 8, minute: 0 } }, new Date("2026-09-03T10:00:00Z"), "Europe/Berlin")).toEqual({
+      start: "2026-09-03T07:00:00+02:00",
+      end: "2026-09-03T09:00:00+02:00",
+    });
+  });
+
   it("uses an evening word to disambiguate a twelve-hour German clock", () => {
     expect(resolveTimeSpec({ day: { kind: "today" }, part: "evening", clock: { hour: 8, minute: 30 } }, new Date("2026-09-03T10:00:00Z"), "Europe/Berlin")).toEqual({
       start: "2026-09-03T19:30:00+02:00",
