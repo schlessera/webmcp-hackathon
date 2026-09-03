@@ -3,3 +3,4 @@
 -- Projection code must expose it only on that participant's own roster row.
 
 ALTER TABLE participants ADD COLUMN IF NOT EXISTS origin jsonb;
+ALTER TABLE participants ADD COLUMN IF NOT EXISTS origin_shared boolean NOT NULL DEFAULT false;

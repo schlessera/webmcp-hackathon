@@ -70,6 +70,14 @@ export interface PresenceMessage {
   /** Who has which place open right now; one row per participant that does.
    * Omitted rows mean "nothing open". Presence, never room state. */
   viewing: Array<{ participantId: string; candidateId: string }>;
+  /** Live coordinates for present participants who opted in. The private
+   * origin label never travels on this channel. */
+  positions: Array<{
+    participantId: string;
+    lat: number;
+    lng: number;
+    updatedAt: string;
+  }>;
 }
 /**
  * Which places the server is looking up right now (a venue site, Wikidata,

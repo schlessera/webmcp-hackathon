@@ -160,6 +160,26 @@ export function projectEvent(
         text: `${actorName} updated where they start from.`,
       };
 
+    case "origin_sharing_changed": {
+      const shared = p.shared === true;
+      if (isActor) {
+        return full(
+          event,
+          shared
+            ? "You are showing where you are."
+            : "You stopped showing where you are.",
+        );
+      }
+      return {
+        revision: event.revision,
+        type: event.type,
+        level: "existence",
+        text: shared
+          ? `${actorName} is showing where they are.`
+          : `${actorName} stopped showing where they are.`,
+      };
+    }
+
     case "candidates_added": {
       const count = (p.count as number) ?? 0;
       if (p.source === "pool") {

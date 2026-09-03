@@ -48,6 +48,7 @@ describe("new event projections", () => {
       "impasse_resolved", "agreement_staged", "agreement_stage_aborted",
       "agreement_committed", "proposal_withdrawn", "arrival_plan_updated",
       "origin_updated",
+      "origin_sharing_changed",
     ];
     for (const type of types) {
       const projected = projectEvent(
@@ -58,29 +59,41 @@ describe("new event projections", () => {
     }
   });
 
-  it("keeps origin coordinates in the owner's event and sends peers existence only", () => {
+  it("keeps coordinates out of origin history and sends peers existence only", () => {
     const event = ev({
       type: "origin_updated",
       visibility: "application-private",
       payload: {
         actorName: "Sarah",
-        origin: {
-          lat: 52.5226,
-          lng: 13.4024,
-          label: "Hackescher Markt",
-          source: "stated",
-          updatedAt: "2026-09-03T00:00:00.000Z",
-        },
       },
     });
     const owner = projectEvent({ ...event, actorId: "p_sarah" }, "p_sarah")!;
-    expect(JSON.stringify(owner)).toContain("52.5226");
+    expect(owner).toMatchObject({ level: "full", text: "You updated where you start from." });
+    expect(JSON.stringify(owner)).not.toContain("52.5226");
 
     const peer = projectEvent({ ...event, actorId: "p_sarah" }, "p_org")!;
     expect(peer).toMatchObject({ level: "existence", text: "Sarah updated where they start from." });
     expect(peer).not.toHaveProperty("payload");
     expect(JSON.stringify(peer)).not.toContain("52.5226");
     expect(JSON.stringify(peer)).not.toContain("Hackescher Markt");
+  });
+
+  it("projects sharing changes at existence level with gender-neutral copy", () => {
+    const event = ev({
+      type: "origin_sharing_changed",
+      actorId: "p_sarah",
+      visibility: "application-private",
+      payload: { actorName: "Sarah", shared: true },
+    });
+    expect(projectEvent(event, "p_org")).toMatchObject({
+      level: "existence",
+      text: "Sarah is showing where they are.",
+    });
+    expect(projectEvent({ ...event, payload: { actorName: "Sarah", shared: false } }, "p_org"))
+      .toMatchObject({
+        level: "existence",
+        text: "Sarah stopped showing where they are.",
+      });
   });
 
   it("shares who grew the pool but only gives the actor the place names", () => {

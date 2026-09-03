@@ -626,6 +626,8 @@ async function dispatch(
       return setReadyState(client, actor, input as never);
     case "SetOrigin":
       return setOrigin(client, actor, input as never);
+    case "SetOriginSharing":
+      return setOriginSharing(client, actor, input as never);
     case "SetSearchScope":
       return setSearchScope(client, actor, input as never);
     case "AddCandidates":
@@ -1205,30 +1207,56 @@ async function setOrigin(
     source: "device" | "stated";
   },
 ): Promise<HandlerOutcome> {
-  const updatedAt = new Date().toISOString();
+  const label = cmd.label?.trim() || (cmd.source === "device" ? "your location" : "chosen point");
   const origin = {
     lat: cmd.position.lat,
     lng: cmd.position.lng,
-    label: cmd.label?.trim() || (cmd.source === "device" ? "your location" : "chosen point"),
+    label,
     source: cmd.source,
-    updatedAt,
+    updatedAt: new Date().toISOString(),
   };
   // Identity comes from the authenticated actor. There is intentionally no
-  // target participant in the command or the write predicate.
+  // target participant in the command or the write predicate. Each device
+  // update overwrites this one value: there is no positions table or history.
   await client.query("UPDATE participants SET origin = $2 WHERE id = $1", [
     actor.id,
     JSON.stringify(origin),
   ]);
   return {
-    events: [
-      {
-        type: "origin_updated",
-        actorId: actor.id,
-        visibility: "application-private",
-        payload: { actorName: actor.displayName, origin },
-      },
-    ],
+    events: [{
+      type: "origin_updated",
+      actorId: actor.id,
+      visibility: "application-private",
+      // The event records only that the origin changed. Keeping coordinates
+      // here would turn the append-only event log into location history.
+      payload: { actorName: actor.displayName },
+    }],
     effect: "Starting point updated.",
+  };
+}
+
+async function setOriginSharing(
+  client: pg.PoolClient,
+  actor: Participant,
+  cmd: { shared: boolean },
+): Promise<HandlerOutcome> {
+  const changed = await client.query(
+    `UPDATE participants
+        SET origin_shared = $2
+      WHERE id = $1 AND origin_shared IS DISTINCT FROM $2
+      RETURNING id`,
+    [actor.id, cmd.shared],
+  );
+  return {
+    events: changed.rowCount === 1 ? [{
+      type: "origin_sharing_changed",
+      actorId: actor.id,
+      visibility: "application-private",
+      payload: { actorName: actor.displayName, shared: cmd.shared },
+    }] : [],
+    effect: cmd.shared
+      ? "Live position sharing turned on."
+      : "Live position sharing turned off.",
   };
 }
 

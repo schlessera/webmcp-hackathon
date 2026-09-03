@@ -1,6 +1,6 @@
 {
   "toolContractVersion": "3",
-  "sha256": "f060ef22afdefa03717c0bce9d44ea47fa59c155f7e2e8494087fa9d1fae94c3",
+  "sha256": "59c28ab123651d873c8884176caf9a62bb49f47bd4210e945de4422ccdff808f",
   "manifest": {
     "capabilityManifest": {
       "agreement": {
@@ -668,6 +668,24 @@
           "baseRevision",
           "position",
           "source"
+        ],
+        "type": "object"
+      },
+      "SetOriginSharing": {
+        "additionalProperties": false,
+        "properties": {
+          "baseRevision": {
+            "description": "Use the revision from your last sync; on sync_required, read the delta before retrying.",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "shared": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "baseRevision",
+          "shared"
         ],
         "type": "object"
       },
@@ -2416,6 +2434,33 @@
           {
             "additionalProperties": false,
             "properties": {
+              "positions": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "lat": {
+                      "type": "number"
+                    },
+                    "lng": {
+                      "type": "number"
+                    },
+                    "participantId": {
+                      "type": "string"
+                    },
+                    "updatedAt": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "lat",
+                    "lng",
+                    "participantId",
+                    "updatedAt"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
               "present": {
                 "items": {
                   "type": "string"
@@ -2447,6 +2492,7 @@
               }
             },
             "required": [
+              "positions",
               "present",
               "type",
               "viewing"
@@ -5527,7 +5573,7 @@
       },
       {
         "annotations": {},
-        "description": "Tell the room where you are starting from; only you and the server see the position; others see only its effect on the counts.",
+        "description": "Set your starting position. Its label and durable value stay private; the page separately controls the off-by-default live sharing opt-in.",
         "inputSchema": {
           "additionalProperties": false,
           "properties": {

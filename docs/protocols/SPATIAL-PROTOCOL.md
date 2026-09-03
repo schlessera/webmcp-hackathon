@@ -223,6 +223,7 @@ Transport-agnostic, like the negotiation command set. Mutations carry
 | `InspectCandidates { candidateIds[1..3] }` | read | full dossiers (side-by-side when >1 — this is "compare") |
 | `SetSearchScope { area?, transport? }` | mutate | **organizer only**; applies circle scope and walk/bike/car modes, emits `scope_change_proposed` + `_applied` |
 | `SetOrigin { position, label?, source }` | mutate | updates the acting participant's application-private starting position |
+| `SetOriginSharing { shared }` | mutate | changes the acting participant's live-position opt-in without rewriting the origin |
 | `AddCandidates { refs[1..40] }` | mutate | brings snapshot places from the explore layer into the shared room pool, additively and subject to the pool ceiling |
 | `LookUpPlaces { candidateIds[], keys? }` | read | starts bounded provider lookup for current places |
 | `ProposeDestination { candidateId }` | mutate | emits negotiation `proposal_created` with `domainRef` |
@@ -248,14 +249,24 @@ has no target participant: identity comes from the authenticated session and a
 participant can update only their own origin. It has the same phase gate as
 `SetReadyState`.
 
-Coordinates and their label are application-private. The server and owner get
-the full value; every peer summary omits `origin` entirely and an
+The durable origin and its label are application-private. The server and owner
+get the full value; every peer summary omits `origin` entirely and an
 `origin_updated` event projects to peers at existence level only. Its effect
-on eligibility counts remains visible. A scope need is measured from its
+on eligibility counts remains visible. The event payload omits coordinates so
+the append-only event log cannot become location history. A scope need is measured from its
 owner's origin, falling back to the shared scope centre when that owner has no
 origin. Candidate `walkMin` and the walk facet are measured from the viewer's
 origin with the same fallback. The implicit shared search-circle constraint
 always remains centred on the room scope.
+
+Sharing is independently opt-in and off by default. `SetOriginSharing`
+changes it with the same owner-only identity and phase gate. An
+`origin_sharing_changed` event projects at existence level: peers learn only
+that Sarah is showing where they are, or stopped. While sharing is on and the
+participant has an open socket, the presence frame carries `{ participantId,
+lat, lng, updatedAt }`; it never carries the label. Switching off or closing
+the last socket removes the row in the next frame. The position is overwritten
+in `participants.origin`: there is no positions table and no location history.
 
 ## 7. Gesture ↔ command ↔ event mapping
 
@@ -270,6 +281,7 @@ always remains centred on the room scope.
 | Pin card → "Works for me" | `RespondToProposal(accept)` | `stance_submitted` |
 | "I'm done adding" toggle | `SetReadyState` | `ready_state_changed` |
 | Starting-point control → drag or device location | `SetOrigin` | `origin_updated` |
+| "Show where you are" switch | `SetOriginSharing` | `origin_sharing_changed` |
 | Arrival panel → mode + pickup note | `PlanArrival` | `arrival_plan_updated` |
 | "Navigate" button | `PrepareNavigation` | none (read) |
 

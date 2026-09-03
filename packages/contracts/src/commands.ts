@@ -287,6 +287,15 @@ export const SetOriginInput = Type.Object(
   { additionalProperties: false },
 );
 
+/** Opt in or out without rewriting the durable position or its provenance. */
+export const SetOriginSharingInput = Type.Object(
+  {
+    baseRevision: BaseRevision,
+    shared: Type.Boolean(),
+  },
+  { additionalProperties: false },
+);
+
 /** Spatial mutations — SPATIAL-PROTOCOL.md §6. */
 
 const CircleArea = Type.Object(
@@ -476,6 +485,7 @@ export const COMMAND_SCHEMAS = {
   RespondToProposal: RespondToProposalInput,
   SetReadyState: SetReadyStateInput,
   SetOrigin: SetOriginInput,
+  SetOriginSharing: SetOriginSharingInput,
   SetSearchScope: SetSearchScopeInput,
   AddCandidates: AddCandidatesInput,
   ProposeDestination: ProposeDestinationInput,
