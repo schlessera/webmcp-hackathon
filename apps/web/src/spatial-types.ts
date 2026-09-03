@@ -53,6 +53,8 @@ export interface CandidateSummary {
   /** null when the place has no price band on record. */
   priceLevel: number | null;
   imageCount?: number;
+  /** The place's first image with a blurhash placeholder, when it has one. */
+  image?: { url: string; width: number; height: number; blurhash?: string };
 }
 
 /** What is askable about the current results (FACETS.md §1). The client
@@ -256,6 +258,7 @@ export interface CandidateDossier {
     credit?: string;
     license?: string;
     pageUrl?: string;
+    blurhash?: string;
   }>;
   address?: string;
   phone?: string;

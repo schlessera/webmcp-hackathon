@@ -202,6 +202,8 @@ function fixture(options: {
   proposals?: MockContext["proposals"];
   agreement?: MockContext["agreement"];
   arrival?: MockContext["arrival"];
+  /** First image per candidate id, as the summary would carry it. */
+  images?: Record<string, { url: string; width: number; height: number; blurhash?: string }>;
 } = {}): MockContext {
   const radiusM = options.radiusM ?? 800;
   const scopeCenter = options.scopeCenter ?? center;
@@ -237,6 +239,7 @@ function fixture(options: {
             : "meets all evaluable requirements",
       walkMin: Math.max(1, Math.round(haversineMeters(scopeCenter, venue.location) / 75)),
       priceLevel: venue.priceLevel,
+      ...(options.images?.[venue.candidateId] ? { image: options.images[venue.candidateId] } : {}),
     };
   });
   const matching = candidates.filter((candidate) => candidate.eligibility === "eligible").length;
@@ -2919,4 +2922,104 @@ test("dots show their pipeline stage: queued stands still, fetching and processi
     .poll(() => page.evaluate(() => window.__spokesMapStats!().stages))
     .toEqual({ queued: 0, fetching: 0, processing: 0 });
   await browserContext.close();
+});
+
+test("a dot with a photo shows a hover card that never takes the pointer, and the panel reserves the photo box before the bytes land", async ({ browser }) => {
+  const context = await browser.newContext({ viewport: { width: 1180, height: 900 }, hasTouch: false });
+  const page = await context.newPage();
+  // A flat mid-grey blurhash: decodes anywhere, no real photo needed.
+  const image = { url: "/api/places/node/24/images/0", width: 960, height: 640, blurhash: "L6PZfSi_.AyE_3t7t7R**0o#DgR4" };
+  const state: MockState = { context: fixture({ revision: 55, images: { place_24: image } }), outstanding: [] };
+  await mockApi(page, state);
+  let imageRequests = 0;
+  await page.route("**/api/places/**/images/*", async (route) => {
+    imageRequests += 1;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    return route.fulfill({
+      contentType: "image/webp",
+      body: Buffer.from("UklGRiIAAABXRUJQVlA4IBYAAAAwAQCdASoCAAIAAUAmJaQAA3AA/v89WAAAAA==", "base64"),
+    });
+  });
+  await page.route("**/api/spatial/inspect", (route) =>
+    route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        ok: true,
+        revision: 55,
+        candidates: [{
+          candidateId: "place_24",
+          name: "The Barn",
+          location: { lat: 52.5219, lng: 13.3899 },
+          category: "cafe",
+          priceLevel: 2,
+          hours: [],
+          attributes: [],
+          images: [{ ...image, source: "website", pageUrl: "https://place.example/" }],
+          mapRevision: 1,
+        }],
+      }),
+    }),
+  );
+  const socket = await scriptedSocket(page, 55);
+  await page.goto(`${BASE}/#invite=deadbeef`);
+  await socket.welcomed;
+  await expect(page.getByTestId("map-region")).toHaveAttribute("data-loaded", "true");
+
+  // Hover: the card appears after the delay with the blurhash painted, then
+  // the image; the card never intercepts the pointer.
+  const pin = page.getByTestId("pin-place_24");
+  await pin.hover();
+  const card = page.getByTestId("hover-card");
+  await expect(card).toBeVisible();
+  await expect(page.getByTestId("hover-card-photo")).toHaveCSS("background-image", /data:image\/png/);
+  await expect(card).toHaveAttribute("data-loaded", "true");
+  const underCard = await page.evaluate(() => {
+    const el = document.querySelector('[data-testid="hover-card"]')!;
+    const r = el.getBoundingClientRect();
+    const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    return { intercepts: el.contains(hit), pointerEvents: getComputedStyle(el).pointerEvents };
+  });
+  expect(underCard.intercepts).toBe(false);
+  expect(underCard.pointerEvents).toBe("none");
+  // A dot without a photo shows no card.
+  await page.getByTestId("pin-place_25").hover();
+  await expect(card).toHaveCount(0);
+  // Keyboard focus shows it too.
+  await pin.focus();
+  await expect(card).toBeVisible();
+  await page.keyboard.press("Tab");
+  await expect(card).toHaveCount(0);
+
+  // The panel: the photo box is reserved from first paint with the blurhash
+  // and keeps its height when the image lands.
+  await pin.click();
+  const band = page.getByTestId("photo-band");
+  await expect(band).toBeVisible();
+  const before = await band.boundingBox();
+  await expect(band.locator("img[src^='blob:']")).toHaveCount(1, { timeout: 5000 });
+  const after = await band.boundingBox();
+  expect(Math.abs((after?.height ?? 0) - (before?.height ?? 0))).toBeLessThanOrEqual(1);
+  expect(imageRequests).toBeGreaterThan(0);
+  await context.close();
+});
+
+test("touch never shows a hover card", async ({ browser }) => {
+  const context = await browser.newContext({ viewport: { width: 430, height: 932 }, hasTouch: true, isMobile: true });
+  const page = await context.newPage();
+  const image = { url: "/api/places/node/24/images/0", width: 960, height: 640, blurhash: "L6PZfSi_.AyE_3t7t7R**0o#DgR4" };
+  const state: MockState = { context: fixture({ revision: 56, images: { place_24: image } }), outstanding: [] };
+  await mockApi(page, state);
+  const socket = await scriptedSocket(page, 56);
+  await page.goto(`${BASE}/#invite=deadbeef`);
+  await socket.welcomed;
+  await expect(page.getByTestId("map-region")).toHaveAttribute("data-loaded", "true");
+  const pin = page.getByTestId("pin-place_24");
+  // A touch pointer entering the dot, then a real tap on it: neither may
+  // raise the card (the card is a fine-pointer and keyboard affordance).
+  await pin.dispatchEvent("pointerenter", { pointerType: "touch", clientX: 0, clientY: 0 });
+  const box = await pin.boundingBox();
+  if (box) await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
+  await page.waitForTimeout(400);
+  await expect(page.getByTestId("hover-card")).toHaveCount(0);
+  await context.close();
 });

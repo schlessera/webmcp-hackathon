@@ -123,6 +123,8 @@ Work the room is doing is stated as what it is doing, never as a bare
 - The whole area still arriving: `adding places · 120 of 343` in the count
   block, absolute both sides. Not "loading", and never a percentage.
 - A place being looked up: `looking it up…` in the panel; a ring on the map.
+- No photo known yet while a place is being looked up: `looking for a photo…` on a fixed-height line under the panel's top; it collapses only when the lookup ends without one.
+- The hover card on the map carries the place's name and first photo, nothing else — no verdict, no numbers.
 - The agent: `reading what you said…` then `updating 40 places…`. Never
   "thinking", never "processing".
 - Nothing under a second shows a state at all; a ring that flashes for a

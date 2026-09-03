@@ -195,6 +195,10 @@ export interface CandidateSummary {
   priceLevel: number | null;
   /** Image count only. Agent-facing context never receives image URLs. */
   imageCount?: number;
+  /** The place's first image, so the map can offer it before a dossier read:
+   * the same-origin route, its size, and a blurhash placeholder. Absent when
+   * the place has no image yet. Trimmed from the agent-facing context. */
+  image?: { url: string; width: number; height: number; blurhash?: string };
 }
 
 /** One participant's PUBLIC stance on a proposal. A stance the viewer may not
@@ -465,6 +469,8 @@ export interface CandidateDossier {
     credit?: string;
     license?: string;
     pageUrl?: string;
+    /** Placeholder painted while the bytes load (blurhash.io encoding). */
+    blurhash?: string;
   }>;
   attributes: Array<{
     key: string;
