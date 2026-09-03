@@ -82,6 +82,8 @@ export type StoredCriterionInference =
       source: string;
       observedAt: string;
       sourceUrl?: string;
+      explicit?: boolean;
+      value?: string;
     }
   | {
       omitted: true;
@@ -649,7 +651,7 @@ export async function saveInferences(
     const answered = new Set(write.answeredCriterionIds);
     const inferred: Record<string, StoredCriterionInference> = {};
     for (const criterion of write.criteria) {
-      const key = criterion.kind === "key" ? criterion.key : criterion.id;
+      const key = criterion.id;
       // A q:<sha1> is a stable, guessable commitment, not a secret. It is safe
       // here only because neither the normalized sentence nor its label is
       // stored; dossier copy is recovered from a viewer-authorized requirement.
@@ -662,6 +664,8 @@ export async function saveInferences(
           evidence: claim.evidence,
           source: claim.source,
           observedAt: claim.observedAt,
+          explicit: claim.explicit,
+          ...(claim.value ? { value: claim.value } : {}),
           ...(claim.sourceUrl ? { sourceUrl: claim.sourceUrl } : {}),
         };
       } else if (answered.has(criterion.id)) {
@@ -861,6 +865,9 @@ async function runLookupNow(
   for (const evaluation of evaluations.values()) {
     for (const key of options.keys ?? ATTRIBUTE_VOCABULARY) {
       if (!(ATTRIBUTE_VOCABULARY as readonly string[]).includes(key)) continue;
+      // Cuisine is meaningful only with the wanted values carried by an
+      // active value-specific criterion; a bare "cuisine?" cell is unusable.
+      if (key === "cuisine") continue;
       const attr = evaluation.base?.find((attribute) => attribute.key === key);
       if (attr?.status !== "unknown") continue;
       criteria.set(key, {
@@ -882,10 +889,11 @@ async function runLookupNow(
       // must never manufacture an answer to an `open:*` criterion.
       if (criterion.kind === "key" && criterion.key.startsWith("open:")) return false;
       const key = criterion.kind === "key" ? criterion.key : criterion.id;
+      const storedKey = criterion.id;
       const attr = evaluation.base!.find((attribute) => attribute.key === key);
       if (attr && attr.status !== "unknown") return false;
       if (!attr && criterion.kind === "key" && !activeCriteria.has(criterion.id)) return false;
-      return options.force === true || !evaluation.current?.inferred?.[key];
+      return options.force === true || !evaluation.current?.inferred?.[storedKey];
     });
     evaluation.openCriteria = openCriteria;
     if (openCriteria.length === 0) continue;
@@ -895,6 +903,7 @@ async function runLookupNow(
       osmRef: evaluation.row.osm_ref!,
       name: evaluation.row.name,
       category: evaluation.row.category,
+      ...(evaluation.row.extras?.website ? { website: evaluation.row.extras.website } : {}),
       cuisine: cuisineTokens(evaluation.base),
       texts: evaluation.texts,
     });
@@ -1063,6 +1072,7 @@ export interface AttributeLike {
   confidence?: number;
   note?: string;
   sourceUrl?: string;
+  explicit?: boolean;
 }
 
 /** A slot a looked-up fact may fill: nothing, a gap, or a mere guess. */
@@ -1159,13 +1169,19 @@ export function applyEnrichmentAttributes<T extends AttributeLike>(
       source: string;
       observedAt: string;
       sourceUrl?: string;
+      explicit?: boolean;
     };
-    const confidence = Math.min(questionStored.confidence, 0.6);
+    const recordGrade =
+      questionStored.explicit === true &&
+      questionStored.source.startsWith("web:") &&
+      questionStored.confidence >= 0.7;
+    const confidence = Math.min(questionStored.confidence, recordGrade ? 0.72 : 0.6);
     set(key, {
       status: graded(questionStored.lean === "yes", confidence),
       source: questionStored.source,
       observedAt: questionStored.observedAt,
       confidence,
+      explicit: recordGrade,
       note: sanitizeInferenceNote(questionStored.evidence),
       ...(questionStored.sourceUrl ? { sourceUrl: questionStored.sourceUrl } : {}),
     });

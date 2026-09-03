@@ -231,6 +231,7 @@ describe("need-triggered lookup and realtime facts", () => {
                 confidence: 0.9,
                 evidence: "dogs are welcome throughout",
                 sourceIndex: 0,
+                explicit: false,
               }],
             }),
           }],
@@ -291,7 +292,20 @@ describe("need-triggered lookup and realtime facts", () => {
         output: [
           {
             type: "message",
-            content: [{ type: "output_text", text: JSON.stringify({ claims: [] }) }],
+            content: [{
+              type: "output_text",
+              text: JSON.stringify({
+                claims: [{
+                  candidateId,
+                  criterionId: "delivery",
+                  lean: "abstain",
+                  confidence: 0,
+                  evidence: "",
+                  sourceIndex: null,
+                  explicit: false,
+                }],
+              }),
+            }],
           },
         ],
       };
@@ -317,14 +331,30 @@ describe("need-triggered lookup and realtime facts", () => {
        WHERE id = $1`,
       [candidateId, osmRef],
     );
-    let modelCalls = 0;
-    setTransport(async () => {
-      modelCalls += 1;
+    let deliveryCalls = 0;
+    setTransport(async (body) => {
+      const matrix = JSON.parse((body.input as Array<{ content: string }>)[0].content) as {
+        places: Array<{ candidateId: string }>;
+        criteria: Array<{ id: string }>;
+      };
+      if (matrix.criteria.some((criterion) => criterion.id === "delivery")) deliveryCalls += 1;
       return {
         output: [
           {
             type: "message",
-            content: [{ type: "output_text", text: JSON.stringify({ claims: [] }) }],
+            content: [{
+              type: "output_text",
+              text: JSON.stringify({ claims: matrix.places.flatMap((place) =>
+                matrix.criteria.map((criterion) => ({
+                candidateId: place.candidateId,
+                criterionId: criterion.id,
+                lean: "abstain",
+                confidence: 0,
+                evidence: "",
+                sourceIndex: null,
+                explicit: false,
+              }))) }),
+            }],
           },
         ],
       };
@@ -346,7 +376,7 @@ describe("need-triggered lookup and realtime facts", () => {
     await lookupNow(room.pool, room.roomId, [{ candidateId, osmRef }], {
       keys: ["delivery"],
     });
-    expect(modelCalls).toBe(1);
+    expect(deliveryCalls).toBe(1);
 
     let siteFetches = 0;
     setEnrichFetch(async (url) => {
@@ -364,7 +394,7 @@ describe("need-triggered lookup and realtime facts", () => {
       { keys: ["delivery"] },
     );
     expect(siteFetches).toBe(1);
-    expect(modelCalls).toBe(1);
+    expect(deliveryCalls).toBe(1);
     expect(
       (
         await room.pool.query(
@@ -395,16 +425,21 @@ describe("need-triggered lookup and realtime facts", () => {
       siteFetches += 1;
       return new Response("<html></html>", { status: 200, headers: { "content-type": "text/html" } });
     });
-    let modelCalls = 0;
+    let deliveryCalls = 0;
     setTransport(async (body) => {
-      modelCalls += 1;
       const matrix = JSON.parse((body.input as Array<{ content: string }>)[0].content) as {
         places: Array<{ candidateId: string; texts: Array<{ text: string }> }>;
+        criteria: Array<{ id: string }>;
       };
-      const claims =
-        modelCalls === 1
-          ? []
-          : [{ candidateId: matrix.places[0].candidateId, criterionId: "delivery", lean: "yes", confidence: 0.9, evidence: "deliver across the district every evening", sourceIndex: matrix.places[0].texts.findIndex((text) => text.text.includes("deliver across")) }];
+      const claims = matrix.places.flatMap((place) => matrix.criteria.map((criterion) => {
+        if (criterion.id !== "delivery") {
+          return { candidateId: place.candidateId, criterionId: criterion.id, lean: "abstain", confidence: 0, evidence: "", sourceIndex: null, explicit: false };
+        }
+        deliveryCalls += 1;
+        return deliveryCalls === 1
+          ? { candidateId: place.candidateId, criterionId: criterion.id, lean: "abstain", confidence: 0, evidence: "", sourceIndex: null, explicit: false }
+          : { candidateId: place.candidateId, criterionId: criterion.id, lean: "yes", confidence: 0.9, evidence: "deliver across the district every evening", sourceIndex: place.texts.findIndex((text) => text.text.includes("deliver across")), explicit: false };
+      }));
       return { output: [{ type: "message", content: [{ type: "output_text", text: JSON.stringify({ claims }) }] }] };
     });
     const target = { candidateId, osmRef, website };
@@ -412,18 +447,18 @@ describe("need-triggered lookup and realtime facts", () => {
     // First pass: the site is read, the model abstains, the omission is stored.
     await lookupNow(room.pool, room.roomId, [target], { keys: ["delivery"] });
     expect(siteFetches).toBe(1);
-    expect(modelCalls).toBe(1);
+    expect(deliveryCalls).toBe(1);
 
     // Plain again: everything is cached, nothing runs.
     await lookupNow(room.pool, room.roomId, [target], { keys: ["delivery"] });
     expect(siteFetches).toBe(1);
-    expect(modelCalls).toBe(1);
+    expect(deliveryCalls).toBe(1);
 
     // Force, minutes after a good read: the site stays cached, inference
     // runs again and its answer replaces the stored omission.
     await lookupNow(room.pool, room.roomId, [target], { keys: ["delivery"], force: true });
     expect(siteFetches).toBe(1);
-    expect(modelCalls).toBe(2);
+    expect(deliveryCalls).toBe(2);
     const stored = (await room.pool.query("SELECT inferred FROM enrichments WHERE osm_ref = $1", [osmRef])).rows[0];
     expect(stored.inferred.delivery).toMatchObject({ lean: "yes", source: expect.stringMatching(/^infer:/) });
 
@@ -435,7 +470,7 @@ describe("need-triggered lookup and realtime facts", () => {
     );
     await lookupNow(room.pool, room.roomId, [target], { keys: ["delivery"], force: true });
     expect(siteFetches).toBe(2);
-    expect(modelCalls).toBe(3);
+    expect(deliveryCalls).toBe(3);
 
     // A failed read keeps its retry TTL even under force.
     setEnrichFetch(async (url) => {
@@ -497,6 +532,7 @@ describe("need-triggered lookup and realtime facts", () => {
                     confidence: 0.9,
                     evidence,
                     sourceIndex: 0,
+                    explicit: false,
                   },
                 ],
               }),

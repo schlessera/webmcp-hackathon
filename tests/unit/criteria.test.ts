@@ -23,10 +23,19 @@ describe("criterionFor", () => {
     });
   });
 
-  it("maps both cuisine predicates to one cuisine criterion", () => {
-    const criterion = { id: "cuisine", kind: "key", key: "cuisine", label: "cuisine" };
+  it("maps both cuisine predicates to one answerable, value-specific cuisine criterion", () => {
+    const criterion = {
+      id: expect.stringMatching(/^cuisine:[0-9a-f]{40}$/),
+      kind: "key",
+      key: "cuisine",
+      label: "serves italian food",
+      values: ["italian"],
+      question: "Does this place serve italian food?",
+    };
     expect(criterionFor({ kind: "inclusion", key: "cuisine", values: ["italian"], lifetime: "session" })).toEqual(criterion);
     expect(criterionFor({ kind: "exclusion", key: "cuisine", values: ["italian"], lifetime: "durable" })).toEqual(criterion);
+    expect(criterionFor({ kind: "inclusion", key: "cuisine", values: ["japanese"], lifetime: "session" })?.id)
+      .not.toBe(criterionFor({ kind: "inclusion", key: "cuisine", values: ["italian"], lifetime: "session" })?.id);
   });
 
   it("gives a time window a stable key criterion and a composed label", () => {

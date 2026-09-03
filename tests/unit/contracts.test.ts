@@ -56,6 +56,27 @@ describe("tool schemas (lane 1)", () => {
     }
   });
 
+  it("additively admits a SHA-1 question key for attestations", () => {
+    const validate = ajv.compile(COMMAND_SCHEMAS.AttestAttribute);
+    expect(validate({
+      baseRevision: 0,
+      candidateId: "c1",
+      key: `q:${"a".repeat(40)}`,
+      status: "verified_true",
+      confidence: 0.8,
+      note: "checked directly",
+    })).toBe(true);
+    expect(validate({
+      baseRevision: 0,
+      candidateId: "c1",
+      key: "q:not-a-sha1",
+      status: "verified_true",
+      confidence: 0.8,
+      note: "checked directly",
+    })).toBe(false);
+    expect(TOOL_CONTRACT_VERSION).toBe("3");
+  });
+
   it("rejects oversized arguments (verdict batch cap, note cap)", () => {
     const evaluate = ajv.compile(COMMAND_SCHEMAS.EvaluateCandidates);
     const oversized = {

@@ -31,6 +31,7 @@ setTransport(async (body) => {
           confidence: 0.95,
           evidence: "Free wireless internet is available",
           sourceIndex,
+          explicit: false,
         }
       : {
           candidateId: place.candidateId,
@@ -39,6 +40,7 @@ setTransport(async (body) => {
           confidence: 0,
           evidence: "",
           sourceIndex: null,
+          explicit: false,
         };
   }));
   return {

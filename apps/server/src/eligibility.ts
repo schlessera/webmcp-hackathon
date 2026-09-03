@@ -78,6 +78,7 @@ export interface CandidateRow {
     source?: string;
     confidence?: number;
     attestedBy?: string;
+    explicit?: boolean;
   }>;
   /** Parsed OSM hours stored with the candidate record. */
   hours?: DossierHours[];
@@ -577,11 +578,12 @@ function classify(
         if (lean === null) {
           pending.push({ ...owner, text: `${label} not known` });
         } else {
-          // A question is verified only by a person's attestation. Inference
-          // and web evidence remain likely even if malformed stored data says
-          // verified, so a model can never silently acquire decisive force.
           const attested = Boolean(attr?.attestedBy);
-          if (isVerified(status) && attested) {
+          const explicitOwnSite =
+            attr?.explicit === true &&
+            attr.source?.startsWith("web:") === true &&
+            (attr.confidence ?? 0) >= 0.7;
+          if (isVerified(status) && (attested || explicitOwnSite)) {
             if (lean) satisfied.push({ ...owner, text: label });
             else return excluded(candidate, { ...owner, text: `${label} is not confirmed` });
           } else {
@@ -597,6 +599,26 @@ function classify(
       }
       case "inclusion": {
         if (p.key === "cuisine") {
+          const criterion = criterionFor(p as never);
+          const direct = criterion
+            ? candidate.attributes.find((attribute) => attribute.key === criterion.id)
+            : undefined;
+          const directLean = leans(direct?.status ?? "unknown");
+          if (directLean !== null) {
+            const label = criterion?.label ?? "serves the requested cuisine";
+            if (isVerified(direct!.status)) {
+              if (directLean) satisfied.push({ ...owner, text: label });
+              else return excluded(candidate, { ...owner, text: `does not ${label}` });
+            } else {
+              likely.push({
+                ...owner,
+                lean: directLean,
+                confidence: direct?.confidence ?? 0.5,
+                text: `${label} ${directLean ? "likely" : "unlikely"}`,
+              });
+            }
+            break;
+          }
           const attr = candidate.attributes.find((a) => a.key === "cuisine");
           const known = attr?.status === "verified_true" || attr?.status === "likely_true";
           const tokens =
@@ -642,6 +664,26 @@ function classify(
       }
       case "exclusion": {
         if (p.key === "cuisine") {
+          const criterion = criterionFor(p as never);
+          const direct = criterion
+            ? candidate.attributes.find((attribute) => attribute.key === criterion.id)
+            : undefined;
+          const directLean = leans(direct?.status ?? "unknown");
+          if (directLean !== null) {
+            const label = criterion?.label ?? "serves the avoided cuisine";
+            if (isVerified(direct!.status)) {
+              if (directLean) return excluded(candidate, { ...owner, text: label });
+              satisfied.push({ ...owner, text: `does not ${label}` });
+            } else {
+              likely.push({
+                ...owner,
+                lean: !directLean,
+                confidence: direct?.confidence ?? 0.5,
+                text: `${label} ${directLean ? "likely" : "unlikely"}`,
+              });
+            }
+            break;
+          }
           const attr = candidate.attributes.find((a) => a.key === "cuisine");
           const fact = attr ? normalizeStatus(attr) : undefined;
           const tokens = typeof fact?.value === "string" ? normalizeCuisineTokens(fact.value) : [];

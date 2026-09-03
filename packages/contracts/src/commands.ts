@@ -394,12 +394,16 @@ export const CommitAgreementInput = Type.Object(
  * not know (SPATIAL-PROTOCOL.md §8, attestations). Shared with the room and
  * labelled with the attester; a verified source fact is never overwritten,
  * only disputed. Boolean facts only — price and cuisine are read from the
- * record as they are.
+ * record as they are. A q:<sha1> question criterion is also attestable; its
+ * reader-facing label remains governed by the matching requirement.
  */
 const AttestableKeyEnum = Type.Union(
-  ATTRIBUTE_VOCABULARY.filter((k) => k !== "price-level" && k !== "cuisine").map((v) =>
-    Type.Literal(v),
-  ),
+  [
+    ...ATTRIBUTE_VOCABULARY.filter((k) => k !== "price-level" && k !== "cuisine").map((v) =>
+      Type.Literal(v),
+    ),
+    Type.String({ pattern: "^q:[0-9a-f]{40}$", maxLength: 42 }),
+  ],
 );
 export const AttestAttributeInput = Type.Object(
   {

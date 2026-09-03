@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { questionKey, type Criterion } from "@webmcp-hackathon/contracts";
+import { criterionFor, questionKey, type Criterion } from "@webmcp-hackathon/contracts";
 import {
   EVALUATE_MATRIX_PROMPT,
   EVALUATE_MATRIX_SCHEMA,
+  EXPLICIT_OWN_SITE_CONFIDENCE,
   evaluateMatrix,
   matrixBatchFromAnswer,
   MATRIX_CONFIDENCE_CAPS,
@@ -18,6 +19,8 @@ import {
   harvestRequirementCriteria,
   saveInferences,
 } from "../../apps/server/src/enrich/index.ts";
+import { applyInferredAttributes } from "../../apps/server/src/enrich/infer.ts";
+import { classifyAll, type CandidateRow, type RequirementRow } from "../../apps/server/src/eligibility.ts";
 import { setTransport } from "../../apps/server/src/nl/openai.ts";
 
 /** U5/E8: one strict matrix call fills only verbatim, same-place evidence cells and source caps every guess. */
@@ -73,6 +76,7 @@ describe("batched matrix evaluation", () => {
     expect(EVALUATE_MATRIX_PROMPT).toContain("candidateId × criterionId");
     expect(EVALUATE_MATRIX_SCHEMA.properties.claims.maxItems).toBe(40);
     expect(EVALUATE_MATRIX_SCHEMA.properties.claims.items.properties.lean.enum).toContain("abstain");
+    expect(EVALUATE_MATRIX_SCHEMA.properties.claims.items.required).toContain("explicit");
     expect([MAX_MATRIX_PLACES, MAX_MATRIX_CRITERIA, MAX_TEXT_CHARS_PER_PLACE]).toEqual([8, 5, 6000]);
   });
 
@@ -154,6 +158,104 @@ describe("batched matrix evaluation", () => {
       MATRIX_CONFIDENCE_CAPS.open_web_search,
       MATRIX_CONFIDENCE_CAPS.name_category,
     ]);
+  });
+
+  it("grades only an explicit statement on the recorded venue host as verified", () => {
+    const sample = input();
+    sample.places[0].website = "https://www.alpha.example/";
+    const own = matrixBatchFromAnswer({ claims: [{
+      candidateId: "alpha", criterionId: wifi.id, lean: "yes", confidence: 0.2,
+      evidence: "free wireless internet throughout", sourceIndex: 0, explicit: true,
+    }] }, sample, "test").claims[0];
+    expect(own).toMatchObject({
+      status: "verified_true",
+      confidence: EXPLICIT_OWN_SITE_CONFIDENCE,
+      source: "web:alpha.example",
+      explicit: true,
+    });
+
+    sample.places[0].texts[0].url = "https://other.example/copied";
+    const other = matrixBatchFromAnswer({ claims: [{
+      candidateId: "alpha", criterionId: wifi.id, lean: "yes", confidence: 0.99,
+      evidence: "free wireless internet throughout", sourceIndex: 0, explicit: true,
+    }] }, sample, "test").claims[0];
+    expect(other).toMatchObject({ status: "likely_true", confidence: 0.6 });
+    expect(other.source).toMatch(/^infer:/);
+  });
+
+  it("lets an explicit own-site question claim make its text need eligible", () => {
+    const key = wifi.id;
+    const attributes = applyEnrichmentAttributes([], {
+      osmRef: "node/1",
+      fetchedAt: "2026-09-03T00:00:00.000Z",
+      website: null,
+      wikidata: null,
+      inferred: {
+        [key]: {
+          key,
+          lean: "yes",
+          confidence: 0.72,
+          evidence: "Free wireless internet is available",
+          source: "web:alpha.example",
+          observedAt: "2026-09-03T00:00:00.000Z",
+          sourceUrl: "https://alpha.example/visit",
+          explicit: true,
+        },
+      },
+      error: null,
+    });
+    const candidate: CandidateRow = {
+      id: "alpha", map_revision: 0, name: "Alpha", category: "cafe",
+      price_level: null, walk_min: 1, location: { lat: 0, lng: 0 }, attributes,
+    };
+    const requirement: RequirementRow = {
+      id: "r1", owner_id: "p1", visibility: "shared", hardness: "hard",
+      payload: { kind: "text", text: wifi.text }, withdrawn: false,
+    };
+    expect(classifyAll([candidate], [requirement], [], null)[0].eligibility).toBe("eligible");
+  });
+
+  it("carries cuisine values to the model and consumes the value-specific answer", async () => {
+    const cuisine = criterionFor({
+      kind: "inclusion", key: "cuisine", values: ["italian"], lifetime: "session",
+    })!;
+    let sentCriterion: Criterion | undefined;
+    setTransport(async (body) => {
+      const sent = JSON.parse((body.input as Array<{ content: string }>)[0].content) as EvaluateMatrixInput;
+      sentCriterion = sent.criteria[0];
+      return response([{
+        candidateId: "food", criterionId: cuisine.id, lean: "yes", confidence: 0.58,
+        evidence: "Traditional Italian dishes are served", sourceIndex: 0, explicit: false,
+      }]);
+    });
+    const [claim] = await evaluateMatrix({
+      places: [{
+        candidateId: "food", osmRef: "node/food", name: "Food", category: "restaurant",
+        texts: [{ source: "web", text: "Traditional Italian dishes are served every evening." }],
+      }],
+      criteria: [cuisine],
+    });
+    expect(sentCriterion).toMatchObject({
+      values: ["italian"], question: "Does this place serve italian food?",
+    });
+    expect(claim).toMatchObject({ key: cuisine.id, value: "italian", status: "likely_true" });
+    const attributes = applyInferredAttributes([], {
+      [cuisine.id]: { ...claim, key: cuisine.id },
+    });
+    expect(attributes).toEqual([expect.objectContaining({
+      key: cuisine.id, value: "italian", status: "likely_true",
+    })]);
+    const candidate: CandidateRow = {
+      id: "food", map_revision: 0, name: "Food", category: "restaurant",
+      price_level: null, walk_min: 1, location: { lat: 0, lng: 0 }, attributes,
+    };
+    const requirement: RequirementRow = {
+      id: "r-food", owner_id: "p1", visibility: "shared", hardness: "hard",
+      payload: { kind: "inclusion", key: "cuisine", values: ["italian"] }, withdrawn: false,
+    };
+    expect(classifyAll([candidate], [requirement], [], null)[0]).toMatchObject({
+      eligibility: "likely", confidence: 0.58,
+    });
   });
 
   it("turns abstain into no stored claim", async () => {
@@ -342,6 +444,7 @@ describe("bulk inference persistence", () => {
       sourceUrl: "https://alpha.example/visit",
       question: wifi.text,
       label: wifi.label,
+      explicit: false,
     };
     await saveInferences(db as never, [
       { osmRef: "node/1", criteria: [wifi], claims: [claim], answeredCriterionIds: [wifi.id], observedAt: claim.observedAt },

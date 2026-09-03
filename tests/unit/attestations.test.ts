@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { questionKey } from "@webmcp-hackathon/contracts";
 import {
   applyAttestations,
   type AttestationRow,
@@ -126,5 +127,17 @@ describe("attested facts and the classifier", () => {
       [need], [], null,
     );
     expect(disputed[0].eligibility).toBe("uncertain");
+  });
+
+  it("lets a participant attestation make a question criterion eligible", () => {
+    const text = "somewhere the kids can run";
+    const key = questionKey(text);
+    const attributes = applyAttestations("c1", [], [row({ key })]);
+    const questionNeed: RequirementRow = {
+      ...need,
+      payload: { kind: "text", text },
+    };
+    expect(classifyAll([candidate(attributes)], [questionNeed], [], null)[0].eligibility)
+      .toBe("eligible");
   });
 });

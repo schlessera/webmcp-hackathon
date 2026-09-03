@@ -2,10 +2,19 @@ import type { Static } from "@sinclair/typebox";
 import type { RequirementPayload } from "./commands.ts";
 import { ATTRIBUTE_LABELS, ATTRIBUTE_VOCABULARY } from "./manifest.ts";
 import { windowLabel, windowSpanText } from "./hours.ts";
+import { normalizeCuisineTokens } from "./cuisine.ts";
 
 /** One independently answerable fact about one place. */
 export type Criterion =
-  | { id: string; kind: "key"; key: string; label: string }
+  | {
+      id: string;
+      kind: "key";
+      key: string;
+      label: string;
+      /** Values and an explicit question make a multi-valued key answerable. */
+      values?: string[];
+      question?: string;
+    }
   | { id: string; kind: "question"; text: string; label: string };
 
 export type RequirementPayloadValue = Static<typeof RequirementPayload>;
@@ -110,7 +119,17 @@ export function criterionFor(
     return { id, kind: "key", key: id, label };
   }
   if ((payload.kind === "inclusion" || payload.kind === "exclusion") && payload.key === "cuisine") {
-    return keyCriterion("cuisine");
+    const values = [...new Set(normalizeCuisineTokens(payload.values))].sort();
+    if (values.length === 0) return null;
+    const wanted = values.map((value) => value.replace(/_/g, " ")).join(" or ");
+    return {
+      id: `cuisine:${sha1(values.join("\u0000"))}`,
+      kind: "key",
+      key: "cuisine",
+      label: `serves ${wanted} food`,
+      values,
+      question: `Does this place serve ${wanted} food?`,
+    };
   }
   return null;
 }
