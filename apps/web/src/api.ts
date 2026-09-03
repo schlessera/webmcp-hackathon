@@ -228,6 +228,19 @@ export function spatialNavigationRaw(
   return post("/api/spatial/navigation", input === undefined ? {} : input, signal);
 }
 
+export function landmarksRaw(input: unknown, signal?: AbortSignal): Promise<unknown> {
+  const query = (input as { query?: unknown } | null)?.query;
+  const token = currentToken();
+  if (!token) return Promise.resolve(notAuthenticated);
+  if (typeof query !== "string") {
+    return Promise.resolve({ ok: false, error: { code: "invalid_input", message: "A landmark query is required." } });
+  }
+  return fetch(`/api/landmarks?q=${encodeURIComponent(query)}`, {
+    headers: { authorization: `Bearer ${token}`, "x-correlation-id": newCorrelationId() },
+    signal,
+  }).then((response) => response.json());
+}
+
 export interface ExplorePlacesResponse {
   ok: true;
   places: ExplorePlace[];

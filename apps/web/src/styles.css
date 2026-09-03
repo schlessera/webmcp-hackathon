@@ -1137,6 +1137,18 @@ body { overflow: hidden; }
 .record-row[data-failed="true"] .record-text { color: var(--spoke-unsure-text); }
 .card[data-testid="agent-reply"] .card-actions { margin-top: 2px; }
 .card[data-testid="agent-reply"] .btn-text { color: var(--spoke-act-text); }
+.reply-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 4px 0;
+}
+.reply-choices .pill {
+  min-height: var(--spoke-tap-min);
+  padding: 9px 12px;
+  text-align: left;
+  white-space: normal;
+}
 
 /* The organizer's stage card is status until the precondition holds; the
    works tone arrives with the decision. */
@@ -1784,6 +1796,44 @@ body { overflow: hidden; }
 }
 .origin-marker[tabindex="0"] { cursor: move; }
 .origin-marker[data-editing] { touch-action: none; }
+
+/* A distance need's measuring point. Scope violet is semantic here: this is
+   where the need applies from, never who authored an action. */
+.referent-marker {
+  position: relative;
+  width: var(--spoke-tap-min);
+  height: var(--spoke-tap-min);
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+.referent-anchor {
+  width: 12px;
+  height: 12px;
+  border-radius: var(--spoke-radius-chip);
+  background: var(--spoke-scope);
+  border: var(--spoke-border) solid var(--spoke-surface);
+  outline: var(--spoke-border) solid var(--spoke-scope-text);
+}
+.referent-card {
+  position: absolute;
+  left: calc(50% + 10px);
+  top: 50%;
+  translate: 0 -50%;
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 3px 6px;
+  border: var(--spoke-border) solid var(--spoke-scope);
+  border-radius: var(--spoke-radius-badge);
+  background: var(--spoke-surface);
+  color: var(--spoke-scope-text);
+  box-shadow: var(--spoke-shadow-drop);
+  font-family: var(--spoke-font-display);
+  font-size: var(--spoke-size-micro);
+  font-weight: var(--spoke-weight-strong);
+  white-space: nowrap;
+}
 
 /* A shared person position is never a place dot: a 26px initials squircle
    with a surface-white halo and ink keyline, held inside a 44px wrapper. */

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { say } from "../../apps/server/src/nl/say.ts";
 import { setTransport } from "../../apps/server/src/nl/openai.ts";
+import { installLandmarksForTests, resetLandmarks } from "../../apps/server/src/landmarks.ts";
 import { shouldPreserveNlText } from "../../apps/web/src/nl-result.ts";
 import type { SpatialContextResult } from "@webmcp-hackathon/contracts";
 
@@ -49,9 +50,58 @@ function scripted(draft: unknown, inspect?: (body: Record<string, unknown>) => v
   });
 }
 
-afterEach(() => setTransport(null));
+afterEach(() => {
+  setTransport(null);
+  resetLandmarks();
+});
 
 describe("say: draft → payloads", () => {
+  it("resolves landmark distance phrases without a model call", async () => {
+    installLandmarksForTests("berlin-mitte", [{
+      id: "lm_cafe",
+      name: "Café Einstein",
+      kind: "attraction",
+      location: { lat: 52.5, lng: 13.4 },
+    }]);
+    setTransport(async () => { throw new Error("the landmark fallback must stay offline"); });
+    await expect(say("300 m from Café Einstein", "shared", context)).resolves.toMatchObject({
+      intent: "need",
+      needs: [{
+        payload: {
+          kind: "scope",
+          dimension: "radius_m",
+          max: 300,
+          referent: { kind: "landmark", landmarkId: "lm_cafe" },
+        },
+      }],
+      meta: { model: "landmark-index" },
+    });
+    const near = await say("near Café Einstein", "shared", context);
+    expect(near.needs[0].payload).toMatchObject({ dimension: "walk_min", max: 10 });
+  });
+
+  it("returns small choice payloads when several landmarks plausibly match", async () => {
+    installLandmarksForTests("berlin-mitte", [
+      { id: "lm_square", name: "Alexanderplatz", kind: "square", location: { lat: 52.5219, lng: 13.3899 } },
+      { id: "lm_u", name: "U Alexanderplatz", kind: "station", location: { lat: 52.522, lng: 13.3899 } },
+      { id: "lm_s", name: "S Alexanderplatz", kind: "station", location: { lat: 52.5221, lng: 13.3899 } },
+      { id: "lm_far", name: "Alexanderplatz Park", kind: "park", location: { lat: 52.51, lng: 13.4 } },
+    ]);
+    const out = await say("within 10 minutes of Alexanderplatz", "shared", context);
+    expect(out.intent).toBe("unclear");
+    expect(out.reply).toBe("Which Alexanderplatz did you mean?");
+    expect(out.choices).toHaveLength(3);
+    expect(out.choices?.map((choice) => choice.label)).toEqual([
+      "Alexanderplatz · square",
+      "U Alexanderplatz · station",
+      "S Alexanderplatz · station",
+    ]);
+    expect(out.choices?.[0].payload).toMatchObject({
+      dimension: "walk_min",
+      max: 10,
+      referent: { kind: "landmark", landmarkId: "lm_square" },
+    });
+  });
   it("maps typed needs onto the closed payload union and keeps the topic", async () => {
     scripted({
       intent: "need",

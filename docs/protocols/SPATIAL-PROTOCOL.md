@@ -133,7 +133,7 @@ These are the `payload` shapes the negotiation envelope carries when
 { "kind": "attribute", "key": "vegetarian-options", "expect": "verified_true" }
 
 // Scope predicate
-{ "kind": "scope", "dimension": "walk_min", "max": 15 }
+{ "kind": "scope", "dimension": "walk_min", "max": 15, "referent": { "kind": "landmark", "landmarkId": "node/42" } }
 
 // Budget
 { "kind": "budget", "perPersonMax": { "amount": 18, "currency": "EUR" } }
@@ -221,6 +221,7 @@ Transport-agnostic, like the negotiation command set. Mutations carry
 |---|---|---|
 | `GetSpatialContext` | read | scope, feasibility counts, candidate summaries, current proposal, selection state |
 | `InspectCandidates { candidateIds[1..3] }` | read | full dossiers (side-by-side when >1 — this is "compare") |
+| `FindLandmarks { query }` | read | ranked named landmarks in the room's area for resolving a distance referent |
 | `SetSearchScope { area?, transport? }` | mutate | **organizer only**; applies circle scope and walk/bike/car modes, emits `scope_change_proposed` + `_applied` |
 | `SetOrigin { position, label?, source }` | mutate | updates the acting participant's application-private starting position |
 | `SetOriginSharing { shared }` | mutate | changes the acting participant's live-position opt-in without rewriting the origin |
@@ -267,6 +268,32 @@ participant has an open socket, the presence frame carries `{ participantId,
 lat, lng, updatedAt }`; it never carries the label. Switching off or closing
 the last socket removes the row in the next frame. The position is overwritten
 in `participants.origin`: there is no positions table and no location history.
+
+### 6.4 Referents
+
+A scope requirement may say what its distance is measured from with an
+optional `referent`: `self`, `scopeCenter`, `candidate`, `participant`,
+`point`, or `landmark`. An absent referent is `self`, preserving every scope
+need written before this addition. Candidate, participant and landmark
+references use stable IDs; a bare point carries latitude/longitude and an
+optional reader-facing label.
+
+Resolution is per read. `self` uses the need owner's origin and falls back to
+the shared scope centre. `scopeCenter` uses that centre; `candidate` uses the
+candidate's current location; `point` uses its coordinates; and `landmark`
+uses the area's in-process landmark snapshot. A deleted candidate, unknown
+landmark, missing participant, or otherwise unresolved reference is pending:
+it never rules a place out. Several scope requirements remain independent
+hard requirements, so a place must lie within all of them.
+
+A participant referent is measurable only by that participant or while that
+participant has opted to share their position. For every other reader it is
+pending, and its label says only “where someone starts from”: neither a name
+used as a location nor coordinates cross the privacy boundary. The need's
+public effect remains visible. Consequently two readers can honestly see
+different eligible/uncertain counts for the same room when only one is
+entitled to a participant referent. This is an intentional privacy consequence,
+not a synchronization error.
 
 ## 7. Gesture ↔ command ↔ event mapping
 

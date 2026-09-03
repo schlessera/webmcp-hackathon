@@ -28,6 +28,7 @@ import {
 import { applyEnrichmentAttributes, loadCached, type Enrichment } from "./enrich/index.ts";
 import { applyInferredAttributes } from "./enrich/infer.ts";
 import { applyGuesses } from "./guess.ts";
+import { landmarkById } from "./landmarks.ts";
 
 /** Reason texts are reader-facing (CLAUDE.md §6): the label, never the key. */
 const labelOf = (key: string | undefined): string =>
@@ -113,6 +114,13 @@ export interface RequirementRow {
     window?: { start?: string; end?: string };
     phrase?: string;
     perPersonMax?: { amount: number; currency: string };
+    referent?:
+      | { kind: "self" }
+      | { kind: "scopeCenter" }
+      | { kind: "candidate"; candidateId: string }
+      | { kind: "participant"; participantId: string }
+      | { kind: "point"; lat: number; lng: number; label?: string }
+      | { kind: "landmark"; landmarkId: string };
   } | null;
   withdrawn: boolean;
   /** Set aside by its owner: kept, shown, but not evaluated. Absent rows
@@ -122,6 +130,10 @@ export interface RequirementRow {
   scope_hint?: { affects?: string; category?: string } | null;
   /** Server-only owner position joined at read time. Never projected. */
   owner_origin?: { lat: number; lng: number } | null;
+  /** Viewer-specific, server-only referent resolution. Never stored. */
+  referent_location?: { lat: number; lng: number } | null;
+  referent_label?: string;
+  referent_status?: "resolved" | "private" | "missing";
 }
 export interface VerdictRow {
   owner_id: string;
@@ -322,6 +334,7 @@ export interface EligibilityInputs {
 export async function loadEligibilityInputs(
   q: pg.PoolClient | pg.Pool,
   roomId: string,
+  viewerId?: string,
 ): Promise<EligibilityInputs> {
   const [candidates, requirements, verdicts, scope, attestations, room, participantOrigins] = await Promise.all([
     q.query("SELECT * FROM candidates WHERE room_id = $1 ORDER BY id", [roomId]),
@@ -333,10 +346,16 @@ export async function loadEligibilityInputs(
     loadScope(q, roomId),
     loadAttestations(q, roomId),
     q.query("SELECT area_id FROM rooms WHERE id = $1", [roomId]),
-    q.query("SELECT id, origin FROM participants WHERE room_id = $1", [roomId]),
+    q.query("SELECT id, display_name, origin, origin_shared FROM participants WHERE room_id = $1", [roomId]),
   ]);
   const center = scope?.area?.center;
   const origins = new Map<string, { lat: number; lng: number }>();
+  const participantById = new Map((participantOrigins.rows as Array<{
+    id: string;
+    display_name: string;
+    origin_shared: boolean;
+    origin: { lat?: unknown; lng?: unknown } | null;
+  }>).map((row) => [row.id, row]));
   for (const row of participantOrigins.rows as Array<{
     id: string;
     origin: { lat?: unknown; lng?: unknown } | null;
@@ -353,6 +372,72 @@ export async function loadEligibilityInputs(
     loadCached(q, refs),
     loadConfirmedFacts(q, refs),
   ]);
+  const candidateById = new Map((candidates.rows as CandidateRow[]).map((candidate) => [candidate.id, candidate]));
+  const areaId = typeof room.rows[0]?.area_id === "string" ? room.rows[0].area_id as string : undefined;
+  const resolveReferent = (requirement: RequirementRow): Pick<
+    RequirementRow,
+    "referent_location" | "referent_label" | "referent_status"
+  > => {
+    const referent = requirement.payload?.kind === "scope"
+      ? requirement.payload.referent
+      : undefined;
+    if (!referent || referent.kind === "self") return {};
+    if (referent.kind === "scopeCenter") {
+      return center
+        ? { referent_location: center, referent_label: "the room centre", referent_status: "resolved" }
+        : { referent_location: null, referent_label: "the room centre", referent_status: "missing" };
+    }
+    if (referent.kind === "point") {
+      return {
+        referent_location: { lat: referent.lat, lng: referent.lng },
+        referent_label: referent.label?.trim() || "this point",
+        referent_status: "resolved",
+      };
+    }
+    if (referent.kind === "candidate") {
+      const candidate = candidateById.get(referent.candidateId);
+      return candidate
+        ? { referent_location: candidate.location, referent_label: candidate.name, referent_status: "resolved" }
+        : { referent_location: null, referent_label: "a place no longer in the room", referent_status: "missing" };
+    }
+    if (referent.kind === "landmark") {
+      const landmark = areaId ? landmarkById(areaId, referent.landmarkId) : undefined;
+      return landmark
+        ? { referent_location: landmark.location, referent_label: landmark.name, referent_status: "resolved" }
+        : { referent_location: null, referent_label: "an unknown landmark", referent_status: "missing" };
+    }
+    const participant = participantById.get(referent.participantId);
+    const entitled = participant && (
+      participant.origin_shared ||
+      (viewerId ?? requirement.owner_id) === participant.id
+    );
+    if (!participant) {
+      return { referent_location: null, referent_label: "someone no longer in the room", referent_status: "missing" };
+    }
+    if (!entitled) {
+      return {
+        referent_location: null,
+        referent_label: "where someone starts from",
+        referent_status: "private",
+      };
+    }
+    const location = origins.get(participant.id);
+    return location
+      ? {
+          referent_location: location,
+          referent_label: participant.id === viewerId
+            ? "where you start"
+            : `where ${participant.display_name} starts`,
+          referent_status: "resolved",
+        }
+      : {
+          referent_location: null,
+          referent_label: participant.id === viewerId
+            ? "where you start"
+            : `where ${participant.display_name} starts`,
+          referent_status: "missing",
+        };
+  };
   return {
     // Merged here, at read time, so every classifier pass (facets, impasse,
     // previews) sees the same dossier the ledger shows.
@@ -370,6 +455,7 @@ export async function loadEligibilityInputs(
     requirements: (requirements.rows as RequirementRow[]).map((requirement) => ({
       ...requirement,
       owner_origin: origins.get(requirement.owner_id) ?? null,
+      ...resolveReferent(requirement),
     })),
     verdicts: verdicts.rows as VerdictRow[],
     scope,
@@ -541,30 +627,52 @@ export function classifyCandidate(
         break;
       }
       case "scope": {
-        const origin = req.owner_origin ?? scope?.area?.center;
+        const referent = p.referent;
+        const origin = !referent || referent.kind === "self"
+          ? req.owner_origin ?? scope?.area?.center
+          : referent.kind === "scopeCenter"
+            ? scope?.area?.center
+            : referent.kind === "point"
+              ? { lat: referent.lat, lng: referent.lng }
+              : req.referent_location ?? undefined;
+        const missingReason = req.referent_status === "private"
+          ? "starting point is private"
+          : referent?.kind === "candidate"
+            ? "referent place not found"
+            : referent?.kind === "landmark"
+              ? "landmark not found"
+              : referent?.kind === "participant"
+                ? "starting point not on record"
+                : "distance not on record";
+        const fromText = !referent || referent.kind === "self"
+          ? "you"
+          : req.referent_label ?? "the measuring point";
+        const peerText = referent && referent.kind !== "self" && req.referent_status !== "private"
+          ? `too far from ${fromText}`
+          : "too far for one person";
         if (p.dimension === "walk_min" && typeof p.max === "number") {
           if (!origin) {
-            pending.push({ ...owner, text: "distance not on record" });
+            pending.push({ ...owner, text: missingReason });
           } else {
             const minutes = walkMinutesFrom(origin, candidate.location, candidate.walk_min);
             if (minutes > p.max) {
               return excluded(candidate, {
                 ...owner,
-                text: `${minutes} min from you`,
-                peerText: "too far for one person",
+                text: `${minutes} min from ${fromText}`,
+                peerText,
               });
             }
           }
         } else if (p.dimension === "radius_m" && typeof p.max === "number") {
           if (!origin) {
-            pending.push({ ...owner, text: "distance not on record" });
+            pending.push({ ...owner, text: missingReason });
           } else if (
             haversineMeters(candidate.location, origin) > p.max
           ) {
             return excluded(candidate, {
               ...owner,
-              text: `${Math.round(haversineMeters(candidate.location, origin))} m from you`,
-              peerText: "too far for one person",
+              text: `${Math.round(haversineMeters(candidate.location, origin))} m from ${fromText}`,
+              peerText,
             });
           }
         } else {

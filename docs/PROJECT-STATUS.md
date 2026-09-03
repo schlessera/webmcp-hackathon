@@ -23,7 +23,7 @@ A shared map where a small group and their personal AI agents privately
 negotiate a meeting venue: state requirements (shared / application-private /
 agent-private), see live eligibility, hit and resolve impasses via quantified
 counterfactuals with in-page consent, reach an organizer-committed agreement,
-and hand off to navigation. Built on WebMCP: 20 tools on
+and hand off to navigation. Built on WebMCP: 22 tools on
 `document.modelContext` expose two custom protocols (`negotiation/v1` +
 `spatial-destination/v1`). Concept + protocol design in `docs/` and
 `docs/protocols/`.

@@ -60,6 +60,40 @@ export const RequirementPayload = Type.Union([
         Type.Literal("radius_m"),
       ]),
       max: Type.Number(),
+      referent: Type.Optional(Type.Union([
+        Type.Object({ kind: Type.Literal("self") }, { additionalProperties: false }),
+        Type.Object({ kind: Type.Literal("scopeCenter") }, { additionalProperties: false }),
+        Type.Object(
+          {
+            kind: Type.Literal("candidate"),
+            candidateId: Type.String({ minLength: 1, maxLength: 40 }),
+          },
+          { additionalProperties: false },
+        ),
+        Type.Object(
+          {
+            kind: Type.Literal("participant"),
+            participantId: Type.String({ minLength: 1, maxLength: 40 }),
+          },
+          { additionalProperties: false },
+        ),
+        Type.Object(
+          {
+            kind: Type.Literal("point"),
+            lat: Type.Number({ minimum: -90, maximum: 90 }),
+            lng: Type.Number({ minimum: -180, maximum: 180 }),
+            label: Type.Optional(Type.String({ minLength: 1, maxLength: 100 })),
+          },
+          { additionalProperties: false },
+        ),
+        Type.Object(
+          {
+            kind: Type.Literal("landmark"),
+            landmarkId: Type.String({ minLength: 1, maxLength: 100 }),
+          },
+          { additionalProperties: false },
+        ),
+      ])),
     },
     { additionalProperties: false },
   ),

@@ -170,6 +170,7 @@ export function computeFacetsBundle(
         visibility: req.visibility as Visibility,
         hardness: req.hardness === "soft" ? "soft" : "hard",
         ownerId: req.owner_id,
+        ...referentView(req, inputs.scope),
       });
       continue;
     }
@@ -202,6 +203,37 @@ export function computeFacetsBundle(
     ],
     activeNeeds,
     privateEffects,
+  };
+}
+
+function referentView(
+  req: RequirementRow,
+  scope: ScopeState | null,
+): Pick<ActiveNeed, "referent"> {
+  const referent = req.payload?.kind === "scope" ? req.payload.referent : undefined;
+  if (!referent || referent.kind === "self") return {};
+  const label = req.referent_label ?? (
+    referent.kind === "scopeCenter"
+      ? "the room centre"
+      : referent.kind === "point"
+        ? referent.label?.trim() || "this point"
+        : referent.kind === "participant"
+          ? "where someone starts from"
+          : referent.kind === "candidate"
+            ? "a place no longer in the room"
+            : "an unknown landmark"
+  );
+  const location = referent.kind === "point"
+    ? { lat: referent.lat, lng: referent.lng }
+    : referent.kind === "scopeCenter"
+      ? scope?.area?.center
+      : req.referent_location ?? undefined;
+  return {
+    referent: {
+      kind: referent.kind,
+      label,
+      ...(location ? { location } : {}),
+    },
   };
 }
 
@@ -463,9 +495,9 @@ export function labelForRequirement(
       return p.expect === "verified_false" ? `no ${label}` : label;
     }
     case "scope":
-      return p.dimension === "walk_min"
+      return `${p.dimension === "walk_min"
         ? `within ${p.max} min walk`
-        : `within ${p.max} m`;
+        : `within ${p.max} m`} of ${scopeReferentLabel(req, ownedByViewer)}`;
     case "budget": {
       const b = p.perPersonMax;
       if (!b) return "a budget";
@@ -491,4 +523,17 @@ export function labelForRequirement(
     default:
       return "a need";
   }
+}
+
+function scopeReferentLabel(req: RequirementRow, ownedByViewer: boolean): string {
+  const referent = req.payload?.kind === "scope" ? req.payload.referent : undefined;
+  if (!referent || referent.kind === "self") {
+    return ownedByViewer ? "where you start" : "where they start";
+  }
+  if (req.referent_label) return req.referent_label;
+  if (referent.kind === "scopeCenter") return "the room centre";
+  if (referent.kind === "point") return referent.label?.trim() || "this point";
+  if (referent.kind === "participant") return "where someone starts from";
+  if (referent.kind === "candidate") return "a place no longer in the room";
+  return "an unknown landmark";
 }

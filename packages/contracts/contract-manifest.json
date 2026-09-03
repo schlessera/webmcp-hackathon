@@ -1,6 +1,6 @@
 {
   "toolContractVersion": "3",
-  "sha256": "1a0bb8dac90dcc0affa71195660093682bda892eac5fdb304f18d56e753e7d37",
+  "sha256": "678c5bd508ad4ac550e6e8780bf2abc69df8c7cb991adc74a99429f41bf921e6",
   "manifest": {
     "capabilityManifest": {
       "agreement": {
@@ -999,6 +999,123 @@
                   },
                   "max": {
                     "type": "number"
+                  },
+                  "referent": {
+                    "anyOf": [
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "kind": {
+                            "const": "self",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "kind"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "kind": {
+                            "const": "scopeCenter",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "kind"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "candidateId": {
+                            "maxLength": 40,
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "kind": {
+                            "const": "candidate",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "candidateId"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "kind": {
+                            "const": "participant",
+                            "type": "string"
+                          },
+                          "participantId": {
+                            "maxLength": 40,
+                            "minLength": 1,
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "participantId"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "kind": {
+                            "const": "point",
+                            "type": "string"
+                          },
+                          "label": {
+                            "maxLength": 100,
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "lat": {
+                            "maximum": 90,
+                            "minimum": -90,
+                            "type": "number"
+                          },
+                          "lng": {
+                            "maximum": 180,
+                            "minimum": -180,
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "lat",
+                          "lng"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "kind": {
+                            "const": "landmark",
+                            "type": "string"
+                          },
+                          "landmarkId": {
+                            "maxLength": 100,
+                            "minLength": 1,
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "landmarkId"
+                        ],
+                        "type": "object"
+                      }
+                    ]
                   }
                 },
                 "required": [
@@ -2990,6 +3107,59 @@
                     },
                     "ownerId": {
                       "type": "string"
+                    },
+                    "referent": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "kind": {
+                          "anyOf": [
+                            {
+                              "const": "scopeCenter",
+                              "type": "string"
+                            },
+                            {
+                              "const": "candidate",
+                              "type": "string"
+                            },
+                            {
+                              "const": "participant",
+                              "type": "string"
+                            },
+                            {
+                              "const": "point",
+                              "type": "string"
+                            },
+                            {
+                              "const": "landmark",
+                              "type": "string"
+                            }
+                          ]
+                        },
+                        "label": {
+                          "type": "string"
+                        },
+                        "location": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "lat": {
+                              "type": "number"
+                            },
+                            "lng": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "lat",
+                            "lng"
+                          ],
+                          "type": "object"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "label"
+                      ],
+                      "type": "object"
                     },
                     "ruledOut": {
                       "type": "number"
@@ -5185,6 +5355,123 @@
                     },
                     "max": {
                       "type": "number"
+                    },
+                    "referent": {
+                      "anyOf": [
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "kind": {
+                              "const": "self",
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "kind"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "kind": {
+                              "const": "scopeCenter",
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "kind"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "candidateId": {
+                              "maxLength": 40,
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            "kind": {
+                              "const": "candidate",
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "candidateId"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "kind": {
+                              "const": "participant",
+                              "type": "string"
+                            },
+                            "participantId": {
+                              "maxLength": 40,
+                              "minLength": 1,
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "participantId"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "kind": {
+                              "const": "point",
+                              "type": "string"
+                            },
+                            "label": {
+                              "maxLength": 100,
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            "lat": {
+                              "maximum": 90,
+                              "minimum": -90,
+                              "type": "number"
+                            },
+                            "lng": {
+                              "maximum": 180,
+                              "minimum": -180,
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "lat",
+                            "lng"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "kind": {
+                              "const": "landmark",
+                              "type": "string"
+                            },
+                            "landmarkId": {
+                              "maxLength": 100,
+                              "minLength": 1,
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "landmarkId"
+                          ],
+                          "type": "object"
+                        }
+                      ]
                     }
                   },
                   "required": [
@@ -5834,6 +6121,28 @@
           "type": "object"
         },
         "name": "confirm_agreement"
+      },
+      {
+        "annotations": {
+          "readOnlyHint": true
+        },
+        "description": "Find named landmarks in this room's area before stating a distance need. Returns stable landmark IDs, names, place-type labels and locations, ranked by name match. Read-only.",
+        "inputSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "query": {
+              "description": "Landmark or public place name to resolve in this room's area.",
+              "maxLength": 100,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "query"
+          ],
+          "type": "object"
+        },
+        "name": "find_landmarks"
       },
       {
         "annotations": {

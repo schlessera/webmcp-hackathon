@@ -208,6 +208,19 @@ the visible copy.
 - Sharing events say **“Sarah is showing where they are”** and **“Sarah stopped
   showing where they are.”**
 
+## Distance referents
+
+- Scope needs name their measuring point: **“within 500 m of U
+  Alexanderplatz”**, **“within 10 min walk of Café Einstein”**, and **“within
+  800 m of where you start”**.
+- An unresolved place is plain and pending: **“a place no longer in the
+  room”** or **“an unknown landmark”**. It never reads as a failure.
+- A participant position the reader may not see is always **“where someone
+  starts from”**. Never combine the participant's name with that phrase or
+  imply where the position lies.
+- Landmark disambiguation asks **“Which Alexanderplatz did you mean?”** and
+  offers at most three `name · place type` choices.
+
 ## Tone
 
 Plain, short, declarative. No exclamation marks. No "Oops". No emoji anywhere

@@ -90,9 +90,9 @@ effect, never the cause.
 
 ## How we implemented WebMCP
 
-- **20 tools** registered imperatively on `document.modelContext` at page load
-  (static surface — ChatGPT's in-app browser binds tools at page level), 9
-  negotiation + 10 spatial, each a single narrow function with closed enum
+- **22 tools** registered imperatively on `document.modelContext` at page load
+  (static surface — ChatGPT's in-app browser binds tools at page level), 10
+  negotiation + 12 spatial, each a single narrow function with closed enum
   schemas, `readOnlyHint`/`untrustedContentHint` annotations, and capped result
   budgets. The page is fully usable without WebMCP.
 - **Two application protocols over the WebMCP substrate**, taught to the agent by

@@ -9,6 +9,7 @@ import {
 } from "@webmcp-hackathon/contracts";
 import { config } from "../config.ts";
 import { parseJson, respond } from "./openai.ts";
+import { findLandmarks } from "../landmarks.ts";
 
 /**
  * The fast tier. One sentence from the composer becomes either a set of need
@@ -37,7 +38,73 @@ export interface SayOutcome {
   needs: ParsedNeed[];
   /** For `unclear`: what would help. */
   reply: string | null;
+  /** Small page-private disambiguation set; choosing one submits its payload. */
+  choices?: Array<{ label: string; payload: Record<string, unknown> }>;
   meta: { model: string; ms: number };
+}
+
+function landmarkDistance(
+  text: string,
+): { dimension: "walk_min" | "radius_m"; max: number; query: string } | null {
+  const metres = /^\s*(\d+(?:[.,]\d+)?)\s*(m|km)\s+(?:from|of)\s+(.+?)\s*$/i.exec(text);
+  if (metres) {
+    const amount = Number(metres[1].replace(",", "."));
+    const max = metres[2].toLowerCase() === "km" ? amount * 1000 : amount;
+    return Number.isFinite(max) && max > 0
+      ? { dimension: "radius_m", max: Math.round(max), query: metres[3] }
+      : null;
+  }
+  const minutes = /^\s*within\s+(\d+(?:[.,]\d+)?)\s*(?:min|mins|minutes?)\s+(?:walk\s+)?(?:from|of)\s+(.+?)\s*$/i.exec(text);
+  if (minutes) {
+    const max = Number(minutes[1].replace(",", "."));
+    return Number.isFinite(max) && max > 0
+      ? { dimension: "walk_min", max: Math.round(max), query: minutes[2] }
+      : null;
+  }
+  const near = /^\s*near\s+(.+?)\s*$/i.exec(text);
+  return near ? { dimension: "walk_min", max: 10, query: near[1] } : null;
+}
+
+function landmarkNeed(
+  text: string,
+  context: SpatialContextResult,
+): SayOutcome | null {
+  const parsed = landmarkDistance(text);
+  const areaId = context.area?.areaId;
+  if (!parsed || !areaId) return null;
+  const matches = findLandmarks(areaId, parsed.query);
+  if (matches.length === 0) return null;
+  const payload = (landmarkId: string) => ({
+    kind: "scope",
+    dimension: parsed.dimension,
+    max: parsed.max,
+    referent: { kind: "landmark", landmarkId },
+  });
+  const top = matches[0].score;
+  const plausible = matches.filter((match) => match.score === top).slice(0, 3);
+  const meta = { model: "landmark-index", ms: 0 };
+  if (plausible.length === 1) {
+    return {
+      intent: "need",
+      needs: [{
+        payload: payload(plausible[0].id),
+        topic: "distance",
+        gist: `${parsed.dimension === "walk_min" ? "near" : "distance from"} ${plausible[0].name}`.slice(0, 80),
+      }],
+      reply: null,
+      meta,
+    };
+  }
+  return {
+    intent: "unclear",
+    needs: [],
+    reply: `Which ${parsed.query.trim()} did you mean?`,
+    choices: plausible.map((match) => ({
+      label: `${match.name} · ${match.kindLabel}`,
+      payload: payload(match.id),
+    })),
+    meta,
+  };
 }
 
 interface Draft {
@@ -190,6 +257,8 @@ export async function say(
   context: SpatialContextResult,
   now = new Date(),
 ): Promise<SayOutcome> {
+  const indexed = landmarkNeed(text, context);
+  if (indexed) return indexed;
   const clock = roomClock(context, now);
   const reply = await respond({
     model: config.nlFastModel,

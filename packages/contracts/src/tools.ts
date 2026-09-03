@@ -19,7 +19,7 @@ import {
 
 /**
  * WebMCP tool surface — INTERACTION-AND-BINDING.md §2.3: the full static
- * 21-tool surface, registered once at page load (see TOOLS for the split).
+ * 22-tool surface, registered once at page load (see TOOLS for the split).
  * Names ≤30 chars, descriptions ≤500 chars, results ≤1.5K chars except the
  * additive 8K sync allowance. All schemas additionalProperties: false. v1
  * names carry no version suffix.
@@ -148,6 +148,16 @@ export const FOCUS_DESTINATION_INPUT = Type.Object(
   },
   { additionalProperties: false },
 );
+export const FIND_LANDMARKS_INPUT = Type.Object(
+  {
+    query: Type.String({
+      minLength: 1,
+      maxLength: 100,
+      description: "Landmark or public place name to resolve in this room's area.",
+    }),
+  },
+  { additionalProperties: false },
+);
 
 const negotiationTools: ToolDefinition[] = [
   syncSessionTool,
@@ -241,6 +251,14 @@ const negotiationTools: ToolDefinition[] = [
 ];
 
 const spatialTools: ToolDefinition[] = [
+  {
+    name: "find_landmarks",
+    description:
+      "Find named landmarks in this room's area before stating a distance need. " +
+      "Returns stable landmark IDs, names, place-type labels and locations, ranked by name match. Read-only.",
+    inputSchema: FIND_LANDMARKS_INPUT,
+    annotations: { readOnlyHint: true },
+  },
   {
     name: "get_spatial_context",
     description:
