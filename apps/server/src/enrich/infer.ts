@@ -45,7 +45,7 @@ export interface InferredClaim {
 export type StoredInference =
   | (InferredClaim & {
       observedAt: string;
-      /** A merge-time disagreement, shown instead of the retained evidence. */
+      /** A merge-time disagreement, shown beside the retained evidence. */
       note?: string;
     })
   | {
@@ -290,7 +290,13 @@ export function applyInferredAttributes<T extends AttributeLike>(
       source: claim.source,
       observedAt: claim.observedAt,
       confidence: claim.confidence,
-      note: sanitizeInferenceNote(claim.note ?? claim.evidence),
+      // A disagreement is recorded beside the span the claim still rests on,
+      // never instead of it: the reader needs to see both what was found and
+      // that a later read leaned the other way.
+      note: [
+        sanitizeInferenceNote(claim.evidence),
+        claim.note ? sanitizeInferenceNote(claim.note) : "",
+      ].filter(Boolean).join(" · "),
       ...(claim.explicit !== undefined ? { explicit: claim.explicit } : {}),
       ...(claim.sourceUrl ? { sourceUrl: claim.sourceUrl } : {}),
     };

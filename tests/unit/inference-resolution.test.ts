@@ -126,10 +126,13 @@ describe("monotonic inference resolution", () => {
       observedAt: OLD_AT,
       note: INFERENCE_DISAGREEMENT_NOTE,
     });
+    // The ledger keeps the span the claim rests on AND says a later read
+    // disagreed. Replacing the evidence with the disagreement would hide what
+    // the retained fact is actually based on.
     expect(applyInferredAttributes([], { "dog-friendly": resolved })).toEqual([
       expect.objectContaining({
         status: "likely_true",
-        note: INFERENCE_DISAGREEMENT_NOTE,
+        note: `${previous.evidence} · ${INFERENCE_DISAGREEMENT_NOTE}`,
       }),
     ]);
   });
