@@ -169,6 +169,7 @@ function trimInspect(result: unknown): unknown {
     ok?: boolean;
     candidates?: Array<Record<string, unknown> & {
       attributes?: Array<{ key: string; value?: unknown; status: string; source: string }>;
+      needs?: Array<{ label?: string; private?: true; verdict: string }>;
     }>;
   };
   if (!r?.ok || !Array.isArray(r.candidates)) return result;
@@ -177,13 +178,15 @@ function trimInspect(result: unknown): unknown {
     candidates: r.candidates.map((d) => ({
       ...d,
       // Hours and coordinates cost more budget than an agent's decision needs;
-      // attribute rows compress to "key=status(value) [provenance]".
+      // attribute rows compress to "key=status(value) [provenance]"; need
+      // rows to "label=verdict" (a peer's private need stays "private").
       hours: undefined,
       location: undefined,
       attributes: d.attributes?.map(
         (a) =>
           `${a.key}=${a.status}${a.value !== undefined ? `(${String(a.value)})` : ""} [${a.source.split(":")[0]}]`,
       ),
+      needs: d.needs?.map((n) => `${n.private ? "private" : n.label ?? "?"}=${n.verdict}`),
     })),
   };
 }
