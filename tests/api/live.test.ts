@@ -225,12 +225,12 @@ describe("need-triggered lookup and realtime facts", () => {
             type: "output_text",
             text: JSON.stringify({
               claims: [{
-                key: "dog-friendly",
+                candidateId,
+                criterionId: "dog-friendly",
                 lean: "yes",
                 confidence: 0.9,
                 evidence: "dogs are welcome throughout",
-                evidenceSource: "description_website",
-                value: null,
+                sourceIndex: 0,
               }],
             }),
           }],
@@ -244,9 +244,12 @@ describe("need-triggered lookup and realtime facts", () => {
     });
 
     expect(modelInput).toMatchObject({
-      texts: [expect.objectContaining({
-        source: "web",
-        text: expect.stringContaining(`${marker} DOGS ARE WELCOME throughout our courtyard.`),
+      places: [expect.objectContaining({
+        candidateId,
+        texts: [expect.objectContaining({
+          source: "web",
+          text: expect.stringContaining(`${marker} DOGS ARE WELCOME throughout our courtyard.`),
+        })],
       })],
     });
     const stored = (
@@ -393,12 +396,15 @@ describe("need-triggered lookup and realtime facts", () => {
       return new Response("<html></html>", { status: 200, headers: { "content-type": "text/html" } });
     });
     let modelCalls = 0;
-    setTransport(async () => {
+    setTransport(async (body) => {
       modelCalls += 1;
+      const matrix = JSON.parse((body.input as Array<{ content: string }>)[0].content) as {
+        places: Array<{ candidateId: string; texts: Array<{ text: string }> }>;
+      };
       const claims =
         modelCalls === 1
           ? []
-          : [{ key: "delivery", lean: "yes", confidence: 0.9, evidence: "deliver across the district every evening", evidenceSource: "description_website", value: null }];
+          : [{ candidateId: matrix.places[0].candidateId, criterionId: "delivery", lean: "yes", confidence: 0.9, evidence: "deliver across the district every evening", sourceIndex: matrix.places[0].texts.findIndex((text) => text.text.includes("deliver across")) }];
       return { output: [{ type: "message", content: [{ type: "output_text", text: JSON.stringify({ claims }) }] }] };
     });
     const target = { candidateId, osmRef, website };
@@ -475,7 +481,7 @@ describe("need-triggered lookup and realtime facts", () => {
       if (url.endsWith("/robots.txt")) return new Response("", { status: 200 });
       throw new Error("site down");
     });
-    setTransport(async () => ({
+    setTransport(async (body) => ({
       output: [
         {
           type: "message",
@@ -485,12 +491,12 @@ describe("need-triggered lookup and realtime facts", () => {
               text: JSON.stringify({
                 claims: [
                   {
-                    key: "dog-friendly",
+                    candidateId: (JSON.parse((body.input as Array<{ content: string }>)[0].content) as { places: Array<{ candidateId: string }> }).places[0].candidateId,
+                    criterionId: "dog-friendly",
                     lean: "yes",
                     confidence: 0.9,
                     evidence,
-                    evidenceSource: "description_website",
-                    value: null,
+                    sourceIndex: 0,
                   },
                 ],
               }),

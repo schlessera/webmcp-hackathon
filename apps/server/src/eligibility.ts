@@ -330,7 +330,10 @@ export function mergedAttributes(
     // about cafés in general; both stay likely, never verified.
     applyGuesses(
       c.category,
-      applyInferredAttributes(applyEnrichmentAttributes(normalised, enrichment), enrichment?.inferred),
+      applyInferredAttributes(
+        applyEnrichmentAttributes(normalised, enrichment),
+        enrichment?.inferred as Parameters<typeof applyInferredAttributes>[1],
+      ),
       observedAt,
     ),
     attestations,
