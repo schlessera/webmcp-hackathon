@@ -2,6 +2,7 @@ import { BUDGETS, TOOLS, type ToolDefinition } from "@webmcp-hackathon/contracts
 import {
   spatialContext,
   spatialInspectRaw,
+  landmarksRaw,
   spatialLookupRaw,
   spatialNavigationRaw,
   syncSessionRaw,
@@ -372,6 +373,9 @@ async function executeTool(
 
     case "inspect_candidates":
       return trimInspect(await spatialInspectRaw(args ?? {}, signal));
+
+    case "find_landmarks":
+      return landmarksRaw(args ?? {}, signal);
 
     case "look_up_places":
       return trimInspect(await spatialLookupRaw(args ?? {}, signal));

@@ -277,8 +277,8 @@ describe("activeNeeds carry the counterfactual deltas the brief rows show", () =
       .toBe("no outdoor seating");
     expect(label({ kind: "budget", perPersonMax: { amount: 15, currency: "EUR" } }))
       .toBe("budget €15");
-    expect(label({ kind: "scope", dimension: "walk_min", max: 12 })).toBe("within 12 min walk");
-    expect(label({ kind: "scope", dimension: "radius_m", max: 800 })).toBe("within 800 m");
+    expect(label({ kind: "scope", dimension: "walk_min", max: 12 })).toBe("within 12 min walk of where you start");
+    expect(label({ kind: "scope", dimension: "radius_m", max: 800 })).toBe("within 800 m of where you start");
     expect(label({ kind: "exclusion", key: "cuisine", values: ["italian"] })).toBe("avoid italian");
     expect(label({ kind: "inclusion", key: "cuisine", values: ["asian", "vietnamese"] })).toBe("only asian, vietnamese");
     expect(label({ kind: "text", text: "somewhere the kids can run" }))

@@ -102,7 +102,7 @@ export async function spatialContext(
 
     const [inputs, proposals, stances, participantRows, agreementRow, arrivalRow] =
       await Promise.all([
-        loadEligibilityInputs(client, actor.roomId),
+        loadEligibilityInputs(client, actor.roomId, actor.id),
         client.query(
           `SELECT id, candidate_id, status FROM proposals
             WHERE room_id = $1 AND status <> 'withdrawn' ORDER BY id`,
@@ -478,7 +478,7 @@ export async function inspectCandidates(
       .filter((ref): ref is string => Boolean(ref));
     const enrichments = await loadCached(client, refs);
     const images = await loadPlaceImages(client, refs);
-    const inputs = await loadEligibilityInputs(client, actor.roomId);
+    const inputs = await loadEligibilityInputs(client, actor.roomId, actor.id);
     const timezone = areaById(room.area_id as string)?.timezone ?? inputs.timezone ?? "UTC";
     const readAt = options.now ?? inputs.now ?? new Date();
     const candidateById = new Map(inputs.candidates.map((candidate) => [candidate.id, candidate]));

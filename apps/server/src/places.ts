@@ -32,6 +32,14 @@ export interface SnapshotVenue {
   tags: Record<string, string>;
 }
 
+export interface SnapshotLandmark {
+  id: string;
+  name: string;
+  kind: string;
+  location: { lat: number; lng: number };
+  altNames?: string[];
+}
+
 export interface CoverageStats {
   venues: number;
   slots: number;
@@ -52,6 +60,8 @@ export interface SnapshotManifest {
   center: { lat: number; lng: number };
   radii: { narrow: number; wide: number; max: number };
   amenities: string[];
+  /** Absent from snapshots built before distance referents landed. */
+  landmarks?: number;
   coverage: {
     measuredAt: string;
     city: CoverageStats;
@@ -64,6 +74,8 @@ export interface SnapshotManifest {
 export interface AreaSnapshot {
   manifest: SnapshotManifest;
   venues: SnapshotVenue[];
+  /** Older committed snapshots deliberately omit this until their next build. */
+  landmarks?: SnapshotLandmark[];
 }
 
 /** What a room records about where its places came from (rooms.data_source). */

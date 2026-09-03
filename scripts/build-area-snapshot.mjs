@@ -38,6 +38,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(__dirname, "..");
 const DATA_DIR = join(REPO, "data", "osm");
 const OUT_DIR = join(REPO, "packages", "contracts", "data", "areas");
+const LANDMARK_CAP = 3000;
 
 const args = process.argv.slice(2);
 const refresh = args.includes("--refresh");
@@ -104,6 +105,28 @@ function pointOf(geometry) {
     case "MultiPolygon": return avg(geometry.coordinates[0][0]);
     default: return null;
   }
+}
+
+function landmarkKind(properties) {
+  if (properties.railway === "station") return "station";
+  if (properties.railway === "halt") return "halt";
+  if (properties.railway === "subway_entrance") return "subway_entrance";
+  if (properties.public_transport === "station") return "station";
+  if (properties.public_transport === "stop_position") return "stop";
+  if (["square", "neighbourhood", "suburb", "quarter"].includes(properties.place)) {
+    return properties.place;
+  }
+  if (properties.tourism === "attraction") return "attraction";
+  if (properties.leisure === "park") return "park";
+  if (["university", "theatre", "marketplace"].includes(properties.amenity)) {
+    return properties.amenity;
+  }
+  return null;
+}
+
+function normalizedName(value) {
+  return value.normalize("NFKD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/ß/g, "ss").replace(/[^a-z0-9]+/gi, " ").trim().toLowerCase();
 }
 
 // --- the pool rule, shared with the server (places.ts mirrors it) ---------
@@ -214,10 +237,23 @@ for (const area of areas) {
   const clipped = `${area.id}.osm.pbf`;
   const filtered = `${area.id}-venues.osm.pbf`;
   const exported = `${area.id}-venues.geojsonseq`;
+  const landmarkFiltered = `${area.id}-landmarks.osm.pbf`;
+  const landmarkExported = `${area.id}-landmarks.geojsonseq`;
   const t0 = Date.now();
   osmium(["extract", "-b", `${w},${s},${e},${n}`, "-s", "smart", "-o", clipped, "--overwrite", regionFile]);
   osmium(["tags-filter", clipped, `nwr/amenity=${area.amenities.join(",")}`, "-o", filtered, "--overwrite"]);
   osmium(["export", filtered, "-f", "geojsonseq", "-a", "id,type", "-o", exported, "--overwrite"]);
+  osmium([
+    "tags-filter", clipped,
+    "nwr/railway=station,halt,subway_entrance",
+    "nwr/public_transport=station,stop_position",
+    "nwr/place=square,neighbourhood,suburb,quarter",
+    "nwr/tourism=attraction",
+    "nwr/leisure=park",
+    "nwr/amenity=university,theatre,marketplace",
+    "-o", landmarkFiltered, "--overwrite",
+  ]);
+  osmium(["export", landmarkFiltered, "-f", "geojsonseq", "-a", "id,type", "-o", landmarkExported, "--overwrite"]);
   const extractTimestamp = osmium([
     "fileinfo", "-e", "-g", "header.option.osmosis_replication_timestamp", regionFile,
   ]).trim();
@@ -255,6 +291,53 @@ for (const area of areas) {
   // this order for ties while spreading its selections across each ring.
   venues.sort((a, b) => a.distance - b.distance || (a.ref < b.ref ? -1 : 1));
 
+  // Landmarks are a second, domain-neutral name index over the same clipped
+  // extract. Keep source order while removing nearby duplicate renderings of
+  // the same named feature (for example a station node and its area).
+  const landmarks = [];
+  const landmarkGroups = new Map();
+  const landmarkRl = createInterface({ input: createReadStream(join(DATA_DIR, landmarkExported)) });
+  for await (const raw of landmarkRl) {
+    const line = raw.replace(/^\x1e/, "").trim();
+    if (!line) continue;
+    const f = JSON.parse(line);
+    const p = f.properties ?? {};
+    const name = typeof p.name === "string" ? p.name.trim() : "";
+    const kind = landmarkKind(p);
+    const location = pointOf(f.geometry);
+    if (!name || !kind || !location) continue;
+    const nameKey = normalizedName(name);
+    const groupKey = `${kind}\u0000${nameKey}`;
+    const group = landmarkGroups.get(groupKey) ?? [];
+    if (group.some((row) => haversine(row.location, location) <= 150)) continue;
+    const altNames = [...new Set(
+      [p.alt_name, p.official_name, p.short_name, p.loc_name]
+        .flatMap((value) => typeof value === "string" ? value.split(";") : [])
+        .map((value) => value.trim())
+        .filter((value) => value && normalizedName(value) !== nameKey),
+    )];
+    const landmark = {
+      id: `${p["@type"]}/${p["@id"]}`,
+      name,
+      kind,
+      location: { lat: +location.lat.toFixed(7), lng: +location.lng.toFixed(7) },
+      ...(altNames.length ? { altNames } : {}),
+      nameKey,
+      distance: Math.round(haversine(area.center, location)),
+    };
+    landmarks.push(landmark);
+    group.push(landmark);
+    landmarkGroups.set(groupKey, group);
+  }
+  let cappedLandmarks = landmarks;
+  let landmarkCapNote = "";
+  if (landmarks.length > LANDMARK_CAP) {
+    cappedLandmarks = [...landmarks]
+      .sort((a, b) => a.distance - b.distance || (a.id < b.id ? -1 : 1))
+      .slice(0, LANDMARK_CAP);
+    landmarkCapNote = `; capped from ${landmarks.length}, keeping nearest the area centre`;
+  }
+
   const pool = poolOf(venues, area);
   const focus = venues.filter((v) => v.distance <= area.radii.wide);
   const coverage = {
@@ -281,15 +364,19 @@ for (const area of areas) {
       center: area.center,
       radii: area.radii,
       amenities: area.amenities,
+      landmarks: cappedLandmarks.length,
       coverage,
     },
     venues: venues.map(({ ref, name, location, tags }) => ({ ref, name, location, tags })),
+    landmarks: cappedLandmarks.map(({ id, name, kind, location, altNames }) => ({
+      id, name, kind, location, ...(altNames ? { altNames } : {}),
+    })),
   };
   const outPath = join(OUT_DIR, `${area.id}.json`);
   await writeFile(outPath, JSON.stringify(out, null, 1) + "\n");
   const size = (await readFile(outPath)).length;
   console.log(
-    `wrote ${venues.length} venues (${(size / 1024).toFixed(0)} KiB) → ${outPath}\n` +
+    `wrote ${venues.length} venues and ${cappedLandmarks.length} landmarks${landmarkCapNote} (${(size / 1024).toFixed(0)} KiB) → ${outPath}\n` +
       `  city (${coverage.city.venues}): decisive ${coverage.city.decisivePct}%, opening_hours ${coverage.city.tags.opening_hours}%\n` +
       `  focus (${coverage.focus.venues}): decisive ${coverage.focus.decisivePct}%, opening_hours ${coverage.focus.tags.opening_hours}%, ` +
       `wheelchair ${coverage.focus.tags.wheelchair}%, diet:vegetarian ${coverage.focus.tags["diet:vegetarian"]}%\n` +

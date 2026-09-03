@@ -13,6 +13,7 @@ import { submitCommand } from "../engine.ts";
 import { outstandingFor } from "../outstanding.ts";
 import { inspectCandidates, lookUpPlaces, prepareNavigation, spatialContext } from "../spatial.ts";
 import { consumeLookupToken, LOOKUP_RATE_LIMIT_ERROR } from "../lookup-budget.ts";
+import { findRoomLandmarks } from "../landmarks.ts";
 import { respond, type FunctionTool, type InputItem } from "./openai.ts";
 import { serializeToolOutput } from "./tool-output.ts";
 
@@ -239,6 +240,12 @@ async function execute(
         await withinTurn(deadlineAt, () => outstandingFor(pool, actor.roomId, actor.id)),
         actor,
       );
+    }
+    case "find_landmarks": {
+      const query = typeof args.query === "string" ? args.query.trim().slice(0, 100) : "";
+      return query
+        ? withinTurn(deadlineAt, () => findRoomLandmarks(pool, actor.roomId, query, 8))
+        : { ok: false, error: { code: "invalid_input", message: "A landmark name is required.", recovery: "Pass a name from the person's words." } };
     }
     case "inspect_candidates": {
       const ids = Array.isArray(args.candidateIds) ? (args.candidateIds as string[]).slice(0, 3) : [];
