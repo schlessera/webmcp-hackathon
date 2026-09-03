@@ -299,7 +299,10 @@ source fact unknown / unverified
 record. An attestation at confidence ≥ 0.7 is a verified fact for
 eligibility exactly like a record fact; below that it is a likely fact
 (§8.2). The ledger names the attester and their note. Attestations never
-cross rooms.
+cross rooms. The attestable-key union includes both the closed attribute
+vocabulary and question criterion keys matching `q:<40 lowercase hex>`; a
+person may therefore confirm or contradict a free-text need without placing
+its sentence in the shared attestation record.
 
 ### 8.2 Graded evidence (amendment, 2026-09-02)
 
@@ -308,7 +311,7 @@ whoever said it:
 
 | status | reads as | who says it |
 | --- | --- | --- |
-| `verified_true` | yes | the record, the venue's own markup, a person who checked (≥ 0.7) |
+| `verified_true` | yes | the record, the venue's own markup or explicit own-site prose, a person who checked (≥ 0.7) |
 | `likely_true` | likely | a word on the menu (0.6), the kind of place (0.4–0.9), a partial value ("limited", 0.5), a reading of a menu photo, a person less sure (< 0.7) |
 | `likely_false` | unlikely | the same, leaning the other way |
 | `verified_false` | no | as for yes |
@@ -378,15 +381,29 @@ Application-private permits that evaluation but does not permit its sentence to
 enter shared storage or a peer's dossier. Agent-private needs are evaluated in
 the owner's agent context and never enter server-side criterion harvesting.
 
-A model or web lookup can only make a question `likely_true` or
-`likely_false`. A question is never verified without a participant
-attestation, even if malformed cached data claims high confidence. No evidence
+A matrix claim is record-grade only when all of these hold: the model marks it
+`explicit: true`, its evidence is a validated span from a `web` or `menu`
+venue-site text bucket, its cited URL has the same hostname as the place's OSM
+`website` tag. Host matching is exact after lowercasing and stripping one leading `www.`;
+sibling subdomains and merely registrable-domain matches do not count. Such a
+claim is graded at **0.72**, receives source `web:<host>`, and may become
+`verified_true` or `verified_false`, giving an explicit prose statement the
+same record standing as facts parsed from the venue's own schema.org markup.
+
+Every claim that fails any part of that gate remains graded evidence on the
+ordinary ladder: venue-site inference at no more than 0.60, domain-scoped
+search at 0.55, open-web evidence at 0.50, and name/category evidence at 0.45.
+A participant attestation may also verify a `q:` question key. No evidence
 keeps the place `unknown`; abstention is not a negative answer.
 
-Cuisine uses the same criterion mechanism with the sourced implication
-taxonomy. An implication may add a place to an inclusion set (for example,
-`pizza` can support Italian), but it never rules a place out of an exclusion
-set. An implied exclusion remains `unlikely`, not `excluded`.
+Cuisine uses a value-specific key criterion carrying `values` and a literal
+question such as “Does this place serve Italian food?”. Its id is derived from
+the normalized wanted-value set, so a stored Italian answer never suppresses a
+later Japanese question. The resulting criterion fact is consumed directly by
+eligibility. The sourced implication taxonomy remains the fallback: an
+implication may add a place to an inclusion set (for example, `pizza` can
+support Italian), but it never rules a place out of an exclusion set. An
+implied exclusion remains `unlikely`, not `excluded`.
 
 ### 8.3 Absolute time windows
 

@@ -164,11 +164,12 @@ title, meta description, headings, paragraphs and list items after scripts,
 styles, navigation and footer are stripped, capped separately at 6,000
 characters per page. A cache-only read has no page text to replay.
 
-Inference is never verification. Every accepted claim is merged through the
-graded status path as `likely_true` or `likely_false`, with source
-`infer:<model>:<source-bucket>` and its evidence span in `note`. It fills only a slot that is
-still `unknown`; record, web, deterministic guess and attested facts keep
-their precedence. The server drops a claim unless its evidence is at least 12
+Inference normally remains below verification. An explicit statement quoted
+from the venue's own recorded website is the one exception described below;
+all other accepted claims merge as `likely_true` or `likely_false`, with
+source `infer:<model>:<source-bucket>` and their evidence span in `note`. They
+fill only a slot that is still `unknown`; record, web, deterministic guess and
+attested facts keep their precedence. The server drops a claim unless its evidence is at least 12
 characters and two words, appears case-insensitively at whole-word boundaries
 in the exact input bucket the model named, and is not just the attribute key
 or label. Whitespace runs are collapsed to one ASCII space on both sides before
@@ -180,8 +181,13 @@ The model's stated confidence is capped by the evidence ladder in “Batched
 evaluation” below.
 
 Accepted claims are cached per criterion in `enrichments.inferred` for seven
-days. A requested criterion the model omits gets a 24-hour omission sentinel,
-so reopening a place does not pay for the same unsupported question forever.
+days. Only a cell the model explicitly returns with `lean: "abstain"` gets a
+24-hour omission sentinel. A cell missing from a partial or truncated answer
+stays open, as does every cell in a transport or JSON-parse failure, and is
+re-queued on the next pass. Every upsert also physically removes inference
+entries older than 30 days. Closed-vocabulary entries have no cardinality cap;
+question entries are separately capped at 64 per place, with the oldest
+evicted first, because their `q:` keyspace is unbounded.
 Inference is completely off when `ENRICH_NETWORK=0`, when
 `OPENAI_API_KEY` is absent, or when `INFER=0`; those paths make no model call
 and write no inference cache entry. Menu image reading remains a separate
@@ -191,18 +197,22 @@ smart-tier job.
 
 Live lookups evaluate a matrix rather than calling the model once per place:
 one strict-schema call carries many places and every open criterion, including
-free-text questions. Each returned cell names its `candidateId`, `criterionId`
+free-text questions. Cuisine criteria carry their normalized wanted values and
+an explicit “Does this place serve … food?” question; their value-specific ids
+keep distinct cuisine asks in distinct cache cells. Each returned cell names its `candidateId`, `criterionId`
 and source index. `abstain` is the expected answer where the cited material
 does not support a lean and creates no fact. Before storing any other cell, the
 server checks that its evidence is a verbatim, case-insensitive,
 whitespace-normalized span from that exact place and source, contains at least
 12 characters and two words, and is not an echo of the criterion.
 
-The hard call limits are **12 places × 8 criteria** and **6,000 text
+The hard call limits are **8 places × 5 criteria (40 cells)** and **6,000 text
 characters per place**. Larger matrices split on both axes and their validated
-results merge; an answer is never truncated to fit. For each place, empty text
-is removed and sources are ordered shortest first. Whole shorter sources are
-kept before the longest source, which is last and is the first/only source
+results merge. Each successful batch is persisted before the next call starts,
+so a later failed batch cannot discard earlier validated claims. A failed batch
+is isolated and the remaining bounded batches continue. For each place, empty
+text is removed and sources are ordered shortest first. Whole shorter sources
+are kept before the longest source, which is last and is the first/only source
 shortened when the 6,000-character aggregate budget is exhausted.
 
 Model confidence is an input to `Math.min`, never authority:
@@ -211,17 +221,42 @@ Model confidence is an input to `Math.min`, never authority:
 |---|---:|
 | OSM tag / source record | not a model claim |
 | venue-site fetch (homepage or menu text) | 0.60 |
+| explicit statement on the exact recorded venue host | 0.72 (record-grade) |
 | domain-scoped web search | 0.55 |
 | open-web search | 0.50 |
 | name or category only | 0.45 |
 
-Every accepted value passes through `graded()` and therefore stays likely,
-never verified. Matrix results for all places are written with one bulk
-`INSERT … ON CONFLICT` statement. Question facts use their `q:<sha1>` key and
-retain both normalized `question` text and reader-facing `label` beside the
-lean, confidence, evidence, source and observation time. Any web-derived fact
-shown to a reader carries a visible, clickable `sourceUrl`; uncited web output
-does not qualify as reader-facing evidence.
+Every accepted value passes through `graded()`. It stays likely unless the
+model marks the claim explicit, the validated span came from a `web` or `menu`
+venue-site bucket, and the cited URL's hostname exactly matches the OSM
+`website` hostname after lowercasing and stripping one leading `www.`. Only
+that conjunction grades the claim at 0.72 and changes the source to `web:<host>`;
+sibling subdomains and registrable-domain-only matches fall back to the normal
+ladder. Successful bounded batches use one bulk `INSERT … ON CONFLICT`
+statement apiece. Question facts use only their `q:<sha1>` key plus evidence
+fields in the cross-room cache: normalized question text and reader-facing
+labels are never stored there. A dossier recovers the label only from a
+viewer-authorized matching requirement. Any web-derived fact shown to a reader
+carries a visible, clickable `sourceUrl`; uncited web output does not qualify
+as reader-facing evidence.
+
+### Residual exposure: venue-authored text
+
+Venue text remains untrusted input embedded verbatim in the matrix JSON. Span,
+place/source-index, host and confidence validation contain prompt injection,
+but a venue can still publish a statement that supports a favorable answer on
+many criteria. C4's explicit-own-site rule deliberately widens this surface:
+a venue's outright false statement about itself can now receive record-grade
+0.72 standing, just as false schema.org markup can. Provenance remains visible
+and a participant may dispute the fact by attestation, but the evaluator cannot
+independently establish the truth of the venue's assertion.
+
+Negative leans from the venue-site bucket remain accepted. Rejecting them would
+make an explicit own-site statement such as “dogs are not allowed” impossible
+to represent as `verified_false`, contradicting the symmetric record-grade
+decision and discarding useful direct evidence. Silence still requires
+abstention: a `no` lean needs explicit negative wording and, for record grade,
+must pass the same explicit/span/exact-host gate.
 
 ## Sources evaluated and not used
 
