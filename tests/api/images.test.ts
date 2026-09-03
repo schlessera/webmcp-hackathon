@@ -11,6 +11,8 @@ let flagCandidateId: string;
 let osmRef: string;
 let warmOsmRef: string;
 let flagOsmRef: string;
+let lowCandidateId: string;
+let lowOsmRef: string;
 
 beforeAll(async () => {
   server = await startServer({
@@ -25,12 +27,23 @@ beforeAll(async () => {
   osmRef = `node/image-${room.roomId}`;
   warmOsmRef = `node/warm-image-${room.roomId}`;
   flagOsmRef = `node/flag-image-${room.roomId}`;
-  await room.pool.query("DELETE FROM place_image_verdicts WHERE url_hash = $1", [
-    createHash("sha256").update("https://93.184.216.34/photo.png").digest("hex"),
-  ]);
+  lowCandidateId = (await otherRoom.pool.query(
+    "SELECT id FROM candidates WHERE room_id = $1 AND name = 'Alpha'",
+    [otherRoom.roomId],
+  )).rows[0].id;
+  lowOsmRef = `node/page-low-${otherRoom.roomId}`;
+  await room.pool.query("DELETE FROM place_image_verdicts WHERE url_hash = ANY($1)", [[
+    "https://93.184.216.34/photo.png",
+    "https://93.184.216.34/page-photo.png",
+    "https://93.184.216.34/low-photo.png",
+  ].map((url) => createHash("sha256").update(url).digest("hex"))]);
   await room.pool.query(
     "UPDATE candidates SET osm_ref = $2, extras = $3::jsonb WHERE id = $1",
     [candidateId, osmRef, JSON.stringify({ website: "https://93.184.216.34/cold" })],
+  );
+  await otherRoom.pool.query(
+    "UPDATE candidates SET name = 'Page Low', osm_ref = $2, extras = $3::jsonb WHERE id = $1",
+    [lowCandidateId, lowOsmRef, JSON.stringify({ website: "https://93.184.216.34/page-low" })],
   );
   await room.pool.query(
     "UPDATE candidates SET osm_ref = $2, extras = $3::jsonb WHERE id = $1",
@@ -57,11 +70,14 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await room.pool.query("DELETE FROM place_images WHERE osm_ref = ANY($1)", [[osmRef, warmOsmRef, flagOsmRef]]);
-  await room.pool.query("DELETE FROM enrichments WHERE osm_ref = ANY($1)", [[osmRef, warmOsmRef, flagOsmRef]]);
-  await room.pool.query("DELETE FROM place_image_verdicts WHERE url_hash = $1", [
-    createHash("sha256").update("https://93.184.216.34/photo.png").digest("hex"),
-  ]);
+  const refs = [osmRef, warmOsmRef, flagOsmRef, lowOsmRef];
+  await room.pool.query("DELETE FROM place_images WHERE osm_ref = ANY($1)", [refs]);
+  await room.pool.query("DELETE FROM enrichments WHERE osm_ref = ANY($1)", [refs]);
+  await room.pool.query("DELETE FROM place_image_verdicts WHERE url_hash = ANY($1)", [[
+    "https://93.184.216.34/photo.png",
+    "https://93.184.216.34/page-photo.png",
+    "https://93.184.216.34/low-photo.png",
+  ].map((url) => createHash("sha256").update(url).digest("hex"))]);
   await room.cleanup();
   await otherRoom.cleanup();
   await server.stop();
@@ -163,10 +179,25 @@ describe("place images API", () => {
     expect(first.body.candidates[0].images).toEqual([
       expect.objectContaining({
         url: `/api/places/${warmOsmRef}/images/0`,
-        source: "web:93.184.216.34",
+        source: "web:page-image:93.184.216.34",
       }),
     ]);
     await inspect();
     expect(server.logs().match(/image-fixture homepage-get \/warm/g) ?? []).toHaveLength(1);
+  });
+
+  it("rejects a classifier-only page image at 0.65 and lists no dossier image", async () => {
+    const inspect = await apiPost<{
+      ok: boolean;
+      candidates: Array<{ images?: unknown[] }>;
+    }>(server.baseUrl, "/api/spatial/inspect", otherRoom.tokens.org, {
+      candidateIds: [lowCandidateId],
+    });
+    expect(inspect.body.ok).toBe(true);
+    expect(inspect.body.candidates[0].images).toBeUndefined();
+    expect((await otherRoom.pool.query(
+      "SELECT count(*)::int AS count FROM place_images WHERE osm_ref = $1",
+      [lowOsmRef],
+    )).rows[0].count).toBe(0);
   });
 });

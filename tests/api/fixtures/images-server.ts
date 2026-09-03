@@ -10,8 +10,12 @@ const png = await sharp({
 
 setTransport(async (body) => {
   process.stdout.write("image-fixture model-call\n");
-  const input = body.input as Array<{ content?: Array<{ type?: string }> }>;
+  const input = body.input as Array<{ content?: Array<{ type?: string; text?: string }> }>;
   const count = input?.[0]?.content?.filter((part) => part.type === "input_image").length ?? 0;
+  const placeText = input?.[0]?.content
+    ?.filter((part) => part.type === "input_text")
+    .map((part) => part.text ?? "").join(" ") ?? "";
+  const confidence = placeText.includes("Page Low") ? 0.65 : 0.8;
   return {
     output: [{
       type: "message",
@@ -20,7 +24,7 @@ setTransport(async (body) => {
         text: JSON.stringify({
           images: Array.from({ length: count }, () => ({
             kind: "venue_exterior",
-            confidence: 0.8,
+            confidence,
           })),
         }),
       }],
@@ -35,8 +39,8 @@ setEnrichFetch(async (url, init) => {
     return Response.json({ query: { geosearch: [] } });
   }
   if (target.pathname === "/robots.txt") return new Response("", { status: 404 });
-  if (target.pathname === "/photo.png") {
-    process.stdout.write("image-fixture image-get /photo.png\n");
+  if (["/photo.png", "/page-photo.png", "/low-photo.png"].includes(target.pathname)) {
+    process.stdout.write(`image-fixture image-get ${target.pathname}\n`);
     return new Response(png, { headers: { "content-type": "image/png" } });
   }
   if (init?.method === "HEAD") {
@@ -48,6 +52,18 @@ setEnrichFetch(async (url, init) => {
   if (target.pathname === "/flag") {
     return new Response(
       '<html><head><meta property="og:image" content="https://93.184.216.34/flag-en.png"></head></html>',
+      { headers: { "content-type": "text/html" } },
+    );
+  }
+  if (target.pathname === "/warm") {
+    return new Response(
+      '<html><body><section class="hero"><img src="https://93.184.216.34/page-photo.png" width="1280" height="800" alt="Venue exterior"></section></body></html>',
+      { headers: { "content-type": "text/html" } },
+    );
+  }
+  if (target.pathname === "/page-low") {
+    return new Response(
+      '<html><body><section class="hero"><img src="https://93.184.216.34/low-photo.png" width="1280" height="800" alt="Venue exterior"></section></body></html>',
       { headers: { "content-type": "text/html" } },
     );
   }

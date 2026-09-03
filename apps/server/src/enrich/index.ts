@@ -258,7 +258,9 @@ function fetchInjectedWebsiteImageCandidates(url: string) {
     return fetchImpl(translated.toString(), init);
   }).then((candidates) => candidates.map((candidate) => ({
     ...candidate,
-    source: `web:${original.host}` as const,
+    source: (candidate.imagePolicy.class === "page-image"
+      ? `web:page-image:${original.host}`
+      : `web:${original.host}`) as `web:${string}`,
     pageUrl: original.toString(),
   })));
 }
@@ -438,12 +440,13 @@ async function imageCandidatesFor(
   target: LookupTarget,
   enrichment: Enrichment | undefined,
   websiteCandidates: ImageCandidate[],
+  imageFetch: FetchLike = fetchImpl,
 ): Promise<ImageCandidate[]> {
   const pageUrl = `https://www.openstreetmap.org/${target.osmRef}`;
   const out: ImageCandidate[] = [];
   const osmImageFile = commonsFilename(target.image);
   if (osmImageFile) {
-    const image = await resolveCommonsImage(osmImageFile, "osm:image", fetchImpl);
+    const image = await resolveCommonsImage(osmImageFile, "osm:image", imageFetch);
     if (image) out.push(image);
   } else if (target.image) {
     try {
@@ -460,7 +463,7 @@ async function imageCandidatesFor(
     const image = await resolveCommonsImage(
       commonsFile,
       "osm:wikimedia_commons",
-      fetchImpl,
+      imageFetch,
     );
     if (image) out.push(image);
   }
@@ -469,12 +472,12 @@ async function imageCandidatesFor(
     const image = await resolveCommonsImage(
       enrichment.wikidata.commonsFile,
       `wikidata:${enrichment.wikidata.id}`,
-      fetchImpl,
+      imageFetch,
     );
     if (image) out.push(image);
   }
   if (target.placeName && target.location) {
-    out.push(...await geosearchCommonsImages(target.placeName, target.location, fetchImpl));
+    out.push(...await geosearchCommonsImages(target.placeName, target.location, imageFetch));
   }
   out.push(...websiteCandidates);
   return [...new Map(out.map((candidate) => [candidate.url, candidate])).values()];
@@ -628,13 +631,25 @@ async function lookup(db: pg.Pool, target: LookupTarget, force = false): Promise
 
       const noSite: WebsiteFetchResult = { facts: null };
       const noWiki: { facts: WikiFacts | null; error?: string } = { facts: null };
+      const imageWork = { commonsApiCalls: 0 };
+      const countedImageFetch: FetchLike = (url, init) => {
+        try {
+          const targetUrl = new URL(url);
+          if (targetUrl.hostname === "commons.wikimedia.org" && targetUrl.pathname === "/w/api.php") {
+            imageWork.commonsApiCalls += 1;
+          }
+        } catch {
+          /* the called fetch path owns invalid-URL handling */
+        }
+        return fetchImpl(url, init);
+      };
       const harvestWebsiteImages = attemptedImages && Boolean(target.website) && !attempted.website;
       const [site, wiki, harvestedWebsiteCandidates] = await Promise.all([
         attempted.website
           ? fetchInjectedWebsiteFacts(target.website!)
           : Promise.resolve(noSite),
         attempted.wikidata
-          ? fetchWikidataFacts(target.wikidata!, fetchImpl)
+          ? fetchWikidataFacts(target.wikidata!, countedImageFetch)
           : Promise.resolve(noWiki),
         harvestWebsiteImages
           ? fetchInjectedWebsiteImageCandidates(target.website!)
@@ -661,8 +676,10 @@ async function lookup(db: pg.Pool, target: LookupTarget, force = false): Promise
             target,
             refreshed,
             site.facts?.imageCandidates ?? harvestedWebsiteCandidates,
+            countedImageFetch,
           ),
-          fetchImpl,
+          countedImageFetch,
+          imageWork,
         );
       }
       return {

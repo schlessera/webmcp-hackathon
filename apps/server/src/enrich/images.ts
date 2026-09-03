@@ -21,6 +21,12 @@ export interface ImageCandidate {
   pageUrl: string;
   credit?: string;
   license?: string;
+  imagePolicy?: {
+    class: "structured" | "page-image";
+    minimumWidth: number;
+    minimumHeight: number;
+    confidenceThreshold: number;
+  };
 }
 
 export interface ProcessedImage {
@@ -99,7 +105,10 @@ export async function readBoundedImageBody(
 
 /** Decode first, then constrain and encode. A declared image MIME is never
  * trusted: Sharp must recognize an actual raster/vector image. */
-export async function resizePlaceImage(input: Uint8Array): Promise<ProcessedImage> {
+export async function resizePlaceImage(
+  input: Uint8Array,
+  minimumSize: { width: number; height: number } = { width: 480, height: 320 },
+): Promise<ProcessedImage> {
   if (input.byteLength === 0 || input.byteLength > MAX_IMAGE_DOWNLOAD_BYTES) {
     throw new Error("image exceeds download limit");
   }
@@ -117,7 +126,7 @@ export async function resizePlaceImage(input: Uint8Array): Promise<ProcessedImag
     [decodedWidth, decodedHeight] = [decodedHeight, decodedWidth];
   }
   if (!decodedWidth || !decodedHeight) throw new Error("image has no dimensions");
-  if (decodedWidth < 480 || decodedHeight < 320) {
+  if (decodedWidth < minimumSize.width || decodedHeight < minimumSize.height) {
     throw new Error("image dimensions are too small");
   }
   const aspect = decodedWidth / decodedHeight;
@@ -175,7 +184,12 @@ export async function downloadPlaceImage(
   // A shorter freshness hint shortens our copy rather than refusing it: almost
   // every real image host sends an hour or a day, and treating that as a
   // prohibition would leave the band permanently empty.
-  const image = await resizePlaceImage(await readBoundedImageBody(response));
+  const image = await resizePlaceImage(
+    await readBoundedImageBody(response),
+    candidate.imagePolicy
+      ? { width: candidate.imagePolicy.minimumWidth, height: candidate.imagePolicy.minimumHeight }
+      : undefined,
+  );
   return { ...image, ttlMs: cacheTtlMs(cacheControl) };
 }
 
@@ -297,14 +311,25 @@ export async function refreshPlaceImages(
   placeName: string,
   candidates: ImageCandidate[],
   fetchImpl: FetchLike = fetch,
+  imageWork: { commonsApiCalls?: number } = {},
 ): Promise<number> {
   const unique = [
     ...new Map(candidates.map((candidate) => [candidate.url, candidate])).values(),
   ].slice(0, MAX_IMAGE_ATTEMPTS);
   const stored: Array<{ candidate: ImageCandidate; image: ProcessedImage }> = [];
   let failures = 0;
+  const rejectedByKind: Record<string, number> = {};
+  let visionImagesIn = 0;
+  let keptByVision = 0;
+  let visionModel = "none";
+  let visionDurationMs = 0;
+  let visionInputTokens = 0;
+  let visionOutputTokens = 0;
   const curated = unique.filter((candidate) => !candidate.source.startsWith("web:"));
   const website = unique.filter((candidate) => candidate.source.startsWith("web:"));
+  const structuredWebsite = website.filter((candidate) => candidate.imagePolicy?.class !== "page-image");
+  const pageWebsite = website.filter((candidate) => candidate.imagePolicy?.class === "page-image").slice(0, 1);
+  const orderedWebsite = [...structuredWebsite, ...pageWebsite];
   for (const candidate of curated) {
     if (stored.length >= MAX_IMAGE_CANDIDATES) break;
     try {
@@ -314,8 +339,8 @@ export async function refreshPlaceImages(
     }
   }
 
-  if (stored.length < MAX_IMAGE_CANDIDATES && website.length > 0 && placeImageClassifierEnabled()) {
-    const verdicts = await loadImageVerdicts(db, website);
+  if (stored.length < MAX_IMAGE_CANDIDATES && orderedWebsite.length > 0 && placeImageClassifierEnabled()) {
+    const verdicts = await loadImageVerdicts(db, orderedWebsite);
     const existingRows = (await db.query(
       `SELECT source_url, mime, width, height, bytes, expires_at
          FROM place_images WHERE osm_ref = $1 AND expires_at > now()`,
@@ -325,9 +350,9 @@ export async function refreshPlaceImages(
     const approved = new Map<string, ProcessedImage>();
     const pending: Array<{ candidate: ImageCandidate; image: ProcessedImage }> = [];
 
-    for (const candidate of website) {
+    for (const candidate of orderedWebsite) {
       const cached = verdicts.get(imageUrlHash(candidate.url));
-      if (cached && !keepPlaceImageVerdict(cached)) continue;
+      if (cached && !keepPlaceImageVerdict(cached, candidate.imagePolicy?.confidenceThreshold)) continue;
       if (cached) {
         const prior = existing.get(candidate.url);
         if (prior) {
@@ -351,18 +376,13 @@ export async function refreshPlaceImages(
     }
 
     if (pending.length > 0) {
-      const rejectedByKind: Record<string, number> = {};
-      let kept = 0;
-      let model = "unknown";
-      let durationMs = 0;
-      let inputTokens = 0;
-      let outputTokens = 0;
+      visionImagesIn = pending.length;
       try {
         const classified = await classifyPlaceImages(placeName, pending.map(({ image }) => image));
-        model = classified.model;
-        durationMs = classified.durationMs;
-        inputTokens = classified.inputTokens;
-        outputTokens = classified.outputTokens;
+        visionModel = classified.model;
+        visionDurationMs = classified.durationMs;
+        visionInputTokens = classified.inputTokens;
+        visionOutputTokens = classified.outputTokens;
         if (classified.verdicts) {
           const decided = pending.map((entry, index) => ({
             candidate: entry.candidate,
@@ -371,9 +391,9 @@ export async function refreshPlaceImages(
           await saveImageVerdicts(db, decided, classified.model);
           for (const [index, entry] of pending.entries()) {
             const verdict = classified.verdicts[index];
-            if (keepPlaceImageVerdict(verdict)) {
+            if (keepPlaceImageVerdict(verdict, entry.candidate.imagePolicy?.confidenceThreshold)) {
               approved.set(entry.candidate.url, entry.image);
-              kept += 1;
+              keptByVision += 1;
             } else {
               rejectedByKind[verdict.kind] = (rejectedByKind[verdict.kind] ?? 0) + 1;
             }
@@ -386,20 +406,9 @@ export async function refreshPlaceImages(
         rejectedByKind.classifier_error = pending.length;
         failures += pending.length;
       }
-      console.info(JSON.stringify({
-        msg: "place image vision batch",
-        place: placeName,
-        imagesIn: pending.length,
-        kept,
-        rejectedByKind,
-        model,
-        durationMs,
-        inputTokens,
-        outputTokens,
-      }));
     }
 
-    for (const candidate of website) {
+    for (const candidate of orderedWebsite) {
       if (stored.length >= MAX_IMAGE_CANDIDATES) break;
       const image = approved.get(candidate.url);
       if (image) stored.push({ candidate, image });
@@ -455,6 +464,20 @@ export async function refreshPlaceImages(
   } finally {
     client.release();
   }
+  console.info(JSON.stringify({
+    msg: "place image work",
+    place: placeName,
+    candidates: unique.length,
+    stored: stored.length,
+    imagesIn: visionImagesIn,
+    kept: keptByVision,
+    rejectedByKind,
+    model: visionModel,
+    durationMs: visionDurationMs,
+    inputTokens: visionInputTokens,
+    outputTokens: visionOutputTokens,
+    commonsApiCalls: imageWork.commonsApiCalls ?? 0,
+  }));
   return stored.length;
 }
 

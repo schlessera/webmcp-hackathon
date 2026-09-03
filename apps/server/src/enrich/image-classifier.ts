@@ -40,8 +40,11 @@ export function placeImageClassifierEnabled(): boolean {
 /** People visibly inside or in front of a place are instructed to land in a
  * venue kind. `people` therefore means a portrait/stock/group shot with no
  * place visible and fails closed. */
-export function keepPlaceImageVerdict(verdict: PlaceImageVerdict): boolean {
-  return verdict.confidence >= PLACE_IMAGE_CONFIDENCE_THRESHOLD &&
+export function keepPlaceImageVerdict(
+  verdict: PlaceImageVerdict,
+  confidenceThreshold = PLACE_IMAGE_CONFIDENCE_THRESHOLD,
+): boolean {
+  return verdict.confidence >= confidenceThreshold &&
     (verdict.kind === "venue_exterior" ||
       verdict.kind === "venue_interior" ||
       verdict.kind === "food_or_drink");
