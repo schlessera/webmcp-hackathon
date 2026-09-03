@@ -2504,6 +2504,39 @@ body { overflow: hidden; }
   font-variant-numeric: tabular-nums;
 }
 .count-block .line-busy { border-color: currentColor; }
+/* The pipeline ring (SPOKES-UI "The pipeline ring and dot stages"): one
+   determinate ring beside one line, done of total for the stated needs.
+   The fill moves on the settle duration; reduced motion zeroes it. */
+.count-progress {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 5px;
+  font-family: var(--spoke-font-mono);
+  font-weight: var(--spoke-weight-body);
+  font-size: var(--spoke-size-micro);
+  line-height: 1.3;
+  font-variant-numeric: tabular-nums;
+}
+.count-progress-mix { opacity: 0.78; }
+.progress-ring {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  transform: rotate(-90deg);
+}
+.progress-ring circle {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+}
+.progress-ring-track { opacity: 0.25; }
+.progress-ring-fill {
+  stroke-linecap: round;
+  stroke-dasharray: 40.84;
+  transition: stroke-dashoffset var(--spoke-dur-settle) var(--spoke-ease);
+}
+.count-progress[data-paused="true"] .progress-ring-fill { opacity: 0.5; }
 /* The refinement line: quiet, under the count, absolute numbers. */
 .count-refine {
   margin-top: 3px;

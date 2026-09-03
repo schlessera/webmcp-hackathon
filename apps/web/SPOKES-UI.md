@@ -463,3 +463,29 @@ stands as a still dashed ring beside its text.
   border style and size**, so the map survives colour-blindness and greyscale.
 - The press-and-hold preview needs a keyboard equivalent (focus + hold Space)
   and an `aria-live` announcement of the new count.
+
+## The pipeline ring and dot stages
+
+One widget in the count block replaces the lookup and refinement lines once
+the server sends `pipeline` frames: a 16 px determinate ring (`--spoke-ink-soft`
+on `currentColor`, fill on the settle duration, static under reduced motion)
+beside "checked N of M places for K needs" and, while anything is in flight,
+"· N reading · N checking". `role="progressbar"` with `aria-valuemin`,
+`aria-valuemax`, `aria-valuenow` (omitted while paused) and `aria-valuetext`
+carrying the sentence; one `aria-live` summary at most every 10 s. Drained:
+nothing is drawn. Whole-area fill keeps the slot while it runs.
+
+Every place in the pipeline carries one displayed stage, drawn with the
+map's own ring vocabulary and no new colour or animation:
+
+| stage | ring | motion |
+|---|---|---|
+| queued | 24 px dashed ring, the state's colour at 40 % | none |
+| fetching | 24 px dashed ring, full | turns (`spoke-busy`) |
+| processing | 24 px ring drawn as one 270° arc | turns (`spoke-busy`) |
+| settled | no ring | — |
+
+Stages differ in stroke and opacity, never hue, so they survive greyscale and
+stand still under reduced motion while staying distinguishable. DOM markers
+expose `data-stage`; GL dots carry a `stage` feature-state beside `busy`.
+
