@@ -21,7 +21,7 @@ setTransport(async (body) => {
           }),
         }],
       }],
-      usage: { input_tokens: 920, output_tokens: 85 },
+      usage: { input_tokens: 920, output_tokens: 85, cost: 0.000189 },
     };
   }
 

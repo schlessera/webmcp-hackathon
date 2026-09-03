@@ -116,7 +116,9 @@ describe("continuous refinement over the API", () => {
     for (const row of rows.filter((candidate) => !candidate.osm_ref.endsWith("/gamma"))) {
       expect(row.inferred[key]).toMatchObject({
         lean: "yes",
-        sourceUrl: expect.stringMatching(/^https:\/\/(alpha|beta)\.example\/connectivity$/),
+        sourceUrl: expect.stringMatching(
+          /^https:\/\/(alpha|beta)\.evidence\.example\/connectivity$/,
+        ),
       });
     }
     expect(rows.find((row) => row.osm_ref.endsWith("/gamma"))?.inferred[key])
