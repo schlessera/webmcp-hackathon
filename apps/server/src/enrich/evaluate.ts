@@ -56,12 +56,14 @@ export interface EvaluateMatrixInput {
 
 export type MatrixEvidenceBucket =
   | "venue_site"
+  | "menu"
   | "domain_search"
   | "open_web_search"
   | "name_category";
 
 export const MATRIX_CONFIDENCE_CAPS: Record<MatrixEvidenceBucket, number> = {
   venue_site: INFERENCE_CONFIDENCE_CAPS.description_website,
+  menu: INFERENCE_CONFIDENCE_CAPS.menu,
   domain_search: 0.55,
   open_web_search: 0.5,
   name_category: INFERENCE_CONFIDENCE_CAPS.name_category,
@@ -188,6 +190,7 @@ function evidenceBucket(source: MatrixInferenceTextSource): MatrixEvidenceBucket
     return "open_web_search";
   }
   if (source === "wikidata") return "open_web_search";
+  if (source === "menu") return "menu";
   return "venue_site";
 }
 

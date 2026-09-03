@@ -187,7 +187,9 @@ export function combinedClaimsFromReply(
       status,
       confidence,
       evidence: safeEvidence,
-      source: `infer:${reply.model}:${input.source}`,
+      // Combined citations identify a retrieved page, not a span the server
+      // read. The suffix keeps that weaker mode distinct at the UI boundary.
+      source: `infer:${reply.model}:${input.source}:combined`,
       sourceIndex: 0,
       observedAt,
       sourceUrl,

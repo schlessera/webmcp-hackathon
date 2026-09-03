@@ -133,6 +133,7 @@ describe("refinement web search", () => {
       criterionId: "delivery",
       confidence: 0.5,
       status: "likely_true",
+      source: "infer:fast:open_web_search:combined",
       sourceUrl: "https://source.example/facts",
     })]);
   });

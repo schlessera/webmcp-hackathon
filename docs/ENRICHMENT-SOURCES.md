@@ -225,7 +225,8 @@ Model confidence is an input to `Math.min`, never authority:
 | evidence source bucket | maximum confidence |
 |---|---:|
 | OSM tag / source record | not a model claim |
-| venue-site fetch (homepage or menu text) | 0.60 |
+| venue-site fetch (homepage text) | 0.60 |
+| venue menu text or reading | 0.69 |
 | explicit statement on the exact recorded venue host | 0.72 (record-grade) |
 | domain-scoped web search | 0.55 |
 | open-web search | 0.50 |
@@ -311,6 +312,9 @@ length, echo, cap and never-verified rules. A combined claim is therefore a
 supervised guess about a real page, not a quotation the server checked. Split
 holds the snippet text and checks the span against words the server read.
 Neither mode can create a verified fact.
+
+Combined claims carry a final `:combined` source suffix so presentation can
+distinguish a retrieved-page anchor from split mode's checked snippet span.
 
 Every outbound search query is capped at 400 characters and contains only the
 place name, city, and words from shared active needs. Tagged addresses,
