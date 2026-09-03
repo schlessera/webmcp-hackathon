@@ -298,6 +298,19 @@ function circlePolygon(center: { lat: number; lng: number }, radiusM: number) {
  */
 const NAME_CAP = 18;
 const NAME_FLOOR = 6;
+/* Who gets a name, in order (user decision, 2026-09-03): a place someone has
+   open → accepted → on the table → confirmed → likely → being looked up →
+   not yet known → unlikely → ruled out. Every in-scope place is now
+   nameable; the lower ranks simply almost never win a slot. */
+const RANK_OPEN = 0;
+const RANK_ACCEPTED = 1;
+const RANK_PROPOSED = 2;
+const RANK_YES = 3;
+const RANK_LIKELY = 4;
+const RANK_BUSY = 5;
+const RANK_UNKNOWN = 6;
+const RANK_UNLIKELY = 7;
+const RANK_NO = 8;
 /* The distance from the card edge to its dot centre. CSS receives this as a
    custom property, so placement maths, positioning and transform origins all
    use the same anchor. State-specific padding keeps every dot on this value. */
@@ -987,30 +1000,46 @@ export function MapView({
     return offsets;
   }, [domCandidates]);
 
+  /* The busy set ticks with every pipeline frame. Key the placement pass on
+     its *content* so two identical states never reshuffle the names. */
+  const lookupKey = useMemo(
+    () => [...new Set([...busy, ...Object.keys(stages)])].sort().join(","),
+    [busy, stages],
+  );
+
   const named = useMemo(() => {
     const map = mapRef.current;
+    const lookingUp = new Set(lookupKey === "" ? [] : lookupKey.split(","));
     const placements = new globalThis.Map<string, "left" | "right">();
     const previewById = new globalThis.Map(
       (preview?.candidates ?? []).map((candidate) => [candidate.candidateId, candidate]),
     );
-    /* Name cards are for valid options only. Places actively on the table
-       share tier zero, then confirmed eligibility, likely evidence, and only
-       then uncertainty. Terminal proposals fall through to their eligibility. */
+    /* A place this viewer has open, or that a peer is looking at, sorts first:
+       the card is what the panel and the presence badge hang off. Then the
+       decision states, then the evidence. An open proposal carrying a
+       standing veto is still on the table and keeps its card; a terminally
+       vetoed or withdrawn one falls through to its eligibility. */
     const tierOf = (candidate: CandidateSummary): number | null => {
       if (distanceMeters(center, candidate.location) > scope.area.radiusM + 1) return null;
-      if (
-        candidate.candidateId === selectedId ||
-        candidate.candidateId === committedId ||
-        proposalOnTable.has(candidate.candidateId) ||
-        viewersOf.has(candidate.candidateId)
-      ) {
-        return 0;
-      }
-      const eligibility = previewById.get(candidate.candidateId)?.eligibility ?? candidate.eligibility;
-      if (eligibility === "eligible") return 1;
-      if (eligibility === "likely") return 2;
-      if (eligibility === "uncertain") return 3;
-      return null;
+      const id = candidate.candidateId;
+      if (id === selectedId || viewersOf.has(id)) return RANK_OPEN;
+      if (id === committedId || proposalByCandidate.get(id) === "staged") return RANK_ACCEPTED;
+      if (proposalOnTable.has(id)) return RANK_PROPOSED;
+      const eligibility = previewById.get(id)?.eligibility ?? candidate.eligibility;
+      const byEvidence =
+        eligibility === "eligible"
+          ? RANK_YES
+          : eligibility === "likely"
+            ? RANK_LIKELY
+            : eligibility === "uncertain"
+              ? RANK_UNKNOWN
+              : eligibility === "unlikely"
+                ? RANK_UNLIKELY
+                : RANK_NO;
+      /* A lookup in flight outranks the evidence it has not returned yet, and
+         never demotes a place that already clears every need: busy is a
+         floor, not a demotion. */
+      return Math.min(byEvidence, lookingUp.has(id) ? RANK_BUSY : RANK_NO);
     };
     const candidatesByTier = domCandidates
       .filter((candidate) => tierOf(candidate) !== null)
@@ -1045,7 +1074,7 @@ export function MapView({
     // instead of spending every name on the nearest dense block.
     const points = new globalThis.Map(dots.map((dot) => [dot.id, dot]));
     const ordered: CandidateSummary[] = [];
-    for (let tier = 0; tier <= 3; tier += 1) {
+    for (let tier = RANK_OPEN; tier <= RANK_NO; tier += 1) {
       const remaining = candidatesByTier.filter((candidate) => tierOf(candidate) === tier);
       while (remaining.length > 0) {
         let bestIndex = 0;
@@ -1156,6 +1185,8 @@ export function MapView({
     selectedId,
     committedId,
     proposalOnTable,
+    proposalByCandidate,
+    lookupKey,
     viewersOf,
     markerStates,
     preview,

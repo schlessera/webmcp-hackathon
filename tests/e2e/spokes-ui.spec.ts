@@ -1618,9 +1618,13 @@ test("mirrored name cards stay inside the band and keep every dot on its marker"
     "data-named",
     "true",
   );
+  /* A terminal veto has left the table, so it no longer takes a table slot —
+     with slots to spare it still gets one at the bottom rank (2026-09-03; the
+     scarcity case is asserted in the rank test below). Out of scope is the
+     one thing still refused a card outright. */
   await expect(page.getByTestId("pin-anchor-terminal-veto")).toHaveAttribute(
     "data-named",
-    "false",
+    "true",
   );
   await expect(page.getByTestId("pin-anchor-outside")).toHaveAttribute("data-named", "false");
 
@@ -1695,14 +1699,24 @@ test("name cards stack over bare dots and own taps across their drawn box", asyn
     dot.name = `Bare ${index}`;
     return dot;
   });
-  context.candidates = [card, ...dots];
+  /* Ruled-out places may take a leftover name slot (2026-09-03), so the bare
+     dots are only bare while the cap is spent on live options. Two dozen
+     well-spread confirmed places, away from the crowded row, do that. */
+  const filler = [-500, -300, -150, 150, 300, 500].flatMap((y, row) =>
+    [-600, -300, 0, 300].map((x, column) => {
+      const place = candidateAtMeters(`filler-${row}-${column}`, x, y, "eligible");
+      place.name = `F${row}${column}`;
+      return place;
+    }),
+  );
+  context.candidates = [card, ...dots, ...filler];
   context.total = context.candidates.length;
-  context.matching = 0;
+  context.matching = filler.length;
   context.feasibility = {
-    state: "infeasible",
-    eligible: 0,
+    state: "feasible",
+    eligible: filler.length,
     uncertain: 0,
-    excluded: context.candidates.length,
+    excluded: context.candidates.length - filler.length,
   };
   context.proposals = [
     {
@@ -1729,6 +1743,7 @@ test("name cards stack over bare dots and own taps across their drawn box", asyn
   await expect(page.locator('[data-testid^="pin-bare-dot-"][data-named="false"]')).toHaveCount(
     dots.length,
   );
+  await expect(page.locator('[data-testid^="pin-"][data-named="true"]')).toHaveCount(18);
   await page.mouse.move(1, 1);
 
   const stacking = await page.evaluate(() => {
@@ -1749,7 +1764,9 @@ test("name cards stack over bare dots and own taps across their drawn box", asyn
       everyPair: cards.every((cardRow) => dotsOnly.every((dotRow) => cardRow.z > dotRow.z)),
     };
   });
-  expect(stacking).toEqual({ cards: 1, dots: dots.length, everyPair: true });
+  expect(stacking.cards).toBe(18);
+  expect(stacking.dots).toBe(context.candidates.length - 18);
+  expect(stacking.everyPair).toBe(true);
 
   const overlap = await page.evaluate(() => {
     const cardBox = document.querySelector<HTMLElement>(
@@ -1974,13 +1991,11 @@ test("a need said is pending until the room settles it, and busy rings mark plac
   await expect(page.getByTestId("count-busy")).toHaveCount(0);
   await expect(row).not.toHaveAttribute("data-pending", "true");
   await expect(row).toContainText("−2");
-  await expect(
-    page.locator('[data-testid^="pin-"][data-state="out"][data-named="true"]'),
-  ).toHaveCount(0);
-  await expect(
-    page.locator('[data-testid^="pin-"][data-state="unlikely"][data-named="true"]'),
-  ).toHaveCount(0);
-  await expect(page.getByTestId("pin-place_3")).toHaveAttribute("data-named", "false");
+  // Ranks 8 and 9 (2026-09-03): an unlikely or ruled-out place may take a
+  // leftover name slot, so nothing here asserts that it cannot. In this dense
+  // block place_3 loses its card to a collision and its dot stays put; the
+  // muted card itself is asserted on a fixture with room to draw it.
+  await expect(page.getByTestId("pin-place_3")).toHaveAttribute("data-state", "unlikely");
   await expect(page.getByTestId("brief")).not.toHaveAttribute("aria-busy", "true");
   await expect(page.locator("#brief-preview-count")).not.toHaveAttribute("aria-busy", "true");
   await expect(page.getByTestId("map-region")).not.toHaveAttribute("aria-busy", "true");
@@ -2558,7 +2573,9 @@ test("Confirm in the place panel updates the row and the count", async ({ page }
   await page.goto(`${BASE}/?shim=webmcp#invite=deadbeef`);
   await closeDrawer(page);
   await expect(page.getByTestId("count-number")).toHaveText("1");
-  await page.getByTestId("pin-place_1").click({ force: true });
+  // Open it from the keyboard: a tap would land wherever the cards happen to
+  // lie, and this test is about the confirm flow, not hit testing.
+  await page.getByTestId("pin-place_1").press("Enter");
   await page.getByTestId("confirm-need-dogs").click();
   await expect(page.getByTestId("unconfirm-need-dogs")).toHaveText("undo");
   await expect(page.getByTestId("fit-ledger")).toContainText("confirmed by you · Sep 3");
@@ -2922,8 +2939,9 @@ test("dots show their pipeline stage: queued stands still, fetching and processi
   await expect
     .poll(() => page.evaluate(() => window.__spokesMapStats!().busyAnimating))
     .toBe(false);
-  // The place panel names the stage in reader words.
-  await page.getByTestId("pin-place_3").click();
+  // The place panel names the stage in reader words. Opened from the keyboard:
+  // a tap lands wherever the cards happen to lie.
+  await page.getByTestId("pin-place_3").press("Enter");
   const details = page.getByTestId("place-details");
   await expect(details).toBeVisible();
   await expect(details.getByTestId("details-lookup")).toHaveText("checking it against your needs…");
@@ -2982,18 +3000,17 @@ test("opening a place fills the panel step by step on the fast track, and hoveri
   await page.goto(`${BASE}/#invite=deadbeef`);
   await socket.welcomed;
 
-  // Hover: one debounced hint names the place; leaving clears it.
-  const pinBox = await page.getByTestId("pin-place_1").boundingBox();
-  if (!pinBox) throw new Error("pin-place_1 has no box");
-  await page.mouse.move(pinBox.x + pinBox.width / 2, pinBox.y + pinBox.height / 2, { steps: 4 });
+  // Pointing at a place, or reaching it with the keyboard, sends one debounced
+  // hint; leaving clears it. Focus rather than the pointer, because at this
+  // width a neighbouring card may lie over the dot.
+  await page.getByTestId("pin-place_1").focus();
   await expect.poll(() => socket.sent.filter((m) => m.type === "previewing").at(-1)?.candidateId ?? null).toBe("place_1");
-  await page.mouse.move(5, 5);
+  await page.getByTestId("pin-place_1").blur();
   await expect.poll(() => socket.sent.filter((m) => m.type === "previewing").at(-1)?.candidateId ?? null).toBe(null);
 
-  // Open: the cached row is there at once, and the read said why. (A card
-  // may overlap the dot at this width; the tap resolver decides, not the
-  // element under the pointer.)
-  await page.getByTestId("pin-place_1").click({ force: true });
+  // Open: the cached row is there at once, and the read said why. (A card may
+  // overlap the dot at this width, so open it from the keyboard.)
+  await page.getByTestId("pin-place_1").press("Enter");
   const details = page.getByTestId("place-details");
   await expect(details).toBeVisible();
   await expect(details).toContainText("outdoor seating");
@@ -3253,4 +3270,249 @@ test("a room with only guesses left is not an impasse", async ({ page }) => {
   await expect(page.getByTestId("count-number")).toHaveText("2");
   await expect(page.getByTestId("count-block")).toHaveAttribute("data-state", "works");
   await expect(page.getByTestId("count-block")).toContainText("2 of them likely");
+});
+
+/** A grid of in-scope places, far enough apart that every card can be drawn. */
+function rankGrid(names: Array<[string, Candidate["eligibility"]]>): Candidate[] {
+  const xs = [-700, -420, -140, 140, 420, 700];
+  const ys = [-360, -120, 120, 360];
+  return names.map(([name, eligibility], index) => {
+    const candidate = candidateAtMeters(
+      `rank-${name}`,
+      xs[index % xs.length],
+      ys[Math.floor(index / xs.length)],
+      eligibility,
+    );
+    candidate.name = name;
+    return candidate;
+  });
+}
+
+function rankContext(candidates: Candidate[]): MockContext {
+  const context = fixture({ radiusM: 800, matching: 0 });
+  context.candidates = candidates;
+  context.total = candidates.length;
+  context.matching = candidates.filter((c) => c.eligibility === "eligible").length;
+  context.feasibility = {
+    state: "feasible",
+    eligible: context.matching,
+    uncertain: candidates.filter((c) => c.eligibility === "uncertain").length,
+    excluded: candidates.filter((c) => c.eligibility === "excluded").length,
+  };
+  return context;
+}
+
+test("a lookup in flight lifts an unknown place above an equally unknown one", async ({ browser }) => {
+  const browserContext = await browser.newContext({
+    viewport: { width: 1600, height: 1000 },
+    reducedMotion: "reduce",
+  });
+  const page = await browserContext.newPage();
+  // Seventeen confirmed places leave exactly one name slot for the two
+  // unknowns to compete over.
+  const names: Array<[string, Candidate["eligibility"]]> = Array.from(
+    { length: 17 },
+    (_, i) => [`E${i}`, "eligible" as const],
+  );
+  names.push(["Busy", "uncertain"], ["Quiet", "uncertain"]);
+  const context = rankContext(rankGrid(names));
+  await mockApi(page, { context, outstanding: [] });
+  const socket = await scriptedSocket(page, 20);
+  await page.goto(`${BASE}/#invite=deadbeef`);
+  await socket.welcomed;
+  await expect(page.getByTestId("map-region")).toHaveAttribute("data-loaded", "true", {
+    timeout: 20_000,
+  });
+  await expect(page.getByTestId("pin-rank-Busy")).toHaveAttribute("data-named", "false");
+
+  socket.send({
+    type: "lookups",
+    pending: ["rank-Busy"],
+    reason: { kind: "need", label: "outdoor seating" },
+  });
+  await expect(page.getByTestId("pin-rank-Busy")).toHaveAttribute("data-busy", "true");
+  // Being looked up is worth a name; equal uncertainty without a lookup is not.
+  await expect(page.getByTestId("pin-rank-Busy")).toHaveAttribute("data-named", "true");
+  await expect(page.getByTestId("pin-rank-Quiet")).toHaveAttribute("data-named", "false");
+  await browserContext.close();
+});
+
+test("a lookup in flight never outranks a confirmed place", async ({ browser }) => {
+  const browserContext = await browser.newContext({
+    viewport: { width: 1600, height: 1000 },
+    reducedMotion: "reduce",
+  });
+  const page = await browserContext.newPage();
+  // Eighteen confirmed places take every slot: busy is a floor, not a promotion
+  // past places that already clear every need.
+  const names: Array<[string, Candidate["eligibility"]]> = Array.from(
+    { length: 18 },
+    (_, i) => [`E${i}`, "eligible" as const],
+  );
+  names.push(["Busy", "uncertain"]);
+  const context = rankContext(rankGrid(names));
+  await mockApi(page, { context, outstanding: [] });
+  const socket = await scriptedSocket(page, 20);
+  await page.goto(`${BASE}/#invite=deadbeef`);
+  await socket.welcomed;
+  await expect(page.getByTestId("map-region")).toHaveAttribute("data-loaded", "true", {
+    timeout: 20_000,
+  });
+  socket.send({ type: "lookups", pending: ["rank-Busy"], reason: { kind: "need", label: "outdoor seating" } });
+  await expect(page.getByTestId("pin-rank-Busy")).toHaveAttribute("data-busy", "true");
+  await expect(page.getByTestId("pin-rank-Busy")).toHaveAttribute("data-named", "false");
+  await expect
+    .poll(() => page.locator('[data-testid^="pin-rank-E"][data-named="true"]').count())
+    .toBe(18);
+  await browserContext.close();
+});
+
+test("decided places take name slots ahead of merely confirmed ones, veto and all", async ({ browser }) => {
+  const browserContext = await browser.newContext({
+    viewport: { width: 1600, height: 1000 },
+    reducedMotion: "reduce",
+  });
+  const page = await browserContext.newPage();
+  // Eighteen confirmed places would fill the cap on their own; the three
+  // places the room has actually moved on take slots from them, whatever
+  // their own evidence says.
+  const names: Array<[string, Candidate["eligibility"]]> = Array.from(
+    { length: 18 },
+    (_, i) => [`E${i}`, "eligible" as const],
+  );
+  names.push(
+    ["Agreed", "uncertain"],
+    ["Onthetable", "uncertain"],
+    ["Blocked", "uncertain"],
+    ["Withdrawn", "uncertain"],
+  );
+  const context = rankContext(rankGrid(names));
+  context.proposals = [
+    {
+      proposalId: "prop_agreed",
+      candidateId: "rank-Agreed",
+      status: "committed",
+      stances: participants.map((p) => ({ participantId: p.participantId, stance: "accept" })),
+      vetoStands: false,
+      ownStance: "accept",
+    },
+    {
+      proposalId: "prop_table",
+      candidateId: "rank-Onthetable",
+      status: "open",
+      stances: [{ participantId: "p_org", stance: "accept" }],
+      vetoStands: false,
+      ownStance: "accept",
+    },
+    {
+      proposalId: "prop_blocked",
+      candidateId: "rank-Blocked",
+      status: "open",
+      stances: [
+        { participantId: "p_org", stance: "veto" },
+        { participantId: "p_sarah", stance: "accept" },
+      ],
+      vetoStands: true,
+      ownStance: "veto",
+    },
+    {
+      proposalId: "prop_withdrawn",
+      candidateId: "rank-Withdrawn",
+      status: "vetoed",
+      stances: [{ participantId: "p_org", stance: "veto" }],
+      vetoStands: true,
+      ownStance: "veto",
+    },
+  ];
+  context.agreement = {
+    proposalId: "prop_agreed",
+    candidateId: "rank-Agreed",
+    status: "committed",
+    committedAtRevision: 20,
+  };
+  await mockApi(page, { context, outstanding: [] });
+  const socket = await scriptedSocket(page, 20);
+  await page.goto(`${BASE}/#invite=deadbeef`);
+  await socket.welcomed;
+  await expect(page.getByTestId("map-region")).toHaveAttribute("data-loaded", "true", {
+    timeout: 20_000,
+  });
+
+  await expect(page.getByTestId("pin-rank-Agreed")).toHaveAttribute("data-named", "true");
+  await expect(page.getByTestId("pin-rank-Onthetable")).toHaveAttribute("data-named", "true");
+  // An open proposal carrying a standing veto is still on the table: it draws
+  // as vetoed and keeps its card.
+  await expect(page.getByTestId("pin-rank-Blocked")).toHaveAttribute("data-state", "vetoed");
+  await expect(page.getByTestId("pin-rank-Blocked")).toHaveAttribute("data-named", "true");
+  // A terminally vetoed proposal has left the table and falls back to its own
+  // evidence, so it loses to every confirmed place while slots are scarce.
+  await expect(page.getByTestId("pin-rank-Withdrawn")).toHaveAttribute("data-named", "false");
+  // Three of the eighteen confirmed places yield their slots.
+  await expect
+    .poll(() => page.locator('[data-testid^="pin-rank-E"][data-named="true"]').count())
+    .toBe(15);
+  await browserContext.close();
+});
+
+test("a ruled-out or unlikely place that wins a leftover name slot is drawn muted", async ({ browser }) => {
+  const browserContext = await browser.newContext({
+    viewport: { width: 1600, height: 1000 },
+    reducedMotion: "reduce",
+  });
+  const page = await browserContext.newPage();
+  const context = rankContext(
+    rankGrid([
+      ["Works", "eligible"],
+      ["Guess", "likely"],
+      ["Unknown", "uncertain"],
+      ["Doubtful", "unlikely"],
+      ["Ruledout", "excluded"],
+    ]),
+  );
+  await mockApi(page, { context, outstanding: [] });
+  const socket = await scriptedSocket(page, 20);
+  await page.goto(`${BASE}/#invite=deadbeef`);
+  await socket.welcomed;
+  await expect(page.getByTestId("map-region")).toHaveAttribute("data-loaded", "true", {
+    timeout: 20_000,
+  });
+
+  // With slots to spare every in-scope place is named, the last two ranks
+  // included.
+  await expect(page.getByTestId("pin-rank-Doubtful")).toHaveAttribute("data-named", "true");
+  await expect(page.getByTestId("pin-rank-Ruledout")).toHaveAttribute("data-named", "true");
+
+  const drawn = await page.evaluate(() => {
+    const read = (id: string) => {
+      const marker = document.querySelector<HTMLElement>(`[data-testid="pin-rank-${id}"]`)!;
+      const box = marker.querySelector<HTMLElement>(".sticker-box")!;
+      const style = getComputedStyle(box);
+      return {
+        wrapperOpacity: getComputedStyle(
+          marker.querySelector<HTMLElement>(".marker-sticker")!,
+        ).opacity,
+        scale: style.scale,
+        shadow: style.boxShadow,
+        borderStyle: style.borderTopStyle,
+        name: getComputedStyle(marker.querySelector<HTMLElement>(".sticker-name")!).color,
+      };
+    };
+    return { works: read("Works"), doubtful: read("Doubtful"), out: read("Ruledout") };
+  });
+
+  // Drawn, not hidden, and not collapsed onto the dot.
+  for (const card of [drawn.doubtful, drawn.out]) {
+    expect(card.wrapperOpacity).toBe("1");
+    expect(["none", "1"]).toContain(card.scale);
+    // Quiet: no drop shadow, and soft ink rather than the works card's --spoke-ink.
+    expect(card.shadow).toBe("none");
+    expect(card.name).toBe("rgb(91, 97, 88)");
+  }
+  // A guess still reads as a guess: the unlikely card keeps its dashed edge,
+  // and neither is drawn like a place that works.
+  expect(drawn.doubtful.borderStyle).toBe("dashed");
+  expect(drawn.out.borderStyle).toBe("solid");
+  expect(drawn.works.shadow).not.toBe("none");
+  expect(drawn.works.name).not.toBe(drawn.out.name);
+  await browserContext.close();
 });
