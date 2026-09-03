@@ -39,4 +39,18 @@ describe("OpenAI web-search transport", () => {
     expect(reply.webSearchCalls).toEqual([search]);
     expect(reply.outputItems[0]).toBe(search);
   });
+
+  it("ignores non-array annotations without failing the response", async () => {
+    setTransport(async () => ({
+      output: [{
+        type: "message",
+        content: [{ type: "output_text", text: "still usable", annotations: { malformed: true } }],
+      }],
+    }));
+    await expect(respond({
+      model: "test",
+      instructions: "reply",
+      input: [{ role: "user", content: "hello" }],
+    })).resolves.toMatchObject({ text: "still usable" });
+  });
 });

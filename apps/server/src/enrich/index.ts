@@ -108,6 +108,8 @@ const TTL_OK_MS = 7 * 24 * 60 * 60 * 1000;
 const TTL_FAIL_MS = 60 * 60 * 1000;
 const TTL_INFER_MS = 7 * 24 * 60 * 60 * 1000;
 const TTL_OMITTED_MS = 24 * 60 * 60 * 1000;
+export const INFERENCE_PRUNE_DAYS = 30;
+export const MAX_QUESTION_INFERENCES = 64;
 const WARM_CONCURRENCY = 4;
 export const ON_DEMAND_CONCURRENCY = 4;
 export const ON_DEMAND_MAX_WAITERS = 32;
@@ -693,9 +695,35 @@ export async function saveInferences(
        FROM unnest($1::text[], $2::text[], $3::jsonb[])
             AS batch(osm_ref, ttl_ms, inferred)
      ON CONFLICT (osm_ref) DO UPDATE SET
-       inferred = enrichments.inferred || EXCLUDED.inferred,
+       inferred = (
+         WITH merged AS (
+           SELECT entry.key,
+                  entry.value,
+                  CASE
+                    WHEN pg_input_is_valid(
+                      entry.value->>'observedAt',
+                      'timestamp with time zone'
+                    )
+                    THEN (entry.value->>'observedAt')::timestamptz
+                    ELSE NULL
+                  END AS observed_at
+             FROM jsonb_each(enrichments.inferred || EXCLUDED.inferred) AS entry
+         ), ranked AS (
+           SELECT key,
+                  value,
+                  row_number() OVER (
+                    PARTITION BY key LIKE 'q:%'
+                    ORDER BY observed_at DESC NULLS LAST, key
+                  ) AS age_rank
+             FROM merged
+            WHERE observed_at >= now() - ($4 || ' days')::interval
+         )
+         SELECT COALESCE(jsonb_object_agg(key, value), '{}'::jsonb)
+           FROM ranked
+          WHERE key NOT LIKE 'q:%' OR age_rank <= $5
+       ),
        inferred_at = now()`,
-    [refs, ttls, payloads],
+    [refs, ttls, payloads, String(INFERENCE_PRUNE_DAYS), MAX_QUESTION_INFERENCES],
   );
 }
 

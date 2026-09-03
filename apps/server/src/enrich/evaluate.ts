@@ -275,8 +275,10 @@ export function matrixBatchFromAnswer(
     const place = places.get(candidateId);
     const criterion = criteria.get(criterionId);
     if (!place || !criterion) continue;
+    // The first occurrence owns the cell even when its contents fail later
+    // validation. A duplicate cannot repair or replace it within one answer.
+    seen.add(cell);
     if (raw.lean === "abstain") {
-      seen.add(cell);
       answered.push({ candidateId, criterionId });
       continue;
     }
@@ -309,7 +311,6 @@ export function matrixBatchFromAnswer(
       : Math.min(rawConfidence, MATRIX_CONFIDENCE_CAPS[bucket]);
     const status = graded(raw.lean === "yes", confidence);
     if ((status === "verified_true" || status === "verified_false") && !recordGrade) continue;
-    seen.add(cell);
     answered.push({ candidateId, criterionId });
     const sourceUrl = sourceIndex >= 0 ? place.texts[sourceIndex].url : undefined;
     claims.push({

@@ -5,6 +5,7 @@ import {
   EVALUATE_MATRIX_SCHEMA,
   EXPLICIT_OWN_SITE_CONFIDENCE,
   evaluateMatrix,
+  matrixClaimsFromAnswer,
   matrixBatchFromAnswer,
   MATRIX_CONFIDENCE_CAPS,
   MAX_MATRIX_CRITERIA,
@@ -119,6 +120,19 @@ describe("batched matrix evaluation", () => {
       { candidateId: "alpha", criterionId: echoed.id, lean: "yes", confidence: 0.8, evidence: "Quiet rooftop seating after sunset", sourceIndex: 0 },
     ]));
     expect(await evaluateMatrix(sample)).toEqual([]);
+  });
+
+  it("drops a duplicate cell even when its first occurrence is rejected", () => {
+    expect(matrixClaimsFromAnswer({ claims: [
+      {
+        candidateId: "alpha", criterionId: wifi.id, lean: "yes", confidence: 0.8,
+        evidence: "not a supplied evidence span", sourceIndex: 0, explicit: false,
+      },
+      {
+        candidateId: "alpha", criterionId: wifi.id, lean: "yes", confidence: 0.8,
+        evidence: "free wireless internet throughout", sourceIndex: 0, explicit: false,
+      },
+    ] }, input(), "test")).toEqual([]);
   });
 
   it("clamps venue, domain-search, open-web and name/category evidence", async () => {
