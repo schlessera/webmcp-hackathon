@@ -533,7 +533,10 @@ Split refinement supports `SEARCH_PROVIDER=parallel|openai|tavily`. Without an
 explicit setting it chooses Parallel when `PARALLEL_API_KEY` exists, otherwise
 OpenAI when `OPENAI_API_KEY` exists, otherwise Tavily. Tavily remains the
 cross-room, seven-day fallback described above. OpenAI stores validated claims
-but not raw snippets.
+but not raw snippets. Parallel runs on its `turbo` processor by default: the same price per task
+as `fast`, quicker to finish at some cost in quality, which frees our worker
+slots sooner (`PARALLEL_SEARCH_MODE=fast` trades latency for quality); the request shape and
+the page-fetch fallback for verbatim spans are the same on both.
 
 Parallel uses the GA Search API's `fast` mode at **$1 per 1,000 searches**.
 Its excerpts are not verbatim. Parallel calls them “LLM-optimized”; measured
