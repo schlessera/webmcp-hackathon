@@ -456,9 +456,13 @@ export function App() {
           spatial.setViewing(viewing);
           void spatial.refetch();
         },
-        onLookups(pending, reason) {
+        onLookups(pending, reason, stages) {
           // Presentation only: rings on the dots, a line in the panel.
-          spatial.setLookups(pending, reason);
+          spatial.setLookups(pending, reason, stages);
+        },
+        onPipeline(frame) {
+          // The room's volume for the active needs: the progress ring.
+          spatial.setPipeline(frame);
         },
         onFacts(ids) {
           // Facts changed without a commit: the counts may have moved and an
@@ -822,6 +826,8 @@ export function App() {
               meId={id.participantId}
               busy={busySet}
               busyReason={spatialState.busyReason}
+              stages={spatialState.stages}
+              pipeline={spatialState.pipeline}
               pendingCount={pendingNeeds.length}
               roomId={id.roomId}
               isOrganizer={isOrganizer}
@@ -952,6 +958,7 @@ export function App() {
             phase={context.phase}
             viewing={spatialState.viewing}
             busy={busySet.has(selected.candidateId)}
+            stage={spatialState.stages[selected.candidateId] ?? null}
             factsFrame={spatialState.facts}
             onClose={() => spatial.select(null)}
             run={run}
@@ -978,6 +985,8 @@ export function App() {
           revision={revision}
           busy={spatialState.busy}
           busyReason={spatialState.busyReason}
+          stages={spatialState.stages}
+          pipeline={spatialState.pipeline}
           pendingNeeds={pendingNeeds}
           onClose={() => setDrawerOpen(false)}
           run={run}

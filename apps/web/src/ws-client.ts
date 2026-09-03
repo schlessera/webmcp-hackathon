@@ -30,9 +30,25 @@ export interface RealtimeCallbacks {
    * place open. */
   onPresence(present: string[], viewing: Array<{ participantId: string; candidateId: string }>): void;
   /** Which places the server is looking up right now (presentation only). */
-  onLookups(pending: string[], reason: LookupReason | null): void;
+  onLookups(
+    pending: string[],
+    reason: LookupReason | null,
+    stages: Array<{ candidateId: string; stage: PipelineStage }>,
+  ): void;
+  /** The room's pipeline volume for the active needs (the progress ring). */
+  onPipeline(frame: PipelineFrame): void;
   /** Facts about places changed outside the event stream: re-read. */
   onFacts(candidateIds: string[], reason: string): void;
+}
+
+export type PipelineStage = "queued" | "fetching" | "processing";
+export interface PipelineFrame {
+  outstanding: { fetch: number; process: number };
+  inFlight: { fetch: number; process: number };
+  done: number;
+  total: number;
+  etaMs?: number;
+  paused: "budget" | "idle" | null;
 }
 
 export interface LookupReason {
@@ -179,7 +195,43 @@ export function connectRealtime(
       } else if (message.type === "lookups") {
         const pending = Array.isArray(message.pending) ? message.pending : [];
         diagnostics.log(`lookups: ${pending.length} pending${message.reason ? ` (${message.reason.kind})` : ""}`);
-        callbacks.onLookups(pending, message.reason ?? null);
+        const stages = Array.isArray(message.stages)
+          ? message.stages.filter(
+              (row): row is { candidateId: string; stage: PipelineStage } =>
+                typeof row?.candidateId === "string" &&
+                (row.stage === "queued" || row.stage === "fetching" || row.stage === "processing"),
+            )
+          : [];
+        callbacks.onLookups(pending, message.reason ?? null, stages);
+      } else if (message.type === "pipeline") {
+        const count = (value: unknown) => (typeof value === "number" && Number.isFinite(value) ? Math.max(0, value) : 0);
+        const pair = (value: unknown) => {
+          const v = (value ?? {}) as { fetch?: unknown; process?: unknown };
+          return { fetch: count(v.fetch), process: count(v.process) };
+        };
+        const frame: PipelineFrame = {
+          outstanding: pair(message.outstanding),
+          inFlight: pair(message.inFlight),
+          done: count(message.done),
+          total: count(message.total),
+          ...(typeof message.etaMs === "number" ? { etaMs: message.etaMs } : {}),
+          paused: message.paused === "budget" || message.paused === "idle" ? message.paused : null,
+        };
+        diagnostics.log(
+          `pipeline: ${frame.done} of ${frame.total} · ${frame.inFlight.fetch} reading · ${frame.inFlight.process} checking${frame.paused ? ` (${frame.paused})` : ""}`,
+        );
+        callbacks.onPipeline(frame);
+        // A pipeline frame may carry per-place stage deltas too.
+        if (Array.isArray(message.stages)) {
+          const rows = message.stages.filter(
+            (row): row is { candidateId: string; stage: PipelineStage } =>
+              typeof row?.candidateId === "string" &&
+              (row.stage === "queued" || row.stage === "fetching" || row.stage === "processing"),
+          );
+          if (message.reset || rows.length) {
+            callbacks.onLookups(rows.map((row) => row.candidateId), message.reason ?? null, rows);
+          }
+        }
       } else if (message.type === "facts") {
         const ids = Array.isArray(message.candidateIds) ? message.candidateIds : [];
         diagnostics.log(`facts: ${ids.length} changed (${message.reason})`);

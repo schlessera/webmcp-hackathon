@@ -1,6 +1,6 @@
 {
   "toolContractVersion": "3",
-  "sha256": "f060ef22afdefa03717c0bce9d44ea47fa59c155f7e2e8494087fa9d1fae94c3",
+  "sha256": "5b7aa696b0d1c2ecb50a29361ae8f94e1e708dc35559aca8059f1c6cdcb52f89",
   "manifest": {
     "capabilityManifest": {
       "agreement": {
@@ -2494,6 +2494,38 @@
                 ],
                 "type": "object"
               },
+              "stages": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "candidateId": {
+                      "type": "string"
+                    },
+                    "stage": {
+                      "anyOf": [
+                        {
+                          "const": "queued",
+                          "type": "string"
+                        },
+                        {
+                          "const": "fetching",
+                          "type": "string"
+                        },
+                        {
+                          "const": "processing",
+                          "type": "string"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "candidateId",
+                    "stage"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
               "type": {
                 "const": "lookups",
                 "type": "string"
@@ -2542,6 +2574,156 @@
             "required": [
               "candidateIds",
               "reason",
+              "type"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "done": {
+                "type": "number"
+              },
+              "etaMs": {
+                "type": "number"
+              },
+              "inFlight": {
+                "additionalProperties": false,
+                "properties": {
+                  "fetch": {
+                    "type": "number"
+                  },
+                  "process": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "fetch",
+                  "process"
+                ],
+                "type": "object"
+              },
+              "outstanding": {
+                "additionalProperties": false,
+                "properties": {
+                  "fetch": {
+                    "type": "number"
+                  },
+                  "process": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "fetch",
+                  "process"
+                ],
+                "type": "object"
+              },
+              "paused": {
+                "anyOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "const": "budget",
+                    "type": "string"
+                  },
+                  {
+                    "const": "idle",
+                    "type": "string"
+                  }
+                ]
+              },
+              "reason": {
+                "additionalProperties": false,
+                "properties": {
+                  "kind": {
+                    "anyOf": [
+                      {
+                        "const": "need",
+                        "type": "string"
+                      },
+                      {
+                        "const": "place",
+                        "type": "string"
+                      },
+                      {
+                        "const": "pool",
+                        "type": "string"
+                      },
+                      {
+                        "const": "refine",
+                        "type": "string"
+                      }
+                    ]
+                  },
+                  "label": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind"
+                ],
+                "type": "object"
+              },
+              "reset": {
+                "anyOf": [
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "boolean"
+                  }
+                ]
+              },
+              "stages": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "candidateId": {
+                      "type": "string"
+                    },
+                    "stage": {
+                      "anyOf": [
+                        {
+                          "type": "null"
+                        },
+                        {
+                          "const": "queued",
+                          "type": "string"
+                        },
+                        {
+                          "const": "fetching",
+                          "type": "string"
+                        },
+                        {
+                          "const": "processing",
+                          "type": "string"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "candidateId",
+                    "stage"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "total": {
+                "type": "number"
+              },
+              "type": {
+                "const": "pipeline",
+                "type": "string"
+              }
+            },
+            "required": [
+              "done",
+              "inFlight",
+              "outstanding",
+              "total",
               "type"
             ],
             "type": "object"

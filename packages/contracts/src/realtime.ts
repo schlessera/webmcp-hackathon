@@ -84,6 +84,37 @@ export interface LookupsMessage {
   /** Why they are being looked up, for the count block ("checking 12 places
    * for step-free access"). Absent for a warm-up nobody asked for. */
   reason?: { kind: "need" | "place" | "pool" | "refine"; label?: string };
+  /**
+   * Per-place stage of the pipeline (docs/ENRICHMENT-SOURCES.md "The
+   * pipeline"): queued (work planned, nothing started), fetching (a site,
+   * search or asset read in flight), processing (evidence with the model or
+   * waiting for a matrix). Additive beside `pending` for one release; a
+   * place in `pending` without a stage reads as fetching.
+   */
+  stages?: Array<{ candidateId: string; stage: PipelineStage }>;
+}
+export type PipelineStage = "queued" | "fetching" | "processing";
+/**
+ * How much of the room's pipeline is outstanding for the ACTIVE needs, and
+ * how much is in flight: the count block's progress ring. Coalesced ≤ 4/s.
+ * Presentation only, never revisioned. `etaMs` is an estimate the page may
+ * read but does not draw (§10: counts, never a fabricated time).
+ */
+export interface PipelineMessage {
+  type: "pipeline";
+  outstanding: { fetch: number; process: number };
+  inFlight: { fetch: number; process: number };
+  /** Places settled for this need set, this run. */
+  done: number;
+  /** done + outstanding + in flight, deduped by place — never the pool size. */
+  total: number;
+  etaMs?: number;
+  paused?: "budget" | "idle" | null;
+  /** Optional per-place stage deltas (`null`: the place left the pipeline). */
+  stages?: Array<{ candidateId: string; stage: PipelineStage | null }>;
+  /** True when `stages` is the whole set, not a delta. */
+  reset?: boolean;
+  reason?: { kind: "need" | "place" | "pool" | "refine"; label?: string };
 }
 /**
  * Facts about places changed outside the event stream (a lookup landed, an
@@ -115,4 +146,5 @@ export type ServerMessage =
   | PresenceMessage
   | LookupsMessage
   | FactsMessage
+  | PipelineMessage
   | PingMessage;

@@ -210,3 +210,17 @@ in chrome. Sentence case everywhere except the uppercase section labels
 
 Second person for the user's own things ("your agent", "yours"), third person
 for others ("Sarah added"), never first person — the app has no voice of its own.
+
+## The pipeline ring
+
+The count block carries one line and one ring while the room is checking
+places for the stated needs: "checked 122 of 179 places for 3 needs", with a
+quiet clause naming the mix in flight — "· 8 reading · 12 checking". Reading
+is a place's site, menu or a search being read; checking is the evidence
+going against your needs. Out of budget reads "paused for now". Drained: the
+ring and the line disappear; nothing lingers. "Fetching", "processing",
+"pipeline", "queue" and "stage" are wire words and stay behind `{ }`.
+
+The place panel says which stage a place is in: "waiting its turn…",
+"reading what the place publishes…", "checking it against your needs…".
+

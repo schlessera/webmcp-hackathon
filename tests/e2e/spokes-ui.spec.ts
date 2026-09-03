@@ -2799,3 +2799,124 @@ test("the private you mark renders, its roster control drags it without re-cente
   expect(after?.[1]).toBeCloseTo(before?.[1] ?? 0, 5);
   await browserContext.close();
 });
+
+test("the pipeline ring fills as the room checks places and goes away when drained", async ({ browser }) => {
+  const browserContext = await browser.newContext({ viewport: { width: 430, height: 932 } });
+  const page = await browserContext.newPage();
+  const context = fixture({ matching: 0, revision: 1 });
+  const state: MockState = { context, outstanding: [] };
+  await mockApi(page, state);
+  const socket = await scriptedSocket(page, 1);
+  await page.goto(`${BASE}/#invite=deadbeef`);
+  await socket.welcomed;
+  await expect(page.getByTestId("count-progress")).toHaveCount(0);
+
+  socket.send({
+    type: "pipeline",
+    outstanding: { fetch: 5, process: 2 },
+    inFlight: { fetch: 3, process: 1 },
+    done: 2,
+    total: 10,
+    paused: null,
+  });
+  const ring = page.getByTestId("count-progress");
+  await expect(ring).toBeVisible();
+  await expect(ring).toHaveAttribute("role", "progressbar");
+  await expect(ring).toHaveAttribute("aria-valuemax", "10");
+  await expect(ring).toHaveAttribute("aria-valuenow", "2");
+  await expect(ring).toContainText("checked 2 of 10 places");
+  await expect(ring).toContainText("3 reading · 1 checking");
+  await page.screenshot({ path: "test-results/pipeline-ui-430.png", clip: { x: 0, y: 60, width: 430, height: 420 } });
+  // The old two-line register is gone once frames flow.
+  await expect(page.getByTestId("count-refine")).toHaveCount(0);
+  // The wire words never reach the count block.
+  await expect(ring).not.toContainText(/fetch|process|pipeline|queue/i);
+  const offset = await ring.locator(".progress-ring-fill").evaluate((el) => getComputedStyle(el).strokeDashoffset);
+  expect(parseFloat(offset)).toBeGreaterThan(0);
+
+  // Paused: the sentence says so, and no stale number is offered to a reader.
+  socket.send({
+    type: "pipeline",
+    outstanding: { fetch: 5, process: 2 },
+    inFlight: { fetch: 0, process: 0 },
+    done: 2,
+    total: 10,
+    paused: "budget",
+  });
+  await expect(ring).toHaveText("paused for now");
+  await expect(ring).not.toHaveAttribute("aria-valuenow", /.+/);
+
+  // The live region carries the sentence, at most once per ten seconds.
+  await expect(page.locator(".count-block [aria-live]")).toContainText(/checked|paused/, { timeout: 12_000 });
+
+  // Drained: nothing lingers.
+  socket.send({
+    type: "pipeline",
+    outstanding: { fetch: 0, process: 0 },
+    inFlight: { fetch: 0, process: 0 },
+    done: 10,
+    total: 10,
+    paused: null,
+  });
+  await expect(page.getByTestId("count-progress")).toHaveCount(0);
+  await browserContext.close();
+});
+
+test("dots show their pipeline stage: queued stands still, fetching and processing turn", async ({ browser }) => {
+  const browserContext = await browser.newContext({
+    viewport: { width: 1440, height: 900 },
+    reducedMotion: "reduce",
+  });
+  const page = await browserContext.newPage();
+  const context = fixture({ matching: 0, revision: 1 });
+  const state: MockState = { context, outstanding: [] };
+  await mockApi(page, state);
+  const socket = await scriptedSocket(page, 1);
+  await page.goto(`${BASE}/#invite=deadbeef`);
+  await socket.welcomed;
+  await expect.poll(() => page.evaluate(() => Boolean(window.__spokesMapStats))).toBe(true);
+
+  socket.send({
+    type: "lookups",
+    pending: ["place_1", "place_2", "place_3"],
+    stages: [
+      { candidateId: "place_1", stage: "queued" },
+      { candidateId: "place_2", stage: "fetching" },
+      { candidateId: "place_3", stage: "processing" },
+    ],
+    reason: { kind: "refine" },
+  });
+  await expect(page.getByTestId("pin-place_1")).toHaveAttribute("data-stage", "queued");
+  await expect(page.getByTestId("pin-place_2")).toHaveAttribute("data-stage", "fetching");
+  await expect(page.getByTestId("pin-place_3")).toHaveAttribute("data-stage", "processing");
+  await expect(page.getByTestId("pin-place_1")).toHaveAttribute("data-busy", "true");
+  await expect
+    .poll(() => page.evaluate(() => window.__spokesMapStats!().stages))
+    .toEqual({ queued: 1, fetching: 1, processing: 1 });
+  await expect
+    .poll(() => page.evaluate(() => window.__spokesMapStats!().arcLayerMounted))
+    .toBe(true);
+  // Reduced motion: every ring stands still, the stages stay distinguishable.
+  await expect
+    .poll(() => page.evaluate(() => window.__spokesMapStats!().busyAnimating))
+    .toBe(false);
+  // The place panel names the stage in reader words.
+  await page.getByTestId("pin-place_3").click();
+  const details = page.getByTestId("place-details");
+  await expect(details).toBeVisible();
+  await expect(details.getByTestId("details-lookup")).toHaveText("checking it against your needs…");
+  await page.screenshot({ path: "test-results/pipeline-ui-1440.png" });
+  await details.getByTestId("details-close").click();
+
+  // A pending id without a stage reads as fetching (an older server).
+  socket.send({ type: "lookups", pending: ["place_4"] });
+  await expect(page.getByTestId("pin-place_4")).toHaveAttribute("data-stage", "fetching");
+  await expect(page.getByTestId("pin-place_1")).not.toHaveAttribute("data-stage", /.+/);
+
+  socket.send({ type: "lookups", pending: [] });
+  await expect(page.getByTestId("pin-place_4")).not.toHaveAttribute("data-busy", "true");
+  await expect
+    .poll(() => page.evaluate(() => window.__spokesMapStats!().stages))
+    .toEqual({ queued: 0, fetching: 0, processing: 0 });
+  await browserContext.close();
+});
