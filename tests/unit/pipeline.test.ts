@@ -1272,6 +1272,26 @@ describe("refinement pipeline", () => {
     expect(estimate.estimate()).toBeCloseTo(249.6875);
   });
 
+  it("keeps a place done when identical work is retried, and un-dones it for new work", () => {
+    const volume = new PipelineVolumeModel();
+    const first = item("place", { kind: "process.adjudicate" });
+    volume.enqueue(first);
+    volume.start(first, 0);
+    volume.settle(first, 10);
+    expect(volume.snapshot("room-a")).toMatchObject({ done: 1, total: 1 });
+
+    // The same cell re-planned is a retry of counted work: progress holds.
+    volume.enqueue(first);
+    expect(volume.snapshot("room-a")).toMatchObject({ done: 1, total: 1 });
+    volume.settle(first, 20);
+
+    // A different cell for that place is new work and does move the count back.
+    const second = item("place", { kind: "process.adjudicate", criteria: [criterion("takeaway")] });
+    expect(second.dedupeKey).not.toBe(first.dedupeKey);
+    volume.enqueue(second);
+    expect(volume.snapshot("room-a")).toMatchObject({ done: 0, total: 1 });
+  });
+
   it("coalesces to four frames per second, emits quiet starts immediately, and always clears", () => {
     vi.useFakeTimers();
     const volume = new PipelineVolumeModel();

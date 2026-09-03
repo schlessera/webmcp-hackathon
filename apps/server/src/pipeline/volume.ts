@@ -42,8 +42,15 @@ interface TrackedItem {
 interface RoomVolume {
   items: Map<string, TrackedItem>;
   done: Set<string>;
+  /** Work this room has already settled once, by dedupe key. A repeat of one
+   * of these is a retry of work the progress count has already credited, so it
+   * must not push the place back out of `done` and walk the count backwards. */
+  settled: Set<string>;
   paused: "budget" | "idle" | null;
 }
+
+/** Retry memory is bounded; the oldest keys fall out first. */
+const MAX_SETTLED_KEYS = 20_000;
 
 export class PipelineVolumeModel {
   private readonly rooms = new Map<string, RoomVolume>();
@@ -59,7 +66,7 @@ export class PipelineVolumeModel {
 
   enqueue(item: PipelineItem): void {
     const room = this.state(item.roomId);
-    room.done.delete(item.candidateId);
+    if (!room.settled.has(item.dedupeKey)) room.done.delete(item.candidateId);
     room.items.set(item.dedupeKey, { item, status: "outstanding" });
     room.paused = null;
   }
@@ -79,6 +86,12 @@ export class PipelineVolumeModel {
       this.latency[familyOf(item.kind)].sample(Math.max(0, now - tracked.startedAt));
     }
     room.items.delete(item.dedupeKey);
+    room.settled.add(item.dedupeKey);
+    while (room.settled.size > MAX_SETTLED_KEYS) {
+      const oldest = room.settled.values().next();
+      if (oldest.done) break;
+      room.settled.delete(oldest.value);
+    }
     if (![...room.items.values()].some((entry) => entry.item.candidateId === item.candidateId)) {
       room.done.add(item.candidateId);
     }
@@ -132,7 +145,7 @@ export class PipelineVolumeModel {
   private state(roomId: string): RoomVolume {
     let room = this.rooms.get(roomId);
     if (!room) {
-      room = { items: new Map(), done: new Set(), paused: null };
+      room = { items: new Map(), done: new Set(), settled: new Set(), paused: null };
       this.rooms.set(roomId, room);
     }
     return room;
