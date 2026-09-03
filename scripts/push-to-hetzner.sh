@@ -17,7 +17,14 @@ scp "${SSH_OPTS[@]}" compose.prod.yaml Caddyfile "$HOST":/root/spokes/
 scp "${SSH_OPTS[@]}" scripts/deploy-hetzner.sh "$HOST":/root/spokes/scripts/
 
 echo "==> Sync secrets (.env is gitignored, copied separately)"
+# The host generates POSTGRES_PASSWORD on first deploy and the database volume
+# is initialised with it. Overwriting .env wholesale would strand that volume
+# behind an unrecoverable password, so carry any host-generated value across.
+KEEP=$(ssh "${SSH_OPTS[@]}" "$HOST" 'grep "^POSTGRES_PASSWORD=" /root/spokes/.env 2>/dev/null' || true)
 scp "${SSH_OPTS[@]}" .env "$HOST":/root/spokes/.env
+if [ -n "$KEEP" ] && ! grep -q '^POSTGRES_PASSWORD=' .env; then
+  ssh "${SSH_OPTS[@]}" "$HOST" "printf '%s\n' '$KEEP' >> /root/spokes/.env"
+fi
 ssh "${SSH_OPTS[@]}" "$HOST" 'chmod 600 /root/spokes/.env'
 
 echo "==> Record the commit for BUILD_ID"
