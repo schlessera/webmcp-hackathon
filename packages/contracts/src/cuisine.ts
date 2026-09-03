@@ -1,3 +1,5 @@
+import { VERIFIED_CONFIDENCE_FLOOR } from "./status.ts";
+
 /** A sourced, directional cuisine implication from grounding T3.6. */
 export interface CuisineRule {
   from: string;
@@ -6,6 +8,12 @@ export interface CuisineRule {
   source: "osm-cooccurrence" | "wikidata-p2012" | "overture-hierarchy" | "both";
   evidence: string;
 }
+
+/**
+ * An implication can satisfy an inclusion only when its path is as confident
+ * as verified evidence. Anything below the verified floor remains a guess.
+ */
+export const CUISINE_IMPLICATION_SATISFACTION_FLOOR = VERIFIED_CONFIDENCE_FLOOR;
 
 /**
  * T3.6's four evidence blocks. Dish rules require a dominant OSM pairing, a

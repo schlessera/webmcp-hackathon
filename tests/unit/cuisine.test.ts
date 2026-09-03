@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { CUISINE_RULES, implies, normalizeCuisineTokens } from "../../packages/contracts/src/cuisine.ts";
+import {
+  CUISINE_IMPLICATION_SATISFACTION_FLOOR,
+  CUISINE_RULES,
+  implies,
+  normalizeCuisineTokens,
+} from "../../packages/contracts/src/cuisine.ts";
+import { VERIFIED_CONFIDENCE_FLOOR } from "../../packages/contracts/src/status.ts";
 
 /** T3.6: sourced cuisine implications are additive evidence, with noisy venue-type tags omitted. */
 describe("cuisine taxonomy", () => {
@@ -11,6 +17,7 @@ describe("cuisine taxonomy", () => {
   it("puts pizza at yes-level and contested curry below the yes threshold", () => {
     expect(implies("pizza")).toContainEqual({ cuisine: "italian", confidence: 0.95 });
     expect(implies("curry")).toContainEqual({ cuisine: "indian", confidence: 0.6 });
+    expect(CUISINE_IMPLICATION_SATISFACTION_FLOOR).toBe(VERIFIED_CONFIDENCE_FLOOR);
   });
 
   it("normalizes case, semicolon lists, italian_pizza, and named spelling drift", () => {

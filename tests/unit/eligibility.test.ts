@@ -182,6 +182,74 @@ describe("eligibility against the Berlin Mitte dataset", () => {
     expect(whyFor(rows[0], "p_peer")).toBe("serves Italian");
   });
 
+  it("hard cuisine exclusion trusts only verified positive exact evidence across every status", () => {
+    const statuses = [
+      "verified_true",
+      "likely_true",
+      "unknown",
+      "likely_false",
+      "verified_false",
+    ] as const;
+    const places = statuses.flatMap((status) =>
+      (["italian", "pizza"] as const).map((value) => ({
+        ...candidates[0],
+        id: `c_${status}_${value}`,
+        category: "restaurant",
+        attributes: [{ key: "cuisine", status, value, confidence: 0.6 }],
+      })),
+    );
+    const rows = classifyAll(
+      places,
+      [req({ kind: "exclusion", key: "cuisine", values: ["italian"], lifetime: "session" } as never)],
+      [],
+      null,
+    );
+    const by = Object.fromEntries(rows.map((row) => [row.candidateId, row]));
+    expect(by.c_verified_true_italian.eligibility).toBe("excluded");
+    expect(by.c_verified_true_pizza.eligibility).toBe("unlikely");
+    expect(by.c_likely_true_italian.eligibility).toBe("unlikely");
+    expect(by.c_likely_true_pizza.eligibility).toBe("unlikely");
+    expect(by.c_unknown_italian.eligibility).toBe("uncertain");
+    expect(by.c_unknown_pizza.eligibility).toBe("uncertain");
+    expect(by.c_likely_false_italian.eligibility).toBe("likely");
+    expect(by.c_likely_false_pizza.eligibility).toBe("uncertain");
+    expect(by.c_verified_false_italian.eligibility).toBe("eligible");
+    expect(by.c_verified_false_pizza.eligibility).toBe("uncertain");
+    expect(rows.filter((row) => row.eligibility === "excluded").map((row) => row.candidateId))
+      .toEqual(["c_verified_true_italian"]);
+  });
+
+  it("treats a matching category without a cuisine fact as unlikely, never excluded", () => {
+    const categoryOnly: CandidateRow = {
+      ...candidates[0],
+      id: "c_category_only",
+      category: "italian",
+      attributes: candidates[0].attributes.filter((attr) => attr.key !== "cuisine"),
+    };
+    const row = classifyAll(
+      [categoryOnly],
+      [req({ kind: "exclusion", key: "cuisine", values: ["italian"], lifetime: "session" } as never)],
+      [],
+      null,
+    )[0];
+    expect(row.eligibility).toBe("unlikely");
+    expect(row.eligibility).not.toBe("excluded");
+  });
+
+  it("normalizes legacy and malformed cuisine statuses before exclusion", () => {
+    const places = [
+      { ...candidates[0], id: "c_legacy", attributes: [{ key: "cuisine", status: "unverified", value: "italian" }] },
+      { ...candidates[0], id: "c_malformed", attributes: [{ key: "cuisine", status: "old_yes", value: "italian" }] },
+    ];
+    const rows = classifyAll(
+      places,
+      [req({ kind: "exclusion", key: "cuisine", values: ["italian"] } as never)],
+      [],
+      null,
+    );
+    expect(rows.map((row) => row.eligibility)).toEqual(["unlikely", "uncertain"]);
+  });
+
   it("cuisine inclusion: a verified match passes, a verified mismatch is ruled out, no record is unsure", () => {
     const mk = (id: string, attrs: CandidateRow["attributes"]): CandidateRow => ({
       ...candidates[0], id, category: "restaurant", attributes: attrs,
@@ -238,6 +306,20 @@ describe("eligibility against the Berlin Mitte dataset", () => {
     )[0];
     expect(row).toMatchObject({ eligibility: "likely", confidence: 0.6 });
     expect(whyFor(row, "p_peer")).toBe("serves curry, which is likely Indian");
+  });
+
+  it("names an unevaluable inclusion or exclusion after its own dimension", () => {
+    for (const kind of ["inclusion", "exclusion"] as const) {
+      const row = classifyAll(
+        [{ ...candidates[0], id: `c_${kind}`, attributes: [] }],
+        [req({ kind, key: "wheelchair-accessible", values: ["yes"] } as never)],
+        [],
+        null,
+      )[0];
+      expect(row.eligibility).toBe("uncertain");
+      expect(whyFor(row, "p_peer")).toBe("step-free access not known");
+      expect(whyFor(row, "p_peer")).not.toContain("cuisine");
+    }
   });
 
   it("application-private exclusions never cite content in peer why-strings; owners see their own", () => {
