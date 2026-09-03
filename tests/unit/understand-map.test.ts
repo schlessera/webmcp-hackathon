@@ -84,7 +84,7 @@ describe("stage-B mapping table", () => {
     })]), input("within 0.5 km"));
     expect(out.needs[0]).toMatchObject({
       payload: { kind: "scope", dimension: "radius_m", max: 500 },
-      label: "within 500 m",
+      label: "within 500 m of where you start",
     });
     expect(out.needs[0].payload).not.toHaveProperty("mode");
   });
@@ -97,16 +97,16 @@ describe("stage-B mapping table", () => {
     })]), input("under 500"));
     expect(out.needs[0]).toMatchObject({
       payload: { kind: "scope", dimension: "radius_m", max: 500 },
-      label: "within 500 m",
+      label: "within 500 m of where you start",
       assumed: "read as metres",
     });
   });
 
   it.each([
-    ["walk", "walk_min", "within 10 min walk"],
-    ["bike", "travel_min", "within 10 min by bike"],
-    ["car", "travel_min", "within 10 min by car"],
-    ["transit", "travel_min", "within 10 min by transit"],
+    ["walk", "walk_min", "within 10 min walk of where you start"],
+    ["bike", "travel_min", "within 10 min by bike of where you start"],
+    ["car", "travel_min", "within 10 min by car of where you start"],
+    ["transit", "travel_min", "within 10 min by transit of where you start"],
   ] as const)("maps travel time by %s", (mode, dimension, label) => {
     const out = mapInterpretation(interpretation([concept({
       role: "travel_time", surface: `10 min by ${mode}`,

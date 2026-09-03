@@ -9,7 +9,7 @@ import {
   type Interpretation,
   type ScopePayloadReferent,
 } from "@webmcp-hackathon/contracts";
-import { labelForRequirement } from "../../facets.ts";
+import { labelFor } from "./label.ts";
 import {
   minimumClarification,
   modeClarification,
@@ -40,16 +40,6 @@ function topicOf(concept: Concept): ParsedNeed["topic"] {
   return concept.topic && HINT_TAXONOMY.includes(concept.topic) ? concept.topic : undefined;
 }
 
-function labelFor(payload: Record<string, unknown>, referentLabel?: string | null): string {
-  return labelForRequirement({
-    id: "preview",
-    owner_id: "preview",
-    visibility: "shared",
-    hardness: "hard",
-    payload: payload as never,
-    withdrawn: false,
-  }, true, referentLabel ? { timezone: "UTC", now: new Date(0), referentLabel } : undefined);
-}
 
 function parsedNeed(
   concept: Concept,

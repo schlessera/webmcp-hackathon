@@ -113,7 +113,8 @@ export interface RequirementRow {
     max?: number;
     mode?: "walk" | "bike" | "car" | "transit";
     referent?:
-      | { kind: "self" | "scopeCenter" }
+      | { kind: "self" }
+      | { kind: "scopeCenter" }
       | { kind: "candidate"; candidateId: string }
       | { kind: "participant"; participantId: string }
       | { kind: "point"; lat: number; lng: number; label?: string }
@@ -123,13 +124,6 @@ export interface RequirementRow {
     window?: { start?: string; end?: string };
     phrase?: string;
     perPersonMax?: { amount: number; currency: string };
-    referent?:
-      | { kind: "self" }
-      | { kind: "scopeCenter" }
-      | { kind: "candidate"; candidateId: string }
-      | { kind: "participant"; participantId: string }
-      | { kind: "point"; lat: number; lng: number; label?: string }
-      | { kind: "landmark"; landmarkId: string };
   } | null;
   withdrawn: boolean;
   /** Set aside by its owner: kept, shown, but not evaluated. Absent rows

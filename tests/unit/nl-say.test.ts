@@ -103,14 +103,12 @@ describe("say orchestration", () => {
       referent: { kind: "landmark" },
     });
   });
-
-describe("say orchestration", () => {
   it("skips the model for a fully pre-parsed sentence", async () => {
     setTransport(async () => { throw new Error("model called"); });
     const out = await say("places that are at most 500m away from me", "shared", context);
     expect(out).toMatchObject({
       intent: "need",
-      needs: [{ payload: { kind: "scope", dimension: "radius_m", max: 500 }, label: "within 500 m" }],
+      needs: [{ payload: { kind: "scope", dimension: "radius_m", max: 500 }, label: "within 500 m of where you start" }],
       clarify: null,
       meta: { model: null },
     });

@@ -122,6 +122,8 @@ describe("clarification composition", () => {
       "within 10 min walk",
       "budget €25",
     ]);
+    // The pill stays short; the need it creates carries the room's own label.
+    expect(out.suggestions?.[1].needs[0].label).toBe("within 10 min walk of where you start");
   });
 
   it("keeps clarification copy within the COPY rules", () => {

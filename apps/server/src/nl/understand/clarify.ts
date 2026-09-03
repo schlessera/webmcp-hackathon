@@ -1,3 +1,4 @@
+import { labelFor } from "./label.ts";
 import {
   PRICE_DEFAULTS,
   mapPreparsedConcept,
@@ -39,7 +40,7 @@ export function unitClarification(
       }]),
       choice("c2", `${value} min walk`, [{
         payload: walkPayload,
-        label: `within ${value} min walk`,
+        label: labelFor(walkPayload),
         gist: "travel time",
         topic: "distance",
       }]),
@@ -75,7 +76,7 @@ export function modeClarification(
     const words = mode === "walk" ? "on foot" : `by ${mode}`;
     return [choice(`c${index + 1}`, `${value} min ${words}`, [{
       payload,
-      label: mode === "walk" ? `within ${value} min walk` : `within ${value} min by ${mode}`,
+      label: labelFor(payload),
       gist: concept.gist,
       topic: "distance",
     }])];
@@ -132,7 +133,7 @@ export function unclearSuggestions(input: {
   const median = values.length ? Math.round(values[Math.floor((values.length - 1) / 2)]) : 10;
   suggestions.push(choice(`c${suggestions.length + 1}`, `within ${median} min walk`, [{
     payload: { kind: "scope", dimension: "walk_min", max: median },
-    label: `within ${median} min walk`,
+    label: labelFor({ kind: "scope", dimension: "walk_min", max: median }),
     gist: "travel time",
     topic: "distance",
   }]));
