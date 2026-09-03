@@ -5,7 +5,8 @@ import {
   TOOLS,
 } from "@webmcp-hackathon/contracts";
 import { nlSay, submitCommand, syncSessionRaw } from "../../apps/web/src/api.ts";
-import { encodeToolResult } from "../../apps/web/src/webmcp.ts";
+import { encodeToolResult, trimContext } from "../../apps/web/src/webmcp.ts";
+import type { SpatialContext } from "../../apps/web/src/spatial-types.ts";
 
 const long = "quoted \\\"provider text\\\" and participant text ".repeat(80);
 
@@ -41,6 +42,50 @@ function worstCaseError(tool: string) {
 }
 
 describe("WebMCP result budgets", () => {
+  it("keeps the image count but drops summary image metadata from the agent trim", () => {
+    const context = {
+      ok: true,
+      revision: 1,
+      phase: "gathering",
+      scope: {
+        scopeId: "scope_1",
+        area: { kind: "circle", center: { lat: 52.5, lng: 13.4 }, radiusM: 800 },
+        transport: ["walk"],
+        category: "place",
+      },
+      feasibility: { state: "feasible", eligible: 1, likely: 0, uncertain: 0, unlikely: 0, excluded: 0 },
+      total: 1,
+      matching: 1,
+      likely: 0,
+      candidates: [{
+        candidateId: "place_1",
+        name: "A place",
+        location: { lat: 52.5, lng: 13.4 },
+        category: "place",
+        eligibility: "eligible",
+        why: "",
+        walkMin: 2,
+        priceLevel: 1,
+        imageCount: 1,
+        image: {
+          url: "/api/places/node%2F1/images/0",
+          width: 640,
+          height: 480,
+          blurhash: "LGF=X50Dx@x]G^IaM|-nyCRnaLt5",
+        },
+      }],
+      facets: [],
+      activeNeeds: [],
+      privateEffects: [],
+      participants: [],
+      proposals: [],
+    } as unknown as SpatialContext;
+
+    const trimmed = trimContext(context) as { candidates: Array<Record<string, unknown>> };
+    expect(trimmed.candidates[0]).toMatchObject({ imageCount: 1 });
+    expect(trimmed.candidates[0]).not.toHaveProperty("image");
+  });
+
   it("serializes worst-case success and error fixtures for every tool", () => {
     for (const tool of TOOLS) {
       for (const fixture of [worstCaseSuccess(tool.name), worstCaseError(tool.name)]) {
