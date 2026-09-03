@@ -153,8 +153,8 @@ redistributable, no attribution obligation (we attribute anyway).
 
 ## Images
 
-Place photos use the following precedence, with at most three candidate image
-downloads for one place:
+Place photos use the following precedence. Candidates are tried one at a time
+until three images are stored or six downloads have been attempted:
 
 1. `image` and `wikimedia_commons` on the OpenStreetMap record;
 2. Wikidata P18, for a place whose OSM record carries a `wikidata` id;
@@ -162,9 +162,14 @@ downloads for one place:
    in JSON-LD or microdata, `<link rel="image_src">`, then the largest
    dimensioned `<img>` in a bounded approximation of the page's first fold.
 
-The homepage candidates come from the same HTML response that supplies the
-other website facts. There is no second homepage request for photos. A
-Wikidata P18 or Commons file tag is resolved through the Commons `imageinfo`
+When website facts are fetched in the same pass, homepage candidates travel
+only on that in-memory result and are stripped before the `website` JSON is
+persisted. When that cache is warm but images are due, a candidate-only read
+uses the same robots, SSRF, redirect and User-Agent boundary: an advisory HEAD
+followed by a GET whose body stops at 512 KB. The existing image refresh clock
+keeps that fallback to at most once per image refresh period. It runs only
+`extractImageCandidates`, never the full website parser. A Wikidata P18 or
+Commons file tag is resolved through the Commons `imageinfo`
 API with `extmetadata`; the image is accepted only when the metadata names a
 usable Creative Commons licence. Its actual licence and cleaned artist credit
 are retained. An image linked directly by the OSM `image` tag retains the OSM
