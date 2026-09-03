@@ -361,6 +361,14 @@ export interface SpatialContextResult {
   scope: ScopeView | null;
   area?: AreaView;
   pool?: PoolView;
+  /** Process-local background fact refinement. Optional so older servers and
+   * clients retain the same context contract. */
+  refine?: {
+    active: boolean;
+    queued: number;
+    checkedToday: number;
+    budgetLeft: { calls: number; searches: number };
+  };
   feasibility: Feasibility;
   /** Places inside the current scope — the denominator of "N of TOTAL". The
    * candidates array carries more: out-of-scope places are returned excluded

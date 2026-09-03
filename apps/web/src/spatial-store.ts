@@ -69,7 +69,7 @@ export interface SpatialState {
 }
 
 export interface LookupReason {
-  kind: "need" | "place" | "pool";
+  kind: "need" | "place" | "pool" | "refine";
   label?: string;
 }
 

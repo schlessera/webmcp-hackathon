@@ -1,6 +1,6 @@
 {
   "toolContractVersion": "3",
-  "sha256": "80028e6d034e8e7b7f4d2b88a31696e6e7805501f190d3b83624c8555f6e4cbc",
+  "sha256": "2f5bc73f35641e1c04e51ad80f29f67a05fba90001c7cef2b5d645001d22f73f",
   "manifest": {
     "capabilityManifest": {
       "agreement": {
@@ -2149,6 +2149,10 @@
                       {
                         "const": "pool",
                         "type": "string"
+                      },
+                      {
+                        "const": "refine",
+                        "type": "string"
                       }
                     ]
                   },
@@ -3124,6 +3128,50 @@
                   "type": "object"
                 },
                 "type": "array"
+              },
+              "refine": {
+                "additionalProperties": false,
+                "properties": {
+                  "active": {
+                    "anyOf": [
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "type": "boolean"
+                      }
+                    ]
+                  },
+                  "budgetLeft": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "calls": {
+                        "type": "number"
+                      },
+                      "searches": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "calls",
+                      "searches"
+                    ],
+                    "type": "object"
+                  },
+                  "checkedToday": {
+                    "type": "number"
+                  },
+                  "queued": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "active",
+                  "budgetLeft",
+                  "checkedToday",
+                  "queued"
+                ],
+                "type": "object"
               },
               "revision": {
                 "type": "number"

@@ -12,6 +12,19 @@ const open = new Map<string, Map<string, number>>();
 /** roomId -> participantId -> socketId -> { candidateId, at } */
 const viewing = new Map<string, Map<string, Map<string, { candidateId: string; at: number }>>>();
 let clock = 0;
+type PresenceListener = (roomId: string, present: Set<string>) => void;
+const presenceListeners = new Set<PresenceListener>();
+
+function notifyPresence(roomId: string): void {
+  const present = presentIn(roomId);
+  for (const listener of presenceListeners) listener(roomId, present);
+}
+
+/** Process-local lifecycle hook for work that should follow open sockets. */
+export function onPresenceChange(listener: PresenceListener): () => void {
+  presenceListeners.add(listener);
+  return () => presenceListeners.delete(listener);
+}
 
 /** Returns true when the participant went from absent to present. */
 export function markOpen(roomId: string, participantId: string): boolean {
@@ -22,6 +35,7 @@ export function markOpen(roomId: string, participantId: string): boolean {
   }
   const count = room.get(participantId) ?? 0;
   room.set(participantId, count + 1);
+  if (count === 0) notifyPresence(roomId);
   return count === 0;
 }
 
@@ -37,6 +51,7 @@ export function markClosed(roomId: string, participantId: string, socketId?: str
     // A person with no open socket is no longer looking at anything.
     viewing.get(roomId)?.delete(participantId);
     if (viewing.get(roomId)?.size === 0) viewing.delete(roomId);
+    if (count === 1) notifyPresence(roomId);
     return count === 1;
   }
   room.set(participantId, count - 1);

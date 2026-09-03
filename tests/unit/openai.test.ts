@@ -39,4 +39,19 @@ describe("OpenAI web-search transport", () => {
     expect(reply.webSearchCalls).toEqual([search]);
     expect(reply.outputItems[0]).toBe(search);
   });
+
+  it("rebases citation offsets when Responses returns several text parts", async () => {
+    setTransport(async () => ({
+      output: [{
+        type: "message",
+        content: [
+          { type: "output_text", text: "First", annotations: [] },
+          { type: "output_text", text: "Second source", annotations: [{ type: "url_citation", url: "https://place.example/two", start_index: 0, end_index: 6 }] },
+        ],
+      }],
+    }));
+    const reply = await respond({ model: "test", instructions: "test", input: [] });
+    expect(reply.text).toBe("First\nSecond source");
+    expect(reply.citations).toEqual([{ url: "https://place.example/two", start: 6, end: 12 }]);
+  });
 });

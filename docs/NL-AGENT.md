@@ -19,6 +19,7 @@ Four jobs, two model tiers, one rule for choosing between them.
 |---|---|---|---|
 | Route a composer sentence: need / ask / act / unclear, and turn a need into typed payloads | `apps/server/src/nl/say.ts` | fast (`gpt-5.6-luna`) | bounded, schema-shaped, must feel like typing. A strict JSON schema is the whole output; every payload is re-validated by the server's Ajv pass like a hand-typed one. |
 | Infer still-unknown place attributes from supplied evidence spans | `apps/server/src/enrich/infer.ts` | fast (`gpt-5.6-luna`) | bounded extraction over a closed key set. The server validates the quoted span, clamps confidence below verification and drops unsupported claims. |
+| Refine unknown place criteria from site text and cited search spans | `apps/server/src/refine/worker.ts` | fast (`gpt-5.6-luna`) | one bounded matrix covers up to 12 places and 8 criteria per model call. Search is one request per unresolved place for all of its open criteria, and every stored claim passes the same span and confidence checks. |
 | Act on the room or answer a question about it | `apps/server/src/nl/agent.ts` | smart (`gpt-5.6-sol`) | open-ended: read state, weigh, call tools, explain. A wrong move changes a shared room. |
 | Screen places against an agent-private condition | `apps/server/src/nl/screening.ts` | smart | judging evidence against a person's private condition is where a wrong call costs most — a place wrongly ruled out never comes back. Told to prefer `needs_info` over a guess. |
 

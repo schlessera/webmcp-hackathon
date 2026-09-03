@@ -24,6 +24,10 @@ import {
 export const MAX_MATRIX_PLACES = 12;
 export const MAX_MATRIX_CRITERIA = 8;
 export const MAX_TEXT_CHARS_PER_PLACE = 6_000;
+/** A full batch is a long prompt on a background path, so it is given more
+ * room than an interactive call. Twenty seconds was not enough for a live
+ * twelve-place matrix and the whole tick returned nothing. */
+export const MATRIX_TIMEOUT_MS = Number(process.env.MATRIX_TIMEOUT_MS ?? 45_000);
 
 /** Search source names are consumed by the refinement stream; aliases keep
  * the evidence boundary tolerant at the module edge without changing caps. */
@@ -281,7 +285,7 @@ async function evaluateBounded(input: EvaluateMatrixInput): Promise<EvaluatedInf
     schema: { name: "venue_criterion_matrix", schema: EVALUATE_MATRIX_SCHEMA },
     reasoning: "none",
     maxOutputTokens: 8_000,
-    timeoutMs: 20_000,
+    timeoutMs: MATRIX_TIMEOUT_MS,
   });
   return matrixClaimsFromAnswer(parseJson(reply.text), input, reply.model);
 }

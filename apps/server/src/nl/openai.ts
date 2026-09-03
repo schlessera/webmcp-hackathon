@@ -146,14 +146,19 @@ export async function respond(call: Call): Promise<Reply> {
     if (item.type === "message") {
       for (const part of (item.content as Array<Record<string, unknown>>) ?? []) {
         if (part.type === "output_text" && typeof part.text === "string") {
+          const textOffset = texts.reduce((total, text) => total + text.length, 0) + texts.length;
           texts.push(part.text);
           for (const annotation of (part.annotations as Array<Record<string, unknown>>) ?? []) {
             if (annotation.type !== "url_citation" || typeof annotation.url !== "string") continue;
             citations.push({
               url: annotation.url,
               ...(typeof annotation.title === "string" ? { title: annotation.title } : {}),
-              ...(typeof annotation.start_index === "number" ? { start: annotation.start_index } : {}),
-              ...(typeof annotation.end_index === "number" ? { end: annotation.end_index } : {}),
+              ...(typeof annotation.start_index === "number"
+                ? { start: textOffset + annotation.start_index }
+                : {}),
+              ...(typeof annotation.end_index === "number"
+                ? { end: textOffset + annotation.end_index }
+                : {}),
             });
           }
         }
