@@ -1087,7 +1087,26 @@ test("deliberation draws unsure and proposed pins and exposes direct stance acti
   expect(Number.parseFloat(normalMotion.animationDuration)).toBeGreaterThan(0);
 
   const pin = page.getByTestId("pin-place_24");
+  const markGeometry = await page.evaluate(() => {
+    const action = document.querySelector<HTMLElement>('[data-state="proposed"] .marker-dot')!;
+    const works = document.querySelector<HTMLElement>('[data-state="works"] .marker-dot')!;
+    return {
+      action: Number.parseFloat(getComputedStyle(action).width),
+      works: Number.parseFloat(getComputedStyle(works).width),
+    };
+  });
+  expect(markGeometry.action).toBeGreaterThan(markGeometry.works);
+  const glRadii = await page.evaluate(() => window.__spokesMapStats!().markRadii);
+  expect(glRadii.act).not.toBe(glRadii.works);
+  expect(glRadii.return).not.toBe(glRadii.likely);
+  const selectionsBefore = await page.evaluate(
+    () => window.__spokesMapStats!().selectionDispatches,
+  );
   await pin.click({ force: true, position: { x: 22, y: 22 } });
+  await expect
+    .poll(() => page.evaluate(() => window.__spokesMapStats?.().selectionDispatches))
+    .toBe(selectionsBefore + 1);
+  await expect(page.getByTestId("explore-card")).toHaveCount(0);
   const details = page.getByTestId("place-details");
   await expect(details).toHaveAttribute("aria-label", "The Barn");
   await expect(details.getByTestId("verdict")).toHaveAttribute("data-state", "works");
@@ -1364,9 +1383,25 @@ test("a fresh whole-area pool stays fixed, caps DOM stickers, and leaves every G
     .toBe(false);
   socket.send({ type: "lookups", pending: [] });
 
+  const moved = state.context.candidates.find(
+    (candidate) => candidate.candidateId === glOnly.candidateId,
+  )!;
+  moved.location = { ...moved.location, lng: moved.location.lng + 0.003 };
+  state.context.revision = 3;
+  socket.send({
+    type: "event",
+    revision: 3,
+    fromRevision: 2,
+    events: [{ revision: 3, type: "candidates_added", level: "existence", text: "Map corrected." }],
+  });
+  await expect
+    .poll(() => page.evaluate(() => window.__spokesMapStats?.().glOnly?.point[0]))
+    .not.toBeCloseTo(glOnly.point[0], 0);
+  const movedGlOnly = (await page.evaluate(() => window.__spokesMapStats!())).glOnly;
+  if (!movedGlOnly) throw new Error("the corrected place left the GL-only set");
   const mapBox = await page.getByTestId("map-region").boundingBox();
   if (!mapBox) throw new Error("map has no pointer target");
-  await page.mouse.click(mapBox.x + glOnly.point[0], mapBox.y + glOnly.point[1]);
+  await page.mouse.click(mapBox.x + movedGlOnly.point[0], mapBox.y + movedGlOnly.point[1]);
   await expect
     .poll(() => page.evaluate(() => window.__spokesMapStats?.().selected))
     .toBe(glOnly.candidateId);
@@ -1382,13 +1417,13 @@ test("a fresh whole-area pool stays fixed, caps DOM stickers, and leaves every G
     .toBe("pool-place-074");
 
   setWholeAreaPool(state.context, 90);
-  state.context.revision = 3;
+  state.context.revision = 4;
   socket.send({
     type: "event",
-    revision: 3,
-    fromRevision: 2,
+    revision: 4,
+    fromRevision: 3,
     events: [{
-      revision: 3,
+      revision: 4,
       type: "candidates_added",
       level: "existence",
       text: "15 more places on the map.",
@@ -1543,6 +1578,7 @@ test("mirrored name cards stay inside the band and keep every dot on its marker"
           const markerRect = marker.getBoundingClientRect();
           const wrapper = marker.querySelector<HTMLElement>(".marker-sticker")!;
           const dotRect = marker.querySelector<HTMLElement>(".sticker-dot")!.getBoundingClientRect();
+          const busyRect = marker.querySelector<HTMLElement>(".sticker-busy")!.getBoundingClientRect();
           const cardRect = marker.querySelector<HTMLElement>(".sticker-box")!.getBoundingClientRect();
           const markerX = markerRect.left + markerRect.width / 2;
           const markerY = markerRect.top + markerRect.height / 2;
@@ -1551,6 +1587,12 @@ test("mirrored name cards stay inside the band and keep every dot on its marker"
             side: wrapper.dataset.side,
             dx: Math.abs(dotRect.left + dotRect.width / 2 - markerX),
             dy: Math.abs(dotRect.top + dotRect.height / 2 - markerY),
+            busyDx: Math.abs(
+              busyRect.left + busyRect.width / 2 - (dotRect.left + dotRect.width / 2),
+            ),
+            busyDy: Math.abs(
+              busyRect.top + busyRect.height / 2 - (dotRect.top + dotRect.height / 2),
+            ),
             distanceFromRight: map.right - markerX,
             inside: cardRect.left >= map.left - 1 && cardRect.right <= map.right + 1,
           };
@@ -1562,6 +1604,7 @@ test("mirrored name cards stay inside the band and keep every dot on its marker"
   let cards = await measure();
   expect(new Set(cards.map((card) => card.side))).toEqual(new Set(["left", "right"]));
   expect(cards.filter((card) => card.dx > 1 || card.dy > 1)).toEqual([]);
+  expect(cards.filter((card) => card.busyDx > 1 || card.busyDy > 1)).toEqual([]);
   const nearRight = cards.find((card) => card.id === "pin-anchor-right");
   expect(nearRight?.distanceFromRight).toBeLessThanOrEqual(120);
   expect(nearRight?.side).toBe("right");
@@ -1630,6 +1673,10 @@ test("a need said is pending until the room settles it, and busy rings mark plac
   // Nothing stated yet: the block counts places, not survivors.
   await expect(page.getByTestId("count-number")).toHaveText("21");
   await expect(page.getByTestId("map-region")).not.toHaveAttribute("aria-busy", "true");
+  await expect(page.getByTestId("count-refine")).toHaveCount(0);
+  await expect
+    .poll(() => page.evaluate(() => window.__spokesMapStats?.().busyLayerMounted))
+    .toBe(false);
 
   // Said: the row exists at once, in the person's words, dashed and busy.
   await page.getByTestId("pill-outdoor-seating").click();
@@ -1671,6 +1718,25 @@ test("a need said is pending until the room settles it, and busy rings mark plac
   await expect
     .poll(() => page.evaluate(() => window.__spokesMapStats?.().busyAnimating))
     .toBe(true);
+  await expect
+    .poll(() => page.evaluate(() => window.__spokesMapStats?.().busyLayerMounted))
+    .toBe(true);
+  // The loop turning is not the point — an updated image only reaches the
+  // atlas inside a render pass, so the map must actually be repainting while
+  // a place is busy, on a camera nobody is touching (W5).
+  const busyStart = await page.evaluate(() => window.__spokesMapStats!());
+  await expect
+    .poll(() => page.evaluate(() => window.__spokesMapStats?.().busyRepaints))
+    .toBeGreaterThan(busyStart.busyRepaints);
+  // Sample after the settle transitions have finished, so what is left is the
+  // ring asking for frames and nothing else. Without triggerRepaint the map
+  // sits idle here and the ring never turns, however hard the loop spins.
+  await page.waitForTimeout(900);
+  const turning = await page.evaluate(() => window.__spokesMapStats!().mapRenders);
+  await page.waitForTimeout(500);
+  expect(
+    (await page.evaluate(() => window.__spokesMapStats!().mapRenders)) - turning,
+  ).toBeGreaterThan(10);
 
   // Committed: the real row takes over, still pending while the room looks.
   const row = page.getByTestId("need-mock-pill");
@@ -1687,6 +1753,20 @@ test("a need said is pending until the room settles it, and busy rings mark plac
   await expect
     .poll(() => page.evaluate(() => window.__spokesMapStats?.().busyAnimating))
     .toBe(false);
+  await expect
+    .poll(() => page.evaluate(() => window.__spokesMapStats?.().busyLayerMounted))
+    .toBe(false);
+  // And once the settle has run, the map goes quiet again: no busy id, no
+  // loop, nothing asking for another frame.
+  await page.waitForTimeout(1200);
+  const settledRenders = await page.evaluate(() => window.__spokesMapStats!().mapRenders);
+  await page.waitForTimeout(500);
+  expect(
+    (await page.evaluate(() => window.__spokesMapStats!().mapRenders)) - settledRenders,
+  ).toBeLessThan(5);
+  const stoppedRepaints = await page.evaluate(() => window.__spokesMapStats!().busyRepaints);
+  await page.waitForTimeout(150);
+  expect(await page.evaluate(() => window.__spokesMapStats!().busyRepaints)).toBe(stoppedRepaints);
   await expect(page.getByTestId("count-busy")).toHaveCount(0);
   await expect(row).not.toHaveAttribute("data-pending", "true");
   await expect(row).toContainText("−2");
@@ -1875,6 +1955,58 @@ test("two places a few metres apart are both reachable by tapping their own dot"
   }
 });
 
+test("pin taps select once without moving the camera, while an explicit show-me focus moves it", async ({ page }) => {
+  const context = fixture({ matching: 4, revision: 46, radiusM: 1400 });
+  await mockApi(page, { context, outstanding: [] });
+  await page.goto(`${BASE}/?shim=webmcp#invite=deadbeef`);
+  await closeDrawer(page);
+  await expect(page.getByTestId("map-region")).toHaveAttribute("data-loaded", "true", {
+    timeout: 20_000,
+  });
+
+  const focus = (candidateId: string) =>
+    page.evaluate(async (id) => {
+      const shim = (window as never as {
+        __webmcpTestShim: { executeTool(name: string, args: string): Promise<unknown> };
+      }).__webmcpTestShim;
+      return shim.executeTool("focus_destination", JSON.stringify({ candidateId: id }));
+    }, candidateId);
+  const first = context.candidates.find((candidate) => candidate.candidateId === "place_1")!;
+  // About 250 m from the first: visibly different, but reliably inside the
+  // zoom-15 viewport so this is a real marker tap rather than an offscreen force.
+  const second = context.candidates.find((candidate) => candidate.candidateId === "place_18")!;
+
+  const firstFocus = await focus(first.candidateId);
+  const firstFocusText = (firstFocus as { content: Array<{ text: string }> }).content[0].text;
+  expect(JSON.parse(firstFocusText)).toMatchObject({ ok: true });
+  await expect
+    .poll(() => page.evaluate(() => window.__spokesMapStats?.().focusNonce))
+    .toBe(1);
+  await expect
+    .poll(() => page.evaluate(() => window.__spokesMapStats?.().center[0]))
+    .toBeCloseTo(first.location.lng, 5);
+  await expect(page.getByTestId("place-details")).toHaveAttribute("aria-label", first.name);
+  await page.getByTestId("details-close").click();
+  const beforeTap = await page.evaluate(() => window.__spokesMapStats!());
+
+  await page.getByTestId(`pin-${second.candidateId}`).click({ force: true });
+  await expect(page.getByTestId("place-details")).toHaveAttribute("aria-label", second.name);
+  await expect
+    .poll(() => page.evaluate(() => window.__spokesMapStats?.().selectionDispatches))
+    .toBe(beforeTap.selectionDispatches + 1);
+  await expect(page.getByTestId("explore-card")).toHaveCount(0);
+  await page.waitForTimeout(750);
+  const afterTap = await page.evaluate(() => window.__spokesMapStats!());
+  expect(afterTap.center[0]).toBeCloseTo(beforeTap.center[0], 8);
+  expect(afterTap.center[1]).toBeCloseTo(beforeTap.center[1], 8);
+  expect(afterTap.zoom).toBeCloseTo(beforeTap.zoom, 8);
+
+  await focus(second.candidateId);
+  await expect
+    .poll(() => page.evaluate(() => window.__spokesMapStats?.().center[0]))
+    .toBeCloseTo(second.location.lng, 5);
+});
+
 test("the page says what the map is as of once the browser goes offline, and drops the line when the link is back", async ({ page, context }) => {
   const state: MockState = { context: fixture({ matching: 4, revision: 12 }), outstanding: [] };
   await mockApi(page, state);
@@ -1921,6 +2053,7 @@ test("the room says what it is refining, a question need shows it was looked up,
   };
   const state: MockState = { context, outstanding: [] };
   await mockApi(page, state);
+  let outdoorStatus: "verified_true" | "verified_false" = "verified_true";
   await page.route("**/api/spatial/inspect", (route) =>
     route.fulfill({
       contentType: "application/json",
@@ -1935,6 +2068,10 @@ test("the room says what it is refining, a question need shows it was looked up,
             category: "cafe",
             priceLevel: null,
             hours: [],
+            links: [
+              { kind: "unsafe", label: "Unsafe", url: "javascript:alert(1)", source: "web:bad" },
+              { kind: "site", label: "Place site", url: "https://www.example.org", source: "web:example.org" },
+            ],
             needs: [
               { requirementId: "need-wifi", label: "free wifi", verdict: "likely", confidence: 0.5 },
             ],
@@ -1951,10 +2088,28 @@ test("the room says what it is refining, a question need shows it was looked up,
               },
               {
                 key: "q:ffffffffffffffffffffffffffffffffffffffff",
+                value: true,
                 status: "likely_false",
                 source: "infer:gpt-5.6-luna:open_web_search",
                 observedAt: "2026-09-03T00:00:00Z",
                 confidence: 0.5,
+              },
+              {
+                key: "outdoor-seating",
+                value: outdoorStatus === "verified_true",
+                status: outdoorStatus,
+                source: "infer:gpt-5.6-luna:venue_site",
+                observedAt: "2026-09-03T00:00:00Z",
+                confidence: 0.6,
+                sourceUrl: "javascript:alert(2)",
+              },
+              {
+                key: "wheelchair-accessible",
+                value: true,
+                status: "likely_true",
+                source: "infer:gpt-5.6-luna:domain_search",
+                observedAt: "2026-09-03T00:00:00Z",
+                confidence: 0.55,
               },
             ],
             mapRevision: 1,
@@ -2005,18 +2160,51 @@ test("the room says what it is refining, a question need shows it was looked up,
   await expect(cite).toHaveAttribute("rel", /noopener/);
   const citeBox = await cite.boundingBox();
   expect(citeBox && citeBox.height).toBeGreaterThanOrEqual(44);
-  // A question nobody in this view may see (no label) stays out of the record.
-  await expect(details.getByTestId("facts")).toHaveCount(0);
+  // A question nobody in this view may see (no label) stays out of the record
+  // and does not inflate the unknown count, even when it carries an answer.
+  const facts = details.getByTestId("facts");
+  await expect(facts.getByTestId("facts-unknown")).toHaveCount(0);
   await expect(details).not.toContainText(/q:|infer:|open_web/);
+  await expect(
+    facts.locator('.attr-row[data-status="verified_true"]').filter({ hasText: "outdoor seating" }),
+  ).toHaveAttribute("title", "read on the place's own site");
+  await expect(
+    facts.locator('.attr-row[title="found by searching the place\'s site"]'),
+  ).toHaveAttribute("title", "found by searching the place's site");
+  await expect(facts.locator(".fact-cite")).toHaveCount(0);
+  await expect(details.getByTestId("links").getByRole("link")).toHaveCount(1);
+  await expect(details.getByTestId("links")).not.toContainText("Unsafe");
 
-  // Out of budget reads as paused, never as a failure.
-  (state.context as MockContext & { refine?: { budgetLeft: { calls: number } } }).refine!.budgetLeft.calls = 0;
+  // Only a facts-driven status change opts rows into the settle transition.
+  await expect(details).not.toHaveAttribute("data-facts-settling", "true");
+  outdoorStatus = "verified_false";
+  socket.send({ type: "facts", candidateIds: ["place_24"], reason: "inference" });
+  await expect(details).toHaveAttribute("data-facts-settling", "true");
+  await expect(
+    facts.locator('.attr-row[data-status="verified_false"]').filter({ hasText: "outdoor seating" }),
+  ).toBeVisible();
+  await expect(details).not.toHaveAttribute("data-facts-settling", "true");
+
+  // The server's full queue can exceed this hour's reach. In that case the
+  // room keeps its in-progress register but drops the un-actionable promise.
+  const refine = (state.context as MockContext & {
+    refine: { queued: number; budgetLeft: { calls: number; searches: number } };
+  }).refine;
+  refine.queued = 2_500;
+  socket.send({ type: "facts", candidateIds: [], reason: "inference" });
+  await expect(refineLine).toHaveText("checked 84 places for 1 need");
+  socket.send({ type: "lookups", pending: ["place_1", "place_2"], reason: { kind: "refine" } });
+  await expect(page.getByTestId("count-busy")).toHaveText("looking up 2");
+  socket.send({ type: "lookups", pending: [] });
+
+  // Either exhausted budget pauses the line; searches normally run out first.
+  refine.budgetLeft.searches = 0;
   socket.send({ type: "facts", candidateIds: ["place_24"], reason: "inference" });
   await expect(refineLine).toHaveText("paused for now");
 });
 
 test("the refinement line and the fact rows are still under reduced motion", async ({ browser }) => {
-  const context = await browser.newContext({ reducedMotion: "reduce" });
+  const context = await browser.newContext({ reducedMotion: "reduce", deviceScaleFactor: 3 });
   const page = await context.newPage();
   const ctx = fixture({ matching: 4, revision: 51 });
   (ctx as MockContext & { refine?: unknown }).refine = {
@@ -2035,9 +2223,13 @@ test("the refinement line and the fact rows are still under reduced motion", asy
   await expect
     .poll(() => page.evaluate(() => window.__spokesMapStats?.().busyAnimating))
     .toBe(false);
+  await expect
+    .poll(() => page.evaluate(() => window.__spokesMapStats?.().ringPixelRatio))
+    .toBe(3);
   const settle = await page.evaluate(() =>
     getComputedStyle(document.documentElement).getPropertyValue("--spoke-dur-settle").trim(),
   );
   expect(settle).toBe("0ms");
   await context.close();
 });
+

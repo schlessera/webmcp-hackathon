@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Layer, Map, Marker, Source, type MapRef } from "@vis.gl/react-maplibre";
 import "maplibre-gl/dist/maplibre-gl.css";
 import "../map-worker.ts";
@@ -60,6 +60,25 @@ const MARK_DASH_IMAGE = "spokes-mark-dash";
 const MARK_BUSY_IMAGE = "spokes-mark-busy";
 const DOM_MARKER_CAP = 60;
 const MARK_SOURCE_MAX_ZOOM = 12;
+const PLACE_COLLATOR = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+const GL_MARK_RADIUS = {
+  out: 4,
+  unsure: 8,
+  unlikely: 6,
+  likely: 5.5,
+  return: 7,
+  act: 9.5,
+  works: 7.5,
+} as const;
+
+function displayPixelRatio(): number {
+  if (typeof window === "undefined") return 1;
+  return Math.min(3, Math.max(1, Math.round(window.devicePixelRatio || 1)));
+}
+
+function ringImageId(base: string, pixelRatio: number): string {
+  return `${base}-${pixelRatio}x`;
+}
 
 declare global {
   interface Window {
@@ -70,6 +89,13 @@ declare global {
       center: [number, number];
       zoom: number;
       busyAnimating: boolean;
+      busyLayerMounted: boolean;
+      busyRepaints: number;
+      mapRenders: number;
+      ringPixelRatio: number;
+      selectionDispatches: number;
+      markRadii: typeof GL_MARK_RADIUS;
+      focusNonce: number;
       settleDuration: number;
       transitionDuration: number;
       selected: string | null;
@@ -284,14 +310,41 @@ export function MapView({
   const mapRef = useRef<MapRef>(null);
   const { scope, candidates, proposals } = context;
   const center = scope.area.center;
+  const selectedIdRef = useRef(selectedId);
+  const candidatesRef = useRef(candidates);
+  const onSelectRef = useRef(onSelect);
+  const selectionDispatches = useRef(0);
+  selectedIdRef.current = selectedId;
+  candidatesRef.current = candidates;
+  onSelectRef.current = onSelect;
+  const dispatchSelect = useCallback((candidateId: string | null) => {
+    selectionDispatches.current += 1;
+    onSelectRef.current(candidateId);
+  }, []);
 
   const [viewportWidth, setViewportWidth] = useState(() =>
     typeof window === "undefined" ? 1024 : window.innerWidth,
   );
+  const [ringPixelRatio, setRingPixelRatio] = useState(displayPixelRatio);
   useEffect(() => {
-    const onResize = () => setViewportWidth(window.innerWidth);
+    let resolution: MediaQueryList | null = null;
+    const onResize = () => {
+      setViewportWidth(window.innerWidth);
+      setRingPixelRatio(displayPixelRatio());
+    };
+    const onResolutionChange = () => {
+      resolution?.removeEventListener("change", onResolutionChange);
+      setRingPixelRatio(displayPixelRatio());
+      resolution = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
+      resolution.addEventListener("change", onResolutionChange);
+    };
+    resolution = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
+    resolution.addEventListener("change", onResolutionChange);
     window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
+    return () => {
+      resolution?.removeEventListener("change", onResolutionChange);
+      window.removeEventListener("resize", onResize);
+    };
   }, []);
 
   /* Label placement is screen-space, so it is re-resolved when the user has
@@ -308,6 +361,10 @@ export function MapView({
   const refineAnnouncedAt = useRef(0);
   const busyAnimating = useRef(false);
   const busyFrame = useRef<number | null>(null);
+  const busyRepaints = useRef(0);
+  const mapRenders = useRef(0);
+  const busyRef = useRef(busy);
+  busyRef.current = busy;
   useEffect(() => {
     const preference = window.matchMedia("(prefers-reduced-motion: reduce)");
     const readMotion = () => {
@@ -428,18 +485,28 @@ export function MapView({
     }
   }, [centerKey, localScopeCenterKey]);
 
-  /* Explicit user actions only: opening a place from a card, or the
-     `focus_destination` tool ("show me"). Pin selection does not fly. */
+  /* Explicit `focus_destination` ("show me") actions only. Opening a place
+     from any map mark changes the panel without moving the viewport. */
   useEffect(() => {
-    if (!selectedId || focusNonce === 0) return;
-    const c = candidates.find((v) => v.candidateId === selectedId);
-    if (!c) return;
-    mapRef.current?.flyTo({
-      center: [c.location.lng, c.location.lat],
-      zoom: Math.max(mapRef.current?.getZoom() ?? 14, 15),
-      duration: 600,
+    if (focusNonce === 0) return;
+    let focusFrame: number | null = null;
+    const layoutFrame = requestAnimationFrame(() => {
+      focusFrame = requestAnimationFrame(() => {
+        const focusedId = selectedIdRef.current;
+        const c = candidatesRef.current.find((candidate) => candidate.candidateId === focusedId);
+        if (!c) return;
+        mapRef.current?.flyTo({
+          center: [c.location.lng, c.location.lat],
+          zoom: Math.max(mapRef.current?.getZoom() ?? 14, 15),
+          duration: 600,
+        });
+      });
     });
-  }, [focusNonce, selectedId]);
+    return () => {
+      cancelAnimationFrame(layoutFrame);
+      if (focusFrame !== null) cancelAnimationFrame(focusFrame);
+    };
+  }, [focusNonce]);
 
   /* Dense clusters: 44px tap boxes overlap long before dots do, and z-order
      alone would hand every tap in an overlap to the topmost box. A tap goes
@@ -865,7 +932,8 @@ export function MapView({
     () =>
       candidates
         .map((candidate) =>
-          `${candidate.candidateId}:${sortKeyOf(bakedStateOf(candidate))}:${candidate.eligibility}`,
+          `${candidate.candidateId}:${sortKeyOf(bakedStateOf(candidate))}:${candidate.eligibility}:` +
+          `${candidate.name}:${candidate.location.lng.toFixed(6)},${candidate.location.lat.toFixed(6)}`,
         )
         .sort()
         .join("\n"),
@@ -914,7 +982,6 @@ export function MapView({
         const state = stateOf(candidate);
         const featureState = {
           status: glStatusOf(state),
-          selected: state === "selected" || state === "settled",
           busy: busy.has(candidate.candidateId),
           hidden: domCandidateIds.has(candidate.candidateId),
         };
@@ -927,6 +994,10 @@ export function MapView({
         );
       }
     };
+    const candidateIds = new Set(candidates.map((candidate) => candidate.candidateId));
+    for (const id of previousMarkState.current.keys()) {
+      if (!candidateIds.has(id)) map.removeFeatureState({ source: "marks", id });
+    }
     apply(sourceChanged);
     previousMarkState.current = next;
     previousMarksDataKey.current = marksDataKey;
@@ -943,21 +1014,57 @@ export function MapView({
     if (!map) return;
     const dashCanvas = document.createElement("canvas");
     const busyCanvas = document.createElement("canvas");
+    const dashImage = ringImageId(MARK_DASH_IMAGE, ringPixelRatio);
+    const busyImage = ringImageId(MARK_BUSY_IMAGE, ringPixelRatio);
     const resolveImage = (id: string) => {
       if (map.hasImage(id)) return;
-      if (id === MARK_DASH_IMAGE) {
-        map.addImage(id, ringImage(dashCanvas, 36, 3, [6, 5]), { sdf: true, pixelRatio: 2 });
-      } else if (id === MARK_BUSY_IMAGE) {
-        map.addImage(id, ringImage(busyCanvas, 56, 3, [7, 6]), { sdf: true, pixelRatio: 2 });
+      if (id === dashImage) {
+        map.addImage(
+          id,
+          ringImage(
+            dashCanvas,
+            18 * ringPixelRatio,
+            1.5 * ringPixelRatio,
+            [3 * ringPixelRatio, 2.5 * ringPixelRatio],
+          ),
+          { sdf: true, pixelRatio: ringPixelRatio },
+        );
+      } else if (id === busyImage) {
+        map.addImage(
+          id,
+          ringImage(
+            busyCanvas,
+            28 * ringPixelRatio,
+            1.5 * ringPixelRatio,
+            [3.5 * ringPixelRatio, 3 * ringPixelRatio],
+          ),
+          { sdf: true, pixelRatio: ringPixelRatio },
+        );
       }
     };
     map.setMissingStyleImageResolver(resolveImage);
     // Register through the same resolver now as well: the child layers may
     // already have asked for their images in the map's load turn.
-    resolveImage(MARK_DASH_IMAGE);
-    resolveImage(MARK_BUSY_IMAGE);
+    resolveImage(dashImage);
+    resolveImage(busyImage);
     return () => {
       map.setMissingStyleImageResolver(null);
+    };
+  }, [loaded, ringPixelRatio]);
+
+  useEffect(() => {
+    if (!loaded) return;
+    const map = mapRef.current?.getMap();
+    if (!map) return;
+    // A render pass is where an updated image actually reaches the atlas, so
+    // counting passes is the only way to tell a turning ring from a rAF loop
+    // burning canvas work against a static map (W5).
+    const countRender = () => {
+      mapRenders.current += 1;
+    };
+    map.on("render", countRender);
+    return () => {
+      map.off("render", countRender);
     };
   }, [loaded]);
 
@@ -966,6 +1073,15 @@ export function MapView({
     const map = mapRef.current?.getMap();
     if (!map) return;
     const canvas = document.createElement("canvas");
+    const busyImage = ringImageId(MARK_BUSY_IMAGE, ringPixelRatio);
+    const busyRing = (angle: number) =>
+      ringImage(
+        canvas,
+        28 * ringPixelRatio,
+        1.5 * ringPixelRatio,
+        [3.5 * ringPixelRatio, 3 * ringPixelRatio],
+        angle,
+      );
     const cancel = () => {
       if (busyFrame.current !== null) cancelAnimationFrame(busyFrame.current);
       busyFrame.current = null;
@@ -974,22 +1090,30 @@ export function MapView({
     cancel();
     if (busy.size === 0) return cancel;
     if (motion.reduced || motion.busyMs <= 0) {
-      if (map.hasImage(MARK_BUSY_IMAGE)) {
-        map.updateImage(MARK_BUSY_IMAGE, ringImage(canvas, 56, 3, [7, 6], 0));
+      if (map.hasImage(busyImage)) {
+        map.updateImage(busyImage, busyRing(0));
+        map.triggerRepaint();
+        busyRepaints.current += 1;
       }
       return cancel;
     }
     busyAnimating.current = true;
     const draw = (now: number) => {
-      if (map.hasImage(MARK_BUSY_IMAGE)) {
+      if (busyRef.current.size === 0) {
+        cancel();
+        return;
+      }
+      if (map.hasImage(busyImage)) {
         const angle = ((now % motion.busyMs) / motion.busyMs) * Math.PI * 2;
-        map.updateImage(MARK_BUSY_IMAGE, ringImage(canvas, 56, 3, [7, 6], angle));
+        map.updateImage(busyImage, busyRing(angle));
+        map.triggerRepaint();
+        busyRepaints.current += 1;
       }
       busyFrame.current = requestAnimationFrame(draw);
     };
     busyFrame.current = requestAnimationFrame(draw);
     return cancel;
-  }, [loaded, busy, motion.reduced, motion.busyMs]);
+  }, [loaded, busy, motion.reduced, motion.busyMs, ringPixelRatio]);
 
   useEffect(() => {
     const stats = () => {
@@ -1011,6 +1135,13 @@ export function MapView({
         center: [mapCenter?.lng ?? center.lng, mapCenter?.lat ?? center.lat] as [number, number],
         zoom: map?.getZoom() ?? 14,
         busyAnimating: busyAnimating.current,
+        busyLayerMounted: Boolean(map?.getLayer("mark-busy")),
+        busyRepaints: busyRepaints.current,
+        mapRenders: mapRenders.current,
+        ringPixelRatio,
+        selectionDispatches: selectionDispatches.current,
+        markRadii: GL_MARK_RADIUS,
+        focusNonce,
         settleDuration: motion.settleMs,
         transitionDuration: transition?.duration ?? 0,
         selected: selectedId,
@@ -1034,6 +1165,8 @@ export function MapView({
     center.lat,
     center.lng,
     motion.settleMs,
+    ringPixelRatio,
+    focusNonce,
     selectedId,
   ]);
 
@@ -1043,8 +1176,8 @@ export function MapView({
         .filter((candidate) => distanceMeters(center, candidate.location) <= scope.area.radiusM + 1)
         .sort(
           (a, b) =>
-            a.name.localeCompare(b.name) ||
-            a.candidateId.localeCompare(b.candidateId),
+            PLACE_COLLATOR.compare(a.name, b.name) ||
+            PLACE_COLLATOR.compare(a.candidateId, b.candidateId),
         ),
     [candidates, center.lat, center.lng, scope.area.radiusM],
   );
@@ -1058,13 +1191,76 @@ export function MapView({
     setRovingCandidateId(keyboardCandidates[0]?.candidateId ?? null);
   }, [keyboardCandidates, rovingCandidateId]);
 
-  const moveKeyboardCandidate = (currentId: string, direction: number) => {
+  const moveKeyboardCandidate = useCallback((currentId: string, direction: number) => {
     const index = keyboardCandidates.findIndex((candidate) => candidate.candidateId === currentId);
     if (index < 0 || keyboardCandidates.length === 0) return;
     const next = keyboardCandidates[(index + direction + keyboardCandidates.length) % keyboardCandidates.length];
     setRovingCandidateId(next.candidateId);
     keyboardCandidateRefs.current.get(next.candidateId)?.focus();
-  };
+  }, [keyboardCandidates]);
+  const keyboardRefCallbacks = useRef(
+    new globalThis.Map<string, (element: HTMLButtonElement | null) => void>(),
+  );
+  const keyboardRefFor = useCallback((candidateId: string) => {
+    let callback = keyboardRefCallbacks.current.get(candidateId);
+    if (!callback) {
+      callback = (element) => {
+        if (element) keyboardCandidateRefs.current.set(candidateId, element);
+        else keyboardCandidateRefs.current.delete(candidateId);
+      };
+      keyboardRefCallbacks.current.set(candidateId, callback);
+    }
+    return callback;
+  }, []);
+  useEffect(() => {
+    const currentIds = new Set(keyboardCandidates.map((candidate) => candidate.candidateId));
+    for (const id of keyboardRefCallbacks.current.keys()) {
+      if (!currentIds.has(id)) keyboardRefCallbacks.current.delete(id);
+    }
+  }, [keyboardCandidates]);
+  const keyboardList = useMemo(
+    () =>
+      keyboardCandidates.map((candidate) => {
+        const state = markerStates.get(candidate.candidateId) ?? "out";
+        return (
+          <li key={candidate.candidateId}>
+            <button
+              ref={keyboardRefFor(candidate.candidateId)}
+              type="button"
+              tabIndex={rovingCandidateId === candidate.candidateId ? 0 : -1}
+              data-testid={`keyboard-place-${candidate.candidateId}`}
+              onFocus={() => setRovingCandidateId(candidate.candidateId)}
+              onClick={() => dispatchSelect(candidate.candidateId)}
+              onKeyDown={(event) => {
+                if (event.key === "ArrowDown" || event.key === "ArrowRight") {
+                  event.preventDefault();
+                  moveKeyboardCandidate(candidate.candidateId, 1);
+                } else if (event.key === "ArrowUp" || event.key === "ArrowLeft") {
+                  event.preventDefault();
+                  moveKeyboardCandidate(candidate.candidateId, -1);
+                } else if (event.key === "Home" && keyboardCandidates[0]) {
+                  event.preventDefault();
+                  const first = keyboardCandidates[0].candidateId;
+                  setRovingCandidateId(first);
+                  keyboardCandidateRefs.current.get(first)?.focus();
+                } else if (event.key === "End" && keyboardCandidates.at(-1)) {
+                  event.preventDefault();
+                  const last = keyboardCandidates.at(-1)!.candidateId;
+                  setRovingCandidateId(last);
+                  keyboardCandidateRefs.current.get(last)?.focus();
+                } else if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  dispatchSelect(candidate.candidateId);
+                }
+              }}
+            >
+              {candidate.name} — {STATE_LABEL[state]}
+            </button>
+          </li>
+        );
+      }),
+    [dispatchSelect, keyboardCandidates, keyboardRefFor, markerStates, moveKeyboardCandidate, rovingCandidateId],
+  );
 
   const explorePlaces = useMemo(() => {
     const refs = new Set(candidates.flatMap((candidate) => candidate.ref ? [candidate.ref] : []));
@@ -1073,7 +1269,15 @@ export function MapView({
     );
   }, [explore, candidates]);
   const exploreMembershipKey = useMemo(
-    () => [...explore.keys()].sort().join("\n"),
+    () =>
+      [...explore.values()]
+        .map(
+          (place) =>
+            `${place.ref}:${place.name}:${place.category}:` +
+            `${place.location.lng.toFixed(6)},${place.location.lat.toFixed(6)}`,
+        )
+        .sort()
+        .join("\n"),
     [explore],
   );
   const exploreGeoJson = useMemo(
@@ -1237,10 +1441,14 @@ export function MapView({
      place someone opened (the panel says that). */
   const busyCount = busy.size;
   const refine = context.refine;
+  /* `queued` currently includes work beyond the active tier. Do not promise
+     a count the remaining hourly search budget cannot reach. */
+  const reachableRefineQueue =
+    refine && refine.queued <= refine.budgetLeft.searches ? refine.queued : 0;
   const lookupLine =
     busyCount > 0 && busyReason?.kind !== "place"
       ? busyReason?.kind === "refine"
-        ? COPY.lookingUpMany(busyCount, refine?.queued ?? 0)
+        ? COPY.lookingUpMany(busyCount, reachableRefineQueue)
         : busyReason?.kind === "need" && busyReason.label
           ? `checking ${busyCount} for ${busyReason.label}`
           : `checking ${busyCount} place${busyCount === 1 ? "" : "s"}`
@@ -1258,9 +1466,9 @@ export function MapView({
      quiet, under the count. Out of budget reads as paused, never as an
      error — nothing is wrong, the room is waiting its turn. */
   const refineLine = refine?.active
-    ? refine.budgetLeft.calls === 0
+    ? refine.budgetLeft.calls === 0 || refine.budgetLeft.searches === 0
       ? COPY.refinePaused
-      : COPY.refining(refine.checkedToday, statedNeeds.length, refine.queued)
+      : COPY.refining(refine.checkedToday, statedNeeds.length, reachableRefineQueue)
     : null;
   const settled = committedId !== null;
   useEffect(() => {
@@ -1324,6 +1532,12 @@ export function MapView({
         }}
         onMoveEnd={viewportSettled}
         onClick={(event) => {
+          // A marker handles its own tap. Maplibre binds click on the canvas
+          // container that markers are appended into, so without this the map
+          // would get a second go at a tap the card already answered (W6).
+          // Not reproducible today — @vis.gl's Marker stops the native event
+          // first — so this is a guard against that changing, not a live fix.
+          if ((event.originalEvent.target as Element | null)?.closest?.(".maplibregl-marker")) return;
           const map = mapRef.current;
           const box: [[number, number], [number, number]] = [
             [event.point.x - TAP_REACH, event.point.y - TAP_REACH],
@@ -1354,7 +1568,7 @@ export function MapView({
           }
           if (candidateId) {
             setSelectedExploreRef(null);
-            onSelect(candidateId);
+            dispatchSelect(candidateId);
             return;
           }
 
@@ -1390,12 +1604,12 @@ export function MapView({
           }
           if (typeof ref === "string") {
             focusExploreAction.current = false;
-            onSelect(null);
+            dispatchSelect(null);
             setSelectedExploreRef(ref);
             return;
           }
           setSelectedExploreRef(null);
-          onSelect(null);
+          dispatchSelect(null);
         }}
       >
         <Source id="explore" type="geojson" data={exploreGeoJson} promoteId="ref">
@@ -1472,18 +1686,20 @@ export function MapView({
             paint={{
               "circle-radius": [
                 "match", ["feature-state", "status"],
-                "out", 4,
-                "unsure", 8,
-                "unlikely", 6,
-                "likely", 5.5,
-                "return", 5.5,
-                7.5,
+                "out", GL_MARK_RADIUS.out,
+                "unsure", GL_MARK_RADIUS.unsure,
+                "unlikely", GL_MARK_RADIUS.unlikely,
+                "likely", GL_MARK_RADIUS.likely,
+                "return", GL_MARK_RADIUS.return,
+                "act", GL_MARK_RADIUS.act,
+                GL_MARK_RADIUS.works,
               ],
               "circle-color": [
                 "match", ["feature-state", "status"],
                 "out", MAP_THEME.marks.out,
                 "unsure", MAP_THEME.marks.surface,
                 "unlikely", MAP_THEME.marks.surface,
+                "return", MAP_THEME.marks.surface,
                 "act", MAP_THEME.marks.act,
                 MAP_THEME.marks.works,
               ],
@@ -1496,6 +1712,7 @@ export function MapView({
               "circle-stroke-color": [
                 "match", ["feature-state", "status"],
                 "unsure", MAP_THEME.marks.unsure,
+                "return", MAP_THEME.marks.works,
                 "act", MAP_THEME.marks.surface,
                 "works", MAP_THEME.marks.surface,
                 MAP_THEME.marks.surface,
@@ -1503,7 +1720,8 @@ export function MapView({
               "circle-stroke-width": [
                 "match", ["feature-state", "status"],
                 "unsure", 2.5,
-                "act", 2.5,
+                "return", 0,
+                "act", 3,
                 "works", 2.5,
                 0,
               ],
@@ -1519,7 +1737,7 @@ export function MapView({
             type="symbol"
             filter={["==", ["get", "dashed"], true]}
             layout={{
-              "icon-image": MARK_DASH_IMAGE,
+              "icon-image": ringImageId(MARK_DASH_IMAGE, ringPixelRatio),
               "icon-allow-overlap": true,
               "icon-ignore-placement": true,
               "symbol-sort-key": ["get", "sortKey"],
@@ -1543,37 +1761,36 @@ export function MapView({
               ],
             }}
           />
-          {/* MapLibre forbids feature-state in layer filters. Busy therefore
-              uses the equivalent paint gate below, avoiding a source swap
-              every time a lookup starts or ends. */}
-          <Layer
-            id="mark-busy"
-            type="symbol"
-            layout={{
-              "icon-image": MARK_BUSY_IMAGE,
-              "icon-allow-overlap": true,
-              "icon-ignore-placement": true,
-            }}
-            paint={{
-              "icon-color": [
-                "match", ["feature-state", "status"],
-                "out", MAP_THEME.marks.out,
-                "unsure", MAP_THEME.marks.unsure,
-                "unlikely", MAP_THEME.marks.unsure,
-                "act", MAP_THEME.marks.act,
-                MAP_THEME.marks.works,
-              ],
-              "icon-opacity": [
-                "case",
-                ["all",
-                  ["boolean", ["feature-state", "busy"], false],
-                  ["!", ["boolean", ["feature-state", "hidden"], false]],
+          {busy.size > 0 && (
+            <Layer
+              id="mark-busy"
+              type="symbol"
+              layout={{
+                "icon-image": ringImageId(MARK_BUSY_IMAGE, ringPixelRatio),
+                "icon-allow-overlap": true,
+                "icon-ignore-placement": true,
+              }}
+              paint={{
+                "icon-color": [
+                  "match", ["feature-state", "status"],
+                  "out", MAP_THEME.marks.out,
+                  "unsure", MAP_THEME.marks.unsure,
+                  "unlikely", MAP_THEME.marks.unsure,
+                  "act", MAP_THEME.marks.act,
+                  MAP_THEME.marks.works,
                 ],
-                1,
-                0,
-              ],
-            }}
-          />
+                "icon-opacity": [
+                  "case",
+                  ["all",
+                    ["boolean", ["feature-state", "busy"], false],
+                    ["!", ["boolean", ["feature-state", "hidden"], false]],
+                  ],
+                  1,
+                  0,
+                ],
+              }}
+            />
+          )}
         </Source>
         {domCandidates.map((c) => {
           const state = stateOf(c);
@@ -1619,12 +1836,12 @@ export function MapView({
                   // card that happens to cover a neighbour's dot must not
                   // swallow that neighbour's tap (§13). A tap on the card's
                   // text, away from every dot, means the card's place.
-                  onSelect(nearestTo(e.clientX, e.clientY) ?? c.candidateId);
+                  dispatchSelect(nearestTo(e.clientX, e.clientY) ?? c.candidateId);
                 }}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" || e.key === " ") {
                     e.preventDefault();
-                    onSelect(c.candidateId);
+                    dispatchSelect(c.candidateId);
                   }
                 }}
               >
@@ -1748,48 +1965,7 @@ export function MapView({
       )}
 
       <ul className="sr-only candidate-keyboard-list" aria-label="Places on the map">
-        {keyboardCandidates.map((candidate) => {
-          const state = stateOf(candidate);
-          return (
-            <li key={candidate.candidateId}>
-              <button
-                ref={(element) => {
-                  if (element) keyboardCandidateRefs.current.set(candidate.candidateId, element);
-                  else keyboardCandidateRefs.current.delete(candidate.candidateId);
-                }}
-                type="button"
-                tabIndex={rovingCandidateId === candidate.candidateId ? 0 : -1}
-                data-testid={`keyboard-place-${candidate.candidateId}`}
-                onFocus={() => setRovingCandidateId(candidate.candidateId)}
-                onClick={() => onSelect(candidate.candidateId)}
-                onKeyDown={(event) => {
-                  if (event.key === "ArrowDown" || event.key === "ArrowRight") {
-                    event.preventDefault();
-                    moveKeyboardCandidate(candidate.candidateId, 1);
-                  } else if (event.key === "ArrowUp" || event.key === "ArrowLeft") {
-                    event.preventDefault();
-                    moveKeyboardCandidate(candidate.candidateId, -1);
-                  } else if (event.key === "Home" && keyboardCandidates[0]) {
-                    event.preventDefault();
-                    const first = keyboardCandidates[0].candidateId;
-                    setRovingCandidateId(first);
-                    keyboardCandidateRefs.current.get(first)?.focus();
-                  } else if (event.key === "End" && keyboardCandidates.at(-1)) {
-                    event.preventDefault();
-                    const last = keyboardCandidates.at(-1)!.candidateId;
-                    setRovingCandidateId(last);
-                    keyboardCandidateRefs.current.get(last)?.focus();
-                  } else if (event.key === "Enter" || event.key === " ") {
-                    event.preventDefault();
-                    onSelect(candidate.candidateId);
-                  }
-                }}
-              >
-                {candidate.name} — {STATE_LABEL[state]}
-              </button>
-            </li>
-          );
-        })}
+        {keyboardList}
       </ul>
 
       {/* MapLibre circle layers are not focusable. One compact native control
@@ -1802,7 +1978,7 @@ export function MapView({
           onChange={(event) => {
             if (event.target.value) {
               focusExploreAction.current = true;
-              onSelect(null);
+              dispatchSelect(null);
               setSelectedExploreRef(event.target.value);
             }
           }}

@@ -342,19 +342,19 @@ body { overflow: hidden; }
     border-color var(--spoke-dur-settle) var(--spoke-ease);
 }
 .marker[data-state="works"] .marker-dot,
-.marker[data-state="selected"] .marker-dot,
-.marker[data-state="return"] .marker-dot {
+.marker[data-state="selected"] .marker-dot {
   width: 15px; height: 15px;
   margin: -7.5px 0 0 -7.5px;
   background: var(--spoke-works);
   border: 2.5px solid var(--spoke-surface);
   opacity: 1;
 }
-.marker[data-state="proposed"] .marker-dot {
-  width: 15px; height: 15px;
-  margin: -7.5px 0 0 -7.5px;
+.marker[data-state="proposed"] .marker-dot,
+.marker[data-state="staged"] .marker-dot {
+  width: 19px; height: 19px;
+  margin: -9.5px 0 0 -9.5px;
   background: var(--spoke-act);
-  border: 2.5px solid var(--spoke-surface);
+  border: 3px solid var(--spoke-surface);
   opacity: 1;
 }
 .marker[data-state="unsure"] .marker-dot {
@@ -535,13 +535,6 @@ body { overflow: hidden; }
 
 /* staged — the organizer moved: act fill like proposed, "· staged", no
    breath (the decision is now on the page, not on the map). */
-.marker[data-state="staged"] .marker-dot {
-  width: 15px; height: 15px;
-  margin: -7.5px 0 0 -7.5px;
-  background: var(--spoke-act);
-  border: 2.5px solid var(--spoke-surface);
-  opacity: 1;
-}
 .marker[data-state="staged"] .sticker-box {
   --sticker-pad-block: 6px;
   --sticker-dot-pad: 7px;
@@ -560,12 +553,12 @@ body { overflow: hidden; }
    plate, act border, the name struck through, "ruled out" chip. The strike
    and the hollow dot carry the state without colour (§13). The place keeps
    its eligibility — a veto blocks agreement, it does not rule the place out
-   of the set — so the map dot stays the works size. */
+   of the set. Its larger action ring is distinct from works in greyscale. */
 .marker[data-state="vetoed"] .marker-dot {
-  width: 15px; height: 15px;
-  margin: -7.5px 0 0 -7.5px;
+  width: 19px; height: 19px;
+  margin: -9.5px 0 0 -9.5px;
   background: var(--spoke-surface);
-  border: 2.5px solid var(--spoke-act);
+  border: 3px solid var(--spoke-act);
   opacity: 1;
 }
 .marker[data-state="vetoed"] .sticker-box {
@@ -643,6 +636,13 @@ body { overflow: hidden; }
 .marker .marker-dot { z-index: 1; }
 
 /* would come back — dashed, breathing, only while a preview is held */
+.marker[data-state="return"] .marker-dot {
+  width: 18px; height: 18px;
+  margin: -9px 0 0 -9px;
+  background: var(--spoke-surface);
+  border: 2px dashed var(--spoke-works);
+  opacity: 1;
+}
 .marker[data-state="return"] .sticker-box {
   border-style: dashed;
   border-color: var(--spoke-works);
@@ -2294,13 +2294,14 @@ body { overflow: hidden; }
 }
 .sticker-box { position: relative; }
 .sticker-busy {
-  left: var(--sticker-anchor-x); top: 50%;
+  left: calc(var(--sticker-anchor-x) - var(--spoke-border)); top: 50%;
   width: 21px; height: 21px;
   margin: -10.5px 0 0 -10.5px;
 }
 .marker-sticker[data-side="right"] .sticker-busy {
-  right: var(--sticker-anchor-x);
+  right: calc(var(--sticker-anchor-x) - var(--spoke-border));
   left: auto;
+  margin-left: 0;
   margin-right: -10.5px;
 }
 .marker[data-busy="true"] .marker-busy { opacity: 1; }
@@ -2383,8 +2384,8 @@ body { overflow: hidden; }
 .fact-cite::after { content: " ↗"; color: var(--spoke-ink-ghost); }
 /* A fact that settles while the panel is open changes on the settle
    duration — colour and edge only, no movement. */
-.fact.attr-row,
-.check-row {
+.details[data-facts-settling="true"] .fact.attr-row,
+.details[data-facts-settling="true"] .check-row {
   transition:
     color var(--spoke-dur-settle) var(--spoke-ease),
     border-color var(--spoke-dur-settle) var(--spoke-ease),
