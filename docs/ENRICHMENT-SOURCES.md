@@ -241,7 +241,8 @@ more than eight candidates are considered:
 2. Wikidata P18, for a place whose OSM record carries a `wikidata` id;
 3. Wikimedia Commons file geosearch (`list=geosearch`, namespace 6) within
    40 m of the POI;
-4. vision-approved declarations from the place's own homepage.
+4. vision-approved declarations from the place's own homepage;
+5. at most one vision-approved page image from the homepage hero region.
 
 The first three sources are curated: a person associated the image with the
 record/place, or Commons metadata locates and names it. A nearby Commons file
@@ -262,13 +263,29 @@ rejected, and so are three narrower mistakes a live Berlin run produced:
 
 Generic words such as `cafe`, `restaurant`, `bar` and `hotel` never count
 towards a match on their own.
+For a place name that reduces to only one or two meaningful tokens, even a
+contiguous title match needs corroboration: either a category title carries
+the same contiguous place name, or the file title has a standalone venue-kind
+word. Besides ordinary kinds such as café, restaurant, bar, bakery, hotel,
+museum and shop, the list includes `food`, `pizza`, `terrace`, `interior` and
+`Innenansicht`. Those terms preserve pinned real Commons matches whose titles
+describe the setting without a generic business kind. Only whole normalized
+words count: `hotel` inside `Arcotel` does not corroborate `Velvet 52`.
 Accepted geosearch images retain the existing Commons Creative Commons
 licence and artist checks and read `photo near this place · <credit>`.
 
-The homepage contributes only explicit representative-image declarations:
+The homepage first contributes explicit representative-image declarations:
 `og:image`, `twitter:image`, schema.org `image` in JSON-LD or microdata, and
-`<link rel="image_src">`. Ordinary `<img>` elements are never candidates;
-there is no largest/first-fold fallback. A declared site candidate is rejected
+`<link rel="image_src">`. After curated and structured candidates have had
+their turn, it may contribute one ordinary page image: the largest declared
+image in a cheap hero-region approximation (complete `<header>` elements or
+the prefix through the first closing `section`, `main` or `article`, all
+within 256 KiB and 40 image tags). Declared width/height or `srcset`
+descriptors determine the largest; common lazy-source attributes are resolved
+when `src` is a data placeholder. If the page has no semantic top-block close,
+the bounded prefix itself is the fallback region. Pre-main utility sections
+are skipped when a semantic `main` exists. First document order breaks
+an absence of dimensions. Every site candidate is rejected
 before download when its extension or declared type is SVG, ICO or GIF, or
 when its URL path, alt text or class has a word-like match for `flag`, `icon`,
 `logo`, `sprite`, `lang`/`language`, `avatar`, `badge`, `banner`,
@@ -293,8 +310,10 @@ source did not supply.
 Every image fetch is server-side and passes through the website reader's same
 DNS/IP SSRF guard, manual redirect checks and robots.txt policy, with the
 project's identifying User-Agent. Inputs are capped at 6 MB and ten seconds.
-The decoder rejects SVG, ICO and GIF content, dimensions below 480 × 320, and
-aspect ratios outside 1:2 through 3:1. Remaining images are resized to at most
+The decoder rejects SVG, ICO and GIF content. Curated sources and structured
+site declarations retain the 480 × 320 decoded floor; the less trusted page
+image requires at least 640 × 400. Every class rejects aspect ratios outside
+1:2 through 3:1. Remaining images are resized to at most
 960 px wide and encoded as WebP quality 72; results above 200 KB are rejected.
 A response that forbids shared caching is rejected; an origin `max-age` shorter
 than 30 days shortens the stored copy. The database stores only those WebP
@@ -309,11 +328,20 @@ data URIs at `detail: low`; there is never one model call per image. Its one
 entry per input image is `{ kind, confidence }`, where `kind` is one of
 `venue_exterior`, `venue_interior`, `food_or_drink`, `people`, `logo`,
 `flag_or_icon`, `map_or_screenshot`, `text_or_graphic`, or `other`. Exterior,
-interior and food/drink are kept at confidence ≥ 0.6. The prompt assigns people
+interior and food/drink from structured declarations are kept at confidence
+≥ 0.6. A page image has no fallback gate and is never stored while the
+classifier is disabled; when enabled it requires the same three kinds at
+confidence ≥ 0.7 because page layout is weaker evidence of representativeness
+than an explicit machine-readable declaration. The prompt assigns people
 inside or directly in front of a visible place to the corresponding venue
 kind; `people` is reserved for portraits/stock/crowd shots with no place
 visible and is rejected. A short, malformed or failed answer rejects the whole
 batch rather than storing an unclassified image.
+
+Migration 018 removes stored `web:%` and `commons:geosearch` rows and clears
+only the affected enrichment image clocks, causing deployment to re-harvest
+under the page-image and short-name rules. Cached `place_image_verdicts` are
+left intact because their visual classifications remain valid.
 
 `place_image_verdicts` caches kind, confidence, model and decision time for 30
 days under the SHA-256 of the candidate URL (the URL itself is not stored in

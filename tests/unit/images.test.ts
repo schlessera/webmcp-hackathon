@@ -8,6 +8,7 @@ import {
   MAX_IMAGE_DOWNLOAD_BYTES,
   downloadPlaceImage,
   readBoundedImageBody,
+  refreshPlaceImages,
   resizePlaceImage,
 } from "../../apps/server/src/enrich/images.ts";
 import {
@@ -37,7 +38,7 @@ const sharp = createRequire(new URL("../../apps/server/package.json", import.met
 afterEach(() => setTransport(null));
 
 describe("place image candidate extraction", () => {
-  it("orders only structured representative-image declarations", () => {
+  it("orders structured representative-image declarations before the page image", () => {
     const html = readFileSync(join(fixtures, "place-images.html"), "utf8");
     expect(extractImageCandidates(html, "https://place.example/about").map((image) => image.url)).toEqual([
       "https://place.example/og.jpg",
@@ -45,6 +46,7 @@ describe("place image candidate extraction", () => {
       "https://place.example/schema.jpg",
       "https://place.example/microdata.jpg",
       "https://place.example/linked.jpg",
+      "https://place.example/largest.jpg",
     ]);
   });
 
@@ -77,11 +79,59 @@ describe("place image candidate extraction", () => {
     })).toBe(true);
   });
 
-  it("does not fall back to ordinary img elements", () => {
+  it("rejects a chrome img even in the hero region", () => {
     expect(extractImageCandidates(
-      '<img src="/flag-en.png" width="1200" height="800" alt="English">',
+      '<header><img src="/flag-en.png" width="1200" height="800" alt="English flag"></header>',
       "https://place.example/",
     )).toEqual([]);
+  });
+
+  it("takes the largest declared hero image and ignores images below the first section", () => {
+    const candidates = extractImageCandidates(`
+      <header><img src="/header.jpg" width="300" height="200"></header>
+      <section class="hero">
+        <img src="/first.jpg">
+        <img src="/winner.jpg" srcset="/winner-small.jpg 640w, /winner-large.jpg 1600w">
+      </section>
+      <section><img src="/too-late.jpg" width="2400" height="1600"></section>
+    `, "https://place.example/");
+    expect(candidates).toEqual([expect.objectContaining({
+      url: "https://place.example/winner-large.jpg",
+      source: "web:page-image:place.example",
+      imagePolicy: expect.objectContaining({ class: "page-image", confidenceThreshold: 0.7 }),
+    })]);
+  });
+
+  it("emits at most one page image and falls back to first-in-document order", () => {
+    const candidates = extractImageCandidates(
+      '<section><img src="/first.jpg"><img src="/second.jpg"></section>',
+      "https://place.example/",
+    );
+    expect(candidates.filter((candidate) => candidate.imagePolicy.class === "page-image"))
+      .toEqual([expect.objectContaining({ url: "https://place.example/first.jpg" })]);
+  });
+
+  it("uses the bounded prefix and a lazy source when semantic top blocks are absent", () => {
+    const candidates = extractImageCandidates(
+      '<div><img src="data:image/svg+xml,placeholder" data-src="/lazy-room.jpg" width="1000" height="700"></div>',
+      "https://place.example/",
+    );
+    expect(candidates).toEqual([expect.objectContaining({
+      url: "https://place.example/lazy-room.jpg",
+      source: "web:page-image:place.example",
+    })]);
+  });
+
+  it("uses the first main content block rather than a pre-main utility section", () => {
+    const candidates = extractImageCandidates(`
+      <section hidden><img src="/notice.jpg" width="100" height="100"></section>
+      <main><section><img src="/spacer.gif" data-origsrc="/venue-large.jpg" data-width="1200" height="800"></section></main>
+      <section><img src="/gallery.jpg" width="2000" height="1200"></section>
+    `, "https://place.example/");
+    expect(candidates).toEqual([expect.objectContaining({
+      url: "https://place.example/venue-large.jpg",
+      source: "web:page-image:place.example",
+    })]);
   });
 
   it("uses companion social-image alt text to reject disguised chrome", () => {
@@ -229,6 +279,18 @@ describe("place image network and transform boundary", () => {
     await expect(resizePlaceImage(wideStrip)).rejects.toThrow("aspect ratio");
   });
 
+  it("keeps the structured 480x320 floor and applies 640x400 to page images", async () => {
+    const structuredFloor = await sharp({
+      create: { width: 480, height: 320, channels: 3, background: "navy" },
+    }).png().toBuffer();
+    const belowPageFloor = await sharp({
+      create: { width: 639, height: 500, channels: 3, background: "navy" },
+    }).png().toBuffer();
+    await expect(resizePlaceImage(structuredFloor)).resolves.toMatchObject({ width: 480, height: 320 });
+    await expect(resizePlaceImage(belowPageFloor, { width: 640, height: 400 }))
+      .rejects.toThrow("too small");
+  });
+
   it("rejects SVG and GIF after decode and ICO by extension before download", async () => {
     const svg = Buffer.from(
       '<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="800"><rect width="1200" height="800" fill="navy"/></svg>',
@@ -267,6 +329,47 @@ describe("place image vision verdicts", () => {
     expect(keepPlaceImageVerdict(placeImageVerdictsFromAnswer(answer("venue_exterior", 0.599), 1)![0])).toBe(false);
     for (const kind of ["people", "logo", "flag_or_icon", "map_or_screenshot", "text_or_graphic", "other"] as const) {
       expect(keepPlaceImageVerdict(placeImageVerdictsFromAnswer(answer(kind, 0.99), 1)![0])).toBe(false);
+    }
+  });
+
+  it("keeps a 0.65 structured venue but rejects a 0.65 page image", () => {
+    const verdict = placeImageVerdictsFromAnswer(answer("venue_interior", 0.65), 1)![0];
+    const [structured, page] = extractImageCandidates(
+      '<meta property="og:image" content="/structured.jpg"><section><img src="/page.jpg"></section>',
+      "https://place.example/",
+    );
+    expect(keepPlaceImageVerdict(verdict, structured.imagePolicy.confidenceThreshold)).toBe(true);
+    expect(keepPlaceImageVerdict(verdict, page.imagePolicy.confidenceThreshold)).toBe(false);
+  });
+
+  it("never downloads or stores a page image while the classifier is off", async () => {
+    const previous = process.env.PLACE_IMAGE_CLASSIFIER;
+    process.env.PLACE_IMAGE_CLASSIFIER = "0";
+    const statements: string[] = [];
+    const client = {
+      query: async (sql: string) => {
+        statements.push(sql);
+        return { rows: [], rowCount: 0 };
+      },
+      release: () => undefined,
+    };
+    const db = { connect: async () => client, query: client.query };
+    const [candidate] = extractImageCandidates(
+      '<section><img src="https://93.184.216.34/page.jpg" width="1200" height="800"></section>',
+      "https://place.example/",
+    );
+    try {
+      await expect(refreshPlaceImages(
+        db as never,
+        "node/classifier-off",
+        "Classifier Off",
+        [candidate],
+        async () => { throw new Error("must not download"); },
+      )).resolves.toBe(0);
+      expect(statements.some((sql) => sql.includes("INSERT INTO place_images"))).toBe(false);
+    } finally {
+      if (previous === undefined) delete process.env.PLACE_IMAGE_CLASSIFIER;
+      else process.env.PLACE_IMAGE_CLASSIFIER = previous;
     }
   });
 
@@ -377,17 +480,22 @@ describe("Commons image metadata", () => {
       "File:Long walk past the Nhat gallery.jpg",
     )).toBe(false);
 
-    // The true positives from the same run all survive.
-    for (const [name, title] of [
-      ["Bar Tausend", "File:Bar Tausend Berlin.jpg"],
-      ["Café im Bode-Museum", "File:Bode Museum, Berlin, Germany Feb 15, 2018.jpeg"],
-      ["Café im Bode-Museum", "File:Café im Bode-Museum innen.jpg"],
-      ["Keyser Soze", "File:Keyser Soze sidewalk terrace, Berlin, 2017.jpg"],
-      ["Nhat Long", "File:Nhat Long restaurant in Berlin.jpg"],
-      ["Sophieneck", "File:Berlin - Sophieneck (Sophia Corner).jpg"],
-      ["Pizza Hut", "File:Oven-Baked Pasta, Pizza Hut Berlin Oranienburger Strasse.jpg"],
-    ] as Array<[string, string]>) {
-      expect([name, commonsGeosearchNameMatches(name, title)]).toEqual([name, true]);
+    // Pinned live pairs. Short names need a standalone venue-kind word in the
+    // title or a category that itself names the place.
+    for (const [name, title, categories, matches] of [
+      ["Bar Tausend", "File:Bar Tausend Berlin.jpg", [], true],
+      ["Cafe Einstein", "File:Café Einstein - panoramio.jpg", [], true],
+      ["Café im Bode-Museum", "File:Bode Museum, Berlin, Germany Feb 15, 2018.jpeg", [], true],
+      ["Kamala", "File:Kamala Fine Thai Food (23963637).jpeg", [], true],
+      ["Keyser Soze", "File:Keyser Soze sidewalk terrace, Berlin, 2017.jpg", [], true],
+      ["Nhat Long", "File:Nhat Long restaurant in Berlin.jpg", [], true],
+      ["Sophieneck", "File:Berlin - Sophieneck (Sophia Corner).jpg", ["Category:Sophieneck"], true],
+      ["Ständige Vertretung", 'File:"Ständige Vertretung" Berlin Innenansicht 1.jpg', [], true],
+      ["Pizza Hut", "File:Oven-Baked Pasta, Pizza Hut Berlin Oranienburger Strasse.jpg", [], true],
+      ["Velvet 52", "File:20230629 xl 0837-Arcotel Velvet Berlin.jpg", [], false],
+    ] as Array<[string, string, string[], boolean]>) {
+      expect([name, commonsGeosearchNameMatches(name, title, categories)])
+        .toEqual([name, matches]);
     }
 
     const matching = doc("CC BY-SA 4.0") as any;

@@ -146,6 +146,15 @@ const COMMON_PLACE_WORDS = new Set([
   "of", "pub", "restaurant", "the", "und", "venue", "zum", "zur",
 ]);
 
+/** Standalone title words that identify a venue/setting strongly enough to
+ * corroborate a short name. Keep these normalized: substring matches (for
+ * example "hotel" inside "Arcotel") are intentionally not accepted. */
+const COMMONS_VENUE_KIND_WORDS = new Set([
+  "bakery", "bar", "cafe", "coffee", "food", "hotel", "innenansicht",
+  "interior", "museum", "pizza", "pub", "restaurant", "shop", "store",
+  "terrace", "venue",
+]);
+
 export function normalizeCommonsName(value: string): string {
   return value
     .normalize("NFKD")
@@ -176,27 +185,37 @@ export function normalizeCommonsName(value: string): string {
 export function commonsGeosearchNameMatches(
   placeName: string,
   title: string,
-  _categories: string[] = [],
+  categories: string[] = [],
 ): boolean {
   const wanted = normalizeCommonsName(placeName)
     .split(" ")
     .filter((token) => token.length >= 3 && !COMMON_PLACE_WORDS.has(token));
   if (wanted.length === 0) return false;
-  const bare = title.replace(/^Category:|^File:/i, "");
-  const words = normalizeCommonsName(bare).split(" ");
   const phrase = wanted.join(" ");
-  const contiguous = words.some((_, i) =>
-    i + wanted.length <= words.length &&
-    words.slice(i, i + wanted.length).join(" ") === phrase
-  );
-  if (!contiguous) return false;
-  // A hyphenated compound that carries one of our tokens *plus* a word we did
-  // not ask for is a different name wearing the same word.
   const wantedSet = new Set(wanted);
-  for (const compound of bare.match(/[\p{L}\p{N}]+(?:-[\p{L}\p{N}]+)+/gu) ?? []) {
-    const parts = normalizeCommonsName(compound).split(" ").filter(Boolean);
-    if (!parts.some((part) => wantedSet.has(part))) continue;
-    if (parts.some((part) => !wantedSet.has(part) && !COMMON_PLACE_WORDS.has(part))) return false;
+  const carriesName = (raw: string): boolean => {
+    const bare = raw.replace(/^Category:|^File:/i, "");
+    const words = normalizeCommonsName(bare).split(" ");
+    const contiguous = words.some((_, i) =>
+      i + wanted.length <= words.length &&
+      words.slice(i, i + wanted.length).join(" ") === phrase
+    );
+    if (!contiguous) return false;
+    // A hyphenated compound that carries one of our tokens *plus* a word we
+    // did not ask for is a different name wearing the same word.
+    for (const compound of bare.match(/[\p{L}\p{N}]+(?:-[\p{L}\p{N}]+)+/gu) ?? []) {
+      const parts = normalizeCommonsName(compound).split(" ").filter(Boolean);
+      if (!parts.some((part) => wantedSet.has(part))) continue;
+      if (parts.some((part) => !wantedSet.has(part) && !COMMON_PLACE_WORDS.has(part))) return false;
+    }
+    return true;
+  };
+  if (!carriesName(title)) return false;
+  if (wanted.length <= 2) {
+    const categoryNamesPlace = categories.some(carriesName);
+    const titleWords = new Set(normalizeCommonsName(title.replace(/^File:/i, "")).split(" "));
+    const titleNamesVenueKind = [...COMMONS_VENUE_KIND_WORDS].some((word) => titleWords.has(word));
+    if (!categoryNamesPlace && !titleNamesVenueKind) return false;
   }
   return true;
 }

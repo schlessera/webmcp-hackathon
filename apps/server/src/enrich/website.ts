@@ -70,6 +70,12 @@ export interface WebsiteImageCandidate {
   url: string;
   source: `web:${string}`;
   pageUrl: string;
+  imagePolicy: {
+    class: "structured" | "page-image";
+    minimumWidth: number;
+    minimumHeight: number;
+    confidenceThreshold: number;
+  };
 }
 
 export type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
@@ -476,9 +482,8 @@ export function websiteImageCandidateAllowed(input: {
 
 /**
  * Candidate images from one already-fetched homepage, in product precedence:
- * Open Graph, Twitter, schema.org (JSON-LD then microdata), and image_src.
- * These are the site's explicit representative-image declarations; arbitrary
- * `<img>` elements are deliberately not candidates.
+ * Open Graph, Twitter, schema.org (JSON-LD then microdata), and image_src,
+ * followed by at most one classifier-only page image.
  */
 export function extractImageCandidates(html: string, pageUrl: string): WebsiteImageCandidate[] {
   const candidates: string[] = [];
@@ -573,8 +578,111 @@ export function extractImageCandidates(html: string, pageUrl: string): WebsiteIm
     }
   }
 
-  const source: `web:${string}` = `web:${new URL(pageUrl).host}`;
-  return candidates.slice(0, 12).map((url) => ({ url, source, pageUrl }));
+  const host = new URL(pageUrl).host;
+  const structured = candidates.slice(0, 12).map((url): WebsiteImageCandidate => ({
+    url,
+    source: `web:${host}`,
+    pageUrl,
+    imagePolicy: {
+      class: "structured",
+      minimumWidth: 480,
+      minimumHeight: 320,
+      confidenceThreshold: 0.6,
+    },
+  }));
+
+  // The cheap "hero region" is the union of (a) every complete <header>
+  // found in the first 256 KiB and (b) the document prefix through the first
+  // closing top-level content block (section, main or article). At most the
+  // first 40 <img> tags in that union are inspected. This deliberately does
+  // not run page JavaScript or parse a DOM, and never reaches later galleries.
+  const bounded = html.slice(0, 256_000);
+  const headerRanges = [...bounded.matchAll(/<header\b[^>]*>[\s\S]*?<\/header\s*>/gi)]
+    .map((match) => [match.index, match.index + match[0].length] as const);
+  // Skip pre-main utility blocks (cookie/alert sections): when <main> exists,
+  // its first closing section/article/main is the page's top content block.
+  const mainOpen = /<main\b[^>]*>/i.exec(bounded);
+  const topSearchStart = mainOpen?.index ?? 0;
+  const relativeTopClose = /<\/(?:section|main|article)\s*>/i.exec(
+    bounded.slice(topSearchStart),
+  );
+  const firstTopClose = relativeTopClose
+    ? { index: topSearchStart + relativeTopClose.index, 0: relativeTopClose[0] }
+    : undefined;
+  // Pages with no semantic top-block close fall back to the bounded prefix
+  // itself; this is the old first-fold approximation, not an unbounded scan.
+  const prefixEnd = firstTopClose
+    ? firstTopClose.index + firstTopClose[0].length
+    : bounded.length;
+  const inHeroRegion = (index: number) =>
+    index < prefixEnd || headerRanges.some(([start, end]) => index >= start && index < end);
+  let largest: { url: string; score: number } | undefined;
+  let heroImages = 0;
+  for (const img of bounded.matchAll(/<img\b([^>]*)>/gi)) {
+    if (!inHeroRegion(img.index)) continue;
+    if (++heroImages > 40) break;
+    const attrs = img[1];
+    const srcset = attributeOf(attrs, "srcset") ?? attributeOf(attrs, "data-srcset") ?? "";
+    const srcsetChoices = [...srcset.matchAll(/(?:^|,)\s*(\S+)(?:\s+(\d+(?:\.\d+)?)([wx]))?(?=\s*(?:,|$))/gi)];
+    const largestSrcsetChoice = srcsetChoices.reduce<typeof srcsetChoices[number] | undefined>(
+      (best, choice) => !best || Number(choice[2] ?? 0) > Number(best[2] ?? 0) ? choice : best,
+      undefined,
+    );
+    const rawChoices = [
+      largestSrcsetChoice?.[1],
+      attributeOf(attrs, "src"),
+      attributeOf(attrs, "data-src"),
+      attributeOf(attrs, "data-lazy-src"),
+      attributeOf(attrs, "data-original"),
+      attributeOf(attrs, "data-origsrc"),
+      attributeOf(attrs, "data-src2"),
+      attributeOf(attrs, "data-src1"),
+    ];
+    const metadata = {
+      alt: attributeOf(attrs, "alt"),
+      className: attributeOf(attrs, "class"),
+      declaredType: attributeOf(attrs, "type"),
+    };
+    const url = rawChoices
+      .map((raw) => imageUrl(pageUrl, raw))
+      .find((resolved) => resolved && websiteImageCandidateAllowed({ url: resolved, ...metadata }));
+    if (!url) continue;
+    const width = Math.max(
+      Number.parseFloat(attributeOf(attrs, "width") ?? "0"),
+      Number.parseFloat(attributeOf(attrs, "data-width") ?? "0"),
+    );
+    const height = Math.max(
+      Number.parseFloat(attributeOf(attrs, "height") ?? "0"),
+      Number.parseFloat(attributeOf(attrs, "data-height") ?? "0"),
+    );
+    const descriptors = srcsetChoices.filter((item) => item[2] && item[3]);
+    const widthDescriptor = Math.max(0, ...descriptors.filter((item) => item[3].toLowerCase() === "w")
+      .map((item) => Number(item[2])));
+    const densityDescriptor = Math.max(0, ...descriptors.filter((item) => item[3].toLowerCase() === "x")
+      .map((item) => Number(item[2])));
+    const declaredArea = width > 0 && height > 0
+      ? width * height
+      : width > 0 ? width * width : height * height;
+    const score = declaredArea || widthDescriptor * widthDescriptor || densityDescriptor;
+    const entry = { url, score };
+    // If no image declares any dimensions, preserving the first in document
+    // order is the stable fallback. A later declared size beats that fallback.
+    if (!largest || entry.score > largest.score) largest = entry;
+  }
+  if (largest && !structured.some((candidate) => candidate.url === largest.url)) {
+    structured.push({
+      url: largest.url,
+      source: `web:page-image:${host}`,
+      pageUrl,
+      imagePolicy: {
+        class: "page-image",
+        minimumWidth: 640,
+        minimumHeight: 400,
+        confidenceThreshold: 0.7,
+      },
+    });
+  }
+  return structured;
 }
 
 /** `\b` is ASCII-only in JavaScript: "Menü" never ends on a word boundary.

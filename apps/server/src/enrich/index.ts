@@ -402,7 +402,9 @@ function fetchInjectedWebsiteImageCandidates(db: pg.Pool, target: LookupTarget) 
     return fetchImpl(translated.toString(), init);
   }, translatedPageCache(cache, safe.hostname, original)).then((candidates) => candidates.map((candidate) => ({
     ...candidate,
-    source: `web:${original.host}` as const,
+    source: (candidate.imagePolicy.class === "page-image"
+      ? `web:page-image:${original.host}`
+      : `web:${original.host}`) as `web:${string}`,
     pageUrl: original.toString(),
   })));
 }
@@ -588,12 +590,15 @@ async function imageCandidatesFor(
   target: LookupTarget,
   enrichment: Enrichment | undefined,
   websiteCandidates: ImageCandidate[],
+  /** Commons/Wikidata API calls only. Named apart from the module-level
+   * `imageFetch` factory, which routes image *bytes* through a venue exit. */
+  wikiApiFetch: FetchLike = wikiFetch(),
 ): Promise<ImageCandidate[]> {
   const pageUrl = `https://www.openstreetmap.org/${target.osmRef}`;
   const out: ImageCandidate[] = [];
   const osmImageFile = commonsFilename(target.image);
   if (osmImageFile) {
-    const image = await resolveCommonsImage(osmImageFile, "osm:image", wikiFetch());
+    const image = await resolveCommonsImage(osmImageFile, "osm:image", wikiApiFetch);
     if (image) out.push(image);
   } else if (target.image) {
     try {
@@ -610,7 +615,7 @@ async function imageCandidatesFor(
     const image = await resolveCommonsImage(
       commonsFile,
       "osm:wikimedia_commons",
-      wikiFetch(),
+      wikiApiFetch,
     );
     if (image) out.push(image);
   }
@@ -619,12 +624,12 @@ async function imageCandidatesFor(
     const image = await resolveCommonsImage(
       enrichment.wikidata.commonsFile,
       `wikidata:${enrichment.wikidata.id}`,
-      wikiFetch(),
+      wikiApiFetch,
     );
     if (image) out.push(image);
   }
   if (target.placeName && target.location) {
-    out.push(...await geosearchCommonsImages(target.placeName, target.location, fetchImpl));
+    out.push(...await geosearchCommonsImages(target.placeName, target.location, wikiApiFetch));
   }
   out.push(...websiteCandidates);
   return [...new Map(out.map((candidate) => [candidate.url, candidate])).values()];
@@ -785,13 +790,28 @@ async function lookup(db: pg.Pool, target: LookupTarget, force = false): Promise
 
       const noSite: WebsiteFetchResult = { facts: null };
       const noWiki: { facts: WikiFacts | null; error?: string } = { facts: null };
+      const imageWork = { commonsApiCalls: 0 };
+      // Counts on the routed Wikimedia leg, so the log line reports real
+      // outbound Commons API calls rather than intended ones.
+      const routedWikiFetch = wikiFetch();
+      const countedWikiFetch: FetchLike = (url, init) => {
+        try {
+          const targetUrl = new URL(url);
+          if (targetUrl.hostname === "commons.wikimedia.org" && targetUrl.pathname === "/w/api.php") {
+            imageWork.commonsApiCalls += 1;
+          }
+        } catch {
+          /* the called fetch path owns invalid-URL handling */
+        }
+        return routedWikiFetch(url, init);
+      };
       const harvestWebsiteImages = attemptedImages && Boolean(target.website) && !attempted.website;
       const [site, wiki, harvestedWebsiteCandidates] = await Promise.all([
         attempted.website
           ? fetchInjectedWebsiteFacts(db, passTarget, current?.website)
           : Promise.resolve(noSite),
         attempted.wikidata
-          ? fetchWikidataFacts(target.wikidata!, wikiFetch())
+          ? fetchWikidataFacts(target.wikidata!, countedWikiFetch)
           : Promise.resolve(noWiki),
         harvestWebsiteImages
           ? fetchInjectedWebsiteImageCandidates(db, passTarget)
@@ -818,8 +838,10 @@ async function lookup(db: pg.Pool, target: LookupTarget, force = false): Promise
             passTarget,
             refreshed,
             site.facts?.imageCandidates ?? harvestedWebsiteCandidates,
+            countedWikiFetch,
           ),
           imageFetch(passTarget),
+          imageWork,
         );
       }
       const finalEnrichment = (await loadCached(db, [target.osmRef])).get(target.osmRef);
