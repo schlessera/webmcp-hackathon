@@ -45,6 +45,16 @@ function boundPhrase(item: OutstandingAdjustment): string {
   return `the ${amount} you delegated`;
 }
 
+/** "800 m to 1 km" — the step itself, for the sentence that says nobody
+ * delegated a limit for it (locked D6: scope changes carry no bound). */
+function changeSpan(item: OutstandingAdjustment): string {
+  const change = item.change as { dimension?: string; from?: unknown; to?: unknown };
+  if (change.dimension === "radius_m") return `${metres(change.from)} to ${metres(change.to)}`;
+  if (change.dimension === "per_person_eur") return `€${String(change.from)} to €${String(change.to)}`;
+  if (change.dimension === "walk_min") return `${String(change.from)} to ${String(change.to)} minutes`;
+  return "this step";
+}
+
 function describeChange(item: OutstandingAdjustment): string {
   const change = item.change as { dimension?: string; from?: unknown; to?: unknown };
   if (change.dimension === "radius_m") {
@@ -181,7 +191,7 @@ export function ConsentCards({
             <div className="card-body">
               {item.delegatedBound
                 ? `Beyond ${boundPhrase(item)}.`
-                : "Nothing about this was delegated, so it is yours to decide."}
+                : `No limit was delegated for this, so the step from ${changeSpan(item)} is yours to decide.`}
               {gainSentence(item)} Your agent staged it; only this gesture applies it.
             </div>
             <div className="card-actions">
@@ -216,7 +226,7 @@ export function ConsentCards({
                 ? ` Inside ${boundPhrase(item)}, so accepting applies it straight away.`
                 : item.delegatedBound
                   ? ` Beyond ${boundPhrase(item)}, so accepting stages it for a second gesture here.`
-                  : " Nothing about this was delegated, so accepting stages it for a second gesture here."}
+                  : ` No limit was delegated for this, so accepting the step from ${changeSpan(item)} stages it for a second gesture here.`}
             </div>
             <div className="card-actions">
               <button

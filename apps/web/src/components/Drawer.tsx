@@ -1,6 +1,6 @@
 import type React from "react";
 import { PROTOCOL_VERSIONS, TOOL_CONTRACT_VERSION } from "@webmcp-hackathon/contracts";
-import type { DiagnosticsState } from "../diagnostics-store.ts";
+import { diagnostics, type DiagnosticsState } from "../diagnostics-store.ts";
 import type { SessionIdentity } from "../session.ts";
 import type { CommandEnvelope, SpatialContext } from "../spatial-types.ts";
 import type { LookupReason, PendingNeed } from "../spatial-store.ts";
@@ -44,8 +44,20 @@ function Section({
   open?: boolean;
   children: React.ReactNode;
 }) {
+  // The reader's own choice outlives the drawer (store, not DOM): a fold
+  // closed before the drawer was dismissed is still closed when it returns.
+  const remembered = diagnostics.state.folds[title];
   return (
-    <details className="drawer-section" open={open}>
+    <details
+      className="drawer-section"
+      open={remembered ?? open}
+      onToggle={(event) => {
+        const next = (event.currentTarget as HTMLDetailsElement).open;
+        if (diagnostics.state.folds[title] !== next) {
+          diagnostics.update({ folds: { ...diagnostics.state.folds, [title]: next } });
+        }
+      }}
+    >
       <summary className="drawer-section-title">{title}</summary>
       {children}
     </details>

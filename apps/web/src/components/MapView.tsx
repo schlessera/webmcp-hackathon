@@ -3,6 +3,7 @@ import { Layer, Map, Marker, Source, type MapRef } from "@vis.gl/react-maplibre"
 import "maplibre-gl/dist/maplibre-gl.css";
 import "../map-worker.ts";
 import { MAP_THEME, TILE_STYLE } from "../map-theme.ts";
+import { loadTileStyle, type TileStyle } from "../map-style.ts";
 import { spatial } from "../spatial-store.ts";
 import type {
   CandidateSummary,
@@ -139,6 +140,19 @@ const DOT_CLEARANCE = 10;
 /* A tap this close to a dot (in px) belongs to that dot, whatever box is on top. */
 const TAP_REACH = 22;
 const COLLOCATED_OFFSET = 6;
+/** Two places this close on the ground share a spot on any zoom the room uses. */
+const COLLOCATED_METRES = 12;
+
+function metresBetween(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
+  const R = 6371000;
+  const toRad = (deg: number) => (deg * Math.PI) / 180;
+  const dLat = toRad(b.lat - a.lat);
+  const dLng = toRad(b.lng - a.lng);
+  const h =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
 
 /** Rough drawn width of a sticker: dot + name at ~6.6px/char + optional chip. */
 function stickerWidth(name: string, hasChip: boolean): number {
@@ -207,6 +221,18 @@ export function MapView({
   /** True once the basemap has loaded and the first fit has run — the moment
    * marker positions stop moving on their own. The e2e specs wait on it. */
   const [loaded, setLoaded] = useState(false);
+  // The basemap style, patched once (map-style.ts) so the console stays
+  // quiet in production; the URL itself is the fallback.
+  const [tileStyle, setTileStyle] = useState<TileStyle | null>(null);
+  useEffect(() => {
+    let live = true;
+    void loadTileStyle(TILE_STYLE).then((style) => {
+      if (live) setTileStyle(style);
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
   const [scopeOffscreen, setScopeOffscreen] = useState(false);
   const [panned, setPanned] = useState(false);
   const [selectedExploreRef, setSelectedExploreRef] = useState<string | null>(null);
@@ -234,16 +260,24 @@ export function MapView({
     [],
   );
 
+  /* Places that share a spot — the same coordinate, or a few metres apart
+     (a food hall, two counters in one station) — fan out by a fixed few
+     pixels so each dot keeps its own pixels (§13). Grouping is by distance
+     on the ground, not on screen, so a dot never moves with the zoom (§8);
+     the grouping order is by ref so two tabs draw the same fan. */
   const collisionOffsets = useMemo(() => {
-    const groups = new globalThis.Map<string, CandidateSummary[]>();
-    for (const candidate of candidates) {
-      const key = `${candidate.location.lat},${candidate.location.lng}`;
-      const group = groups.get(key) ?? [];
-      group.push(candidate);
-      groups.set(key, group);
+    const keyOf = (c: CandidateSummary) => c.ref ?? c.candidateId;
+    const sorted = [...candidates].sort((a, b) => keyOf(a).localeCompare(keyOf(b)));
+    const groups: CandidateSummary[][] = [];
+    for (const candidate of sorted) {
+      const group = groups.find(
+        (g) => metresBetween(g[0].location, candidate.location) <= COLLOCATED_METRES,
+      );
+      if (group) group.push(candidate);
+      else groups.push([candidate]);
     }
     const offsets = new globalThis.Map<string, [number, number]>();
-    for (const group of groups.values()) {
+    for (const group of groups) {
       if (group.length === 1) {
         offsets.set(group[0].candidateId, [0, 0]);
         continue;
@@ -822,10 +856,11 @@ export function MapView({
       aria-busy={busyCount > 0 || pendingCount > 0 || undefined}
       data-explore-count={explorePlaces.length}
     >
+      {tileStyle && (
       <Map
         ref={mapRef}
         initialViewState={{ latitude: center.lat, longitude: center.lng, zoom: 14 }}
-        mapStyle={TILE_STYLE}
+        mapStyle={tileStyle}
         attributionControl={{ compact: true }}
         onLoad={() => {
           fitOnce();
@@ -969,13 +1004,11 @@ export function MapView({
                 }`}
                 onClick={(e) => {
                   e.stopPropagation();
-                  // A tap on a drawn name card means that place; anywhere
-                  // else it means the nearest dot, whatever box is on top.
-                  const onCard =
-                    named.has(c.candidateId) &&
-                    state !== "out" &&
-                    (e.target as HTMLElement).closest(".marker-sticker") !== null;
-                  onSelect(onCard ? c.candidateId : nearestTo(e.clientX, e.clientY) ?? c.candidateId);
+                  // The nearest dot wins, whatever box is on top — a name
+                  // card that happens to cover a neighbour's dot must not
+                  // swallow that neighbour's tap (§13). A tap on the card's
+                  // text, away from every dot, means the card's place.
+                  onSelect(nearestTo(e.clientX, e.clientY) ?? c.candidateId);
                 }}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" || e.key === " ") {
@@ -1098,6 +1131,7 @@ export function MapView({
           </Marker>
         )}
       </Map>
+      )}
 
       {/* MapLibre circle layers are not focusable. One compact native control
           gives keyboard and screen-reader users the same visible set without

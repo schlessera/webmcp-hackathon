@@ -1551,6 +1551,10 @@ body { overflow: hidden; }
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  /* The panel scrolls, the page never does: a flick at the end of the
+     ledger must not reach the fixed frame behind it. */
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 .details-group { padding: 17px var(--spoke-pad-screen) 0; }
@@ -1907,6 +1911,11 @@ body { overflow: hidden; }
   color: var(--spoke-unsure-text);
   font-weight: var(--spoke-weight-body);
   font-size: var(--spoke-size-detail);
+}
+.stale-banner[data-tone="quiet"] {
+  background: var(--spoke-surface-sunk);
+  border-bottom-color: var(--spoke-line-quiet);
+  color: var(--spoke-ink-soft);
 }
 .stale-banner button {
   border: none;

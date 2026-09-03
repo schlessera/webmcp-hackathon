@@ -10,6 +10,9 @@ export interface DiagnosticsState {
   /** The serving process can hand a sentence to the person's agent. */
   nlAvailable: boolean;
   lines: string[];
+  /** Which drawer folds the reader opened or closed (W13): survives the
+   * drawer closing and reopening; a fold never seen falls back to its default. */
+  folds: Record<string, boolean>;
 }
 
 type Listener = () => void;
@@ -24,6 +27,7 @@ class DiagnosticsStore {
     serverBuildId: null,
     nlAvailable: false,
     lines: [],
+    folds: {},
   };
   private listeners = new Set<Listener>();
 

@@ -235,6 +235,9 @@ export const COPY = {
     "Nothing yet. Say anything that would rule a place in or out — a condition, a time, how far you can get — and choose who gets to see it.",
   noCandidates: "Nothing here fits yet. Widen the area, or drop a need.",
   stale: "This room is running an older version. Reload to catch up.",
+  /** COPY.md "Offline": the map is what it was when the socket dropped. */
+  offline: (since: Date) =>
+    `You're seeing the map as of ${since.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}. Changes will sync.`,
   quiet: "Quiet so far.",
   verdictClears: "Clears every need the room has stated",
   holdHint: "hold a need to preview without it",

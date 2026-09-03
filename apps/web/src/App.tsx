@@ -138,6 +138,9 @@ export function App() {
   const [revision, setRevision] = useState<number>(0);
   const [feed, setFeed] = useState<FeedLine[]>([]);
   const [staleBanner, setStaleBanner] = useState(false);
+  // Offline (COPY.md): after 10 s without a socket, say what the map is as
+  // of. The line leaves on its own the moment the socket is back.
+  const [offlineSince, setOfflineSince] = useState<Date | null>(null);
   const [errorLine, setErrorLine] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(
     () => new URLSearchParams(window.location.search).has("shim"),
@@ -151,6 +154,16 @@ export function App() {
     (cb) => diagnostics.subscribe(cb),
     () => diagnostics.state,
   );
+  useEffect(() => {
+    if (diag.wsState === "open") {
+      setOfflineSince(null);
+      return;
+    }
+    const droppedAt = new Date();
+    const timer = window.setTimeout(() => setOfflineSince(droppedAt), 10_000);
+    return () => window.clearTimeout(timer);
+  }, [diag.wsState]);
+
   const spatialState = useSyncExternalStore(
     (cb) => spatial.subscribe(cb),
     () => spatial.state,
@@ -636,10 +649,15 @@ export function App() {
   const absent = participants
     .filter((p) => !p.arrived && p.participantId !== id.participantId)
     .map((p) => p.displayName);
+  // Unknown is not failure (CLAUDE.md §4): while places are still unchecked
+  // the room has not run out of options, it has run out of confirmed ones.
+  const unchecked = context?.feasibility?.uncertain ?? 0;
   const subtitle: HeaderSubtitle = settled
     ? { text: `agreed by all ${numberWord(people)}`, tone: "works" }
     : impasse
-      ? { text: `nothing works for all ${numberWord(people)}`, tone: "unsure" }
+      ? unchecked > 0
+        ? { text: `nothing confirmed yet · ${unchecked} still to check`, tone: "unsure" }
+        : { text: `nothing works for all ${numberWord(people)}`, tone: "unsure" }
       : awayEvents.length > 0
         ? { text: "you were away", tone: "quiet" }
         : here <= 1
@@ -659,6 +677,11 @@ export function App() {
 
   return (
     <div className="app">
+      {offlineSince && !staleBanner && (
+        <div className="stale-banner" data-tone="quiet" role="status" data-testid="offline-line">
+          {COPY.offline(offlineSince)}
+        </div>
+      )}
       {staleBanner && (
         <div className="stale-banner" role="alert">
           {COPY.stale.replace(/ Reload to catch up\.$/, "")}{" "}

@@ -1438,3 +1438,43 @@ test("place details read the server's verdicts, address and hours, and say when 
   await expect(page.getByTestId("scope-application-private")).toContainText("the room sees only what it rules out");
   await expect(page.getByTestId("scope-agent-private")).toContainText("your agent holds it");
 });
+
+test("two places a few metres apart are both reachable by tapping their own dot", async ({ page }) => {
+  // Haferkater and Witty's sit 5.6 m apart in the Berlin dataset: at the
+  // room's zoom that is under two pixels. Each dot fans out by a fixed few
+  // pixels and a tap resolves to the nearest dot, whatever box is on top
+  // (§13) — even after one of them is selected and wears a name card.
+  const pair = dataset.venues.filter((venue) =>
+    /^(Haferkater|Witty's Bio-Currywurst)$/.test(venue.name),
+  );
+  expect(pair).toHaveLength(2);
+  const ids = pair.map((venue) => venue.candidateId);
+  const state: MockState = {
+    context: fixture({ eligibleIds: ids }),
+    outstanding: [],
+    command(_request, current) {
+      current.context.revision += 1;
+    },
+  };
+  await mockApi(page, state);
+  await page.goto(`${BASE}/?shim=webmcp#invite=deadbeef`);
+  await closeDrawer(page);
+  await expect(page.getByTestId("map-region")).toHaveAttribute("data-loaded", "true", { timeout: 20_000 });
+  await stableMarkerTransforms(page, ids);
+
+  const dotCentre = async (id: string) => {
+    const box = await page.locator(`[data-testid="pin-${id}"] .marker-dot`).boundingBox();
+    if (!box) throw new Error(`no dot for ${id}`);
+    return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  };
+  const [a, b] = await Promise.all(ids.map(dotCentre));
+  expect(Math.hypot(a.x - b.x, a.y - b.y)).toBeGreaterThanOrEqual(6);
+
+  for (const [index, id] of ids.entries()) {
+    const point = await dotCentre(id);
+    await page.mouse.click(point.x, point.y);
+    await expect(page.getByTestId("place-details")).toHaveAttribute("aria-label", pair[index].name);
+    await page.getByTestId("details-close").click();
+    await expect(page.getByTestId("place-details")).toHaveCount(0);
+  }
+});
