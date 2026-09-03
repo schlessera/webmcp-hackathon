@@ -65,19 +65,6 @@ export const REFINE_SEARCHES_PER_HOUR = positiveInt(
 );
 export type RefineSearchMode = "combined" | "split";
 export type RefineDomainRule = "domain-first" | "open-web-first";
-/** Measured 2026-09-03 over three live twelve-place Berlin runs: the plain
- * query won every run (14 validated claims to the shaped query's 11). Address,
- * category and local-language words narrow the search away from the pages that
- * actually answer, so `plain` is the default and `shaped` stays reachable
- * through REFINE_QUERY_SHAPING for a re-measurement on another area. */
-export type RefineQueryShaping = "plain" | "shaped";
-export const DEFAULT_REFINE_QUERY_SHAPING: RefineQueryShaping = "plain";
-
-export function refineQueryShaping(
-  value = process.env.REFINE_QUERY_SHAPING,
-): RefineQueryShaping {
-  return value === "shaped" || value === "plain" ? value : DEFAULT_REFINE_QUERY_SHAPING;
-}
 export const DEFAULT_REFINE_SEARCH_MODE: RefineSearchMode = "split";
 export const MAX_REFINE_QUERY_CHARS = 400;
 const HOUR_MS = 60 * 60_000;
@@ -465,7 +452,6 @@ export interface RefinementAreaContext {
 
 export interface RefinementSearchPolicy {
   domainRule?: RefineDomainRule;
-  queryShaping?: RefineQueryShaping;
 }
 
 export interface RefinementTickOptions extends RefinementSearchPolicy {
@@ -486,12 +472,18 @@ function boundedQuery(parts: string[]): string {
   return prefix.slice(0, boundary > 0 ? boundary : MAX_REFINE_QUERY_CHARS).trim();
 }
 
-/** Query words remain data-derived. Only vocabulary keys receive a small
- * locale lexicon; a person's free-text question is never translated. */
+/**
+ * The query is a privacy boundary, not a tuning knob. There used to be a
+ * second, richer shaper behind REFINE_QUERY_SHAPING, carrying the street
+ * address, the category and a German lexicon. The privacy ruling forbids
+ * every one of those words leaving the server, so the two shapers had become
+ * the same function and the knob only lied about it. It is gone. Measurement
+ * for the record: over three live twelve-place Berlin runs the plain query
+ * won every one, 14 validated claims to the richer query's 11.
+ */
 export function buildRefinementQuery(
   request: Pick<RefinementSearchRequest, "name" | "searchCriteria">,
   area: RefinementAreaContext,
-  _shaping: RefineQueryShaping = DEFAULT_REFINE_QUERY_SHAPING,
 ): string {
   // This is the privacy boundary, not query tuning. Search receives only the
   // place identity and words from shared active needs. Address/category,
@@ -527,7 +519,7 @@ export async function searchRefinementPlaces(
     let results: SearchResult[] = [];
     try {
       results = await refinementSearchLimiter.use(() => provider(
-        buildRefinementQuery(request, area, policy.queryShaping ?? refineQueryShaping()),
+        buildRefinementQuery(request, area),
         domains ? { domains } : undefined,
       ));
     } catch {
@@ -679,7 +671,6 @@ export async function runRefinementTick(
     criterion,
   ])).values()].filter(modelCriterion);
   const searchMode = options.searchMode ?? refineSearchMode();
-  const queryShaping = options.queryShaping ?? refineQueryShaping();
   const firstCalls = modelCalls(batch.length, criteria.length);
   const worstCalls = firstCalls + (searchMode === "combined" ? batch.length : firstCalls);
   const delay = budgetDelay(roomId, worstCalls, criteria.length ? batch.length : 0, now);
@@ -765,7 +756,7 @@ export async function runRefinementTick(
             osmRef: request.osmRef,
             name: request.name,
             category: request.category,
-            query: buildRefinementQuery(request, placeInfo, queryShaping),
+            query: buildRefinementQuery(request, placeInfo),
             // Combined mode enables web_search in this very call, so private
             // criteria are excluded from both its query and request body.
             criteria: request.searchCriteria,

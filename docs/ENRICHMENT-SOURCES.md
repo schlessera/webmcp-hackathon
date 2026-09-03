@@ -326,8 +326,13 @@ or reach a search index. If a place has no unresolved shared criterion, it does
 not cause a search. Combined mode excludes application-private criteria from
 the entire tool-enabled call. Agent-private content never enters refinement.
 
-`REFINE_QUERY_SHAPING=plain|shaped` remains accepted for deployment
-compatibility, but privacy gives both settings the same shared-only query.
+There is one query shape and no setting for it. A richer shaper once carried
+the street address, the category and a German lexicon behind
+`REFINE_QUERY_SHAPING`; the privacy rule forbids all of those words leaving the
+server, so the setting had stopped changing anything and was removed rather
+than left to mislead. For the record, the plain query also measured better:
+over three live twelve-place Berlin runs it returned 14 validated claims to the
+richer query's 11.
 
 With nothing left to refine the loop backs off to `REFINE_IDLE_TICK_MS`
 (thirty times the working cadence) so an idle room is not reloaded every

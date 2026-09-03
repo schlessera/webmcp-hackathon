@@ -9,7 +9,6 @@ import {
   refinementBudgetSleepForTest,
   refinementLookupReason,
   refinementQueueCounts,
-  refineQueryShaping,
   refinementTickDelay,
   REFINE_IDLE_TICK_MS,
   REFINE_SEARCH_CONCURRENCY,
@@ -226,8 +225,8 @@ describe("continuous refinement queue", () => {
       countryCode: "DE",
     };
     const responses = (await Promise.all([
-      searchRefinementPlaces(requests.slice(0, 6), area, provider, { queryShaping: "shaped" }),
-      searchRefinementPlaces(requests.slice(6), area, provider, { queryShaping: "shaped" }),
+      searchRefinementPlaces(requests.slice(0, 6), area, provider),
+      searchRefinementPlaces(requests.slice(6), area, provider),
     ])).flat();
     expect(responses).toHaveLength(12);
     expect(provider).toHaveBeenCalledTimes(12);
@@ -297,15 +296,19 @@ describe("continuous refinement queue", () => {
     expect(german).not.toContain("room for a tandem stroller");
   });
 
-  it("defaults to the plain query, which measured better than the shaped one", () => {
-    const criteria = [
-      { id: "wheelchair-accessible", kind: "key" as const, key: "wheelchair-accessible", label: "step-free access" },
-    ];
-    const request = { name: "Ort", searchCriteria: criteria };
+  it("sends only the place identity and shared need words", () => {
+    const request = {
+      name: "Ort",
+      searchCriteria: [
+        { id: "wheelchair-accessible", kind: "key" as const, key: "wheelchair-accessible", label: "step-free access" },
+      ],
+    };
     const area = { city: "Berlin", label: "Berlin Mitte", countryCode: "DE" };
-    expect(refineQueryShaping(undefined)).toBe("plain");
-    expect(refineQueryShaping("shaped")).toBe("shaped");
-    expect(buildRefinementQuery(request, area)).toBe("Ort Berlin step-free access");
-    expect(buildRefinementQuery(request, area)).not.toContain("biergarten");
+    const query = buildRefinementQuery(request, area);
+    expect(query).toBe("Ort Berlin step-free access");
+    // The district, the category and a local-language lexicon were all in the
+    // query the privacy ruling retired. None of them may come back.
+    expect(query).not.toContain("Mitte");
+    expect(query).not.toContain("barrierefrei");
   });
 });
