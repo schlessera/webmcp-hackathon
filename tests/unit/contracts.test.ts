@@ -137,6 +137,26 @@ describe("tool schemas (lane 1)", () => {
     })).toBe(false);
   });
 
+  it("validates and round-trips an additive referent step id", () => {
+    const validate = ajv.compile(COMMAND_SCHEMAS.SubmitRequirement);
+    const input = {
+      baseRevision: 0,
+      visibility: "shared",
+      hardness: "hard",
+      delegation: { mode: "approval_required" },
+      payload: {
+        kind: "scope",
+        dimension: "walk_min",
+        max: 12,
+        referent: { kind: "candidate", candidateId: "place_1", stepId: "s2" },
+      },
+    };
+    const roundTripped = JSON.parse(JSON.stringify(input));
+    expect(validate(roundTripped)).toBe(true);
+    expect(roundTripped).toEqual(input);
+    expect(TOOL_CONTRACT_VERSION).toBe("3");
+  });
+
   it("no tool argument accepts an actor identity", () => {
     for (const tool of TOOLS) {
       const props = (tool.inputSchema as { properties?: Record<string, unknown> })
@@ -194,8 +214,8 @@ describe("character budgets (Chrome guidance)", () => {
     expect(CAPABILITY_MANIFEST.conduct.length).toBeLessThanOrEqual(400);
   });
 
-  it("advertises the implemented 21-tool surface without meeting points", () => {
-    expect(TOOLS).toHaveLength(21);
+  it("advertises the implemented 22-tool surface without meeting points", () => {
+    expect(TOOLS).toHaveLength(22);
     expect(CAPABILITY_MANIFEST.capabilities).not.toContain("meeting-points");
     expect(TOOLS.find((tool) => tool.name === "set_search_scope")?.description)
       .toContain("Organizer only");
@@ -349,7 +369,12 @@ describe("contract hash and version bump policy (Gate 2)", () => {
         { type: "event", revision: 1, fromRevision: 0, events: [] },
         { type: "error", code: "invalid_message", message: "bad" },
         { type: "confirmation", kind: "agreement", subjectId: "pr", nonce: "n", expiresInMs: 1 },
-        { type: "presence", present: ["p"], viewing: [{ participantId: "p", candidateId: "c" }] },
+        {
+          type: "presence",
+          present: ["p"],
+          viewing: [{ participantId: "p", candidateId: "c" }],
+          positions: [],
+        },
         { type: "lookups", pending: ["c"], reason: { kind: "need", label: "need" } },
         { type: "facts", candidateIds: ["c"], reason: "lookup" },
       ],

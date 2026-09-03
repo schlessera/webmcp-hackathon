@@ -12,9 +12,10 @@ import type {
   ExplorePlace,
   ParticipantOrigin,
   ParticipantSummary,
+  SharedPosition,
   SpatialContext,
 } from "../spatial-types.ts";
-import type { LookupReason } from "../spatial-store.ts";
+import type { LookupReason, PipelineStage, PipelineView } from "../spatial-store.ts";
 import { COPY, initials, numberWord, personColor, stillWorkVerb, tiltFor } from "../ui/copy.ts";
 
 /**
@@ -60,6 +61,11 @@ type GlStatus = "works" | "unsure" | "out" | "act" | "likely" | "unlikely" | "re
 
 const MARK_DASH_IMAGE = "spokes-mark-dash";
 const MARK_BUSY_IMAGE = "spokes-mark-busy";
+/** The processing stage: one 270° arc, no dash pattern (SPOKES-UI "dot stages"). */
+const MARK_ARC_IMAGE = "spokes-mark-arc";
+/** 2π · 6.5, the ring in the count block. */
+const RING_CIRCUMFERENCE = 40.84;
+const ARC_SWEEP = Math.PI * 1.5;
 const DOM_MARKER_CAP = 60;
 const MARK_SOURCE_MAX_ZOOM = 12;
 const PLACE_COLLATOR = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
@@ -86,16 +92,20 @@ function addRingImage(map: MapLibreMap, base: string, pixelRatio: number): void 
   const id = ringImageId(base, pixelRatio);
   if (map.hasImage(id)) return;
   const canvas = document.createElement("canvas");
-  const busy = base === MARK_BUSY_IMAGE;
+  const busy = base === MARK_BUSY_IMAGE || base === MARK_ARC_IMAGE;
   map.addImage(
     id,
     ringImage(
       canvas,
       (busy ? 28 : 18) * pixelRatio,
       1.5 * pixelRatio,
-      busy
-        ? [3.5 * pixelRatio, 3 * pixelRatio]
-        : [3 * pixelRatio, 2.5 * pixelRatio],
+      base === MARK_ARC_IMAGE
+        ? []
+        : busy
+          ? [3.5 * pixelRatio, 3 * pixelRatio]
+          : [3 * pixelRatio, 2.5 * pixelRatio],
+      0,
+      base === MARK_ARC_IMAGE ? ARC_SWEEP : Math.PI * 2,
     ),
     { sdf: true, pixelRatio },
   );
@@ -104,11 +114,12 @@ function addRingImage(map: MapLibreMap, base: string, pixelRatio: number): void 
 function addRingImages(map: MapLibreMap, pixelRatio: number): void {
   addRingImage(map, MARK_DASH_IMAGE, pixelRatio);
   addRingImage(map, MARK_BUSY_IMAGE, pixelRatio);
+  addRingImage(map, MARK_ARC_IMAGE, pixelRatio);
 }
 
 /** Resolve any supported DPR synchronously, including after a display move. */
 function resolveRingImage(map: MapLibreMap, id: string): void {
-  for (const base of [MARK_DASH_IMAGE, MARK_BUSY_IMAGE]) {
+  for (const base of [MARK_DASH_IMAGE, MARK_BUSY_IMAGE, MARK_ARC_IMAGE]) {
     const match = id.match(new RegExp(`^${base}-([1-3])x$`));
     if (match) {
       addRingImage(map, base, Number(match[1]));
@@ -127,6 +138,9 @@ declare global {
       zoom: number;
       busyAnimating: boolean;
       busyLayerMounted: boolean;
+      arcLayerMounted: boolean;
+      stages: { queued: number; fetching: number; processing: number };
+      pipeline: { done: number; total: number; paused: "budget" | "idle" | null } | null;
       busyRepaints: number;
       mapRenders: number;
       ringPixelRatio: number;
@@ -173,6 +187,7 @@ function ringImage(
   lineWidth: number,
   dash: number[],
   angle = 0,
+  sweep = Math.PI * 2,
 ): ImageData {
   if (canvas.width !== size) canvas.width = size;
   if (canvas.height !== size) canvas.height = size;
@@ -187,7 +202,7 @@ function ringImage(
   drawing.lineCap = "round";
   drawing.setLineDash(dash);
   drawing.beginPath();
-  drawing.arc(0, 0, (size - lineWidth) / 2 - 1, 0, Math.PI * 2);
+  drawing.arc(0, 0, (size - lineWidth) / 2 - 1, 0, sweep);
   drawing.stroke();
   drawing.restore();
   return drawing.getImageData(0, 0, size, size);
@@ -220,11 +235,18 @@ interface Props {
   proposedRadiusM: number | null;
   /** participantId -> candidateId: who has which place open right now. */
   viewing: Record<string, string>;
+  /** Opted-in live positions from the presence channel, never labels. */
+  positions: Record<string, SharedPosition>;
   participants: ParticipantSummary[];
   meId: string;
   /** Places the server is looking up right now: a busy ring on each. */
   busy: ReadonlySet<string>;
   busyReason: LookupReason | null;
+  /** Per-place pipeline stage (queued / fetching / processing); a busy place
+   * without one reads as fetching. */
+  stages: Record<string, PipelineStage>;
+  /** The room's pipeline volume for the active needs; null until a frame. */
+  pipeline: PipelineView | null;
   /** Needs this page said that have not settled yet. */
   pendingCount: number;
   roomId: string;
@@ -336,10 +358,13 @@ export function MapView({
   committedId,
   proposedRadiusM,
   viewing,
+  positions,
   participants,
   meId,
   busy,
   busyReason,
+  stages,
+  pipeline,
   pendingCount,
   roomId,
   isOrganizer,
@@ -353,6 +378,9 @@ export function MapView({
 }: Props) {
   const mapRef = useRef<MapRef>(null);
   const { scope, candidates, proposals } = context;
+  const referentMarks = context.activeNeeds.filter(
+    (need) => need.active && need.referent?.location,
+  );
   const center = scope.area.center;
   const selectedIdRef = useRef(selectedId);
   const candidatesRef = useRef(candidates);
@@ -415,6 +443,20 @@ export function MapView({
   const mapRenders = useRef(0);
   const busyRef = useRef(busy);
   busyRef.current = busy;
+  /** The displayed stage of a place: the frame's word, else fetching while busy. */
+  const stageOf = useCallback(
+    (id: string): PipelineStage | null => stages[id] ?? (busy.has(id) ? "fetching" : null),
+    [stages, busy],
+  );
+  const stageOfRef = useRef(stageOf);
+  stageOfRef.current = stageOf;
+  const pipelineRef = useRef(pipeline);
+  pipelineRef.current = pipeline;
+  /** Any place whose ring turns (queued rings stand still). */
+  const turning = useMemo(
+    () => [...busy].some((id) => stageOf(id) !== "queued"),
+    [busy, stageOf],
+  );
   useEffect(() => {
     const preference = window.matchMedia("(prefers-reduced-motion: reduce)");
     const readMotion = () => {
@@ -732,6 +774,20 @@ export function MapView({
     });
     return map;
   }, [viewing, participants, meId]);
+
+  const sharedPeople = useMemo(() => {
+    const out: Array<{
+      position: SharedPosition;
+      participant: ParticipantSummary;
+      index: number;
+    }> = [];
+    participants.forEach((participant, index) => {
+      if (participant.participantId === meId) return;
+      const position = positions[participant.participantId];
+      if (position) out.push({ position, participant, index });
+    });
+    return out;
+  }, [positions, participants, meId]);
 
   /* While a brief row is held, the drawn set is the previewed one, and the
      places the held need was removing breathe back in as dashed stickers. */
@@ -1126,9 +1182,12 @@ export function MapView({
     const apply = (all: boolean) => {
       for (const candidate of candidates) {
         const state = stateOf(candidate);
+        const stage = stageOf(candidate.candidateId);
         const featureState = {
           status: glStatusOf(state),
-          busy: busy.has(candidate.candidateId),
+          // `busy` stays one release beside `stage` (older pins read it).
+          busy: stage !== null,
+          stage: stage ?? "",
           hidden: domCandidateIds.has(candidate.candidateId),
         };
         const serialised = JSON.stringify(featureState);
@@ -1176,6 +1235,8 @@ export function MapView({
     if (!map) return;
     const canvas = document.createElement("canvas");
     const busyImage = ringImageId(MARK_BUSY_IMAGE, ringPixelRatio);
+    const arcImage = ringImageId(MARK_ARC_IMAGE, ringPixelRatio);
+    const arcCanvas = document.createElement("canvas");
     const busyRing = (angle: number) =>
       ringImage(
         canvas,
@@ -1184,6 +1245,14 @@ export function MapView({
         [3.5 * ringPixelRatio, 3 * ringPixelRatio],
         angle,
       );
+    const arcRing = (angle: number) =>
+      ringImage(arcCanvas, 28 * ringPixelRatio, 1.5 * ringPixelRatio, [], angle, ARC_SWEEP);
+    const paint = (angle: number) => {
+      if (map.hasImage(busyImage)) map.updateImage(busyImage, busyRing(angle));
+      if (map.hasImage(arcImage)) map.updateImage(arcImage, arcRing(angle));
+      map.triggerRepaint();
+      busyRepaints.current += 1;
+    };
     const cancel = () => {
       if (busyFrame.current !== null) cancelAnimationFrame(busyFrame.current);
       busyFrame.current = null;
@@ -1191,31 +1260,24 @@ export function MapView({
     };
     cancel();
     if (busy.size === 0) return cancel;
-    if (motion.reduced || motion.busyMs <= 0) {
-      if (map.hasImage(busyImage)) {
-        map.updateImage(busyImage, busyRing(0));
-        map.triggerRepaint();
-        busyRepaints.current += 1;
-      }
+    // Only queued rings: they stand still, so nothing asks for frames.
+    if (!turning || motion.reduced || motion.busyMs <= 0) {
+      paint(0);
       return cancel;
     }
     busyAnimating.current = true;
     const draw = (now: number) => {
-      if (busyRef.current.size === 0) {
+      const stillTurning = [...busyRef.current].some((id) => stageOfRef.current(id) !== "queued");
+      if (!stillTurning) {
         cancel();
         return;
       }
-      if (map.hasImage(busyImage)) {
-        const angle = ((now % motion.busyMs) / motion.busyMs) * Math.PI * 2;
-        map.updateImage(busyImage, busyRing(angle));
-        map.triggerRepaint();
-        busyRepaints.current += 1;
-      }
+      paint(((now % motion.busyMs) / motion.busyMs) * Math.PI * 2);
       busyFrame.current = requestAnimationFrame(draw);
     };
     busyFrame.current = requestAnimationFrame(draw);
     return cancel;
-  }, [loaded, busy, motion.reduced, motion.busyMs, ringPixelRatio]);
+  }, [loaded, busy, turning, motion.reduced, motion.busyMs, ringPixelRatio]);
 
   useEffect(() => {
     const stats = () => {
@@ -1238,6 +1300,18 @@ export function MapView({
         zoom: map?.getZoom() ?? 14,
         busyAnimating: busyAnimating.current,
         busyLayerMounted: Boolean(map?.getLayer("mark-busy")),
+        arcLayerMounted: Boolean(map?.getLayer("mark-arc")),
+        stages: [...busyRef.current].reduce(
+          (acc, id) => {
+            const stage = stageOfRef.current(id) ?? "fetching";
+            acc[stage] += 1;
+            return acc;
+          },
+          { queued: 0, fetching: 0, processing: 0 },
+        ),
+        pipeline: pipelineRef.current
+          ? { done: pipelineRef.current.done, total: pipelineRef.current.total, paused: pipelineRef.current.paused }
+          : null,
         busyRepaints: busyRepaints.current,
         mapRenders: mapRenders.current,
         ringPixelRatio,
@@ -1565,27 +1639,46 @@ export function MapView({
   const fillLine = context.pool?.filling
     ? `adding places · ${context.pool.size} of ${context.pool.target}`
     : null;
-  const busyLine = fillLine ?? lookupLine;
+  /* The pipeline ring (SPOKES-UI "The pipeline ring and dot stages"): one
+     determinate ring, done of total for the active needs, and one line. It
+     replaces the lookup and refinement lines once the server sends
+     `pipeline` frames; an older server keeps the two lines. Drained: nothing
+     at all — a finished ring that lingers reads as stuck. */
+  const pipelineActive = pipeline !== null && pipeline.total > 0 && pipeline.done < pipeline.total;
+  const pipelinePaused = pipeline?.paused === "budget";
+  const pipelineLine = pipelineActive
+    ? pipelinePaused
+      ? COPY.refinePaused
+      : COPY.pipelineChecked(pipeline.done, pipeline.total, statedNeeds.length)
+    : null;
+  const pipelineMix =
+    pipelineActive && !pipelinePaused
+      ? COPY.pipelineMix(pipeline.inFlight.fetch, pipeline.inFlight.process)
+      : null;
+  const busyLine = fillLine ?? (pipeline !== null ? (pipelineActive ? null : lookupLine) : lookupLine);
   /* The refinement line: what the room has checked so far and what is left,
      quiet, under the count. Out of budget reads as paused, never as an
-     error — nothing is wrong, the room is waiting its turn. */
-  const refineLine = refine?.active
-    ? refine.paused === "budget" ||
-      refine.budgetLeft.calls === 0 ||
-      refine.budgetLeft.searches === 0
-      ? COPY.refinePaused
-      : COPY.refining(refine.checkedToday, statedNeeds.length, shownRefineQueue)
-    : null;
+     error — nothing is wrong, the room is waiting its turn. Replaced by the
+     ring once pipeline frames flow. */
+  const refineLine = pipeline !== null
+    ? null
+    : refine?.active
+      ? refine.paused === "budget" ||
+        refine.budgetLeft.calls === 0 ||
+        refine.budgetLeft.searches === 0
+        ? COPY.refinePaused
+        : COPY.refining(refine.checkedToday, statedNeeds.length, shownRefineQueue)
+      : null;
   const settled = committedId !== null;
   useEffect(() => {
-    const line = refineLine ?? "";
+    const line = pipelineLine ?? refineLine ?? "";
     const wait = Math.max(0, 10_000 - (Date.now() - refineAnnouncedAt.current));
     const timer = setTimeout(() => {
       refineAnnouncedAt.current = Date.now();
       setRefineAnnouncement(line);
     }, wait);
     return () => clearTimeout(timer);
-  }, [refineLine]);
+  }, [refineLine, pipelineLine]);
   const preNeed = statedNeeds.length === 0 && context.privateEffects.length === 0;
 
   /* Zero eligible with unknowns outstanding is NOT an impasse (§4) unless the
@@ -1872,8 +1965,39 @@ export function MapView({
                 ],
                 "icon-opacity": [
                   "case",
+                  ["boolean", ["feature-state", "hidden"], false],
+                  0,
+                  ["==", ["feature-state", "stage"], "queued"],
+                  0.4,
+                  ["==", ["feature-state", "stage"], "fetching"],
+                  1,
+                  0,
+                ],
+              }}
+            />
+          )}
+          {loaded && busy.size > 0 && (
+            <Layer
+              id="mark-arc"
+              type="symbol"
+              layout={{
+                "icon-image": ringImageId(MARK_ARC_IMAGE, ringPixelRatio),
+                "icon-allow-overlap": true,
+                "icon-ignore-placement": true,
+              }}
+              paint={{
+                "icon-color": [
+                  "match", ["feature-state", "status"],
+                  "out", MAP_THEME.marks.out,
+                  "unsure", MAP_THEME.marks.unsure,
+                  "unlikely", MAP_THEME.marks.unsure,
+                  "act", MAP_THEME.marks.act,
+                  MAP_THEME.marks.works,
+                ],
+                "icon-opacity": [
+                  "case",
                   ["all",
-                    ["boolean", ["feature-state", "busy"], false],
+                    ["==", ["feature-state", "stage"], "processing"],
                     ["!", ["boolean", ["feature-state", "hidden"], false]],
                   ],
                   1,
@@ -1883,6 +2007,49 @@ export function MapView({
             />
           )}
         </Source>
+        {referentMarks.map((need) => (
+          <Marker
+            key={`referent-${need.id}`}
+            longitude={need.referent!.location!.lng}
+            latitude={need.referent!.location!.lat}
+            anchor="center"
+            style={{ zIndex: 8 }}
+          >
+            <div
+              className="referent-marker"
+              role="img"
+              aria-label={`${need.label}. Measured from ${need.referent!.label}.`}
+              data-testid={`referent-mark-${need.id}`}
+            >
+              <span className="referent-anchor" aria-hidden="true" />
+              <span className="referent-card">{need.referent!.label}</span>
+            </div>
+          </Marker>
+        ))}
+        {sharedPeople.map(({ position, participant, index }) => (
+          <Marker
+            key={`person-${participant.participantId}`}
+            longitude={position.lng}
+            latitude={position.lat}
+            anchor="center"
+            style={{ zIndex: 16 }}
+          >
+            <div
+              className="person-marker"
+              role="img"
+              aria-label={`${participant.displayName} is showing where they are.`}
+              data-testid={`person-mark-${participant.participantId}`}
+            >
+              <span
+                className="person-mark-badge"
+                style={{ background: personColor(index) }}
+                aria-hidden="true"
+              >
+                {initials(participant.displayName)}
+              </span>
+            </div>
+          </Marker>
+        ))}
         {displayedOrigin && (
           <Marker
             longitude={displayedOrigin.lng}
@@ -1949,6 +2116,7 @@ export function MapView({
                 data-named={named.has(c.candidateId)}
                 data-candidate-id={c.candidateId}
                 data-busy={busy.has(c.candidateId) || undefined}
+                data-stage={stageOf(c.candidateId) ?? undefined}
                 data-viewers={viewers.length || undefined}
                 data-testid={`pin-${c.candidateId}`}
                 role="button"
@@ -2164,6 +2332,35 @@ export function MapView({
               {countState === "impasse" ? `of ${total}${guessed} · ${zeroReason}` : `of ${total}${guessed}`}
             </div>
           </>
+        )}
+        {pipelineLine && !fillLine && countState !== "settled" && (
+          <div
+            className="count-progress"
+            data-testid="count-progress"
+            data-paused={pipelinePaused || undefined}
+            role="progressbar"
+            aria-valuemin={0}
+            aria-valuemax={pipeline!.total}
+            aria-valuenow={pipelinePaused ? undefined : pipeline!.done}
+            aria-valuetext={pipelineLine + (pipelineMix ? ` ${pipelineMix}` : "")}
+          >
+            <svg className="progress-ring" viewBox="0 0 16 16" aria-hidden="true">
+              <circle className="progress-ring-track" cx="8" cy="8" r="6.5" />
+              <circle
+                className="progress-ring-fill"
+                cx="8"
+                cy="8"
+                r="6.5"
+                style={{
+                  strokeDashoffset: RING_CIRCUMFERENCE * (1 - Math.min(1, pipeline!.done / Math.max(1, pipeline!.total))),
+                }}
+              />
+            </svg>
+            <span>
+              {pipelineLine}
+              {pipelineMix && <span className="count-progress-mix"> {pipelineMix}</span>}
+            </span>
+          </div>
         )}
         {busyLine && countState !== "settled" && (
           <div

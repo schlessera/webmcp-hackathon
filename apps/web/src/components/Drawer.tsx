@@ -3,7 +3,7 @@ import { PROTOCOL_VERSIONS, TOOL_CONTRACT_VERSION } from "@webmcp-hackathon/cont
 import { diagnostics, type DiagnosticsState } from "../diagnostics-store.ts";
 import type { SessionIdentity } from "../session.ts";
 import type { CommandEnvelope, SpatialContext } from "../spatial-types.ts";
-import type { LookupReason, PendingNeed } from "../spatial-store.ts";
+import type { LookupReason, PendingNeed, PipelineStage, PipelineView } from "../spatial-store.ts";
 import { COPY } from "../ui/copy.ts";
 import { currentToken } from "../session.ts";
 
@@ -27,6 +27,8 @@ interface Props {
   /** Presentation-only frames the page is holding right now. */
   busy: string[];
   busyReason: LookupReason | null;
+  stages: Record<string, PipelineStage>;
+  pipeline: PipelineView | null;
   pendingNeeds: PendingNeed[];
   onClose(): void;
   run(type: string, input: Record<string, unknown>): Promise<CommandEnvelope>;
@@ -72,6 +74,8 @@ export function Drawer({
   revision,
   busy,
   busyReason,
+  stages,
+  pipeline,
   pendingNeeds,
   onClose,
   run,
@@ -229,6 +233,27 @@ export function Drawer({
             </pre>
           </Section>
 
+          <Section title="Pipeline">
+            <div className="drawer-kv" data-testid="diag-pipeline">
+              {pipeline ? (
+                <>
+                  <span>
+                    done <strong>{pipeline.done}</strong> of <strong>{pipeline.total}</strong>
+                    {pipeline.paused ? ` · paused (${pipeline.paused})` : ""}
+                  </span>
+                  <span>
+                    outstanding fetch {pipeline.outstanding.fetch} · process {pipeline.outstanding.process} · in flight fetch {pipeline.inFlight.fetch} · process {pipeline.inFlight.process}
+                    {typeof pipeline.etaMs === "number" ? ` · eta ${Math.round(pipeline.etaMs / 1000)}s` : ""}
+                  </span>
+                  <span>
+                    stages queued {Object.values(stages).filter((v) => v === "queued").length} · fetching {Object.values(stages).filter((v) => v === "fetching").length} · processing {Object.values(stages).filter((v) => v === "processing").length}
+                  </span>
+                </>
+              ) : (
+                <span>no pipeline frame yet</span>
+              )}
+            </div>
+          </Section>
           <Section title="Lookups">
             <pre className="drawer-json" data-testid="diag-outbound">
               {lookups.length ? JSON.stringify(lookups, null, 1) : "no outbound rows"}

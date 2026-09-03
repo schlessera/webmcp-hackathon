@@ -82,8 +82,14 @@ services:
       REFINE_MODEL_CALLS_PER_HOUR: ${REFINE_MODEL_CALLS_PER_HOUR:-200}
       REFINE_SEARCHES_PER_HOUR: ${REFINE_SEARCHES_PER_HOUR:-150}
       REFINE_SEARCH_MODE: ${REFINE_SEARCH_MODE:-split}
-      SEARCH_PROVIDER: ${SEARCH_PROVIDER:-openai}
+      # Empty lets the server pick: parallel, then openai, then tavily, by
+      # whichever key is present. Set it explicitly only to pin one provider.
+      SEARCH_PROVIDER: ${SEARCH_PROVIDER:-}
       TAVILY_API_KEY: ${TAVILY_API_KEY:-}
+      PARALLEL_API_KEY: ${PARALLEL_API_KEY:-}
+      DATAFORSEO_LOGIN: ${DATAFORSEO_LOGIN:-}
+      DATAFORSEO_PASSWORD: ${DATAFORSEO_PASSWORD:-}
+      LISTINGS: ${LISTINGS:-1}
       PROXY_URL: ${PROXY_URL:-}
       PROXY: ${PROXY:-1}
     healthcheck:

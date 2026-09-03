@@ -37,6 +37,7 @@ import {
 } from "../enrich/evaluate.ts";
 import { INFERABLE_KEYS, inferenceEnabled } from "../enrich/infer.ts";
 import { loadSearchCache, storeSearchCache } from "../enrich/cache.ts";
+import { takeListingSpendUsd } from "../enrich/listings.ts";
 import { lookupPending } from "../enrich/progress.ts";
 import { onPresenceChange, presentIn } from "../presence.ts";
 import { createTokenBucket } from "../token-bucket.ts";
@@ -45,8 +46,10 @@ import { adjudicateLikelyForRoom } from "../enrich/adjudication-runner.ts";
 import {
   combinedSearch,
   search,
+  SEARCH_PROVIDER_COST_USD,
   searchProviderId,
   type SearchResult,
+  type SearchProviderId,
 } from "./search.ts";
 import { pipelineScheduler, type DispatchResult } from "../pipeline/scheduler.ts";
 import {
@@ -572,13 +575,15 @@ export interface RefinementAreaContext {
 export interface RefinementSearchPolicy {
   domainRule?: RefineDomainRule;
   cacheDb?: Pick<pg.Pool, "query"> | Pick<pg.PoolClient, "query">;
-  providerName?: "tavily" | "openai";
+  providerName?: SearchProviderId;
   /** Scheduler context for the room plan that owns this search. */
   pipeline?: {
     roomId: string;
     needsEpoch: number;
     priority?: PipelineItem["priority"];
   };
+  /** Parallel output is licensed to one room, so its cache key requires this. */
+  roomId?: string;
 }
 
 export interface RefinementBatchOptions extends RefinementSearchPolicy {
@@ -651,6 +656,7 @@ export async function searchRefinementPlaces(
         query,
         providerName,
         domains,
+        policy.roomId,
       ).catch(() => null);
       if (cached?.snippets || cached?.claims || cached?.answeredIds) {
         return {
@@ -675,11 +681,12 @@ export async function searchRefinementPlaces(
     } catch {
       results = [];
     }
-    if (policy.cacheDb && providerName === "tavily") {
+    if (policy.cacheDb && (providerName === "tavily" || providerName === "parallel")) {
       await storeSearchCache(policy.cacheDb, {
         osmRef: request.osmRef,
         query,
-        provider: "tavily",
+        provider: providerName,
+        ...(policy.roomId ? { roomId: policy.roomId } : {}),
         ...(domains ? { domains } : {}),
         snippets: results,
       }).catch(() => undefined);
@@ -1057,6 +1064,9 @@ async function processRefinementBatch(
   state.budgetLogged = false;
   state.paused = null;
   const spendBefore = responseMetrics();
+  // Combined mode is the OpenAI Responses web-search path regardless of the
+  // separately configured split-mode provider.
+  const providerName = searchMode === "combined" ? "openai" : searchProviderId();
 
   {
     const placeInfo = await roomPlace(roomId);
@@ -1113,7 +1123,7 @@ async function processRefinementBatch(
     const searchRequests = wanted.slice(0, searchSlots);
     searchBudget.consume(roomId, searchRequests.length, now);
     let searchClaims: EvaluatedInference[] = [];
-    const providerName = searchProviderId();
+    let paidSearches = 0;
     if (searchMode === "combined") {
       for (const request of searchRequests) {
         for (const criterion of request.searchCriteria) {
@@ -1136,6 +1146,7 @@ async function processRefinementBatch(
           candidateId: request.candidateId,
           osmRef: request.osmRef,
         }));
+        paidSearches += 1;
         try {
           const planned = batch.find((item) => item.candidate.id === request.candidateId)!;
           const base = {
@@ -1191,12 +1202,14 @@ async function processRefinementBatch(
           ...options,
           cacheDb: pool,
           providerName,
+          roomId,
           pipeline: { roomId, needsEpoch: epoch, priority: batch[0]?.tier ?? 1 },
         },
       )).map((entry) => ({
         ...entry,
         prepared: preparedById.get(entry.candidateId)!,
       }));
+      paidSearches = searched.filter((entry) => !entry.cacheHit).length;
       for (const entry of searched) {
         // searchAttempts measures paid outbound legs. Replaying snippets or
         // derived claims must not consume another attempt merely because a
@@ -1331,19 +1344,19 @@ async function processRefinementBatch(
     logBatch(roomId, {
       places: batch.length,
       criteria: criteria.length,
-      searches: searchRequests.length,
+      searches: paidSearches,
       claims: claims.length,
       changed: changed.length,
       queued: state.queued,
       spend: spendBefore,
+      providerName,
     });
     return REFINE_TICK_MS;
   }
 }
 
-/** Per-search fee charged by the built-in web-search tool, and the fast-tier
- * token rates, both in dollars. Only used to print an estimate. */
-const SEARCH_FEE_USD = 0.01;
+/** Per-search fee for the selected provider and token rates, both in dollars.
+ * Only used to print an estimate. */
 const INPUT_USD_PER_TOKEN = 0.00000015;
 const OUTPUT_USD_PER_TOKEN = 0.0000006;
 
@@ -1362,13 +1375,16 @@ function logBatch(
     changed: number;
     queued: number;
     spend: ReturnType<typeof responseMetrics>;
+    providerName: SearchProviderId;
   },
 ): void {
   const now = responseMetrics();
   const calls = now.calls - batch.spend.calls;
   const inputTokens = now.inputTokens - batch.spend.inputTokens;
   const outputTokens = now.outputTokens - batch.spend.outputTokens;
-  const cost = batch.searches * SEARCH_FEE_USD +
+  const listingCost = takeListingSpendUsd(roomId);
+  const cost = batch.searches * SEARCH_PROVIDER_COST_USD[batch.providerName] +
+    listingCost +
     inputTokens * INPUT_USD_PER_TOKEN +
     outputTokens * OUTPUT_USD_PER_TOKEN;
   console.info(JSON.stringify({
@@ -1378,6 +1394,8 @@ function logBatch(
     criteria: batch.criteria,
     calls,
     searches: batch.searches,
+    searchProvider: batch.providerName,
+    listingCostUsd: Number(listingCost.toFixed(4)),
     claims: batch.claims,
     changed: batch.changed,
     queued: batch.queued,

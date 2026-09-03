@@ -1,6 +1,6 @@
 {
   "toolContractVersion": "3",
-  "sha256": "f28391c73a4afd771fb5fa15b5f765e28bb6fd6f88863583de923288e4269c39",
+  "sha256": "ec048d54ee0e83325cab1f851e9154530b9e2045d7af5b8dbd663de8d709d4e8",
   "manifest": {
     "capabilityManifest": {
       "agreement": {
@@ -18,7 +18,8 @@
         "takeaway": "takeaway",
         "vegan-options": "vegan options",
         "vegetarian-options": "vegetarian options",
-        "wheelchair-accessible": "step-free access"
+        "wheelchair-accessible": "step-free access",
+        "wifi": "wi-fi"
       },
       "attributeVocabulary": [
         "vegetarian-options",
@@ -29,6 +30,7 @@
         "wheelchair-accessible",
         "outdoor-seating",
         "dog-friendly",
+        "wifi",
         "takeaway",
         "delivery",
         "price-level",
@@ -152,6 +154,10 @@
               },
               {
                 "const": "dog-friendly",
+                "type": "string"
+              },
+              {
+                "const": "wifi",
                 "type": "string"
               },
               {
@@ -289,6 +295,10 @@
               },
               {
                 "const": "dog-friendly",
+                "type": "string"
+              },
+              {
+                "const": "wifi",
                 "type": "string"
               },
               {
@@ -671,6 +681,24 @@
         ],
         "type": "object"
       },
+      "SetOriginSharing": {
+        "additionalProperties": false,
+        "properties": {
+          "baseRevision": {
+            "description": "Use the revision from your last sync; on sync_required, read the delta before retrying.",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "shared": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "baseRevision",
+          "shared"
+        ],
+        "type": "object"
+      },
       "SetReadyState": {
         "additionalProperties": false,
         "properties": {
@@ -931,6 +959,10 @@
                         "type": "string"
                       },
                       {
+                        "const": "wifi",
+                        "type": "string"
+                      },
+                      {
                         "const": "takeaway",
                         "type": "string"
                       },
@@ -981,6 +1013,159 @@
                   },
                   "max": {
                     "type": "number"
+                  },
+                  "referent": {
+                    "anyOf": [
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "kind": {
+                            "const": "self",
+                            "type": "string"
+                          },
+                          "stepId": {
+                            "description": "Step whose chosen place this referent points at; omit for the current step (`s1` by default).",
+                            "maxLength": 40,
+                            "minLength": 1,
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "kind"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "kind": {
+                            "const": "scopeCenter",
+                            "type": "string"
+                          },
+                          "stepId": {
+                            "description": "Step whose chosen place this referent points at; omit for the current step (`s1` by default).",
+                            "maxLength": 40,
+                            "minLength": 1,
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "kind"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "candidateId": {
+                            "maxLength": 40,
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "kind": {
+                            "const": "candidate",
+                            "type": "string"
+                          },
+                          "stepId": {
+                            "description": "Step whose chosen place this referent points at; omit for the current step (`s1` by default).",
+                            "maxLength": 40,
+                            "minLength": 1,
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "candidateId"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "kind": {
+                            "const": "participant",
+                            "type": "string"
+                          },
+                          "participantId": {
+                            "maxLength": 40,
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "stepId": {
+                            "description": "Step whose chosen place this referent points at; omit for the current step (`s1` by default).",
+                            "maxLength": 40,
+                            "minLength": 1,
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "participantId"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "kind": {
+                            "const": "point",
+                            "type": "string"
+                          },
+                          "label": {
+                            "maxLength": 100,
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "lat": {
+                            "maximum": 90,
+                            "minimum": -90,
+                            "type": "number"
+                          },
+                          "lng": {
+                            "maximum": 180,
+                            "minimum": -180,
+                            "type": "number"
+                          },
+                          "stepId": {
+                            "description": "Step whose chosen place this referent points at; omit for the current step (`s1` by default).",
+                            "maxLength": 40,
+                            "minLength": 1,
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "lat",
+                          "lng"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "kind": {
+                            "const": "landmark",
+                            "type": "string"
+                          },
+                          "landmarkId": {
+                            "maxLength": 100,
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "stepId": {
+                            "description": "Step whose chosen place this referent points at; omit for the current step (`s1` by default).",
+                            "maxLength": 40,
+                            "minLength": 1,
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "landmarkId"
+                        ],
+                        "type": "object"
+                      }
+                    ]
                   }
                 },
                 "required": [
@@ -1286,6 +1471,10 @@
               },
               {
                 "const": "dog-friendly",
+                "type": "string"
+              },
+              {
+                "const": "wifi",
                 "type": "string"
               },
               {
@@ -2416,6 +2605,33 @@
           {
             "additionalProperties": false,
             "properties": {
+              "positions": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "lat": {
+                      "type": "number"
+                    },
+                    "lng": {
+                      "type": "number"
+                    },
+                    "participantId": {
+                      "type": "string"
+                    },
+                    "updatedAt": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "lat",
+                    "lng",
+                    "participantId",
+                    "updatedAt"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
               "present": {
                 "items": {
                   "type": "string"
@@ -2447,6 +2663,7 @@
               }
             },
             "required": [
+              "positions",
               "present",
               "type",
               "viewing"
@@ -2593,8 +2810,82 @@
                   }
                 ]
               },
-              "roomId": {
-                "type": "string"
+              "reason": {
+                "additionalProperties": false,
+                "properties": {
+                  "kind": {
+                    "anyOf": [
+                      {
+                        "const": "need",
+                        "type": "string"
+                      },
+                      {
+                        "const": "place",
+                        "type": "string"
+                      },
+                      {
+                        "const": "pool",
+                        "type": "string"
+                      },
+                      {
+                        "const": "refine",
+                        "type": "string"
+                      }
+                    ]
+                  },
+                  "label": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind"
+                ],
+                "type": "object"
+              },
+              "reset": {
+                "anyOf": [
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "boolean"
+                  }
+                ]
+              },
+              "stages": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "candidateId": {
+                      "type": "string"
+                    },
+                    "stage": {
+                      "anyOf": [
+                        {
+                          "type": "null"
+                        },
+                        {
+                          "const": "queued",
+                          "type": "string"
+                        },
+                        {
+                          "const": "fetching",
+                          "type": "string"
+                        },
+                        {
+                          "const": "processing",
+                          "type": "string"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "candidateId",
+                    "stage"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
               },
               "total": {
                 "type": "number"
@@ -2870,6 +3161,59 @@
                     },
                     "ownerId": {
                       "type": "string"
+                    },
+                    "referent": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "kind": {
+                          "anyOf": [
+                            {
+                              "const": "scopeCenter",
+                              "type": "string"
+                            },
+                            {
+                              "const": "candidate",
+                              "type": "string"
+                            },
+                            {
+                              "const": "participant",
+                              "type": "string"
+                            },
+                            {
+                              "const": "point",
+                              "type": "string"
+                            },
+                            {
+                              "const": "landmark",
+                              "type": "string"
+                            }
+                          ]
+                        },
+                        "label": {
+                          "type": "string"
+                        },
+                        "location": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "lat": {
+                              "type": "number"
+                            },
+                            "lng": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "lat",
+                            "lng"
+                          ],
+                          "type": "object"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "label"
+                      ],
+                      "type": "object"
                     },
                     "ruledOut": {
                       "type": "number"
@@ -5015,6 +5359,10 @@
                           "type": "string"
                         },
                         {
+                          "const": "wifi",
+                          "type": "string"
+                        },
+                        {
                           "const": "takeaway",
                           "type": "string"
                         },
@@ -5065,6 +5413,159 @@
                     },
                     "max": {
                       "type": "number"
+                    },
+                    "referent": {
+                      "anyOf": [
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "kind": {
+                              "const": "self",
+                              "type": "string"
+                            },
+                            "stepId": {
+                              "description": "Step whose chosen place this referent points at; omit for the current step (`s1` by default).",
+                              "maxLength": 40,
+                              "minLength": 1,
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "kind"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "kind": {
+                              "const": "scopeCenter",
+                              "type": "string"
+                            },
+                            "stepId": {
+                              "description": "Step whose chosen place this referent points at; omit for the current step (`s1` by default).",
+                              "maxLength": 40,
+                              "minLength": 1,
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "kind"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "candidateId": {
+                              "maxLength": 40,
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            "kind": {
+                              "const": "candidate",
+                              "type": "string"
+                            },
+                            "stepId": {
+                              "description": "Step whose chosen place this referent points at; omit for the current step (`s1` by default).",
+                              "maxLength": 40,
+                              "minLength": 1,
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "candidateId"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "kind": {
+                              "const": "participant",
+                              "type": "string"
+                            },
+                            "participantId": {
+                              "maxLength": 40,
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            "stepId": {
+                              "description": "Step whose chosen place this referent points at; omit for the current step (`s1` by default).",
+                              "maxLength": 40,
+                              "minLength": 1,
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "participantId"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "kind": {
+                              "const": "point",
+                              "type": "string"
+                            },
+                            "label": {
+                              "maxLength": 100,
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            "lat": {
+                              "maximum": 90,
+                              "minimum": -90,
+                              "type": "number"
+                            },
+                            "lng": {
+                              "maximum": 180,
+                              "minimum": -180,
+                              "type": "number"
+                            },
+                            "stepId": {
+                              "description": "Step whose chosen place this referent points at; omit for the current step (`s1` by default).",
+                              "maxLength": 40,
+                              "minLength": 1,
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "lat",
+                            "lng"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "kind": {
+                              "const": "landmark",
+                              "type": "string"
+                            },
+                            "landmarkId": {
+                              "maxLength": 100,
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            "stepId": {
+                              "description": "Step whose chosen place this referent points at; omit for the current step (`s1` by default).",
+                              "maxLength": 40,
+                              "minLength": 1,
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "landmarkId"
+                          ],
+                          "type": "object"
+                        }
+                      ]
                     }
                   },
                   "required": [
@@ -5635,7 +6136,7 @@
       },
       {
         "annotations": {},
-        "description": "Tell the room where you are starting from; only you and the server see the position; others see only its effect on the counts.",
+        "description": "Set your starting position. Its label and durable value stay private; the page separately controls the off-by-default live sharing opt-in.",
         "inputSchema": {
           "additionalProperties": false,
           "properties": {
@@ -5714,6 +6215,28 @@
           "type": "object"
         },
         "name": "confirm_agreement"
+      },
+      {
+        "annotations": {
+          "readOnlyHint": true
+        },
+        "description": "Find named landmarks in this room's area before stating a distance need. Returns stable landmark IDs, names, place-type labels and locations, ranked by name match. Read-only.",
+        "inputSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "query": {
+              "description": "Landmark or public place name to resolve in this room's area.",
+              "maxLength": 100,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "query"
+          ],
+          "type": "object"
+        },
+        "name": "find_landmarks"
       },
       {
         "annotations": {
@@ -6040,6 +6563,10 @@
                   "type": "string"
                 },
                 {
+                  "const": "wifi",
+                  "type": "string"
+                },
+                {
                   "const": "takeaway",
                   "type": "string"
                 },
@@ -6138,6 +6665,10 @@
                 },
                 {
                   "const": "dog-friendly",
+                  "type": "string"
+                },
+                {
+                  "const": "wifi",
                   "type": "string"
                 },
                 {

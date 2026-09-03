@@ -562,6 +562,14 @@ describe("refinement pipeline", () => {
     volume.enqueue(pipelineItem);
     frames.update(pipelineItem, "queued");
     expect(seen).toHaveLength(1);
+    expect(seen[0]).toMatchObject({
+      stages: [{ candidateId: "frame", stage: "queued" }],
+      reset: false,
+    });
+    expect(frames.currentPipeline("room-a")).toMatchObject({
+      stages: [{ candidateId: "frame", stage: "queued" }],
+      reset: true,
+    });
     volume.start(pipelineItem, 0);
     frames.update(pipelineItem, "fetching");
     volume.settle(pipelineItem, 100);
@@ -574,6 +582,8 @@ describe("refinement pipeline", () => {
     expect(seen.at(-1)).toMatchObject({
       outstanding: { fetch: 0, process: 0 },
       inFlight: { fetch: 0, process: 0 },
+      stages: [{ candidateId: "frame", stage: null }],
+      reset: false,
     });
   });
 

@@ -2,15 +2,25 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   citedSpans,
   combinedClaimsFromReply,
+  findVerbatimPageSpan,
   openAiSearchProvider,
+  parallelSearchProvider,
+  parseParallelResponse,
+  searchProviderId,
+  setParallelFetch,
   setSearchFetch,
   tavilySearchProvider,
 } from "../../apps/server/src/refine/search.ts";
+import { buildRefinementQuery } from "../../apps/server/src/refine/worker.ts";
+import parallelFixture from "./fixtures/parallel-search.json" with { type: "json" };
 import { setTransport } from "../../apps/server/src/nl/openai.ts";
 
 afterEach(() => {
   setTransport(null);
   setSearchFetch(null);
+  setParallelFetch(null);
+  delete process.env.PARALLEL_API_KEY;
+  delete process.env.SEARCH_PROVIDER;
 });
 
 describe("refinement web search", () => {
@@ -183,5 +193,85 @@ describe("refinement web search", () => {
       snippet: "Exact source words",
     }]);
     delete process.env.TAVILY_API_KEY;
+  });
+
+  it("parses Parallel results and proves its optimized excerpt is not itself a page substring", () => {
+    const [result] = parseParallelResponse(parallelFixture.response);
+    expect(result).toMatchObject({
+      url: "https://venue.example/connectivity",
+      title: "Venue connectivity",
+    });
+    const pageText = "Visit\nFree wireless internet is available throughout the dining room.";
+    expect(pageText).not.toContain(result.excerpts[0]);
+    expect(findVerbatimPageSpan(result.excerpts[0], pageText, "Venue Berlin wifi"))
+      .toBe("Free wireless internet is available throughout the dining room.");
+  });
+
+  it("uses fast mode and fetches at most two pages to recover literal spans", async () => {
+    process.env.PARALLEL_API_KEY = "test";
+    let apiBody: Record<string, unknown> | undefined;
+    let pageFetches = 0;
+    setParallelFetch(async (url, init) => {
+      if (url === "https://api.parallel.ai/v1/search") {
+        apiBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return Response.json({
+          results: [
+            ...parallelFixture.response.results,
+            { ...parallelFixture.response.results[0], url: "https://second.example/page", title: "Second" },
+            { ...parallelFixture.response.results[0], url: "https://third.example/page", title: "Third" },
+          ],
+        });
+      }
+      pageFetches += 1;
+      return new Response(parallelFixture.pageHtml, {
+        headers: { "content-type": "text/html" },
+      });
+    });
+    const results = await parallelSearchProvider.search("Venue Berlin wifi", {
+      domains: ["venue.example"],
+    });
+    expect(apiBody).toMatchObject({
+      objective: "Venue Berlin wifi",
+      search_queries: ["Venue Berlin wifi"],
+      mode: "fast",
+      advanced_settings: {
+        source_policy: { include_domains: ["venue.example"] },
+      },
+    });
+    expect(pageFetches).toBe(2);
+    expect(results).toHaveLength(2);
+    expect(results[0].snippet).toBe("Free wireless internet is available throughout the dining room.");
+  });
+
+  it("keeps a private predicate out of the request sent to Parallel", async () => {
+    process.env.PARALLEL_API_KEY = "test";
+    const privateSentence = "private-zebra needs a silent courtyard";
+    const query = buildRefinementQuery({
+      name: "Venue",
+      searchCriteria: [{ id: "wifi", kind: "key", key: "wifi", label: "wi-fi" }],
+    }, { city: "Berlin", label: "Berlin Mitte", countryCode: "DE" });
+    let wire = "";
+    setParallelFetch(async (url, init) => {
+      if (url.includes("api.parallel.ai")) {
+        wire = String(init?.body ?? "");
+        return Response.json(parallelFixture.response);
+      }
+      return new Response(parallelFixture.pageHtml, { headers: { "content-type": "text/html" } });
+    });
+    await parallelSearchProvider.search(query);
+    expect(wire).toContain("Venue Berlin wi-fi");
+    expect(wire).not.toContain(privateSentence);
+  });
+
+  it("selects Parallel, then OpenAI, then Tavily by available credentials", () => {
+    process.env.PARALLEL_API_KEY = "parallel";
+    process.env.OPENAI_API_KEY = "openai";
+    expect(searchProviderId()).toBe("parallel");
+    delete process.env.PARALLEL_API_KEY;
+    expect(searchProviderId()).toBe("openai");
+    delete process.env.OPENAI_API_KEY;
+    expect(searchProviderId()).toBe("tavily");
+    process.env.SEARCH_PROVIDER = "openai";
+    expect(searchProviderId()).toBe("openai");
   });
 });

@@ -6,6 +6,7 @@ import Fastify from "fastify";
 import AjvModule from "ajv";
 import {
   INSPECT_CANDIDATES_INPUT,
+  FIND_LANDMARKS_INPUT,
   LOOK_UP_PLACES_INPUT,
   PREPARE_NAVIGATION_INPUT,
   SPATIAL_CONTEXT_INPUT,
@@ -29,6 +30,7 @@ const validateContextInput = readAjv.compile({
 const validateInspectInput = readAjv.compile(INSPECT_CANDIDATES_INPUT);
 const validateLookupInput = readAjv.compile(LOOK_UP_PLACES_INPUT);
 const validateNavigationInput = readAjv.compile(PREPARE_NAVIGATION_INPUT);
+const validateLandmarksInput = readAjv.compile(FIND_LANDMARKS_INPUT);
 import { config } from "./config.ts";
 import { authenticateToken, exchangeInviteSecret } from "./auth.ts";
 import { submitCommand } from "./engine.ts";
@@ -40,6 +42,7 @@ import {
   type ExploreBbox,
 } from "./places.ts";
 import { haversineMeters } from "./eligibility.ts";
+import { findRoomLandmarks } from "./landmarks.ts";
 import { createRoom } from "./rooms.ts";
 import { inspectCandidates, lookUpPlaces, prepareNavigation, spatialContext } from "./spatial.ts";
 import { attachWebSocket } from "./ws.ts";
@@ -52,6 +55,7 @@ import { resumePoolFills } from "./pool-fill.ts";
 import { loadPlaceImage } from "./enrich/images.ts";
 import {
   outboundDiagnostics,
+  outboundProviderCounts,
   startOutboundDiagnosticLogging,
 } from "./net/outbound.ts";
 
@@ -205,7 +209,7 @@ const notAuthenticated = {
 app.get("/api/diag/outbound", async (req, reply) => {
   const actor = await bearer(req);
   if (!actor) return reply.code(401).send(notAuthenticated);
-  return outboundDiagnostics();
+  return { ...outboundDiagnostics(), providers: outboundProviderCounts() };
 });
 
 // The OSM ref rides as two path segments (node/123), never as an encoded
@@ -288,6 +292,21 @@ app.post("/api/spatial/context", async (req) => {
 });
 
 const MAX_EXPLORE_SIDE_M = 6000;
+
+app.get("/api/landmarks", async (req, reply) => {
+  const actor = await bearer(req);
+  if (!actor) return reply.code(401).send(notAuthenticated);
+  const query = (req.query as { q?: unknown }).q;
+  if (typeof query !== "string" || !validateLandmarksInput({ query: query.trim() })) {
+    return reply.code(400).send(invalidInput(
+      "q must be a 1-100 character landmark name.",
+      "Use a shorter landmark or public place name.",
+    ));
+  }
+  const result = await findRoomLandmarks(pool, actor.roomId, query.trim(), 8);
+  logRead(req, actor.id, "FindLandmarks", true);
+  return result;
+});
 
 app.get("/api/rooms/:id/places", async (req, reply) => {
   const actor = await bearer(req);
@@ -648,6 +667,7 @@ app.post("/api/nl/say", async (req) => {
           intent: routed.intent,
           needs: routed.needs,
           reply: routed.reply,
+          ...(routed.choices?.length ? { choices: routed.choices } : {}),
           meta: { route: routed.meta },
         };
       }

@@ -84,7 +84,7 @@ since WebMCP itself carries only tool names/descriptions/schemas:
 The `conduct` string is the application's one paragraph of protocol
 instruction to the model — kept short because it rides in a tool result.
 
-### 2.3 The tool surface (20 tools)
+### 2.3 The tool surface (22 tools)
 
 Names ≤30 chars, descriptions ≤500 chars, parameter descriptions ≤150 chars,
 results ≤1.5K chars (Chrome budget guidance), except `sync_session`, whose
@@ -106,6 +106,7 @@ Negotiation tools:
 | `respond_to_proposal` | | ✓ | RespondToProposal | Stances incl. veto; `reason` optional. `conditionally_accept` carries no condition and blocks commit until re-stanced |
 | `resolve_private_request` | | | ResolvePrivateRequest | Grant/deny adjustment & disclosure requests; grants outside delegated bounds are **staged** pending in-page confirmation |
 | `set_ready_state` | | | SetReadyState | |
+| `set_origin` | | | SetOrigin | Updates only the acting participant's private starting point |
 | `confirm_agreement` | | | ConfirmAgreement | Organizer only; **stages** — human commits in the page UI |
 
 Spatial tools:
@@ -113,6 +114,7 @@ Spatial tools:
 | Tool | RO¹ | UGC² | Command | Notes |
 |---|---|---|---|---|
 | `get_spatial_context` | ✓ | ✓ | GetSpatialContext | Scope + feasibility + candidate summary rows |
+| `find_landmarks` | ✓ | | read | Resolve a named landmark before stating a distance need |
 | `inspect_candidates` | ✓ | ✓ | InspectCandidates | 1–3 dossiers; 2–3 = comparison view |
 | `set_search_scope` | | | SetSearchScope | **Organizer only**; applies area/transport scope for the room |
 | `add_candidates` | | | AddCandidates | Adds stable refs from the explore layer to the room pool |
@@ -129,7 +131,7 @@ participant-authored text (requirement notes, veto notes, feed lines) or
 provider content. ³ Read-only from the session's perspective; mutates only
 the caller's local view (documented in the description).
 
-The 20-tool surface is static and each entry has a non-overlapping command or
+The 22-tool surface is static and each entry has a non-overlapping command or
 read role. Consequential apply/commit commands remain page-only and are not
 part of this count.
 

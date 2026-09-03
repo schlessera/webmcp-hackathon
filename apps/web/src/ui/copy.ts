@@ -274,6 +274,25 @@ export const COPY = {
     `checked ${checked} place${checked === 1 ? "" : "s"} for ${needs} need${needs === 1 ? "" : "s"}` +
     (queued > 0 ? ` · ${queued} to go` : ""),
   refinePaused: "paused for now",
+  /** The pipeline ring's line: done of total, for the stated needs. */
+  pipelineChecked: (done: number, total: number, needs: number) =>
+    `checked ${done} of ${total} place${total === 1 ? "" : "s"}` +
+    (needs > 0 ? ` for ${needs} need${needs === 1 ? "" : "s"}` : ""),
+  /** The quiet clause naming the mix in flight; empty when nothing is. */
+  pipelineMix: (reading: number, checking: number) => {
+    const parts = [
+      reading > 0 ? `${reading} reading` : null,
+      checking > 0 ? `${checking} checking` : null,
+    ].filter(Boolean);
+    return parts.length ? `· ${parts.join(" · ")}` : null;
+  },
+  /** The place panel's line while a place is in the pipeline, by stage. */
+  stageLine: (stage: "queued" | "fetching" | "processing" | null) =>
+    stage === "processing"
+      ? "checking it against your needs…"
+      : stage === "queued"
+        ? "waiting its turn…"
+        : "reading what the place publishes…",
   lookedUp: "looked up",
   emptyRoom:
     "Nothing yet. Say anything that would rule a place in or out — a condition, a time, how far you can get — and choose who gets to see it.",

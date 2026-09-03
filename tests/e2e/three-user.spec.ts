@@ -3,6 +3,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { createTestRoom, type TestRoom, DATABASE_URL } from "../api/helpers.ts";
+import { areaById } from "@webmcp-hackathon/contracts";
 
 /**
  * Lane 3: one trajectory across three isolated BrowserContexts (Playwright's
@@ -28,6 +29,8 @@ function startServer(buildId: string): ChildProcess {
       ...process.env,
       DATABASE_URL,
       PORT: String(PORT),
+      // Test servers never talk to the model: the composer takes its offline path.
+      OPENAI_API_KEY: "",
       BUILD_ID: buildId,
       LOG_LEVEL: "warn",
     },
@@ -50,6 +53,20 @@ test.beforeAll(async () => {
   server = startServer("e2e-build-1");
   await waitForServer();
   room = await createTestRoom(BASE, { berlin: true });
+  const fixtures = areaById("berlin-mitte")!.fixtureOrigins;
+  for (const [index, key] of (["org", "sarah", "joe"] as const).entries()) {
+    await room.pool.query(
+      "UPDATE participants SET origin = $2 WHERE id = $1",
+      [
+        room.participantIds[key],
+        JSON.stringify({
+          ...fixtures[index],
+          source: "fixture",
+          updatedAt: "2026-09-03T00:00:00.000Z",
+        }),
+      ],
+    );
+  }
   browser = await chromium.launch();
 });
 
@@ -118,6 +135,44 @@ test("three-user trajectory", async () => {
       ).toHaveAttribute("data-present", "true");
     }
   }
+
+  // Opt-in position sharing is presence, not room state: Sarah's switch adds
+  // an initials squircle on Alex's map, then the next frame removes it.
+  await pages.sarah.getByTestId("close-drawer").click();
+  await pages.org.getByTestId("close-drawer").click();
+  await pages.sarah.getByTestId("avatars").click();
+  const sharing = pages.sarah.getByTestId("origin-sharing");
+  await expect(sharing).toHaveAttribute("aria-checked", "false");
+  await sharing.click();
+  await expect(sharing).toHaveAttribute("aria-checked", "true");
+  const personMark = pages.org.getByTestId(`person-mark-${room.participantIds.sarah}`);
+  await expect(personMark).toBeVisible();
+  await expect(personMark).not.toHaveClass(/marker-dot/);
+  const palette = await personMark.locator(".person-mark-badge").evaluate((mark) => {
+    const sample = (token: string) => {
+      const element = document.createElement("i");
+      element.style.background = `var(${token})`;
+      document.body.append(element);
+      const value = getComputedStyle(element).backgroundColor;
+      element.remove();
+      return value;
+    };
+    return {
+      person: getComputedStyle(mark).backgroundColor,
+      semantic: ["--spoke-works", "--spoke-unsure", "--spoke-scope", "--spoke-act"].map(sample),
+    };
+  });
+  expect(palette.semantic).not.toContain(palette.person);
+  await expect(pages.org.getByTestId(`avatar-${room.participantIds.sarah}`))
+    .toHaveAttribute("data-sharing", "true");
+
+  await sharing.click();
+  await expect(sharing).toHaveAttribute("aria-checked", "false");
+  await expect(personMark).toHaveCount(0);
+  await expect(pages.org.getByTestId(`avatar-${room.participantIds.sarah}`))
+    .not.toHaveAttribute("data-sharing", "true");
+  await pages.sarah.getByTestId("open-drawer").click();
+  await pages.org.getByTestId("open-drawer").click();
 
   // 3. Shared action from Sarah (dev quick-action inside the diagnostics
   // panel, which stays open under ?shim=webmcp).

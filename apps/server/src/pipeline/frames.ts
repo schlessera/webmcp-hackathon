@@ -23,6 +23,7 @@ interface StageEntry {
 
 interface FrameRoom {
   entries: Map<string, StageEntry>;
+  sentStages: Map<string, PipelineStage>;
   timer?: ReturnType<typeof setTimeout>;
   lastPipeline?: string;
   lastLookups?: string;
@@ -52,32 +53,29 @@ export class PipelineFrames {
   }
 
   currentPipeline(roomId: string): PipelineMessage {
-    return { type: "pipeline", roomId, ...this.volume.snapshot(roomId) };
+    const room = this.rooms.get(roomId);
+    const stages = this.stageSnapshot(room);
+    const reason = this.reasonFor(room);
+    return {
+      type: "pipeline",
+      ...this.volume.snapshot(roomId),
+      stages: [...stages].map(([candidateId, stage]) => ({ candidateId, stage })),
+      reset: true,
+      ...(stages.size && reason ? { reason } : {}),
+    };
   }
 
   currentLookups(roomId: string): LookupsMessage {
     const room = this.rooms.get(roomId);
-    const byCandidate = new Map<string, PipelineStage>();
-    const rank: Record<PipelineStage, number> = { queued: 0, fetching: 1, processing: 2 };
-    for (const entry of room?.entries.values() ?? []) {
-      const existing = byCandidate.get(entry.item.candidateId);
-      if (!existing || rank[entry.stage] > rank[existing]) {
-        byCandidate.set(entry.item.candidateId, entry.stage);
-      }
-    }
-    const stages = [...byCandidate].sort(([a], [b]) => a.localeCompare(b)).map(
+    const stages = [...this.stageSnapshot(room)].map(
       ([candidateId, stage]) => ({ candidateId, stage }),
     );
-    const reasons = [...(room?.entries.values() ?? [])]
-      .map((entry) => entry.reason)
-      .filter((reason): reason is FrameReason => reason !== undefined);
-    const encodedReasons = new Set(reasons.map((reason) => JSON.stringify(reason)));
-    const reason = encodedReasons.size === 1 ? reasons[0] : undefined;
+    const reason = this.reasonFor(room);
     return {
       type: "lookups",
       pending: stages.map((entry) => entry.candidateId),
       stages,
-      ...(stages.length && reason ? { reason: this.stripVisibility(reason) } : {}),
+      ...(stages.length && reason ? { reason } : {}),
     };
   }
 
@@ -99,7 +97,7 @@ export class PipelineFrames {
   private state(roomId: string): FrameRoom {
     let room = this.rooms.get(roomId);
     if (!room) {
-      room = { entries: new Map(), quiet: true };
+      room = { entries: new Map(), sentStages: new Map(), quiet: true };
       this.rooms.set(roomId, room);
     }
     return room;
@@ -117,7 +115,21 @@ export class PipelineFrames {
   }
 
   private emit(roomId: string, room: FrameRoom): void {
-    const pipeline = this.currentPipeline(roomId);
+    const stages = this.stageSnapshot(room);
+    const changedIds = new Set([...room.sentStages.keys(), ...stages.keys()]);
+    const delta = [...changedIds]
+      .filter((candidateId) => room.sentStages.get(candidateId) !== stages.get(candidateId))
+      .sort()
+      .map((candidateId) => ({ candidateId, stage: stages.get(candidateId) ?? null }));
+    room.sentStages = stages;
+    const reason = this.reasonFor(room);
+    const pipeline: PipelineMessage = {
+      type: "pipeline",
+      ...this.volume.snapshot(roomId),
+      stages: delta,
+      reset: false,
+      ...(stages.size && reason ? { reason } : {}),
+    };
     const lookups = this.currentLookups(roomId);
     const pipelineJson = JSON.stringify(pipeline);
     const lookupsJson = JSON.stringify(lookups);
@@ -142,5 +154,25 @@ export class PipelineFrames {
 
   private stripVisibility(reason: FrameReason): NonNullable<LookupsMessage["reason"]> {
     return { kind: reason.kind, ...(reason.label ? { label: reason.label } : {}) };
+  }
+
+  private stageSnapshot(room?: FrameRoom): Map<string, PipelineStage> {
+    const byCandidate = new Map<string, PipelineStage>();
+    const rank: Record<PipelineStage, number> = { queued: 0, fetching: 1, processing: 2 };
+    for (const entry of room?.entries.values() ?? []) {
+      const existing = byCandidate.get(entry.item.candidateId);
+      if (!existing || rank[entry.stage] > rank[existing]) {
+        byCandidate.set(entry.item.candidateId, entry.stage);
+      }
+    }
+    return new Map([...byCandidate].sort(([a], [b]) => a.localeCompare(b)));
+  }
+
+  private reasonFor(room?: FrameRoom): NonNullable<LookupsMessage["reason"]> | undefined {
+    const reasons = [...(room?.entries.values() ?? [])]
+      .map((entry) => entry.reason)
+      .filter((reason): reason is FrameReason => reason !== undefined);
+    const encodedReasons = new Set(reasons.map((reason) => JSON.stringify(reason)));
+    return encodedReasons.size === 1 ? this.stripVisibility(reasons[0]) : undefined;
   }
 }

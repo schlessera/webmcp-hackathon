@@ -153,6 +153,8 @@ interface Props {
   viewing: Record<string, string>;
   /** The server is looking this place up right now (`lookups` frame). */
   busy: boolean;
+  /** Which stage of the pipeline the place is in, when it is. */
+  stage: "queued" | "fetching" | "processing" | null;
   /** The last `facts` frame: re-read the dossier when it named this place. */
   factsFrame: { ids: string[]; nonce: number };
   onClose(): void;
@@ -283,6 +285,7 @@ export function PlaceDetails({
   phase,
   viewing,
   busy,
+  stage,
   factsFrame,
   onClose,
   run,
@@ -714,7 +717,7 @@ export function PlaceDetails({
             {lookingUp || !dossier ? (
               <>
                 <i className="busy-ring line-busy" aria-hidden="true" />
-                {lookingUp ? COPY.lookingUp : COPY.readingRecord}
+                {lookingUp ? (stage ? COPY.stageLine(stage) : COPY.lookingUp) : COPY.readingRecord}
               </>
             ) : lookupPhase === "done" ? (
               COPY.lookedUpJustNow(lookupChanged)

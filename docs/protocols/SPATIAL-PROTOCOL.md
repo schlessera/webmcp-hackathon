@@ -133,7 +133,7 @@ These are the `payload` shapes the negotiation envelope carries when
 { "kind": "attribute", "key": "vegetarian-options", "expect": "verified_true" }
 
 // Scope predicate
-{ "kind": "scope", "dimension": "walk_min", "max": 15 }
+{ "kind": "scope", "dimension": "walk_min", "max": 15, "referent": { "kind": "landmark", "landmarkId": "node/42" } }
 
 // Budget
 { "kind": "budget", "perPersonMax": { "amount": 18, "currency": "EUR" } }
@@ -221,8 +221,10 @@ Transport-agnostic, like the negotiation command set. Mutations carry
 |---|---|---|
 | `GetSpatialContext` | read | scope, feasibility counts, candidate summaries, current proposal, selection state |
 | `InspectCandidates { candidateIds[1..3] }` | read | full dossiers (side-by-side when >1 — this is "compare") |
+| `FindLandmarks { query }` | read | ranked named landmarks in the room's area for resolving a distance referent |
 | `SetSearchScope { area?, transport? }` | mutate | **organizer only**; applies circle scope and walk/bike/car modes, emits `scope_change_proposed` + `_applied` |
 | `SetOrigin { position, label?, source }` | mutate | updates the acting participant's application-private starting position |
+| `SetOriginSharing { shared }` | mutate | changes the acting participant's live-position opt-in without rewriting the origin |
 | `AddCandidates { refs[1..40] }` | mutate | brings snapshot places from the explore layer into the shared room pool, additively and subject to the pool ceiling |
 | `LookUpPlaces { candidateIds[], keys? }` | read | starts bounded provider lookup for current places |
 | `ProposeDestination { candidateId }` | mutate | emits negotiation `proposal_created` with `domainRef` |
@@ -248,14 +250,50 @@ has no target participant: identity comes from the authenticated session and a
 participant can update only their own origin. It has the same phase gate as
 `SetReadyState`.
 
-Coordinates and their label are application-private. The server and owner get
-the full value; every peer summary omits `origin` entirely and an
+The durable origin and its label are application-private. The server and owner
+get the full value; every peer summary omits `origin` entirely and an
 `origin_updated` event projects to peers at existence level only. Its effect
-on eligibility counts remains visible. A scope need is measured from its
+on eligibility counts remains visible. The event payload omits coordinates so
+the append-only event log cannot become location history. A scope need is measured from its
 owner's origin, falling back to the shared scope centre when that owner has no
 origin. Candidate `walkMin` and the walk facet are measured from the viewer's
 origin with the same fallback. The implicit shared search-circle constraint
 always remains centred on the room scope.
+
+Sharing is independently opt-in and off by default. `SetOriginSharing`
+changes it with the same owner-only identity and phase gate. An
+`origin_sharing_changed` event projects at existence level: peers learn only
+that Sarah is showing where they are, or stopped. While sharing is on and the
+participant has an open socket, the presence frame carries `{ participantId,
+lat, lng, updatedAt }`; it never carries the label. Switching off or closing
+the last socket removes the row in the next frame. The position is overwritten
+in `participants.origin`: there is no positions table and no location history.
+
+### 6.4 Referents
+
+A scope requirement may say what its distance is measured from with an
+optional `referent`: `self`, `scopeCenter`, `candidate`, `participant`,
+`point`, or `landmark`. An absent referent is `self`, preserving every scope
+need written before this addition. Candidate, participant and landmark
+references use stable IDs; a bare point carries latitude/longitude and an
+optional reader-facing label.
+
+Resolution is per read. `self` uses the need owner's origin and falls back to
+the shared scope centre. `scopeCenter` uses that centre; `candidate` uses the
+candidate's current location; `point` uses its coordinates; and `landmark`
+uses the area's in-process landmark snapshot. A deleted candidate, unknown
+landmark, missing participant, or otherwise unresolved reference is pending:
+it never rules a place out. Several scope requirements remain independent
+hard requirements, so a place must lie within all of them.
+
+A participant referent is measurable only by that participant or while that
+participant has opted to share their position. For every other reader it is
+pending, and its label says only “where someone starts from”: neither a name
+used as a location nor coordinates cross the privacy boundary. The need's
+public effect remains visible. Consequently two readers can honestly see
+different eligible/uncertain counts for the same room when only one is
+entitled to a participant referent. This is an intentional privacy consequence,
+not a synchronization error.
 
 ## 7. Gesture ↔ command ↔ event mapping
 
@@ -270,6 +308,7 @@ always remains centred on the room scope.
 | Pin card → "Works for me" | `RespondToProposal(accept)` | `stance_submitted` |
 | "I'm done adding" toggle | `SetReadyState` | `ready_state_changed` |
 | Starting-point control → drag or device location | `SetOrigin` | `origin_updated` |
+| "Show where you are" switch | `SetOriginSharing` | `origin_sharing_changed` |
 | Arrival panel → mode + pickup note | `PlanArrival` | `arrival_plan_updated` |
 | "Navigate" button | `PrepareNavigation` | none (read) |
 
@@ -365,8 +404,8 @@ whoever said it:
 | status | reads as | who says it |
 | --- | --- | --- |
 | `verified_true` | yes | the record, the venue's own markup or explicit own-site prose, a person who checked (≥ 0.7) |
-| `likely_true` | likely | a word on the menu (0.6), the kind of place (0.4–0.9), a partial value ("limited", 0.5), a reading of a menu photo, a person less sure (< 0.7) |
-| `likely_false` | unlikely | the same, leaning the other way |
+| `likely_true` | likely | a Google business listing (`listing:google`, 0.65), a word on the menu (0.6), the kind of place (0.4–0.9), a partial value ("limited", 0.5), a reading of a menu photo, a person less sure (< 0.7) |
+| `likely_false` | unlikely | the same, leaning the other way; an unavailable Google listing attribute is 0.65 rather than unknown |
 | `verified_false` | no | as for yes |
 | `unknown` | — | nobody said anything; also a disputed fact |
 
@@ -394,6 +433,8 @@ never rules a place out. The candidate's `confidence` travels on the wire.
 
 Precedence of sources when a dossier is read: the record (`osm:*`,
 `curated:*`), then looked-up facts (`web:*`, `wikidata:*`) into open slots,
+then structured Google listing evidence (`listing:google`) below an explicit
+venue statement and always below the verified floor,
 then guesses (`guess:*`) into slots still unknown, then attestations
 (`agent:*`), which may dispute any of the above, then permanent confirmed
 facts (`person:confirmed`) under the dispute rule in §8.1.

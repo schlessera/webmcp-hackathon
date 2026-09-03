@@ -294,6 +294,13 @@ export interface ActiveNeed {
   visibility: Visibility;
   hardness: "hard" | "soft";
   ownerId: string;
+  /** A non-self place this scope need is measured from. `location` is
+   * omitted when this reader is not entitled to the referent's position. */
+  referent?: {
+    kind: "scopeCenter" | "candidate" | "participant" | "point" | "landmark";
+    label: string;
+    location?: LatLng;
+  };
 }
 
 /**

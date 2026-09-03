@@ -95,7 +95,12 @@ describe("phase gating table", () => {
 
   it("reports what is available for the phase_unavailable recovery string", () => {
     // Registry order, so the recovery string reads the same way every time.
-    expect(availableCommands("arrival")).toEqual(["SetReadyState", "SetOrigin", "PlanArrival"]);
+    expect(availableCommands("arrival")).toEqual([
+      "SetReadyState",
+      "SetOrigin",
+      "SetOriginSharing",
+      "PlanArrival",
+    ]);
     expect(availableCommands("gathering")).toContain("SubmitRequirement");
     expect(availableCommands("gathering")).not.toContain("PlanArrival");
   });

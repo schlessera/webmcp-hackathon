@@ -201,6 +201,25 @@ the visible copy.
 - Place distance: **“12 min from you”**, never “away”.
 - A peer event says only **“Sarah updated where they start from.”** Coordinates
   and labels never appear in peer copy.
+- Sharing control: **“Show where you are to the room.”** It is off by default.
+- Privacy line: **“Off: only you and the room’s server know your position. On:
+  everyone in the room sees it on the map while you are here.”** Name both
+  states; never imply that the private address label is shared.
+- Sharing events say **“Sarah is showing where they are”** and **“Sarah stopped
+  showing where they are.”**
+
+## Distance referents
+
+- Scope needs name their measuring point: **“within 500 m of U
+  Alexanderplatz”**, **“within 10 min walk of Café Einstein”**, and **“within
+  800 m of where you start”**.
+- An unresolved place is plain and pending: **“a place no longer in the
+  room”** or **“an unknown landmark”**. It never reads as a failure.
+- A participant position the reader may not see is always **“where someone
+  starts from”**. Never combine the participant's name with that phrase or
+  imply where the position lies.
+- Landmark disambiguation asks **“Which Alexanderplatz did you mean?”** and
+  offers at most three `name · place type` choices.
 
 ## Tone
 
@@ -210,3 +229,16 @@ in chrome. Sentence case everywhere except the uppercase section labels
 
 Second person for the user's own things ("your agent", "yours"), third person
 for others ("Sarah added"), never first person — the app has no voice of its own.
+
+## The pipeline ring
+
+The count block carries one line and one ring while the room is checking
+places for the stated needs: "checked 122 of 179 places for 3 needs", with a
+quiet clause naming the mix in flight — "· 8 reading · 12 checking". Reading
+is a place's site, menu or a search being read; checking is the evidence
+going against your needs. Out of budget reads "paused for now". Drained: the
+ring and the line disappear; nothing lingers. "Fetching", "processing",
+"pipeline", "queue" and "stage" are wire words and stay behind `{ }`.
+
+The place panel says which stage a place is in: "waiting its turn…",
+"reading what the place publishes…", "checking it against your needs…".

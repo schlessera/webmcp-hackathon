@@ -70,6 +70,14 @@ export interface PresenceMessage {
   /** Who has which place open right now; one row per participant that does.
    * Omitted rows mean "nothing open". Presence, never room state. */
   viewing: Array<{ participantId: string; candidateId: string }>;
+  /** Live coordinates for present participants who opted in. The private
+   * origin label never travels on this channel. */
+  positions: Array<{
+    participantId: string;
+    lat: number;
+    lng: number;
+    updatedAt: string;
+  }>;
 }
 /**
  * Which places the server is looking up right now (a venue site, Wikidata,
@@ -80,26 +88,41 @@ export interface PresenceMessage {
  */
 export interface LookupsMessage {
   type: "lookups";
-  /** Compatibility field retained for one release. */
   pending: string[];
-  /** Additive per-place stage data. Older clients ignore this field. */
-  stages?: Array<{ candidateId: string; stage: PipelineStage }>;
   /** Why they are being looked up, for the count block ("checking 12 places
    * for step-free access"). Absent for a warm-up nobody asked for. */
   reason?: { kind: "need" | "place" | "pool" | "refine"; label?: string };
+  /**
+   * Per-place stage of the pipeline (docs/ENRICHMENT-SOURCES.md "The
+   * pipeline"): queued (work planned, nothing started), fetching (a site,
+   * search or asset read in flight), processing (evidence with the model or
+   * waiting for a matrix). Additive beside `pending` for one release; a
+   * place in `pending` without a stage reads as fetching.
+   */
+  stages?: Array<{ candidateId: string; stage: PipelineStage }>;
 }
 export type PipelineStage = "queued" | "fetching" | "processing";
-export type PipelinePause = "budget" | "idle" | null;
-/** Process-local refinement progress. The socket-holding process emits it. */
+/**
+ * How much of the room's pipeline is outstanding for the ACTIVE needs, and
+ * how much is in flight: the count block's progress ring. Coalesced ≤ 4/s.
+ * Presentation only, never revisioned. `etaMs` is an estimate the page may
+ * read but does not draw (§10: counts, never a fabricated time).
+ */
 export interface PipelineMessage {
   type: "pipeline";
-  roomId?: string;
   outstanding: { fetch: number; process: number };
   inFlight: { fetch: number; process: number };
+  /** Places settled for this need set, this run. */
   done: number;
+  /** done + outstanding + in flight, deduped by place — never the pool size. */
   total: number;
   etaMs?: number;
-  paused?: PipelinePause;
+  paused?: "budget" | "idle" | null;
+  /** Optional per-place stage deltas (`null`: the place left the pipeline). */
+  stages?: Array<{ candidateId: string; stage: PipelineStage | null }>;
+  /** True when `stages` is the whole set, not a delta. */
+  reset?: boolean;
+  reason?: { kind: "need" | "place" | "pool" | "refine"; label?: string };
 }
 /**
  * Facts about places changed outside the event stream (a lookup landed, an

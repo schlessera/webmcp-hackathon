@@ -31,6 +31,7 @@ describe("outbound diagnostics API", () => {
     const unauthorized = await fetch(`${server.baseUrl}/api/diag/outbound`);
     expect(unauthorized.status).toBe(401);
     type Body = {
+      providers: Record<string, { attempts: number; successes: number }>;
       rows: Array<{
         host: string;
         route: string;
@@ -50,6 +51,10 @@ describe("outbound diagnostics API", () => {
       });
       expect(response.status).toBe(200);
       const body = await response.json() as Body;
+      expect(body.providers).toMatchObject({
+        parallel: { attempts: expect.any(Number), successes: expect.any(Number) },
+        dataforseo: { attempts: expect.any(Number), successes: expect.any(Number) },
+      });
       row = body.rows.find((entry) =>
         entry.host === "example.org" && entry.route === "proxy" && entry.attempts >= 3
       );

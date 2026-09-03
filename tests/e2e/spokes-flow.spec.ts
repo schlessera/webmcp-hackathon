@@ -32,6 +32,8 @@ test.beforeAll(async () => {
       ...process.env,
       DATABASE_URL,
       PORT: String(PORT),
+      // Test servers never talk to the model: the composer takes its offline path.
+      OPENAI_API_KEY: "",
       BUILD_ID: "e2e-flow-1",
       LOG_LEVEL: "warn",
     },

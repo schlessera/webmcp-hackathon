@@ -29,6 +29,8 @@ interface Props {
     source: "device" | "stated",
     label?: string,
   ): Promise<boolean>;
+  sharedPositionIds: ReadonlySet<string>;
+  onSetOriginSharing(shared: boolean): Promise<boolean>;
   onOpenDrawer(): void;
 }
 
@@ -45,6 +47,8 @@ export function Header({
   originEditing,
   onOriginEditingChange,
   onSetOrigin,
+  sharedPositionIds,
+  onSetOriginSharing,
   onOpenDrawer,
 }: Props) {
   /* The avatar row opens a roster card on tap (W12): names and presence are
@@ -55,6 +59,7 @@ export function Header({
   const avatarsRef = useRef<HTMLButtonElement>(null);
   const [locating, setLocating] = useState(false);
   const [locationError, setLocationError] = useState("");
+  const [sharingChanging, setSharingChanging] = useState(false);
   const geolocationAvailable =
     typeof navigator !== "undefined" && "geolocation" in navigator;
 
@@ -130,6 +135,7 @@ export function Header({
               colour alone. Person colours are identity, never semantic. */}
           {participants.map((p, i) => {
             const state = p.present ? "here now" : p.arrived ? "" : "not arrived yet";
+            const sharing = sharedPositionIds.has(p.participantId);
             return (
               <span
                 key={p.participantId}
@@ -141,14 +147,17 @@ export function Header({
                 title={state ? `${p.displayName} · ${state}` : p.displayName}
                 data-idle={p.arrived ? undefined : "true"}
                 data-present={p.present || undefined}
+                data-sharing={sharing || undefined}
                 data-testid={`avatar-${p.participantId}`}
               >
                 <span aria-hidden="true">{initials(p.displayName)}</span>
                 <span className="sr-only">
                   {p.displayName}
                   {state ? `, ${state}` : ""}
+                  {sharing ? ", showing where they are" : ""}
                 </span>
                 {p.present && <i className="avatar-here" aria-hidden="true" />}
+                {sharing && <i className="avatar-sharing" aria-hidden="true" />}
               </span>
             );
           })}
@@ -172,7 +181,11 @@ export function Header({
                 </span>
                 <span className="roster-state" data-present={p.present || undefined}>
                   {p.present && <i className="avatar-here roster-here" aria-hidden="true" />}
+                  {sharedPositionIds.has(p.participantId) && (
+                    <i className="avatar-sharing roster-sharing" aria-hidden="true" />
+                  )}
                   {presenceWord(p)}
+                  {sharedPositionIds.has(p.participantId) && <span className="sr-only">, showing where they are</span>}
                 </span>
               </div>
               {p.participantId === meId && (
@@ -182,6 +195,27 @@ export function Header({
                       Starting from {p.origin.label}
                     </div>
                   )}
+                  {p.origin && (
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={sharedPositionIds.has(p.participantId)}
+                      className="origin-sharing"
+                      disabled={sharingChanging}
+                      data-testid="origin-sharing"
+                      onClick={() => {
+                        setSharingChanging(true);
+                        void onSetOriginSharing(!sharedPositionIds.has(p.participantId))
+                          .finally(() => setSharingChanging(false));
+                      }}
+                    >
+                      <span className="origin-sharing-box" aria-hidden="true" />
+                      Show where you are to the room
+                    </button>
+                  )}
+                  <div className="origin-privacy">
+                    Off: only you and the room’s server know your position. On: everyone in the room sees it on the map while you are here.
+                  </div>
                   <div className="origin-actions">
                     <button
                       type="button"

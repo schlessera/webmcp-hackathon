@@ -73,13 +73,16 @@
   --spoke-out:           #a8a291;
   --spoke-out-opacity:   .6;
 
-  /* Per-person identity. Assign round-robin by join order; these
-     are NOT semantic and must not be read as works/unsure/scope. */
-  --spoke-person-1:      #2c6b52;
-  --spoke-person-2:      #b05f2c;
-  --spoke-person-3:      #7d6396;
-  --spoke-person-4:      #3d5a80;
-  --spoke-person-5:      #6f5710;
+  /* Per-person identity. Assign round-robin by join order. This cobalt,
+     magenta, teal-ink, ochre-brown and plum family is deliberately separate
+     from all four semantic hues and the greys. Against the actual fallback
+     map stack (--spoke-surface-sunk plus the 18% works colour wash), each
+     badge measures at least 5.56:1; see SPOKES-UI.md "Person marks". */
+  --spoke-person-1:      #1649a5;
+  --spoke-person-2:      #a11d67;
+  --spoke-person-3:      #00646b;
+  --spoke-person-4:      #74510b;
+  --spoke-person-5:      #6c2b7c;
   --spoke-person-idle:   #e7e2d4;  /* invited, not yet arrived */
   --spoke-person-idle-text: #575647;
 

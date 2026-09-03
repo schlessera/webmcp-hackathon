@@ -52,6 +52,15 @@ import {
   type MatrixInferenceTextSource,
 } from "./evaluate.ts";
 import type { AdjudicationPageCache } from "./adjudicate.ts";
+import {
+  fetchRoomListings,
+  LISTING_CONFIDENCE,
+  LISTING_NOTE,
+  LISTING_SOURCE,
+  type ListingFacts,
+  type ListingMatchDiagnostics,
+  type MatchedListing,
+} from "./listings.ts";
 import { applyGuesses } from "../guess.ts";
 import { applyAttestations, loadAttestations } from "../attestations.ts";
 import { bumpCandidateMapRevisions } from "../candidate-revisions.ts";
@@ -66,6 +75,13 @@ import {
 import { pipelineDedupeKey } from "../pipeline/queue.ts";
 import { pipelineScheduler, type DispatchResult } from "../pipeline/scheduler.ts";
 import { refreshAssetsThroughPipeline } from "../pipeline/stages/assets.ts";
+import { cleanInlineText, cleanSummary, cleanTitle } from "./text.ts";
+import {
+  cleanEvaluatedInference,
+  cleanStoredInferences,
+  cleanWebFacts,
+  cleanWikiFacts,
+} from "./stored-text.ts";
 
 /**
  * The enrichment layer (docs/ENRICHMENT-SOURCES.md): what the server looks
@@ -93,6 +109,7 @@ export interface Enrichment {
   fetchedAt: string;
   website: PersistedWebFacts | null;
   wikidata: WikiFacts | null;
+  listing?: ListingFacts | null;
   inferred?: Record<string, StoredCriterionInference>;
   inferredAt?: string | null;
   error: string | null;
@@ -155,6 +172,7 @@ export const SEARCH_ATTEMPT_CAP = 3;
 export type InferenceSourceBucket =
   | "record"
   | "own_site_explicit"
+  | "listing"
   | "own_site_inferred"
   | "domain_search"
   | "open_web"
@@ -166,8 +184,9 @@ export const INFERENCE_SOURCE_BUCKET_RANK: Readonly<Record<InferenceSourceBucket
   open_web: 1,
   domain_search: 2,
   own_site_inferred: 3,
-  own_site_explicit: 4,
-  record: 5,
+  listing: 4,
+  own_site_explicit: 5,
+  record: 6,
 };
 
 export const INFERENCE_DISAGREEMENT_NOTE = "another read leaned the other way";
@@ -184,6 +203,7 @@ function inferenceSourceBucket(
   if (inference.source.startsWith("web:") || inference.source.startsWith("adjudicated:")) {
     return "record";
   }
+  if (inference.source === LISTING_SOURCE) return "listing";
   const bucket = inference.source.split(":").at(-1);
   if (bucket === "venue_site" || bucket === "menu") {
     return inference.explicit === true ? "own_site_explicit" : "own_site_inferred";
@@ -445,6 +465,7 @@ interface Row {
   expires_at: Date;
   website: PersistedWebFacts | null;
   wikidata: WikiFacts | null;
+  listing: ListingFacts | null;
   inferred: Record<string, StoredCriterionInference>;
   inferred_at: Date | null;
   error: string | null;
@@ -472,6 +493,9 @@ const stateOf = (
 });
 
 const rowToEnrichment = (r: Row): Enrichment => {
+  const listing = r.listing && Date.parse(r.listing.expiresAt) > Date.now()
+    ? r.listing
+    : null;
   const inferred = Object.fromEntries(
     Object.entries(r.inferred ?? {}).filter(([, claim]) => {
       const observed = new Date(
@@ -488,9 +512,10 @@ const rowToEnrichment = (r: Row): Enrichment => {
   return {
     osmRef: r.osm_ref,
     fetchedAt: r.fetched_at.toISOString(),
-    website: r.website,
-    wikidata: r.wikidata,
-    inferred,
+    website: cleanWebFacts(r.website),
+    wikidata: cleanWikiFacts(r.wikidata),
+    listing,
+    inferred: cleanStoredInferences(inferred),
     inferredAt: r.inferred_at?.toISOString() ?? null,
     error: r.error,
     imageExpiresAt: r.image_expires_at?.toISOString() ?? null,
@@ -651,8 +676,9 @@ async function persistProviderResults(
 ): Promise<void> {
   // Image URLs are deliberately pass-local. Strip them at the only website
   // JSON serialization boundary so stale URLs can never enter `website`.
-  const persistedSiteFacts: PersistedWebFacts | null = site.facts
-    ? (({ imageCandidates: _imageCandidates, ...facts }) => facts)(site.facts)
+  const cleanedSiteFacts = cleanWebFacts(site.facts);
+  const persistedSiteFacts: PersistedWebFacts | null = cleanedSiteFacts
+    ? (({ imageCandidates: _imageCandidates, ...facts }) => facts)(cleanedSiteFacts)
     : null;
   const client = await db.connect();
   try {
@@ -687,7 +713,7 @@ async function persistProviderResults(
          WHERE osm_ref = $1 AND lease_owner = $6`,
         [
           target.osmRef,
-          wiki.facts ? JSON.stringify(wiki.facts) : null,
+          wiki.facts ? JSON.stringify(cleanWikiFacts(wiki.facts)) : null,
           !wiki.error,
           String(wiki.error ? TTL_FAIL_MS : TTL_WIKIDATA_OK_MS),
           wiki.error ?? null,
@@ -1080,7 +1106,14 @@ export function inferenceTexts(
       ...(enrichment.wikidata.wikipedia ? { url: enrichment.wikidata.wikipedia } : {}),
     });
   }
-  return texts;
+  return texts.map((text) => ({
+    ...text,
+    text: cleanInlineText(text.text),
+    ...(text.title ? { title: cleanTitle(text.title) } : {}),
+    ...(text.publisherNames?.length
+      ? { publisherNames: text.publisherNames.map((name) => cleanInlineText(name)).filter(Boolean) }
+      : {}),
+  })).filter((text) => Boolean(text.text));
 }
 
 function cuisineTokens(attributes: AttributeLike[]): string[] {
@@ -1118,7 +1151,7 @@ export async function saveInferences(
   const incomingByRef = new Map<string, Record<string, StoredCriterionInference>>();
   const ttlByRef = new Map<string, number>();
   for (const write of rows) {
-    const claimed = new Map(write.claims.map((claim) => [claim.criterionId, claim]));
+    const claimed = new Map(write.claims.map(cleanEvaluatedInference).map((claim) => [claim.criterionId, claim]));
     const answered = new Set(write.answeredCriterionIds);
     const searched = new Set(write.searchedCriterionIds ?? []);
     const inferred: Record<string, StoredCriterionInference> = {};
@@ -1278,6 +1311,132 @@ export async function saveInferences(
   }
 }
 
+export interface RoomListingRefresh {
+  changedCandidateIds: string[];
+  websiteTargets: RoomLookupTarget[];
+  costUsd: number;
+  returnedItems: number;
+  /** Counts only, for the batch log and tests; never listing identities. */
+  diagnostics: ListingMatchDiagnostics;
+  matchedOsmRefs: string[];
+}
+
+function listingIdentity(facts: ListingFacts | null | undefined): string {
+  if (!facts) return "";
+  const { fetchedAt: _fetchedAt, expiresAt: _expiresAt, ...stable } = facts;
+  return JSON.stringify(stable);
+}
+
+function listingInferenceWrite(match: MatchedListing): InferenceBatchWrite {
+  const criteria = match.facts.claims.map((claim): Criterion => ({
+    id: claim.key,
+    kind: "key",
+    key: claim.key,
+    label: (ATTRIBUTE_LABELS as Record<string, string>)[claim.key] ?? claim.key,
+  }));
+  return {
+    osmRef: match.candidate.osmRef,
+    criteria,
+    claims: match.facts.claims.map((claim): EvaluatedInference => ({
+      candidateId: match.candidate.candidateId,
+      osmRef: match.candidate.osmRef,
+      criterionId: claim.key,
+      key: claim.key,
+      lean: claim.lean,
+      status: graded(claim.lean === "yes", LISTING_CONFIDENCE),
+      confidence: LISTING_CONFIDENCE,
+      evidence: LISTING_NOTE,
+      source: LISTING_SOURCE,
+      sourceIndex: 0,
+      observedAt: match.facts.fetchedAt,
+      sourceUrl: claim.sourceUrl,
+      explicit: false,
+      ...(claim.value !== undefined ? { value: String(claim.value) } : {}),
+    })),
+    answeredCriterionIds: criteria.map((criterion) => criterion.id),
+    observedAt: match.facts.fetchedAt,
+  };
+}
+
+/**
+ * Fetch one room-wide listing batch and route every normalized boolean/price
+ * claim through saveInferences. The listing JSON is only the companion data
+ * needed for hours, ratings and website discovery; it is not a second fact
+ * resolver.
+ */
+export async function refreshRoomListings(
+  pool: pg.Pool,
+  roomId: string,
+): Promise<RoomListingRefresh | null> {
+  const batch = await fetchRoomListings(pool, roomId);
+  if (!batch) return null;
+  const refs = batch.matches.map((match) => match.candidate.osmRef);
+  const previous = refs.length
+    ? (await pool.query(
+        "SELECT osm_ref, listing FROM enrichments WHERE osm_ref = ANY($1::text[])",
+        [refs],
+      )).rows as Array<{ osm_ref: string; listing: ListingFacts | null }>
+    : [];
+  const previousByRef = new Map(previous.map((row) => [row.osm_ref, row.listing]));
+  if (batch.matches.length > 0) {
+    const values: unknown[] = [];
+    const rows = batch.matches.map((match, index) => {
+      const offset = index * 3;
+      values.push(match.candidate.osmRef, match.facts.expiresAt, JSON.stringify(match.facts));
+      return `($${offset + 1}, now(), $${offset + 2}::timestamptz, $${offset + 3}::jsonb)`;
+    });
+    await pool.query(
+      `INSERT INTO enrichments (osm_ref, fetched_at, expires_at, listing)
+       VALUES ${rows.join(", ")}
+       ON CONFLICT (osm_ref) DO UPDATE SET
+         listing = EXCLUDED.listing,
+         fetched_at = GREATEST(enrichments.fetched_at, EXCLUDED.fetched_at),
+         expires_at = GREATEST(enrichments.expires_at, EXCLUDED.expires_at)`,
+      values,
+    );
+    await saveInferences(pool, batch.matches.map(listingInferenceWrite));
+  }
+  const changedCandidateIds = batch.matches.flatMap((match) =>
+    listingIdentity(previousByRef.get(match.candidate.osmRef)) !== listingIdentity(match.facts)
+      ? [match.candidate.candidateId]
+      : []
+  );
+  if (changedCandidateIds.length > 0) {
+    await publishInferenceChanges(pool, roomId, changedCandidateIds, "lookup");
+  }
+  // Counts only. A listing that matched nothing leaves no id, title or URL
+  // anywhere: it is not stored, and it is not named here.
+  console.info(JSON.stringify({
+    msg: "listing batch",
+    roomId,
+    pool: batch.matches.length + batch.diagnostics.unmatchedByReason.distance +
+      batch.diagnostics.unmatchedByReason.name + batch.diagnostics.unmatchedByReason.domain,
+    matched: batch.diagnostics.matched,
+    unmatched_by_reason: batch.diagnostics.unmatchedByReason,
+    items: batch.returnedItems,
+    requests: batch.requests,
+    costUsd: Number(batch.costUsd.toFixed(4)),
+  }));
+  return {
+    changedCandidateIds,
+    websiteTargets: batch.matches.flatMap((match): RoomLookupTarget[] =>
+      !match.candidate.website && match.facts.website
+        ? [{
+            candidateId: match.candidate.candidateId,
+            osmRef: match.candidate.osmRef,
+            placeName: match.candidate.name,
+            location: match.candidate.location,
+            website: match.facts.website,
+          }]
+        : []
+    ),
+    costUsd: batch.costUsd,
+    returnedItems: batch.returnedItems,
+    diagnostics: batch.diagnostics,
+    matchedOsmRefs: batch.matches.map((match) => match.candidate.osmRef),
+  };
+}
+
 /**
  * Run live lookups for room candidates, at most four at once. Progress is
  * presentation-only. A facts frame and map_revision bump happen only when
@@ -1353,6 +1512,12 @@ async function runLookupNow(
   options: LookupNowOptions,
 ): Promise<string[]> {
   const intent = options.intent ?? "background";
+  // Interactive reads should benefit from listings immediately. Pool warm-up
+  // is debounced below so its many incremental batches still cause one room-
+  // wide request after the pool settles.
+  const listingRefresh = options.reason?.kind === "pool"
+    ? null
+    : await refreshRoomListings(pool, roomId).catch(() => null);
   const wantedIds = [...new Set(targets.map((target) => target.candidateId))];
   const [candidateRows, roomArea] = await Promise.all([
     pool.query(
@@ -1393,6 +1558,11 @@ async function runLookupNow(
   for (const criterion of options.criteria ?? []) activeCriteria.set(criterion.id, criterion);
   for (const criterion of harvestRequirementCriteria(requirementRows.rows)) {
     activeCriteria.set(criterion.id, criterion);
+  }
+  for (const row of rows) {
+    const target = targetById.get(row.id);
+    const listingWebsite = initialCache.get(row.osm_ref!)?.listing?.website;
+    if (target && !target.website && listingWebsite) target.website = listingWebsite;
   }
 
   interface CandidateEvaluation {
@@ -1605,7 +1775,11 @@ async function runLookupNow(
     // so it needs a facts frame but no room/map revision bump.
     publishFacts(roomId, { type: "facts", candidateIds: imageOnly, reason: "lookup" });
   }
-  return [...new Set([...changed, ...imageChanged])];
+  return [...new Set([
+    ...changed,
+    ...imageChanged,
+    ...(listingRefresh?.changedCandidateIds ?? []),
+  ])];
 }
 
 /** Defense in depth for callers/tests that supply rows without the SQL gate. */
@@ -1671,6 +1845,23 @@ export function warmEnrichments(
   void warmEnrichmentsDone(pool, roomId, targets);
 }
 
+const listingWarmTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+function scheduleRoomListingWarm(pool: pg.Pool, roomId: string): void {
+  const existing = listingWarmTimers.get(roomId);
+  if (existing) clearTimeout(existing);
+  const timer = setTimeout(() => {
+    listingWarmTimers.delete(roomId);
+    void refreshRoomListings(pool, roomId)
+      .then((result) => result?.websiteTargets.length
+        ? lookupNow(pool, roomId, result.websiteTargets, { reason: { kind: "pool" } })
+        : undefined)
+      .catch(() => undefined);
+  }, 1_000);
+  timer.unref?.();
+  listingWarmTimers.set(roomId, timer);
+}
+
 /**
  * The same warm-up, awaitable. A caller adding places in batches chains on
  * this so the room warms one batch at a time while scheduler pools own the
@@ -1686,7 +1877,9 @@ export function warmEnrichmentsDone(
     intent: "background",
     reason: { kind: "pool" },
   })
-    .then(() => undefined)
+    .then(() => {
+      scheduleRoomListingWarm(pool, roomId);
+    })
     .catch(() => {
       /* warm-up never holds room creation, or the fill, hostage */
     });
@@ -1719,7 +1912,7 @@ export function applyEnrichmentAttributes<T extends AttributeLike>(
   const hasQuestionInference = Object.entries(enrichment?.inferred ?? {}).some(
     ([key, stored]) => key.startsWith("q:") && !("omitted" in stored),
   );
-  if (!enrichment?.website && !hasQuestionInference) return attributes;
+  if (!enrichment?.website && !enrichment?.listing && !hasQuestionInference) return attributes;
   const out = attributes.map((a) => ({ ...a }));
   const at = (key: string) => out.find((a) => a.key === key);
   const web = enrichment?.website;
@@ -1728,6 +1921,19 @@ export function applyEnrichmentAttributes<T extends AttributeLike>(
     if (existing) Object.assign(existing, patch);
     else out.push({ key, ...patch } as T);
   };
+  const listing = enrichment?.listing;
+  if (listing?.hours?.length && fillable(at("hours"))) {
+    const value = listing.hours.slice(0, 3).join("; ");
+    set("hours", {
+      status: "likely_true",
+      value: value.length > 80 ? `${value.slice(0, 79)}…` : value,
+      confidence: LISTING_CONFIDENCE,
+      source: LISTING_SOURCE,
+      observedAt: listing.fetchedAt,
+      note: LISTING_NOTE,
+      sourceUrl: listing.sourceUrl,
+    });
+  }
   if (web) {
     const source = `web:${web.host}`;
     const observedAt = web.fetchedAt;
@@ -1838,11 +2044,33 @@ export function enrichmentView(
   extras: { links?: DossierLink[]; description?: { text: string; source: string } } | null | undefined,
   enrichment: Enrichment | undefined,
 ): EnrichmentView {
-  const links: DossierLink[] = [...(extras?.links ?? [])];
+  const links: DossierLink[] = (extras?.links ?? []).map((link) => ({
+    ...link,
+    label: cleanInlineText(link.label),
+  }));
   const has = (kind: string) => links.some((l) => l.kind === kind);
   const view: EnrichmentView = { links };
-  if (extras?.description) view.description = extras.description;
-  const web = enrichment?.website;
+  if (extras?.description) {
+    view.description = {
+      ...extras.description,
+      text: cleanSummary(extras.description.text, 300),
+    };
+  }
+  const listing = enrichment?.listing;
+  if (listing) {
+    if (listing.website && !has("website")) {
+      links.push({
+        kind: "website",
+        label: "website",
+        url: listing.website,
+        source: LISTING_SOURCE,
+      });
+    }
+    if (listing.rating) {
+      view.rating = { ...listing.rating, source: LISTING_SOURCE, label: "on Google" };
+    }
+  }
+  const web = cleanWebFacts(enrichment?.website ?? null);
   if (web) {
     const source = `web:${web.host}`;
     if (web.menuUrl && !has("menu")) links.push({ kind: "menu", label: "menu", url: web.menuUrl, source });
@@ -1857,7 +2085,7 @@ export function enrichmentView(
     }
     if (!view.description && web.description) view.description = { text: web.description, source };
   }
-  const wiki = enrichment?.wikidata;
+  const wiki = cleanWikiFacts(enrichment?.wikidata ?? null);
   if (wiki) {
     const source = `wikidata:${wiki.id}`;
     if (wiki.wikipedia && !has("wikipedia")) {
@@ -1867,7 +2095,7 @@ export function enrichmentView(
       links.push({ kind: "website", label: "website", url: wiki.website, source });
     }
     if (!view.description && wiki.description) view.description = { text: wiki.description, source };
-    const awards = wiki.awards.filter((a) => a.label).map((a) => ({ label: a.label!, source }));
+    const awards = wiki.awards.filter((a) => a.label).map((a) => ({ label: cleanInlineText(a.label), source }));
     if (awards.length) view.awards = awards;
   }
   // The place's own site first, then the menu, then the rest.

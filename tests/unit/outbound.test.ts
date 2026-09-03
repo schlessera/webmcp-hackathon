@@ -4,6 +4,7 @@ import {
   classifyOutboundFailure,
   isDirectControlHost,
   outboundDiagnostics,
+  outboundProviderCounts,
   outboundFetch,
   resetOutboundStateForTests,
   routeForPurpose,
@@ -69,10 +70,31 @@ describe("purpose routing", () => {
       "venue-site", "venue-menu", "venue-image", "robots", "image-cdn",
     ];
     const direct: OutboundPurpose[] = [
-      "wikimedia", "wikidata", "commons", "geofabrik", "tavily", "openai",
+      "wikimedia", "wikidata", "commons", "geofabrik", "tavily", "parallel", "dataforseo", "openai",
     ];
     for (const purpose of proxy) expect(routeForPurpose(purpose)).toBe("proxy");
     for (const purpose of direct) expect(routeForPurpose(purpose)).toBe("direct");
+  });
+
+  it("counts authenticated API providers without exposing request content", async () => {
+    process.env.PROXY = "0";
+    resetOutboundStateForTests();
+    setOutboundTransportForTests(async () => new Response("{}", { status: 200 }));
+    for (const purpose of ["parallel", "dataforseo"] as const) {
+      const response = await outboundFetch(`https://example.org/${purpose}`, {
+        purpose,
+        method: "POST",
+        body: "secret-body",
+        maxBytes: 100,
+        timeoutMs: 2_000,
+      });
+      await response.text();
+    }
+    expect(outboundProviderCounts()).toMatchObject({
+      parallel: { attempts: 1, successes: 1 },
+      dataforseo: { attempts: 1, successes: 1 },
+    });
+    expect(JSON.stringify(outboundProviderCounts())).not.toContain("secret-body");
   });
 });
 

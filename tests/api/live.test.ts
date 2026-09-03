@@ -5,6 +5,7 @@ import { submitCommand } from "../../apps/server/src/engine.ts";
 import { lookupNow, setEnrichFetch } from "../../apps/server/src/enrich/index.ts";
 import { storePageCache } from "../../apps/server/src/enrich/cache.ts";
 import { setTransport } from "../../apps/server/src/nl/openai.ts";
+import { recleanStoredText } from "../../apps/server/src/enrich/reclean.ts";
 import {
   apiPost,
   createTestRoom,
@@ -61,12 +62,135 @@ describe("look_up_places route and dossier privacy", () => {
       candidateIds: [candidateId],
       keys: ["wheelchair-accessible"],
     });
-    expect(result.body.ok).toBe(true);
+    expect(result.body.ok, JSON.stringify(result.body)).toBe(true);
     expect(result.body.candidates).toEqual([
       expect.objectContaining({ candidateId, lookupPending: false }),
     ]);
     expect(result.body.candidates[0]).toMatchObject({ address: "Teststraße 1", phone: "+49 30 1" });
     expect(Number((await room.pool.query("SELECT count(*) FROM enrichments WHERE osm_ref = $1", [osmRef])).rows[0].count)).toBe(0);
+  });
+
+  it("never returns raw tags or entities in dossier descriptions and evidence notes", async () => {
+    const candidateId = `place_b_${room.roomId.slice("room_test_".length)}`;
+    const osmRef = `node/text-hygiene-${room.roomId}`;
+    await room.pool.query(
+      `UPDATE candidates
+          SET osm_ref = $2,
+              extras = $3::jsonb,
+              attributes = $4::jsonb
+        WHERE id = $1`,
+      [
+        candidateId,
+        osmRef,
+        JSON.stringify({
+          description: {
+            text: "America&amp;#039;s diner<br>serves&nbsp;late",
+            source: "osm:description",
+          },
+        }),
+        JSON.stringify([{ key: "dog-friendly", status: "unknown", confidence: 0 }]),
+      ],
+    );
+    await room.pool.query(
+      `INSERT INTO enrichments
+         (osm_ref, fetched_at, expires_at, inferred, inferred_at)
+       VALUES ($1, now(), now() + interval '7 days', $2::jsonb, now())
+       ON CONFLICT (osm_ref) DO UPDATE SET inferred = EXCLUDED.inferred, inferred_at = now()`,
+      [osmRef, JSON.stringify({
+        "dog-friendly": {
+          key: "dog-friendly",
+          lean: "yes",
+          confidence: 0.6,
+          evidence: "Dogs &amp; friends<br>are welcome here",
+          source: "infer:test:venue_site",
+          observedAt: new Date().toISOString(),
+        },
+      })],
+    );
+
+    const response = await apiPost<{
+      candidates: Array<{
+        description?: { text: string };
+        attributes: Array<{ key: string; note?: string }>;
+      }>;
+    }>(server.baseUrl, "/api/spatial/inspect", room.tokens.org, {
+      candidateIds: [candidateId],
+    });
+    const dossier = response.body.candidates[0];
+    const evidence = dossier.attributes.find((attribute) => attribute.key === "dog-friendly")?.note;
+    expect(dossier.description?.text).toBe("America's diner serves late");
+    expect(evidence).toBe("Dogs & friends are welcome here");
+    expect(JSON.stringify({ description: dossier.description, evidence })).not.toMatch(/<|&#|&amp;/);
+
+    await room.pool.query("DELETE FROM enrichments WHERE osm_ref = $1", [osmRef]);
+  });
+
+  it("re-cleans durable text once and leaves the same rows untouched on a second pass", async () => {
+    const suffix = room.roomId.slice("room_test_".length);
+    const osmRef = `zzzz-text-${suffix}`;
+    const urlHash = `zzzz-page-${suffix}`;
+    await room.pool.query(
+      `INSERT INTO enrichments (osm_ref, fetched_at, expires_at, website, inferred)
+       VALUES ($1, now(), now() + interval '7 days', $2::jsonb, $3::jsonb)`,
+      [
+        osmRef,
+        JSON.stringify({
+          url: "https://reclean.example/",
+          host: "reclean.example",
+          fetchedAt: new Date().toISOString(),
+          types: [],
+          description: "Dinner&nbsp;daily<br>until late",
+        }),
+        JSON.stringify({
+          dogs: {
+            key: "dogs",
+            lean: "yes",
+            confidence: 0.6,
+            evidence: "Dogs &amp; friends<br>are welcome",
+            source: "infer:test",
+            observedAt: new Date().toISOString(),
+            adjudication: {
+              evidenceHash: "old",
+              verdict: "yes",
+              explicit: true,
+              publisher: "venue",
+              quote: "<b>Dogs &amp; friends</b>",
+              observedAt: new Date().toISOString(),
+            },
+          },
+        }),
+      ],
+    );
+    await room.pool.query(
+      `INSERT INTO page_cache
+         (url_hash, url, host, expires_at, status, text)
+       VALUES ($1, $2, 'reclean.example', now() + interval '7 days', 200, $3)`,
+      [urlHash, `https://reclean.example/${suffix}`, "First<br>Second &amp;#039;night"],
+    );
+
+    const options = {
+      maxRowsPerTable: 1,
+      batchSize: 1,
+      afterOsmRef: osmRef.slice(0, -1),
+      afterUrlHash: urlHash.slice(0, -1),
+    };
+    const first = await recleanStoredText(room.pool, options);
+    const second = await recleanStoredText(room.pool, options);
+    expect(first.enrichments.updated).toBe(1);
+    expect(first.pageCache.updated).toBe(1);
+    expect(second.enrichments.updated).toBe(0);
+    expect(second.pageCache.updated).toBe(0);
+
+    const stored = (await room.pool.query(
+      `SELECT website, inferred,
+              (SELECT text FROM page_cache WHERE url_hash = $2) AS page_text
+         FROM enrichments WHERE osm_ref = $1`,
+      [osmRef, urlHash],
+    )).rows[0];
+    expect(JSON.stringify(stored)).not.toMatch(/<|&#|&amp;/);
+
+    await room.pool.query("DELETE FROM page_cache WHERE url_hash = $1", [urlHash]);
+    await room.pool.query("DELETE FROM enrichments WHERE osm_ref = $1", [osmRef]);
   });
 
   it("collapses every peer private need into one worst-verdict row and keeps own needs full", async () => {

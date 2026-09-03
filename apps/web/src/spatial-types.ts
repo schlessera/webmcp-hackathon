@@ -29,6 +29,15 @@ export interface ParticipantSummary {
   origin?: ParticipantOrigin;
 }
 
+/** Ephemeral, opt-in coordinates from the presence channel. Labels remain
+ * private in ParticipantOrigin and never enter this shape. */
+export interface SharedPosition {
+  participantId: string;
+  lat: number;
+  lng: number;
+  updatedAt: string;
+}
+
 export interface CandidateSummary {
   candidateId: string;
   /** Stable area-snapshot ref, when this place has one. */
@@ -83,6 +92,11 @@ export interface ActiveNeed {
   /** The criterion this need reads; `q:<hash>` for a question the room asks
    * of the data, a vocabulary key otherwise (contracts criteria). */
   criterionId?: string;
+  referent?: {
+    kind: "scopeCenter" | "candidate" | "participant" | "point" | "landmark";
+    label: string;
+    location?: { lat: number; lng: number };
+  };
 }
 
 /** A peer's private need, reduced to its effect (FACETS.md §4). Never the

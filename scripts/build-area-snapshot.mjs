@@ -20,7 +20,16 @@
  *   node scripts/build-area-snapshot.mjs --refresh  # re-download extracts first
  */
 import { execFileSync, spawnSync } from "node:child_process";
-import { createReadStream, existsSync, mkdirSync, statSync } from "node:fs";
+import {
+  createReadStream,
+  existsSync,
+  mkdirSync,
+  lstatSync,
+  readdirSync,
+  realpathSync,
+  statSync,
+  unlinkSync,
+} from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { createInterface } from "node:readline";
 import { dirname, join, resolve } from "node:path";
@@ -29,15 +38,19 @@ import {
   AREAS,
   BOOLEAN_ATTRS,
   KEPT_TAGS,
+  PLACE_CLASSES,
+  PLACE_CLASS_TABLE,
   POOL_PER_RING,
   dossierFromTags,
   isDecisive,
+  placeClassFromTags,
 } from "../packages/contracts/src/index.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(__dirname, "..");
 const DATA_DIR = join(REPO, "data", "osm");
 const OUT_DIR = join(REPO, "packages", "contracts", "data", "areas");
+const LANDMARK_CAP = 3000;
 
 const args = process.argv.slice(2);
 const refresh = args.includes("--refresh");
@@ -55,18 +68,43 @@ mkdirSync(OUT_DIR, { recursive: true });
 const hasLocalOsmium = spawnSync("osmium", ["--version"], { stdio: "ignore" }).status === 0;
 
 function osmium(argv) {
+  const outputIndex = argv.indexOf("-o");
+  const output = outputIndex >= 0 ? argv[outputIndex + 1] : undefined;
+  const outputPath = output ? join(DATA_DIR, output) : undefined;
+  // An ignored worktree cache may link old intermediates to another checkout.
+  // Never let --overwrite follow that link and mutate the other worktree.
+  if (outputPath && existsSync(outputPath) && lstatSync(outputPath).isSymbolicLink()) {
+    unlinkSync(outputPath);
+  }
   if (hasLocalOsmium) {
     return execFileSync("osmium", argv, { cwd: DATA_DIR, encoding: "utf8" });
   }
+  // Worktrees link the large extracts from the main checkout. A bind mount of
+  // DATA_DIR alone leaves those absolute host symlinks dangling in Docker, so
+  // mount their resolved targets read-only and rewrite only matching inputs.
+  const linkedExtracts = new Map(
+    readdirSync(DATA_DIR)
+      .filter((name) => name.endsWith("-latest.osm.pbf"))
+      .map((name) => [name, realpathSync(join(DATA_DIR, name))]),
+  );
+  const containerArgv = argv.map((arg) =>
+    linkedExtracts.has(arg) ? `/extracts/${arg}` : arg,
+  );
   // One container per call; apt is cached by Docker's layer cache only when
   // the image is built, so this installs on every call (~10 s). Acceptable
   // for a build step that runs a handful of times.
-  const script = `apt-get update -qq >/dev/null 2>&1 && apt-get install -y -qq osmium-tool >/dev/null 2>&1 && osmium ${argv
+  const script = `apt-get update -qq >/dev/null 2>&1 && apt-get install -y -qq osmium-tool >/dev/null 2>&1 && osmium ${containerArgv
     .map((a) => `'${a.replace(/'/g, "'\\''")}'`)
     .join(" ")}`;
   return execFileSync(
     "docker",
-    ["run", "--rm", "-v", `${DATA_DIR}:/data`, "-w", "/data", "debian:bookworm-slim", "sh", "-c", script],
+    [
+      "run", "--rm", "-v", `${DATA_DIR}:/data`,
+      ...[...linkedExtracts.entries()].flatMap(([name, path]) => [
+        "-v", `${path}:/extracts/${name}:ro`,
+      ]),
+      "-w", "/data", "debian:bookworm-slim", "sh", "-c", script,
+    ],
     { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 },
   );
 }
@@ -104,6 +142,28 @@ function pointOf(geometry) {
     case "MultiPolygon": return avg(geometry.coordinates[0][0]);
     default: return null;
   }
+}
+
+function landmarkKind(properties) {
+  if (properties.railway === "station") return "station";
+  if (properties.railway === "halt") return "halt";
+  if (properties.railway === "subway_entrance") return "subway_entrance";
+  if (properties.public_transport === "station") return "station";
+  if (properties.public_transport === "stop_position") return "stop";
+  if (["square", "neighbourhood", "suburb", "quarter"].includes(properties.place)) {
+    return properties.place;
+  }
+  if (properties.tourism === "attraction") return "attraction";
+  if (properties.leisure === "park") return "park";
+  if (["university", "theatre", "marketplace"].includes(properties.amenity)) {
+    return properties.amenity;
+  }
+  return null;
+}
+
+function normalizedName(value) {
+  return value.normalize("NFKD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/ß/g, "ss").replace(/[^a-z0-9]+/gi, " ").trim().toLowerCase();
 }
 
 // --- the pool rule, shared with the server (places.ts mirrors it) ---------
@@ -161,10 +221,11 @@ function spreadRing(ordered, center, limit) {
 }
 
 function poolOf(venues, area) {
+  const roomVenues = venues.filter((venue) => area.placeClasses.includes(venue.placeClass));
   const { narrow, wide, max } = area.radii;
   const ring = (from, to) =>
     spreadRing(
-      venues.filter((v) => v.distance > from && v.distance <= to),
+      roomVenues.filter((v) => v.distance > from && v.distance <= to),
       area.center,
       POOL_PER_RING,
     );
@@ -190,6 +251,12 @@ function coverageOf(venues, observedAt) {
   ];
   return {
     venues: n,
+    classCounts: Object.fromEntries(
+      PLACE_CLASSES.map((placeClass) => [
+        placeClass,
+        venues.filter((venue) => venue.placeClass === placeClass).length,
+      ]),
+    ),
     /** Boolean attribute slots (venues × facts) and how many the engine can
      * rule on. Absolute counts first: the UI never shows a percentage. */
     slots,
@@ -214,10 +281,29 @@ for (const area of areas) {
   const clipped = `${area.id}.osm.pbf`;
   const filtered = `${area.id}-venues.osm.pbf`;
   const exported = `${area.id}-venues.geojsonseq`;
+  const landmarkFiltered = `${area.id}-landmarks.osm.pbf`;
+  const landmarkExported = `${area.id}-landmarks.geojsonseq`;
   const t0 = Date.now();
   osmium(["extract", "-b", `${w},${s},${e},${n}`, "-s", "smart", "-o", clipped, "--overwrite", regionFile]);
-  osmium(["tags-filter", clipped, `nwr/amenity=${area.amenities.join(",")}`, "-o", filtered, "--overwrite"]);
+  osmium([
+    "tags-filter", clipped,
+    ...Object.entries(PLACE_CLASS_TABLE).map(
+      ([tag, classes]) => `nwr/${tag}=${classes.join(",")}`,
+    ),
+    "-o", filtered, "--overwrite",
+  ]);
   osmium(["export", filtered, "-f", "geojsonseq", "-a", "id,type", "-o", exported, "--overwrite"]);
+  osmium([
+    "tags-filter", clipped,
+    "nwr/railway=station,halt,subway_entrance",
+    "nwr/public_transport=station,stop_position",
+    "nwr/place=square,neighbourhood,suburb,quarter",
+    "nwr/tourism=attraction",
+    "nwr/leisure=park",
+    "nwr/amenity=university,theatre,marketplace",
+    "-o", landmarkFiltered, "--overwrite",
+  ]);
+  osmium(["export", landmarkFiltered, "-f", "geojsonseq", "-a", "id,type", "-o", landmarkExported, "--overwrite"]);
   const extractTimestamp = osmium([
     "fileinfo", "-e", "-g", "header.option.osmosis_replication_timestamp", regionFile,
   ]).trim();
@@ -232,7 +318,8 @@ for (const area of areas) {
     if (!line) continue;
     const f = JSON.parse(line);
     const p = f.properties ?? {};
-    if (!p.name || !area.amenities.includes(p.amenity)) continue;
+    const placeClass = placeClassFromTags(p);
+    if (!p.name || !placeClass) continue;
     const ref = `${p["@type"]}/${p["@id"]}`;
     if (seen.has(ref)) continue;
     const location = pointOf(f.geometry);
@@ -247,6 +334,7 @@ for (const area of areas) {
       ref,
       name: String(p.name),
       location: { lat: +location.lat.toFixed(7), lng: +location.lng.toFixed(7) },
+      placeClass,
       distance: Math.round(distance),
       tags,
     });
@@ -255,8 +343,59 @@ for (const area of areas) {
   // this order for ties while spreading its selections across each ring.
   venues.sort((a, b) => a.distance - b.distance || (a.ref < b.ref ? -1 : 1));
 
+  // Landmarks are a second, domain-neutral name index over the same clipped
+  // extract. Keep source order while removing nearby duplicate renderings of
+  // the same named feature (for example a station node and its area).
+  const landmarks = [];
+  const landmarkGroups = new Map();
+  const landmarkRl = createInterface({ input: createReadStream(join(DATA_DIR, landmarkExported)) });
+  for await (const raw of landmarkRl) {
+    const line = raw.replace(/^\x1e/, "").trim();
+    if (!line) continue;
+    const f = JSON.parse(line);
+    const p = f.properties ?? {};
+    const name = typeof p.name === "string" ? p.name.trim() : "";
+    const kind = landmarkKind(p);
+    const location = pointOf(f.geometry);
+    if (!name || !kind || !location) continue;
+    const nameKey = normalizedName(name);
+    const groupKey = `${kind}\u0000${nameKey}`;
+    const group = landmarkGroups.get(groupKey) ?? [];
+    if (group.some((row) => haversine(row.location, location) <= 150)) continue;
+    const altNames = [...new Set(
+      [p.alt_name, p.official_name, p.short_name, p.loc_name]
+        .flatMap((value) => typeof value === "string" ? value.split(";") : [])
+        .map((value) => value.trim())
+        .filter((value) => value && normalizedName(value) !== nameKey),
+    )];
+    const landmark = {
+      id: `${p["@type"]}/${p["@id"]}`,
+      name,
+      kind,
+      location: { lat: +location.lat.toFixed(7), lng: +location.lng.toFixed(7) },
+      ...(altNames.length ? { altNames } : {}),
+      nameKey,
+      distance: Math.round(haversine(area.center, location)),
+    };
+    landmarks.push(landmark);
+    group.push(landmark);
+    landmarkGroups.set(groupKey, group);
+  }
+  let cappedLandmarks = landmarks;
+  let landmarkCapNote = "";
+  if (landmarks.length > LANDMARK_CAP) {
+    cappedLandmarks = [...landmarks]
+      .sort((a, b) => a.distance - b.distance || (a.id < b.id ? -1 : 1))
+      .slice(0, LANDMARK_CAP);
+    landmarkCapNote = `; capped from ${landmarks.length}, keeping nearest the area centre`;
+  }
+
   const pool = poolOf(venues, area);
-  const focus = venues.filter((v) => v.distance <= area.radii.wide);
+  // Focus and pool are measured over the classes a room pools (the picker
+  // says what a room starts with); the city figure counts every class kept.
+  const focus = venues.filter(
+    (v) => v.distance <= area.radii.wide && area.placeClasses.includes(v.placeClass),
+  );
   const coverage = {
     measuredAt: extractTimestamp,
     /** The whole city bbox. */
@@ -280,16 +419,22 @@ for (const area of areas) {
       builtWith: "scripts/build-area-snapshot.mjs",
       center: area.center,
       radii: area.radii,
-      amenities: area.amenities,
+      placeClasses: area.placeClasses,
+      landmarks: cappedLandmarks.length,
       coverage,
     },
-    venues: venues.map(({ ref, name, location, tags }) => ({ ref, name, location, tags })),
+    venues: venues.map(({ ref, name, location, placeClass, tags }) => ({
+      ref, name, location, placeClass, tags,
+    })),
+    landmarks: cappedLandmarks.map(({ id, name, kind, location, altNames }) => ({
+      id, name, kind, location, ...(altNames ? { altNames } : {}),
+    })),
   };
   const outPath = join(OUT_DIR, `${area.id}.json`);
   await writeFile(outPath, JSON.stringify(out, null, 1) + "\n");
   const size = (await readFile(outPath)).length;
   console.log(
-    `wrote ${venues.length} venues (${(size / 1024).toFixed(0)} KiB) → ${outPath}\n` +
+    `wrote ${venues.length} venues and ${cappedLandmarks.length} landmarks${landmarkCapNote} (${(size / 1024).toFixed(0)} KiB) → ${outPath}\n` +
       `  city (${coverage.city.venues}): decisive ${coverage.city.decisivePct}%, opening_hours ${coverage.city.tags.opening_hours}%\n` +
       `  focus (${coverage.focus.venues}): decisive ${coverage.focus.decisivePct}%, opening_hours ${coverage.focus.tags.opening_hours}%, ` +
       `wheelchair ${coverage.focus.tags.wheelchair}%, diet:vegetarian ${coverage.focus.tags["diet:vegetarian"]}%\n` +

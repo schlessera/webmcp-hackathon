@@ -4,6 +4,7 @@ import type {
   CommandEnvelope,
   ExplorePlace,
   OutstandingItem,
+  SharedPosition,
   SpatialContext,
 } from "./spatial-types.ts";
 
@@ -36,6 +37,9 @@ export interface SpatialState {
   /** Who has which place open right now (peers and self), from the presence
    * frame. Ephemeral: never part of `context`, never persisted. */
   viewing: Record<string, string>;
+  /** Opted-in live coordinates from the latest presence frame. Missing means
+   * not sharing or no longer present. */
+  positions: Record<string, SharedPosition>;
   /** What the person's agent last said, newest first. Dismissed by the
    * reader; nothing here is room state. */
   agentReplies: AgentReply[];
@@ -50,6 +54,18 @@ export interface SpatialState {
    */
   busy: string[];
   busyReason: LookupReason | null;
+  /**
+   * Per-place pipeline stage from the `lookups` frame (queued / fetching /
+   * processing). A place in `busy` without a stage reads as fetching.
+   * Presentation only.
+   */
+  stages: Record<string, PipelineStage>;
+  /**
+   * The room's pipeline volume for the active needs, from the last
+   * `pipeline` frame: the count block's progress ring. Null until a frame
+   * has arrived (an older server never sends one).
+   */
+  pipeline: PipelineView | null;
   /**
    * Needs this page has said and the room has not settled yet. A row exists
    * from the moment of saying; it settles when the commit has landed and
@@ -71,6 +87,20 @@ export interface SpatialState {
 export interface LookupReason {
   kind: "need" | "place" | "pool" | "refine";
   label?: string;
+}
+
+export type PipelineStage = "queued" | "fetching" | "processing";
+
+export interface PipelineView {
+  outstanding: { fetch: number; process: number };
+  inFlight: { fetch: number; process: number };
+  done: number;
+  total: number;
+  /** Kept for the drawer; never drawn in the main UI. */
+  etaMs?: number;
+  paused: "budget" | "idle" | null;
+  /** When the frame landed (ms). */
+  at: number;
 }
 
 export interface PendingNeed {
@@ -99,6 +129,11 @@ export interface AgentReply {
   actions: Array<{ tool: string; ok: boolean; effect: string }>;
   /** true for a question answered, false for a move made. */
   answer: boolean;
+  choices?: Array<{
+    label: string;
+    payload: Record<string, unknown>;
+    visibility: "shared" | "application-private";
+  }>;
 }
 
 type Listener = () => void;
@@ -173,11 +208,14 @@ export class SpatialStore {
     preview: null,
     previewNeedId: null,
     viewing: {},
+    positions: {},
     agentReplies: [],
     agentBusy: false,
     agentPhase: null,
     busy: [],
     busyReason: null,
+    stages: {},
+    pipeline: null,
     pendingNeeds: [],
     facts: { ids: [], nonce: 0 },
     refetching: false,
@@ -233,6 +271,16 @@ export class SpatialStore {
     for (const r of rows) viewing[r.participantId] = r.candidateId;
     this.update({ viewing });
   }
+  setPresence(
+    viewingRows: Array<{ participantId: string; candidateId: string }>,
+    positionRows: SharedPosition[],
+  ): void {
+    const viewing: Record<string, string> = {};
+    for (const row of viewingRows) viewing[row.participantId] = row.candidateId;
+    const positions: Record<string, SharedPosition> = {};
+    for (const row of positionRows) positions[row.participantId] = row;
+    this.update({ viewing, positions });
+  }
   pushAgentReply(reply: Omit<AgentReply, "id">): void {
     const id = `r_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
     this.update({ agentReplies: [{ id, ...reply }, ...this.state.agentReplies].slice(0, 3) });
@@ -247,14 +295,31 @@ export class SpatialStore {
   }
 
   /** The `lookups` frame: which places are being looked up right now. */
-  setLookups(pending: string[], reason: LookupReason | null): void {
+  setLookups(
+    pending: string[],
+    reason: LookupReason | null,
+    stageRows: Array<{ candidateId: string; stage: PipelineStage }> = [],
+  ): void {
+    // Stage per place: only what the frame says. A pending id without a
+    // stage (an older server sends ids only) stays busy without a stage; the
+    // map draws it as fetching, the panel keeps its plain "looking it up".
+    const stages: Record<string, PipelineStage> = {};
+    for (const row of stageRows) stages[row.candidateId] = row.stage;
+    const ids = [...new Set([...pending, ...stageRows.map((row) => row.candidateId)])];
     const same =
-      pending.length === this.state.busy.length &&
-      pending.every((id, i) => id === this.state.busy[i]);
+      ids.length === this.state.busy.length &&
+      ids.every((id, i) => id === this.state.busy[i]) &&
+      ids.every((id) => this.state.stages[id] === stages[id]) &&
+      Object.keys(this.state.stages).length === Object.keys(stages).length;
     if (!same || reason !== this.state.busyReason) {
-      this.update({ busy: pending, busyReason: pending.length ? reason : null });
+      this.update({ busy: ids, busyReason: ids.length ? reason : null, stages });
     }
     this.reconcilePending();
+  }
+
+  /** The `pipeline` frame: the room's volume for the active needs. */
+  setPipeline(frame: Omit<PipelineView, "at">): void {
+    this.update({ pipeline: { ...frame, at: Date.now() } });
   }
 
   /** The `facts` frame: facts changed outside the event stream. */
@@ -355,7 +420,11 @@ export class SpatialStore {
       exploreTruncated: false,
       busy: [],
       busyReason: null,
+      stages: {},
+      pipeline: null,
       localScopeCenterKey: null,
+      viewing: {},
+      positions: {},
     });
   }
 
