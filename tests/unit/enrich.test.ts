@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   clip,
   extractAnchors,
+  extractVisibleText,
   fetchWebsiteFacts,
   hoursFromSpecification,
   isPublicAddress,
+  MAX_PAGE_TEXT,
   parseWebsite,
   pickMenuLink,
   priceRangeToLevel,
@@ -85,6 +87,59 @@ describe("website network boundary", () => {
       "https://93.184.216.34/robots.txt",
       "https://93.184.216.34/venue",
     ]);
+  });
+});
+
+describe("transient website text", () => {
+  it("keeps only selected visible content, strips page chrome, and enforces the page budget", () => {
+    const text = extractVisibleText(`
+      <html><head>
+        <title>Courtyard Café</title>
+        <meta content="A quiet &amp; welcoming place" name="description">
+        <style>.secret { content: "style words" }</style>
+        <script>window.secret = "script words"</script>
+      </head><body>
+        <nav><p>Navigation promotion</p></nav>
+        <h1>Seasonal cooking</h1>
+        <p>Dogs are <strong>welcome</strong> in the garden.</p>
+        <ul><li>Step-free entrance</li></ul>
+        <p hidden>Hidden promotion</p>
+        <footer><p>Footer boilerplate</p></footer>
+      </body></html>
+    `);
+    expect(text).toBe([
+      "Courtyard Café",
+      "A quiet & welcoming place",
+      "Seasonal cooking",
+      "Dogs are welcome in the garden.",
+      "Step-free entrance",
+    ].join("\n"));
+    expect(extractVisibleText(`<p>${"word ".repeat(2_000)}</p>`).length).toBeLessThanOrEqual(MAX_PAGE_TEXT);
+  });
+
+  it("returns separately budgeted homepage and menu text without putting either in WebFacts", async () => {
+    const result = await fetchWebsiteFacts("https://93.184.216.34/", async (url) => {
+      if (url.endsWith("/robots.txt")) return new Response("", { status: 404 });
+      if (url.endsWith("/menu")) {
+        return new Response(`<h1>Evening menu</h1><p>Vegan mushroom dumplings</p>`, {
+          status: 200,
+          headers: { "content-type": "text/html" },
+        });
+      }
+      return new Response(`<title>Venue home</title><p>Dogs are welcome in our courtyard.</p><a href="/menu">Menu</a>`, {
+        status: 200,
+        headers: { "content-type": "text/html" },
+      });
+    });
+    expect(result.pageText).toEqual({
+      homepage: "Venue home\nDogs are welcome in our courtyard.",
+      menu: "Evening menu\nVegan mushroom dumplings",
+    });
+    expect(result.pageText!.homepage!.length).toBeLessThanOrEqual(MAX_PAGE_TEXT);
+    expect(result.pageText!.menu!.length).toBeLessThanOrEqual(MAX_PAGE_TEXT);
+    expect(result.facts).not.toHaveProperty("pageText");
+    expect(result.facts).not.toHaveProperty("homepage");
+    expect(result.facts).not.toHaveProperty("menu");
   });
 });
 
