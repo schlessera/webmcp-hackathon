@@ -1,6 +1,6 @@
 {
   "toolContractVersion": "3",
-  "sha256": "24edfac7fd9b8afb5d1fd5850b63f7b38dcb4e56f2543f5e301542da27e1e4ce",
+  "sha256": "5b49a5fd316580b5fb1a2af04c92259ac0a5de08a9889d01e548d376f4841379",
   "manifest": {
     "capabilityManifest": {
       "agreement": {
@@ -1595,6 +1595,30 @@
               "type"
             ],
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "candidateId": {
+                "anyOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ]
+              },
+              "type": {
+                "const": "previewing",
+                "type": "string"
+              }
+            },
+            "required": [
+              "candidateId",
+              "type"
+            ],
+            "type": "object"
           }
         ]
       },
@@ -2763,6 +2787,19 @@
                 },
                 "type": "array"
               },
+              "costUsd": {
+                "type": "number"
+              },
+              "done": {
+                "anyOf": [
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "boolean"
+                  }
+                ]
+              },
               "reason": {
                 "anyOf": [
                   {
@@ -2780,8 +2817,67 @@
                   {
                     "const": "inference",
                     "type": "string"
+                  },
+                  {
+                    "const": "interactive",
+                    "type": "string"
                   }
                 ]
+              },
+              "stage": {
+                "anyOf": [
+                  {
+                    "const": "site",
+                    "type": "string"
+                  },
+                  {
+                    "const": "needs",
+                    "type": "string"
+                  },
+                  {
+                    "const": "photos",
+                    "type": "string"
+                  },
+                  {
+                    "const": "web",
+                    "type": "string"
+                  }
+                ]
+              },
+              "steps": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "ms": {
+                      "type": "number"
+                    },
+                    "stage": {
+                      "anyOf": [
+                        {
+                          "const": "site",
+                          "type": "string"
+                        },
+                        {
+                          "const": "needs",
+                          "type": "string"
+                        },
+                        {
+                          "const": "photos",
+                          "type": "string"
+                        },
+                        {
+                          "const": "web",
+                          "type": "string"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "stage"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
               },
               "type": {
                 "const": "facts",
@@ -6269,6 +6365,11 @@
               "maxItems": 3,
               "minItems": 1,
               "type": "array"
+            },
+            "intent": {
+              "const": "open",
+              "description": "A person opened the place: answer with what is cached and fast-track the rest.",
+              "type": "string"
             }
           },
           "required": [

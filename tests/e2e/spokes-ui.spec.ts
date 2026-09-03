@@ -1320,6 +1320,8 @@ async function scriptedSocket(page: Page, revision: number) {
   const welcomed = new Promise<void>((resolve) => {
     ready = resolve;
   });
+  /** Every frame the page sent, for assertions on presence-side hints. */
+  const sent: Array<Record<string, unknown>> = [];
   await page.routeWebSocket("**/ws", (ws) => {
     route = ws;
     ws.onMessage((raw) => {
@@ -1327,6 +1329,7 @@ async function scriptedSocket(page: Page, revision: number) {
         type: string;
         clientToolContractVersion?: string;
       };
+      sent.push(message as Record<string, unknown>);
       if (message.type !== "auth") return;
       ws.send(
         JSON.stringify({
@@ -1345,6 +1348,7 @@ async function scriptedSocket(page: Page, revision: number) {
   });
   return {
     welcomed,
+    sent,
     send(frame: Record<string, unknown>) {
       if (!route) throw new Error("socket not open yet");
       route.send(JSON.stringify(frame));
@@ -2920,3 +2924,84 @@ test("dots show their pipeline stage: queued stands still, fetching and processi
     .toEqual({ queued: 0, fetching: 0, processing: 0 });
   await browserContext.close();
 });
+
+test("opening a place fills the panel step by step on the fast track, and hovering a dot hints the server", async ({ browser }) => {
+  const browserContext = await browser.newContext({ viewport: { width: 1180, height: 900 } });
+  const page = await browserContext.newPage();
+  const context = fixture({ matching: 0, revision: 1 });
+  const state: MockState = { context, outstanding: [] };
+  await mockApi(page, state);
+  // The dossier grows with every read: cached rows first, then what each
+  // step of the fast track added.
+  const inspectBodies: Array<Record<string, unknown>> = [];
+  let reads = 0;
+  await page.route("**/api/spatial/inspect", async (route) => {
+    inspectBodies.push(route.request().postDataJSON() as Record<string, unknown>);
+    reads += 1;
+    const attributes = [
+      { key: "outdoor-seating", status: "verified_true", source: "osm:outdoor_seating", observedAt: "2026-08-31T00:00:00Z", confidence: 0.8 },
+      ...(reads >= 2 ? [{ key: "dog-friendly", status: "likely_true", source: "web:place.example", observedAt: "2026-09-03T00:00:00Z", confidence: 0.6, note: "dogs welcome on the terrace" }] : []),
+      ...(reads >= 3 ? [{ key: "vegan-options", status: "likely_true", source: "infer:gpt:menu", observedAt: "2026-09-03T00:00:00Z", confidence: 0.6, note: "vegan bowl" }] : []),
+    ];
+    await route.fulfill({
+      json: {
+        ok: true,
+        revision: 1,
+        candidates: [{
+          candidateId: "place_1",
+          name: "Café Einstein",
+          location: { lat: 52.52, lng: 13.39 },
+          category: "cafe",
+          priceLevel: null,
+          hours: [],
+          attributes,
+          mapRevision: 1,
+        }],
+      },
+    });
+  });
+  const socket = await scriptedSocket(page, 1);
+  await page.goto(`${BASE}/#invite=deadbeef`);
+  await socket.welcomed;
+
+  // Hover: one debounced hint names the place; leaving clears it.
+  const pinBox = await page.getByTestId("pin-place_1").boundingBox();
+  if (!pinBox) throw new Error("pin-place_1 has no box");
+  await page.mouse.move(pinBox.x + pinBox.width / 2, pinBox.y + pinBox.height / 2, { steps: 4 });
+  await expect.poll(() => socket.sent.filter((m) => m.type === "previewing").at(-1)?.candidateId ?? null).toBe("place_1");
+  await page.mouse.move(5, 5);
+  await expect.poll(() => socket.sent.filter((m) => m.type === "previewing").at(-1)?.candidateId ?? null).toBe(null);
+
+  // Open: the cached row is there at once, and the read said why. (A card
+  // may overlap the dot at this width; the tap resolver decides, not the
+  // element under the pointer.)
+  await page.getByTestId("pin-place_1").click({ force: true });
+  const details = page.getByTestId("place-details");
+  await expect(details).toBeVisible();
+  await expect(details).toContainText("outdoor seating");
+  await expect.poll(() => inspectBodies.at(0)?.intent ?? null).toBe("open");
+
+  // Three interactive frames land in order, each with its own line.
+  socket.send({ type: "facts", candidateIds: ["place_1"], reason: "interactive", stage: "site" });
+  await expect(details.getByTestId("details-lookup")).toHaveText("reading the site…");
+  await expect(details).toContainText("dogs welcome");
+  socket.send({ type: "facts", candidateIds: ["place_1"], reason: "interactive", stage: "needs" });
+  await expect(details.getByTestId("details-lookup")).toHaveText("checking against your needs…");
+  await expect(details).toContainText("vegan");
+  socket.send({ type: "facts", candidateIds: ["place_1"], reason: "interactive", stage: "photos" });
+  await expect(details.getByTestId("details-lookup")).toHaveText("looking at the photos…");
+
+  // Nothing closes the plan: after three seconds the line says so.
+  await expect(details.getByTestId("details-lookup")).toHaveText("still reading the site…", { timeout: 5_000 });
+
+  // Done: the line steps back to the record's own words.
+  socket.send({ type: "facts", candidateIds: ["place_1"], reason: "interactive", done: true, steps: [{ stage: "site", ms: 420 }, { stage: "needs", ms: 900 }], costUsd: 0.0012 });
+  await expect(details.getByTestId("details-lookup")).not.toHaveText(/reading|checking|looking/);
+
+  // The drawer keeps the plan.
+  await page.getByTestId("open-drawer").click();
+  await expect(page.getByTestId("diag-interactive")).toContainText("site 420ms → needs 900ms");
+  await expect(page.getByTestId("diag-interactive")).toContainText("$0.0012");
+  await browserContext.close();
+});
+

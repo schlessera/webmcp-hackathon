@@ -75,7 +75,16 @@ export interface SpatialState {
   pendingNeeds: PendingNeed[];
   /** Bumped when a `facts` frame lands; carries the places it named so an
    * open panel knows whether it is one of them. */
-  facts: { ids: string[]; nonce: number };
+  facts: {
+    ids: string[];
+    nonce: number;
+    reason: string;
+    /** The open fast track's step that just landed, when the frame is one. */
+    stage: InteractiveStage | null;
+    done: boolean;
+  };
+  /** The last open fast-track plan per place, for the `{ }` drawer. */
+  interactive: Record<string, InteractivePlan>;
   /** A context refetch is in flight. */
   refetching: boolean;
   /** Bounded snapshot-place cache across recent viewport reads, by stable ref. */
@@ -90,6 +99,14 @@ export interface LookupReason {
 }
 
 export type PipelineStage = "queued" | "fetching" | "processing";
+export type InteractiveStage = "site" | "needs" | "photos" | "web";
+export interface InteractivePlan {
+  candidateId: string;
+  steps: Array<{ stage: InteractiveStage; at: number; ms?: number }>;
+  done: boolean;
+  costUsd: number | null;
+  startedAt: number;
+}
 
 export interface PipelineView {
   outstanding: { fetch: number; process: number };
@@ -217,7 +234,8 @@ export class SpatialStore {
     stages: {},
     pipeline: null,
     pendingNeeds: [],
-    facts: { ids: [], nonce: 0 },
+    facts: { ids: [], nonce: 0, reason: "", stage: null, done: false },
+    interactive: {},
     refetching: false,
     explore: new Map(),
     exploreTruncated: false,
@@ -323,8 +341,31 @@ export class SpatialStore {
   }
 
   /** The `facts` frame: facts changed outside the event stream. */
-  noteFacts(ids: string[]): void {
-    this.update({ facts: { ids, nonce: this.state.facts.nonce + 1 } });
+  noteFacts(
+    ids: string[],
+    reason = "lookup",
+    detail: { stage: InteractiveStage | null; done: boolean; steps: Array<{ stage: InteractiveStage; ms?: number }>; costUsd: number | null } = { stage: null, done: false, steps: [], costUsd: null },
+  ): void {
+    let interactive = this.state.interactive;
+    if (reason === "interactive" && ids.length === 1) {
+      const id = ids[0];
+      const now = Date.now();
+      const previous = interactive[id]?.done === false ? interactive[id] : null;
+      const plan: InteractivePlan = previous
+        ? { ...previous, steps: [...previous.steps] }
+        : { candidateId: id, steps: [], done: false, costUsd: null, startedAt: now };
+      if (detail.stage) plan.steps.push({ stage: detail.stage, at: now });
+      if (detail.steps.length) {
+        plan.steps = detail.steps.map((step) => ({ stage: step.stage, at: now, ...(step.ms !== undefined ? { ms: step.ms } : {}) }));
+      }
+      if (detail.costUsd !== null) plan.costUsd = detail.costUsd;
+      if (detail.done) plan.done = true;
+      interactive = { ...interactive, [id]: plan };
+    }
+    this.update({
+      facts: { ids, nonce: this.state.facts.nonce + 1, reason, stage: detail.stage, done: detail.done },
+      interactive,
+    });
   }
 
   /** A need this page just said. Returns the local id the row is keyed by. */
@@ -422,6 +463,7 @@ export class SpatialStore {
       busyReason: null,
       stages: {},
       pipeline: null,
+      interactive: {},
       localScopeCenterKey: null,
       viewing: {},
       positions: {},

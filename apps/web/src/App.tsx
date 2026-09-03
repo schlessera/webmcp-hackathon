@@ -223,7 +223,7 @@ export function App() {
   // and fully consumed delta pages advance projectedThroughRevision.
   const revisionWatermarks = useRef(new RevisionWatermarks()).current;
   const catchUpRef = useRef<(() => Promise<unknown>) | null>(null);
-  const realtimeRef = useRef<{ setViewing(id: string | null): void } | null>(null);
+  const realtimeRef = useRef<{ setViewing(id: string | null): void; setPreviewing(id: string | null): void } | null>(null);
 
   useEffect(() => {
     // Strict-Mode-safe: the flag cancels the in-flight async init of an
@@ -468,10 +468,10 @@ export function App() {
           // The room's volume for the active needs: the progress ring.
           spatial.setPipeline(frame);
         },
-        onFacts(ids) {
+        onFacts(ids, reason, detail) {
           // Facts changed without a commit: the counts may have moved and an
           // open panel may be looking at one of these places.
-          spatial.noteFacts(ids);
+          spatial.noteFacts(ids, reason, detail);
           void spatial.refetch();
         },
         onStaleBundle() {
@@ -888,6 +888,7 @@ export function App() {
               busyReason={spatialState.busyReason}
               stages={spatialState.stages}
               pipeline={spatialState.pipeline}
+              onPreview={(id) => realtimeRef.current?.setPreviewing(id)}
               pendingCount={pendingNeeds.length}
               roomId={id.roomId}
               isOrganizer={isOrganizer}
@@ -1056,6 +1057,7 @@ export function App() {
           busyReason={spatialState.busyReason}
           stages={spatialState.stages}
           pipeline={spatialState.pipeline}
+          interactive={spatialState.interactive}
           pendingNeeds={pendingNeeds}
           onClose={() => setDrawerOpen(false)}
           run={run}

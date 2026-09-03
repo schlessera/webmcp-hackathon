@@ -47,10 +47,18 @@ export interface RealtimeCallbacks {
   /** The room's pipeline volume for the active needs (the progress ring). */
   onPipeline(frame: PipelineFrame): void;
   /** Facts about places changed outside the event stream: re-read. */
-  onFacts(candidateIds: string[], reason: string): void;
+  onFacts(candidateIds: string[], reason: string, detail: FactsDetail): void;
 }
 
 export type PipelineStage = "queued" | "fetching" | "processing";
+export type InteractiveStage = "site" | "needs" | "photos" | "web";
+/** The optional open-fast-track fields of a `facts` frame. */
+export interface FactsDetail {
+  stage: InteractiveStage | null;
+  done: boolean;
+  steps: Array<{ stage: InteractiveStage; ms?: number }>;
+  costUsd: number | null;
+}
 export interface PipelineFrame {
   outstanding: { fetch: number; process: number };
   inFlight: { fetch: number; process: number };
@@ -70,6 +78,8 @@ export interface RealtimeHandle {
   /** Tell the room which place this page has open (null: none). Presence
    * only; dropped silently while the socket is down and re-sent on welcome. */
   setViewing(candidateId: string | null): void;
+  /** The place about to be opened (debounced 250 ms), or null on blur. */
+  setPreviewing(candidateId: string | null): void;
 }
 
 /** R10: an ordered frame must begin exactly where this client stopped. The
@@ -143,6 +153,19 @@ export function connectRealtime(
   const sendViewing = () => {
     if (!welcomed || socket?.readyState !== WebSocket.OPEN) return;
     socket.send(JSON.stringify({ type: "viewing", candidateId: viewing }));
+  };
+  /* Previewing: the place under the pointer or keyboard focus, debounced so
+     a sweep across the map sends nothing and a rest sends one frame. */
+  let previewing: string | null = null;
+  let previewSent: string | null = null;
+  let previewTimer: ReturnType<typeof setTimeout> | null = null;
+  const PREVIEW_DEBOUNCE_MS = 250;
+  const flushPreviewing = () => {
+    previewTimer = null;
+    if (previewSent === previewing) return;
+    if (!welcomed || socket?.readyState !== WebSocket.OPEN) return;
+    previewSent = previewing;
+    socket.send(JSON.stringify({ type: "previewing", candidateId: previewing }));
   };
 
   const connect = () => {
@@ -244,7 +267,18 @@ export function connectRealtime(
       } else if (message.type === "facts") {
         const ids = Array.isArray(message.candidateIds) ? message.candidateIds : [];
         diagnostics.log(`facts: ${ids.length} changed (${message.reason})`);
-        callbacks.onFacts(ids, message.reason);
+        const isStage = (v: unknown): v is InteractiveStage =>
+          v === "site" || v === "needs" || v === "photos" || v === "web";
+        callbacks.onFacts(ids, message.reason, {
+          stage: isStage(message.stage) ? message.stage : null,
+          done: message.done === true,
+          steps: Array.isArray(message.steps)
+            ? message.steps
+                .filter((step): step is { stage: InteractiveStage; ms?: number } => isStage(step?.stage))
+                .map((step) => ({ stage: step.stage, ...(typeof step.ms === "number" ? { ms: step.ms } : {}) }))
+            : [],
+          costUsd: typeof message.costUsd === "number" ? message.costUsd : null,
+        });
       } else if (message.type === "confirmation") {
         // Never logged: the nonce is a credential for one page gesture.
         callbacks.onConfirmation(message);
@@ -282,6 +316,11 @@ export function connectRealtime(
       if (viewing === candidateId) return;
       viewing = candidateId;
       sendViewing();
+    },
+    setPreviewing(candidateId) {
+      previewing = candidateId;
+      if (previewTimer !== null) clearTimeout(previewTimer);
+      previewTimer = setTimeout(flushPreviewing, PREVIEW_DEBOUNCE_MS);
     },
   };
 }
