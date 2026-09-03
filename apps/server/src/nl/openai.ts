@@ -66,6 +66,7 @@ export interface Reply {
   webSearchCalls?: unknown[];
   ms: number;
   model: string;
+  usage: { inputTokens: number; outputTokens: number };
 }
 
 export class NlError extends Error {
@@ -233,6 +234,10 @@ export async function respond(call: Call): Promise<Reply> {
     ...(webSearchCalls.length ? { webSearchCalls } : {}),
     ms: Date.now() - started,
     model: call.model,
+    usage: {
+      inputTokens: Number(raw.usage?.input_tokens ?? 0),
+      outputTokens: Number(raw.usage?.output_tokens ?? 0),
+    },
   };
 }
 

@@ -43,6 +43,7 @@ import {
   type EvaluatedInference,
   type MatrixInferenceTextSource,
 } from "./evaluate.ts";
+import type { AdjudicationPageCache } from "./adjudicate.ts";
 import { applyGuesses } from "../guess.ts";
 import { applyAttestations, loadAttestations } from "../attestations.ts";
 import { bumpCandidateMapRevisions } from "../candidate-revisions.ts";
@@ -159,9 +160,6 @@ function inferenceSourceBucket(
   }
   const bucket = inference.source.split(":").at(-1);
   if (bucket === "venue_site" || bucket === "menu") {
-    // Explicit third-party prose does not become first-party proof merely
-    // because the focused reread recognized that it was explicit.
-    if (inference.adjudication?.publisher === "third_party") return "own_site_inferred";
     return inference.explicit === true ? "own_site_explicit" : "own_site_inferred";
   }
   if (bucket === "domain_search") return "domain_search";
@@ -204,7 +202,7 @@ export function resolveInference(
 
   // A focused reread may flip a likely claim, never a fact already verified.
   if (
-    fresh.source.startsWith("adjudicated:") &&
+    fresh.adjudication &&
     fresh.lean !== previous.lean &&
     previous.confidence >= 0.7
   ) return retainedPrevious;
@@ -314,8 +312,14 @@ const stateOf = (
 const rowToEnrichment = (r: Row): Enrichment => {
   const inferred = Object.fromEntries(
     Object.entries(r.inferred ?? {}).filter(([, claim]) => {
-      const observed = new Date(claim.observedAt).getTime();
-      const ttl = "omitted" in claim ? TTL_OMITTED_MS : TTL_INFER_MS;
+      const observed = new Date(
+        "omitted" in claim ? claim.observedAt : claim.adjudication?.observedAt ?? claim.observedAt,
+      ).getTime();
+      const ttl = "omitted" in claim
+        ? TTL_OMITTED_MS
+        : claim.adjudication
+          ? INFERENCE_PRUNE_DAYS * 24 * 60 * 60 * 1000
+          : TTL_INFER_MS;
       return Number.isFinite(observed) && Date.now() - observed < ttl;
     }),
   );
@@ -750,6 +754,8 @@ export interface LookupNowOptions {
    * robots and network rules, and the per-participant budget all still hold.
    */
   force?: boolean;
+  /** Fresh fetched/proxy page material for focused adjudication in this pass. */
+  pageCache?: AdjudicationPageCache;
 }
 
 /** A forced lookup re-reads a provider only when its last read is older than this. */
@@ -1007,11 +1013,18 @@ export async function saveInferences(
          SELECT batch.osm_ref,
                 entry.key,
                 entry.value,
-                CASE
-                  WHEN pg_input_is_valid(entry.value->>'observedAt', 'timestamp with time zone')
-                  THEN (entry.value->>'observedAt')::timestamptz
-                  ELSE NULL
-                END AS observed_at
+                GREATEST(
+                  CASE
+                    WHEN pg_input_is_valid(entry.value->>'observedAt', 'timestamp with time zone')
+                    THEN (entry.value->>'observedAt')::timestamptz
+                    ELSE NULL
+                  END,
+                  CASE
+                    WHEN pg_input_is_valid(entry.value->'adjudication'->>'observedAt', 'timestamp with time zone')
+                    THEN (entry.value->'adjudication'->>'observedAt')::timestamptz
+                    ELSE NULL
+                  END
+                ) AS observed_at
            FROM batch
            CROSS JOIN LATERAL jsonb_each(batch.inferred) AS entry
        ), ranked AS (
@@ -1267,6 +1280,20 @@ async function runLookupNow(
       cuisine: cuisineTokens(evaluation.base),
       texts: evaluation.texts,
     });
+  }
+
+  // Prefer fresh page material during the focused reread. It stays in the
+  // caller-owned process-local map and is never persisted as a whole page.
+  for (const place of matrixPlaces) {
+    for (const source of place.texts) {
+      if (!source.url || !source.text) continue;
+      const previous = options.pageCache?.get(source.url);
+      options.pageCache?.set(source.url, {
+        text: previous ? `${previous.text}\n${source.text}` : source.text,
+        title: source.title ?? previous?.title,
+        publisherNames: source.publisherNames ?? previous?.publisherNames,
+      });
+    }
   }
 
   let inferenceChanged = false;
