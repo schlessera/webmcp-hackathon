@@ -1012,8 +1012,8 @@ function candidatesAddedEvent(actor: Participant, seeds: CandidateSeed[]): Appen
 
 function warmTargetsFor(seeds: CandidateSeed[]): LookupTarget[] {
   return seeds.flatMap((seed) => {
-    const extras = seed.extras ?? {};
-    return seed.osmRef && (extras.website || extras.wikidata)
+    const extras = seed.extras;
+    return seed.osmRef && (extras?.website || extras?.wikidata)
       ? [{
           osmRef: seed.osmRef,
           ...(extras.website ? { website: extras.website } : {}),
