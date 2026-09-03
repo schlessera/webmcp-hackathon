@@ -64,7 +64,19 @@ export const REFINE_SEARCHES_PER_HOUR = positiveInt(
 );
 export type RefineSearchMode = "combined" | "split";
 export type RefineDomainRule = "domain-first" | "open-web-first";
-export type RefineQueryShaping = "legacy" | "shaped";
+/** Measured 2026-09-03 over three live twelve-place Berlin runs: the plain
+ * query won every run (14 validated claims to the shaped query's 11). Address,
+ * category and local-language words narrow the search away from the pages that
+ * actually answer, so `plain` is the default and `shaped` stays reachable
+ * through REFINE_QUERY_SHAPING for a re-measurement on another area. */
+export type RefineQueryShaping = "plain" | "shaped";
+export const DEFAULT_REFINE_QUERY_SHAPING: RefineQueryShaping = "plain";
+
+export function refineQueryShaping(
+  value = process.env.REFINE_QUERY_SHAPING,
+): RefineQueryShaping {
+  return value === "shaped" || value === "plain" ? value : DEFAULT_REFINE_QUERY_SHAPING;
+}
 export const DEFAULT_REFINE_SEARCH_MODE: RefineSearchMode = "split";
 export const MAX_REFINE_QUERY_CHARS = 400;
 const HOUR_MS = 60 * 60_000;
@@ -429,9 +441,9 @@ function boundedQuery(parts: string[]): string {
 export function buildRefinementQuery(
   request: Pick<RefinementSearchRequest, "name" | "category" | "address" | "criteria">,
   area: RefinementAreaContext,
-  shaping: RefineQueryShaping = "shaped",
+  shaping: RefineQueryShaping = DEFAULT_REFINE_QUERY_SHAPING,
 ): string {
-  if (shaping === "legacy") {
+  if (shaping === "plain") {
     return boundedQuery([
       request.name,
       area.city,
@@ -477,7 +489,7 @@ export async function searchRefinementPlaces(
     let results: SearchResult[] = [];
     try {
       results = await provider(
-        buildRefinementQuery(request, area, policy.queryShaping),
+        buildRefinementQuery(request, area, policy.queryShaping ?? refineQueryShaping()),
         domains ? { domains } : undefined,
       );
     } catch {
@@ -627,6 +639,7 @@ export async function runRefinementTick(
     criterion,
   ])).values()].filter((criterion) => !(criterion.kind === "key" && criterion.key === "cuisine"));
   const searchMode = options.searchMode ?? refineSearchMode();
+  const queryShaping = options.queryShaping ?? refineQueryShaping();
   const firstCalls = modelCalls(batch.length, criteria.length);
   const worstCalls = firstCalls + (searchMode === "combined" ? batch.length : firstCalls);
   const delay = budgetDelay(roomId, worstCalls, criteria.length ? batch.length : 0, now);
@@ -689,7 +702,7 @@ export async function runRefinementTick(
             osmRef: request.osmRef,
             name: request.name,
             category: request.category,
-            query: buildRefinementQuery(request, placeInfo, options.queryShaping),
+            query: buildRefinementQuery(request, placeInfo, queryShaping),
             criteria: request.criteria,
             source: domains ? "domain_search" : "open_web_search",
             ...(domains ? { domains } : {}),

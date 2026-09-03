@@ -255,21 +255,37 @@ second matrix call evaluates the whole snippet batch. Evidence is checked
 against snippet text the server itself holds. Combined mode instead makes one
 strict-schema Responses call per unresolved place, with that place, all its
 open criteria and the `web_search` tool. It returns the complete row directly,
-so there is no second matrix call. The server requires each `sourceUrl` to
-match that call's citations (ignoring the tool's `utm_source` parameter), and
-requires the verbatim evidence at whole-word boundaries in the answer before
-applying the ordinary echo, length, confidence-cap and `graded()` checks.
-Combined mode's guarantee is explicitly weaker: the server sees the model's
-cited answer, not the page the tool read, while split mode checks server-held
-text. Neither mode can create a verified fact.
+so there is no second matrix call. The server requires each `sourceUrl` to be
+a URL the tool really retrieved in that same call, read from the
+`web_search_call.action.sources` items, ignoring the tool's `utm_source`
+parameter. Under a strict JSON schema the API returns no citation annotations
+at all, so the retrieved-source list is the only anchor available; a validator
+built on annotations rejects every row and was measured at zero yield for that
+reason alone.
 
-Queries are capped at 400 characters and contain the place name, tagged street
-address (falling back to the area label), city, the place's untranslated
-category and criterion words. In a German area, vocabulary-key labels also
-carry a small German lookup lexicon (`barrierefrei`, `WLAN`, `Hunde erlaubt`,
+Combined mode's guarantee is materially weaker, and the weakness is worth
+naming. The answer *is* the JSON object, so checking that the evidence span
+occurs in the answer proves nothing: the span is there because the model wrote
+it there. What is enforced is that the cited URL was really retrieved, plus the
+length, echo, cap and never-verified rules. A combined claim is therefore a
+supervised guess about a real page, not a quotation the server checked. Split
+holds the snippet text and checks the span against words the server read.
+Neither mode can create a verified fact.
+
+`REFINE_QUERY_SHAPING=plain|shaped` selects the query. Both are capped at 400
+characters. `plain` is the place name, the city and the criterion labels.
+`shaped` adds the tagged street address (falling back to the area label), the
+place's untranslated category, and for a German area a small German lexicon
+beside the English labels (`barrierefrei`, `WLAN`, `Hunde erlaubt`,
 `Außenbereich` / `Terrasse`, `vegetarisch`, `vegan`, `glutenfrei`, `halal`,
 `laktosefrei`, `Lieferung`, `Mitnahme`). Free-text questions keep the person's
-own words and are never machine-translated.
+own words in both and are never machine-translated.
+
+`plain` is the default because it measured better. Over three live
+twelve-place Berlin runs the plain query returned 14 validated claims and the
+shaped query 11, losing in every run; the extra words narrow the search away
+from the pages that answer. `shaped` stays reachable so the comparison can be
+rerun on another area or another language.
 
 With nothing left to refine the loop backs off to `REFINE_IDLE_TICK_MS`
 (thirty times the working cadence) so an idle room is not reloaded every

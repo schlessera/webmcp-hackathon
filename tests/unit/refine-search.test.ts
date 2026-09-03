@@ -137,6 +137,40 @@ describe("refinement web search", () => {
     })]);
   });
 
+  it("anchors a combined claim on a url the tool really retrieved", () => {
+    // A strict JSON schema suppresses url_citation annotations entirely
+    // (verified live), so the retrieved-source list is the only anchor.
+    const input = {
+      candidateId: "c1",
+      osmRef: "node/1",
+      name: "Alpha",
+      category: "cafe",
+      query: "Alpha Berlin delivery",
+      source: "open_web_search" as const,
+      criteria: [
+        { id: "delivery", kind: "key" as const, key: "delivery", label: "delivery" },
+        { id: "takeaway", kind: "key" as const, key: "takeaway", label: "takeaway" },
+      ],
+    };
+    const claims = [
+      { criterionId: "delivery", lean: "yes", confidence: 0.95, evidence: "Delivery is offered every evening", sourceUrl: "https://retrieved.example/menu" },
+      { criterionId: "takeaway", lean: "yes", confidence: 0.9, evidence: "Takeaway meals are available", sourceUrl: "https://never-read.example/menu" },
+    ];
+    expect(combinedClaimsFromReply({
+      text: JSON.stringify({ claims }),
+      model: "fast",
+      citations: [],
+      webSearchCalls: [{
+        type: "web_search_call",
+        action: { type: "search", sources: [{ type: "url", url: "https://retrieved.example/menu?utm_source=openai" }] },
+      }],
+    }, input)).toEqual([expect.objectContaining({
+      criterionId: "delivery",
+      sourceUrl: "https://retrieved.example/menu",
+      confidence: 0.5,
+    })]);
+  });
+
   it("maps Tavily results onto the same thin interface", async () => {
     process.env.TAVILY_API_KEY = "test";
     setSearchFetch(async () => new Response(JSON.stringify({

@@ -107,23 +107,51 @@ export function normalizedCitationUrl(value: string): string | null {
 }
 
 /**
- * Validate one combined search answer. This guarantee is intentionally
- * weaker than split mode: the server can only prove that the cited URL and
- * evidence occur in the model's own answer, not in page text held by the
- * server. Split mode validates the span against its server-held snippet.
+ * The URLs the built-in tool actually retrieved in this call, from the
+ * `web_search_call.action.sources` items the request asks for.
+ *
+ * Under a strict JSON schema the Responses API emits NO `url_citation`
+ * annotations — the answer is the JSON object, not cited prose — so the
+ * retrieved-source list is the only server-side anchor a combined answer has.
+ * Verified live 2026-09-03: schema plus web_search returns one search call
+ * with sources and an empty citation array.
+ */
+export function retrievedSources(reply: Pick<Reply, "citations" | "webSearchCalls">): Set<string> {
+  const urls = new Set<string>();
+  for (const citation of reply.citations ?? []) {
+    const normalized = normalizedCitationUrl(citation.url);
+    if (normalized) urls.add(normalized);
+  }
+  for (const raw of reply.webSearchCalls ?? []) {
+    const action = (raw as { action?: { sources?: unknown } }).action;
+    for (const source of (action?.sources as Array<{ url?: unknown }>) ?? []) {
+      if (typeof source?.url !== "string") continue;
+      const normalized = normalizedCitationUrl(source.url);
+      if (normalized) urls.add(normalized);
+    }
+  }
+  return urls;
+}
+
+/**
+ * Validate one combined search answer. The guarantee is materially weaker
+ * than split mode, and the weakness is worth naming precisely.
+ *
+ * Split holds the snippet text itself, so a span is checked against words the
+ * server read. Combined never sees the page. Its answer IS the JSON object, so
+ * checking that the span occurs in the answer proves nothing — the span is in
+ * the answer because the model wrote it there. What is actually enforced is
+ * that the cited URL is one the tool really retrieved in this same call, plus
+ * the length, echo, cap and never-verified rules. That makes a combined claim
+ * a supervised guess about a real page, not a quotation the server checked.
  */
 export function combinedClaimsFromReply(
-  reply: Pick<Reply, "text" | "citations" | "model">,
+  reply: Pick<Reply, "text" | "citations" | "model" | "webSearchCalls">,
   input: CombinedSearchInput,
   observedAt = new Date().toISOString(),
 ): EvaluatedInference[] {
   const answer = normalizeEvidence(reply.text ?? "");
-  const citedUrls = new Set(
-    (reply.citations ?? []).flatMap((citation) => {
-      const normalized = normalizedCitationUrl(citation.url);
-      return normalized ? [normalized] : [];
-    }),
-  );
+  const citedUrls = retrievedSources(reply);
   const criteria = new Map(input.criteria.map((criterion) => [criterion.id, criterion]));
   const drafts = (parseJson<{ claims?: unknown }>(reply.text)?.claims ?? []) as unknown;
   if (!Array.isArray(drafts)) return [];

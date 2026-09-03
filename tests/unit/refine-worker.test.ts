@@ -8,6 +8,7 @@ import {
   refinementActive,
   refinementBudgetSleepForTest,
   refinementLookupReason,
+  refineQueryShaping,
   refinementTickDelay,
   REFINE_IDLE_TICK_MS,
   REFINE_TICK_MS,
@@ -160,7 +161,7 @@ describe("continuous refinement queue", () => {
       city: "Berlin",
       label: "Berlin Mitte",
       countryCode: "DE",
-    }, provider);
+    }, provider, { queryShaping: "shaped" });
     expect(responses).toHaveLength(12);
     expect(provider).toHaveBeenCalledTimes(12);
     for (const [query, opts] of provider.mock.calls) {
@@ -191,14 +192,26 @@ describe("continuous refinement queue", () => {
       city: "Berlin",
       label: "Berlin Mitte",
       countryCode: "DE",
-    });
+    }, "shaped");
     expect(german).toBe("Ort Teststraße 7 Berlin biergarten step-free access barrierefrei room for a tandem stroller");
     const english = buildRefinementQuery({ ...request, address: undefined }, {
       city: "San Francisco",
       label: "San Francisco SoMa",
       countryCode: "US",
-    });
+    }, "shaped");
     expect(english).toBe("Ort San Francisco SoMa San Francisco biergarten step-free access room for a tandem stroller");
     expect(english).not.toContain("barrierefrei");
+  });
+
+  it("defaults to the plain query, which measured better than the shaped one", () => {
+    const criteria = [
+      { id: "wheelchair-accessible", kind: "key" as const, key: "wheelchair-accessible", label: "step-free access" },
+    ];
+    const request = { name: "Ort", category: "biergarten", address: "Teststraße 7, 10115 Berlin", criteria };
+    const area = { city: "Berlin", label: "Berlin Mitte", countryCode: "DE" };
+    expect(refineQueryShaping(undefined)).toBe("plain");
+    expect(refineQueryShaping("shaped")).toBe("shaped");
+    expect(buildRefinementQuery(request, area)).toBe("Ort Berlin step-free access");
+    expect(buildRefinementQuery(request, area)).not.toContain("biergarten");
   });
 });

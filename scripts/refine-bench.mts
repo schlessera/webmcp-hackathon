@@ -41,8 +41,8 @@ if (!created.ok) throw new Error(created.error);
 const roomId = created.roomId;
 const ownerId = created.invites[0].participantId;
 const variants = [
-  { name: "baseline", searchMode: "split", domainRule: "domain-first", queryShaping: "legacy" },
-  { name: "A", searchMode: "split", domainRule: "open-web-first", queryShaping: "legacy" },
+  { name: "baseline", searchMode: "split", domainRule: "domain-first", queryShaping: "plain" },
+  { name: "A", searchMode: "split", domainRule: "open-web-first", queryShaping: "plain" },
   { name: "B", searchMode: "split", domainRule: "open-web-first", queryShaping: "shaped" },
   { name: "C", searchMode: "combined", domainRule: "open-web-first", queryShaping: "shaped" },
 ] as const;
