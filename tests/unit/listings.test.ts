@@ -3,11 +3,16 @@ import {
   LISTING_CONFIDENCE,
   LISTING_NOTE,
   LISTING_SOURCE,
+  DATAFORSEO_CATEGORIES_PER_REQUEST,
+  LISTING_CATEGORIES,
+  listingCategoryBatches,
+  listingNameContains,
   mapListing,
   matchListing,
   matchListings,
   type DataForSeoListing,
 } from "../../apps/server/src/enrich/listings.ts";
+import { PLACE_CLASSES } from "@webmcp-hackathon/contracts";
 import {
   cacheQueryHash,
   loadSearchCache,
@@ -135,5 +140,61 @@ describe("search cache room policy", () => {
     expect(await loadSearchCache({ query } as never, "node/1", "query", "parallel"))
       .toBeNull();
     expect(query).not.toHaveBeenCalled();
+  });
+});
+
+describe("provider category filter", () => {
+  it("covers every place class and names only verified provider categories", () => {
+    for (const placeClass of PLACE_CLASSES) {
+      const names = LISTING_CATEGORIES[placeClass];
+      expect(names, `no provider category for ${placeClass}`).toBeTruthy();
+      expect(names.length).toBeGreaterThan(0);
+      for (const name of names) expect(name).toMatch(/^[a-z][a-z0-9_]*$/);
+    }
+  });
+
+  it("asks for the pool's own classes, in class order, chunked to the request cap", () => {
+    const batches = listingCategoryBatches(["restaurant", "park", "restaurant"]);
+    const flat = batches.flat();
+    // Class order, not the order the pool happened to list them in.
+    expect(flat[0]).toBe("restaurant");
+    expect(flat).toContain("park");
+    expect(flat).toContain("bar_and_grill");
+    // A class the pool does not hold is never requested.
+    expect(flat).not.toContain("museum");
+    expect(new Set(flat).size).toBe(flat.length);
+    for (const batch of batches) {
+      expect(batch.length).toBeLessThanOrEqual(DATAFORSEO_CATEGORIES_PER_REQUEST);
+    }
+  });
+
+  it("returns no batch for an unrecognized pool, so the caller sends no filter", () => {
+    expect(listingCategoryBatches(["", "not_a_class"])).toEqual([]);
+  });
+});
+
+describe("branch-suffix name matching", () => {
+  const near = { lat: 52.5, lng: 13.4 };
+
+  it("accepts a listing name that is the place plus whole extra words, when close", () => {
+    expect(listingNameContains("Hackescher Hof", "Restaurant Hackescher Hof")).toBe(true);
+    expect(listingNameContains("Haferkater", "Haferkater, Friedrichstrasse")).toBe(true);
+    const match = matchListing(
+      { candidateId: "c1", osmRef: "node/1", name: "Hackescher Hof", location: near },
+      listing({ title: "Restaurant Hackescher Hof", latitude: 52.5, longitude: 13.4, domain: undefined, url: undefined }),
+    );
+    expect(match).not.toBeNull();
+  });
+
+  it("refuses a short or thinly covering containment, and refuses it at distance", () => {
+    // "sushi" is a dish, not an identity, and is too short to carry one.
+    expect(listingNameContains("sushi", "Sushi Miyabi")).toBe(false);
+    // One word of four is not enough of the longer name.
+    expect(listingNameContains("Alphabet", "Alphabet Beta Gamma Delta")).toBe(false);
+    // Containment only counts within 25 m; this pair is far apart.
+    expect(matchListing(
+      { candidateId: "c1", osmRef: "node/1", name: "Hackescher Hof", location: near },
+      listing({ title: "Restaurant Hackescher Hof", latitude: 52.5004, longitude: 13.4, domain: undefined, url: undefined }),
+    )).toBeNull();
   });
 });

@@ -399,11 +399,46 @@ source, not a browser optimization.
 
 DataForSEO's Business Listings Search is a separate evidence class,
 `listing:google`. It is neither the OpenStreetMap record nor verified evidence.
-One request covers the current room pool using the scope centre and radius and
-asks for at most 1,000 items. Returned businesses are joined locally only when
-the normalized names are similar and their coordinates are within 60 metres;
-when both sides have a website domain, the domains must agree. A nearby
-different business and a same-name result 300 metres away are both rejected.
+The request covers the current room pool using the scope centre and radius,
+asks for at most 1,000 items, and — this is the part that decides whether the
+class is useful at all — filters on the categories the pool's own place classes
+map to. Returned businesses are joined locally only when the normalized names
+are similar and their coordinates are within 60 metres; when both sides have a
+website domain, the domains must agree. A nearby different business and a
+same-name result 300 metres away are both rejected. A listing name that is the
+place name plus whole extra words counts as the same place within 25 metres,
+because the provider files branches as “Restaurant Hackescher Hof” and
+“Haferkater, Friedrichstrasse”; the shorter name must be at least six
+characters and cover half the longer one's words, so “sushi” never claims
+“Sushi Miyabi”.
+
+### Why the category filter exists
+
+Measured live against the Berlin demo centre at the 1 km radius floor, on the
+31-place demo pool:
+
+| request | items | cost | pool places matched |
+|---|---|---|---|
+| no category filter | 1,000 of 10,238 matching | $0.372 | 1 of 31 |
+| pool's top-level classes | 369 | $0.145 | 10 of 31 |
+| …plus branch-suffix matching | 369 | $0.145 | 15 of 31 |
+| …plus cuisine subtypes (5 requests) | 808 | $0.351 | 24 of 31 |
+
+An unfiltered request is not a cheap superset: 10,238 businesses sit inside
+that radius, so the 1,000-item cap returns an arbitrary tenth of them —
+lawyers, software firms, hotels — and cost is charged per item returned.
+Filtering to the pool's classes costs less and finds far more.
+
+Classes expand to subtypes because the provider files a place under the most
+specific category it has: Grill Royal is `bar_and_grill`, not `restaurant`.
+Every category name in the map was checked against the 5,317-name list the
+provider's own categories endpoint publishes. The provider caps a request at
+ten categories, so a wide pool is split across up to six requests; the request
+fee is $0.012 each and the item fee dominates.
+
+The provider rejects a `location_coordinate` radius below one kilometre, so a
+tighter scope is fetched at that floor and the 60 metre match rule discards the
+overshoot.
 
 Available and unavailable Google-profile attributes are symmetric. Dogs,
 wheelchair entrance, outdoor seating, vegetarian options, wi-fi, takeaway and
@@ -422,7 +457,8 @@ website fields for seven days. A durable per-room budget permits at most one
 request in 24 hours, with one immediate extra request when `scopeId` changes.
 `LISTINGS=0` disables the class. The price is **$0.012 per request plus
 $0.00036 per returned item**: 343 results cost about **$0.135** and the
-1,000-item maximum costs **$0.372**.
+1,000-item maximum costs **$0.372**. The measured Berlin demo pool costs
+**$0.351** across five category requests.
 
 DataForSEO's current Terms do not state a cache duration or an explicit
 redistribution grant. They do prohibit using SERP-derived data to compete with
@@ -439,12 +475,16 @@ cross-room, seven-day fallback described above. OpenAI stores validated claims
 but not raw snippets.
 
 Parallel uses the GA Search API's `fast` mode at **$1 per 1,000 searches**.
-Its excerpts are not reliably verbatim: Parallel calls them “LLM-optimized”,
-and its own response example inserts `Section Title:`, `Content:` and a
-truncation marker that do not occur together on the source page. An excerpt is
-therefore only a discovery hint. The server fetches at most the first two
+Its excerpts are not verbatim. Parallel calls them “LLM-optimized”; measured
+live on 2026-09-03, **zero of four excerpts** from a real search were
+substrings of the page fetched from the same URL. They arrive carrying `·`
+separators, escaped punctuation and stitched-together fragments. An excerpt is
+therefore only a discovery hint, and the evidence contract's exact-span rule
+would drop every claim built on one. The server fetches at most the first two
 result pages through the outbound client and passes onward only a literal span
 located in that fetched page; results without a usable exact span are dropped.
+That is deliberately lossy: in the same live check, one of four excerpts
+yielded a span and the rest were discarded rather than paraphrased.
 Parallel results are cached for seven days **per room**, never cross-room,
 because its Customer Terms restrict one query's output to one End Customer.
 Those terms also conflict with Parallel's FAQ on model training, another reason
