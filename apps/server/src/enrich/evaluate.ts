@@ -137,7 +137,7 @@ interface DraftClaim {
 const WORD_CHARACTER = /[\p{L}\p{N}]/u;
 const WORDS = /[\p{L}\p{N}]+/gu;
 
-function hasWholeSpan(text: string, evidence: string): boolean {
+export function hasWholeSpan(text: string, evidence: string): boolean {
   const haystack = text.toLocaleLowerCase();
   const needle = evidence.toLocaleLowerCase();
   let from = 0;
@@ -153,7 +153,7 @@ function hasWholeSpan(text: string, evidence: string): boolean {
   }
 }
 
-function echoesCriterion(criterion: Criterion, evidence: string): boolean {
+export function echoesCriterion(criterion: Criterion, evidence: string): boolean {
   const needle = normalizeQuestion(evidence);
   if (!needle) return true;
   const forms = criterion.kind === "question"

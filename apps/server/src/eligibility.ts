@@ -80,7 +80,7 @@ export interface CandidateRow {
   hours?: DossierHours[];
   /** Cached structured hours published by the place's own site. */
   website_hours?: string[];
-  extras?: { website?: string; wikidata?: string } | null;
+  extras?: { website?: string; wikidata?: string; address?: string } | null;
 }
 export interface RequirementRow {
   id: string;

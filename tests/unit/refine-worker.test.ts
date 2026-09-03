@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { EligibilityInputs } from "../../apps/server/src/eligibility.ts";
 import {
   buildRefinementQueue,
+  buildRefinementQuery,
   exhaustRefinementBudgetsForTest,
   REFINE_IDLE_STOP_MS,
   refinementActive,
@@ -14,6 +15,7 @@ import {
   startRefinement,
   noteRefinementPresence,
   searchRefinementPlaces,
+  refinementSearchDomains,
 } from "../../apps/server/src/refine/worker.ts";
 import { resetProgress } from "../../apps/server/src/enrich/progress.ts";
 
@@ -64,6 +66,41 @@ describe("continuous refinement queue", () => {
       .some((item) => item.candidate.id === "active-near")).toBe(false);
   });
 
+  it("skips a place excluded by another active need and orders uncertain places by centre distance", () => {
+    const value = inputs();
+    value.scope = {
+      scopeId: "scope",
+      area: { kind: "circle", center: { lat: 52.52, lng: 13.4 }, radiusM: 5_000 },
+      transport: ["walk"],
+      category: "food",
+    };
+    value.candidates[0].location = { lat: 52.5201, lng: 13.4 };
+    value.candidates[0].walk_min = 99;
+    value.candidates[1].location = { lat: 52.53, lng: 13.4 };
+    value.candidates[1].walk_min = 1;
+    value.candidates[1].attributes = attributes({
+      "dog-friendly": { status: "unknown" },
+      delivery: { status: "verified_false" },
+    });
+    value.requirements.push({
+      id: "delivery-need",
+      owner_id: "p",
+      visibility: "shared",
+      hardness: "hard",
+      payload: { kind: "attribute", key: "delivery", expect: "verified_true" },
+      withdrawn: false,
+      active: true,
+    });
+    const queue = buildRefinementQueue(
+      value,
+      { evaluated: new Map(), providerChecked: new Set() },
+      "room",
+    );
+    expect(queue.some((item) => item.candidate.id === "active-near")).toBe(false);
+    expect(queue[0].candidate.id).toBe("active-far");
+    expect(queue[0].tier).toBe(1);
+  });
+
   it("allows a label only when the sole reason is shared", () => {
     const shared = inputs("shared");
     const privateInputs = inputs("application-private");
@@ -112,16 +149,56 @@ describe("continuous refinement queue", () => {
     const provider = vi.fn(async () => []);
     const requests = Array.from({ length: 12 }, (_, index) => ({
       candidateId: `p${index}`,
+      osmRef: `node/${index}`,
       name: `Place ${index}`,
+      category: "cafe",
       website: `https://place${index}.example/about`,
+      siteTextUsable: true,
       criteria: [criterionA, criterionB],
     }));
-    const responses = await searchRefinementPlaces(requests, "Berlin", provider);
+    const responses = await searchRefinementPlaces(requests, {
+      city: "Berlin",
+      label: "Berlin Mitte",
+      countryCode: "DE",
+    }, provider);
     expect(responses).toHaveLength(12);
     expect(provider).toHaveBeenCalledTimes(12);
     for (const [query, opts] of provider.mock.calls) {
-      expect(query).toContain("Berlin first words second words");
-      expect(opts).toMatchObject({ domains: [expect.stringMatching(/^place\d+\.example$/)] });
+      expect(query).toContain("Berlin cafe first words second words");
+      expect(opts).toBeUndefined();
     }
+  });
+
+  it("uses a venue domain only when its site had no usable text", () => {
+    expect(refinementSearchDomains({
+      website: "https://venue.example/about",
+      siteTextUsable: true,
+    })).toBeUndefined();
+    expect(refinementSearchDomains({ website: undefined, siteTextUsable: false })).toBeUndefined();
+    expect(refinementSearchDomains({
+      website: "https://venue.example/about",
+      siteTextUsable: false,
+    })).toEqual(["venue.example"]);
+  });
+
+  it("shapes locale-aware queries from address data without translating free text", () => {
+    const criteria = [
+      { id: "wheelchair-accessible", kind: "key" as const, key: "wheelchair-accessible", label: "step-free access" },
+      { id: "q:one", kind: "question" as const, text: "room for a tandem stroller", label: "room for a tandem stroller" },
+    ];
+    const request = { name: "Ort", category: "biergarten", address: "Teststraße 7, 10115 Berlin", criteria };
+    const german = buildRefinementQuery(request, {
+      city: "Berlin",
+      label: "Berlin Mitte",
+      countryCode: "DE",
+    });
+    expect(german).toBe("Ort Teststraße 7 Berlin biergarten step-free access barrierefrei room for a tandem stroller");
+    const english = buildRefinementQuery({ ...request, address: undefined }, {
+      city: "San Francisco",
+      label: "San Francisco SoMa",
+      countryCode: "US",
+    });
+    expect(english).toBe("Ort San Francisco SoMa San Francisco biergarten step-free access room for a tandem stroller");
+    expect(english).not.toContain("barrierefrei");
   });
 });

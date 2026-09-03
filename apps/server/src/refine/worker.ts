@@ -8,6 +8,8 @@ import {
 import { pool } from "../db.ts";
 import {
   loadEligibilityInputs,
+  classifyAll,
+  haversineMeters,
   type CandidateRow,
   type EligibilityInputs,
 } from "../eligibility.ts";
@@ -34,7 +36,11 @@ import { INFERABLE_KEYS, inferenceEnabled } from "../enrich/infer.ts";
 import { beginLookups, lookupPending } from "../enrich/progress.ts";
 import { onPresenceChange, presentIn } from "../presence.ts";
 import { createTokenBucket } from "../token-bucket.ts";
-import { search, type SearchResult } from "./search.ts";
+import {
+  combinedSearch,
+  search,
+  type SearchResult,
+} from "./search.ts";
 
 export const REFINE_BATCH_SIZE = MAX_MATRIX_PLACES;
 export const REFINE_IDLE_STOP_MS = positiveInt(
@@ -56,6 +62,11 @@ export const REFINE_SEARCHES_PER_HOUR = positiveInt(
   process.env.REFINE_SEARCHES_PER_HOUR,
   40,
 );
+export type RefineSearchMode = "combined" | "split";
+export type RefineDomainRule = "domain-first" | "open-web-first";
+export type RefineQueryShaping = "legacy" | "shaped";
+export const DEFAULT_REFINE_SEARCH_MODE: RefineSearchMode = "split";
+export const MAX_REFINE_QUERY_CHARS = 400;
 const HOUR_MS = 60 * 60_000;
 const STALE_MS = 7 * 24 * 60 * 60_000;
 const TEXT_TTL_MS = 10 * 60_000;
@@ -194,9 +205,23 @@ export function buildRefinementQueue(
       label: ATTRIBUTE_LABELS[key as keyof typeof ATTRIBUTE_LABELS] ?? key,
     }));
   const inScopeIds = new Set(inScope(inputs.candidates, inputs.scope).map((candidate) => candidate.id));
+  const classified = new Map(
+    classifyAll(inputs.candidates, inputs.requirements, inputs.verdicts, inputs.scope)
+      .map((candidate) => [candidate.candidateId, candidate]),
+  );
+  const distances = new Map(inputs.candidates.map((candidate) => [
+    candidate.id,
+    inputs.scope?.area?.center
+      ? haversineMeters(inputs.scope.area.center, candidate.location)
+      : candidate.walk_min * 75,
+  ]));
   const queued: RefinementQueueItem[] = [];
   for (const candidate of inputs.candidates) {
     if (!candidate.osm_ref || lookupPending(roomId, candidate.id)) continue;
+    const eligibility = classified.get(candidate.id)?.eligibility;
+    // The classifier is the authority on decisive active needs. Once a place
+    // is already excluded, refining a different gap cannot bring it back.
+    if (eligibility === "excluded") continue;
     const done = state.evaluated.get(candidate.id);
     const activeOpen = activeList.filter((criterion) =>
       unknown(candidate, criterion) && !done?.has(criterion.id)
@@ -206,7 +231,9 @@ export function buildRefinementQueue(
     );
     let tier: RefinementQueueItem["tier"] | null = null;
     let criteria: Criterion[] = [];
-    if (inScopeIds.has(candidate.id) && activeOpen.length > 0) {
+    if (
+      inScopeIds.has(candidate.id) && eligibility === "uncertain" && activeOpen.length > 0
+    ) {
       tier = 1;
       criteria = activeOpen;
     } else if (factsAreStale(candidate, now) && !state.providerChecked.has(candidate.id)) {
@@ -220,7 +247,8 @@ export function buildRefinementQueue(
     queued.push({ candidate, tier, criteria });
   }
   return queued.sort((a, b) =>
-    a.tier - b.tier || a.candidate.walk_min - b.candidate.walk_min ||
+    a.tier - b.tier || (distances.get(a.candidate.id) ?? 0) -
+      (distances.get(b.candidate.id) ?? 0) ||
     a.candidate.id.localeCompare(b.candidate.id)
   );
 }
@@ -337,8 +365,12 @@ function domainOf(website: string | undefined): string | undefined {
 
 export interface RefinementSearchRequest {
   candidateId: string;
+  osmRef: string;
   name: string;
+  category: string;
   website?: string;
+  address?: string;
+  siteTextUsable: boolean;
   criteria: Criterion[];
 }
 
@@ -347,28 +379,113 @@ export interface RefinementSearchResponse extends RefinementSearchRequest {
   results: SearchResult[];
 }
 
+export interface RefinementAreaContext {
+  city: string;
+  label: string;
+  countryCode: string;
+}
+
+export interface RefinementSearchPolicy {
+  domainRule?: RefineDomainRule;
+  queryShaping?: RefineQueryShaping;
+}
+
+export interface RefinementTickOptions extends RefinementSearchPolicy {
+  searchMode?: RefineSearchMode;
+  /** Benchmark seam: keep queue membership and order fixed across variants. */
+  frozenCandidateIds?: string[];
+}
+
+export function refineSearchMode(value = process.env.REFINE_SEARCH_MODE): RefineSearchMode {
+  return value === "combined" || value === "split" ? value : DEFAULT_REFINE_SEARCH_MODE;
+}
+
+const GERMAN_CRITERION_WORDS: Readonly<Record<string, string>> = Object.freeze({
+  "internet-access": "WLAN",
+  "vegetarian-options": "vegetarisch",
+  "vegan-options": "vegan",
+  "gluten-free-options": "glutenfrei",
+  "halal-options": "halal",
+  "lactose-free-options": "laktosefrei",
+  "wheelchair-accessible": "barrierefrei",
+  "outdoor-seating": "Außenbereich Terrasse",
+  "dog-friendly": "Hunde erlaubt",
+  takeaway: "Mitnahme",
+  delivery: "Lieferung",
+  "price-level": "Preis",
+  cuisine: "Küche",
+});
+
+function boundedQuery(parts: string[]): string {
+  const query = parts.join(" ").replace(/\s+/g, " ").trim();
+  if (query.length <= MAX_REFINE_QUERY_CHARS) return query;
+  const prefix = query.slice(0, MAX_REFINE_QUERY_CHARS + 1);
+  const boundary = prefix.lastIndexOf(" ");
+  return prefix.slice(0, boundary > 0 ? boundary : MAX_REFINE_QUERY_CHARS).trim();
+}
+
+/** Query words remain data-derived. Only vocabulary keys receive a small
+ * locale lexicon; a person's free-text question is never translated. */
+export function buildRefinementQuery(
+  request: Pick<RefinementSearchRequest, "name" | "category" | "address" | "criteria">,
+  area: RefinementAreaContext,
+  shaping: RefineQueryShaping = "shaped",
+): string {
+  if (shaping === "legacy") {
+    return boundedQuery([
+      request.name,
+      area.city,
+      ...request.criteria.map((criterion) => criterion.label),
+    ]);
+  }
+  const placeWords = request.address?.split(",")[0]?.trim() || area.label;
+  const criterionWords = request.criteria.flatMap((criterion) => {
+    if (criterion.kind === "question") return [criterion.text];
+    const translated = area.countryCode === "DE" ? GERMAN_CRITERION_WORDS[criterion.key] : undefined;
+    return translated ? [criterion.label, translated] : [criterion.label];
+  });
+  return boundedQuery([
+    request.name,
+    placeWords,
+    area.city,
+    request.category,
+    ...criterionWords,
+  ]);
+}
+
+/** The venue domain is useful only when this pass could not read useful
+ * text from that same site. A missing website has no domain to filter. */
+export function refinementSearchDomains(
+  request: Pick<RefinementSearchRequest, "website" | "siteTextUsable">,
+  rule: RefineDomainRule = "open-web-first",
+): string[] | undefined {
+  const domain = domainOf(request.website);
+  if (!domain) return undefined;
+  if (rule === "domain-first" || !request.siteTextUsable) return [domain];
+  return undefined;
+}
+
 /** One provider call per place, with all of that place's open criteria. */
 export async function searchRefinementPlaces(
   requests: RefinementSearchRequest[],
-  city: string,
+  area: RefinementAreaContext,
   provider = search,
+  policy: RefinementSearchPolicy = {},
 ): Promise<RefinementSearchResponse[]> {
   return Promise.all(requests.map(async (request) => {
-    const domain = domainOf(request.website);
+    const domains = refinementSearchDomains(request, policy.domainRule);
     let results: SearchResult[] = [];
     try {
       results = await provider(
-        [request.name, city, ...request.criteria.map((criterion) => criterion.label)]
-          .filter(Boolean)
-          .join(" "),
-        domain ? { domains: [domain] } : undefined,
+        buildRefinementQuery(request, area, policy.queryShaping),
+        domains ? { domains } : undefined,
       );
     } catch {
       results = [];
     }
     return {
       ...request,
-      source: domain ? "domain_search" as const : "open_web_search" as const,
+      source: domains ? "domain_search" as const : "open_web_search" as const,
       results,
     };
   }));
@@ -395,18 +512,29 @@ function markBudgetPause(roomId: string, state: RoomState): void {
   console.info(`refinement paused for room ${roomId}: hourly budget exhausted`);
 }
 
-async function roomPlace(roomId: string): Promise<{ city: string; areaId?: string }> {
+async function roomPlace(roomId: string): Promise<RefinementAreaContext> {
   const row = (await pool.query("SELECT area_id FROM rooms WHERE id = $1", [roomId])).rows[0] as
     | { area_id?: string | null }
     | undefined;
   const area = row?.area_id ? areaById(row.area_id) : undefined;
-  return { city: area?.city ?? "", ...(area ? { areaId: area.id } : {}) };
+  return {
+    city: area?.city ?? "",
+    label: area?.label ?? area?.city ?? "",
+    countryCode: area?.countryCode ?? "",
+  };
 }
 
 interface PreparedPlace {
   item: RefinementQueueItem;
   enrichment?: Enrichment;
+  siteTextUsable: boolean;
   matrix: EvaluateMatrixInput["places"][number];
+}
+
+function usablePageText(text: LookupPass["pageText"] | undefined): boolean {
+  return Boolean(text && Object.values(text).some((value) =>
+    typeof value === "string" && value.replace(/\s+/g, " ").trim().length >= 12
+  ));
 }
 
 async function preparePlace(
@@ -429,6 +557,7 @@ async function preparePlace(
   return {
     item,
     enrichment,
+    siteTextUsable: usablePageText(text),
     matrix: {
       candidateId: candidate.id,
       osmRef: candidate.osm_ref!,
@@ -466,7 +595,11 @@ export function refinementLookupReason(
 
 /** Run exactly one batch. The returned delay is used by the live loop and is
  * also observable in deterministic budget tests. */
-export async function runRefinementTick(roomId: string, now = Date.now()): Promise<number> {
+export async function runRefinementTick(
+  roomId: string,
+  now = Date.now(),
+  options: RefinementTickOptions = {},
+): Promise<number> {
   if (!refinementEnabled()) return REFINE_TICK_MS;
   const state = stateFor(roomId);
   const inputs = await loadEligibilityInputs(pool, roomId);
@@ -476,7 +609,14 @@ export async function runRefinementTick(roomId: string, now = Date.now()): Promi
     state.evaluated.clear();
     state.providerChecked.clear();
   }
-  const queue = buildRefinementQueue(inputs, state, roomId, now);
+  let queue = buildRefinementQueue(inputs, state, roomId, now);
+  if (options.frozenCandidateIds) {
+    const byId = new Map(queue.map((item) => [item.candidate.id, item]));
+    queue = options.frozenCandidateIds.flatMap((id) => {
+      const item = byId.get(id);
+      return item ? [item] : [];
+    });
+  }
   state.queued = queue.length;
   if (queue.length === 0) return refinementTickDelay(0);
 
@@ -486,8 +626,9 @@ export async function runRefinementTick(roomId: string, now = Date.now()): Promi
     criterion.id,
     criterion,
   ])).values()].filter((criterion) => !(criterion.kind === "key" && criterion.key === "cuisine"));
+  const searchMode = options.searchMode ?? refineSearchMode();
   const firstCalls = modelCalls(batch.length, criteria.length);
-  const worstCalls = firstCalls * 2;
+  const worstCalls = firstCalls + (searchMode === "combined" ? batch.length : firstCalls);
   const delay = budgetDelay(roomId, worstCalls, criteria.length ? batch.length : 0, now);
   if (delay > 0) {
     markBudgetPause(roomId, state);
@@ -527,42 +668,71 @@ export async function runRefinementTick(roomId: string, now = Date.now()): Promi
       if (unresolved.length === 0) continue;
       searchRequests.push({
         candidateId: preparedPlace.item.candidate.id,
+        osmRef: preparedPlace.item.candidate.osm_ref!,
         name: preparedPlace.item.candidate.name,
+        category: preparedPlace.item.candidate.category,
         website: preparedPlace.item.candidate.extras?.website,
+        address: preparedPlace.item.candidate.extras?.address,
+        siteTextUsable: preparedPlace.siteTextUsable,
         criteria: unresolved,
       });
     }
     searchBudget.consume(roomId, searchRequests.length, now);
-    const preparedById = new Map(prepared.map((item) => [item.item.candidate.id, item]));
-    const searched = (await searchRefinementPlaces(searchRequests, placeInfo.city)).map((entry) => ({
-      ...entry,
-      prepared: preparedById.get(entry.candidateId)!,
-    }));
-
     let searchClaims: EvaluatedInference[] = [];
-    const withSnippets = searched.filter((entry) => entry.results.length > 0);
-    if (withSnippets.length > 0) {
-      const searchCriteria = [...new Map(withSnippets.flatMap((entry) => entry.criteria).map(
-        (criterion) => [criterion.id, criterion],
-      )).values()];
-      const searchPlaces = withSnippets.map((entry) => ({
-        ...entry.prepared.matrix,
-        texts: entry.results.map((result) => ({
-          source: entry.source,
-          text: result.snippet,
-          url: result.url,
-        })),
+    if (searchMode === "combined") {
+      modelBudget.consume(roomId, searchRequests.length, now);
+      searchClaims = (await Promise.all(searchRequests.map(async (request) => {
+        const domains = refinementSearchDomains(request, options.domainRule);
+        try {
+          return await combinedSearch({
+            candidateId: request.candidateId,
+            osmRef: request.osmRef,
+            name: request.name,
+            category: request.category,
+            query: buildRefinementQuery(request, placeInfo, options.queryShaping),
+            criteria: request.criteria,
+            source: domains ? "domain_search" : "open_web_search",
+            ...(domains ? { domains } : {}),
+          });
+        } catch {
+          return [];
+        }
+      }))).flat();
+    } else {
+      const preparedById = new Map(prepared.map((item) => [item.item.candidate.id, item]));
+      const searched = (await searchRefinementPlaces(
+        searchRequests,
+        placeInfo,
+        search,
+        options,
+      )).map((entry) => ({
+        ...entry,
+        prepared: preparedById.get(entry.candidateId)!,
       }));
-      const secondCalls = modelCalls(searchPlaces.length, searchCriteria.length);
-      modelBudget.consume(roomId, secondCalls, now);
-      searchClaims = await evaluateMatrix({ places: searchPlaces, criteria: searchCriteria });
-      const unresolvedByCandidate = new Map(withSnippets.map((entry) => [
-        entry.prepared.item.candidate.id,
-        new Set(entry.criteria.map((criterion) => criterion.id)),
-      ]));
-      searchClaims = searchClaims.filter((claim) =>
-        unresolvedByCandidate.get(claim.candidateId)?.has(claim.criterionId)
-      );
+      const withSnippets = searched.filter((entry) => entry.results.length > 0);
+      if (withSnippets.length > 0) {
+        const searchCriteria = [...new Map(withSnippets.flatMap((entry) => entry.criteria).map(
+          (criterion) => [criterion.id, criterion],
+        )).values()];
+        const searchPlaces = withSnippets.map((entry) => ({
+          ...entry.prepared.matrix,
+          texts: entry.results.map((result) => ({
+            source: entry.source,
+            text: result.snippet,
+            url: result.url,
+          })),
+        }));
+        const secondCalls = modelCalls(searchPlaces.length, searchCriteria.length);
+        modelBudget.consume(roomId, secondCalls, now);
+        searchClaims = await evaluateMatrix({ places: searchPlaces, criteria: searchCriteria });
+        const unresolvedByCandidate = new Map(withSnippets.map((entry) => [
+          entry.prepared.item.candidate.id,
+          new Set(entry.criteria.map((criterion) => criterion.id)),
+        ]));
+        searchClaims = searchClaims.filter((claim) =>
+          unresolvedByCandidate.get(claim.candidateId)?.has(claim.criterionId)
+        );
+      }
     }
 
     const claims = [...firstClaims, ...searchClaims];

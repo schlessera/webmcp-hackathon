@@ -1,5 +1,14 @@
 import { config } from "../config.ts";
-import { respond } from "../nl/openai.ts";
+import { graded, normalizeQuestion, type Criterion } from "@webmcp-hackathon/contracts";
+import {
+  echoesCriterion,
+  hasWholeSpan,
+  MATRIX_CONFIDENCE_CAPS,
+  type EvaluatedInference,
+  type MatrixEvidenceBucket,
+} from "../enrich/evaluate.ts";
+import { normalizeEvidence, sanitizeInferenceNote } from "../enrich/infer.ts";
+import { parseJson, respond, type Reply } from "../nl/openai.ts";
 
 export interface SearchResult {
   url: string;
@@ -14,6 +23,59 @@ export interface SearchOptions {
 export interface SearchProvider {
   search(query: string, opts?: SearchOptions): Promise<SearchResult[]>;
 }
+
+export interface CombinedSearchInput {
+  candidateId: string;
+  osmRef: string;
+  name: string;
+  category: string;
+  query: string;
+  criteria: Criterion[];
+  source: Extract<MatrixEvidenceBucket, "domain_search" | "open_web_search">;
+  domains?: string[];
+}
+
+const COMBINED_SEARCH_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["claims"],
+  properties: {
+    claims: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["criterionId", "lean", "confidence", "evidence", "sourceUrl"],
+        properties: {
+          criterionId: { type: "string", minLength: 1 },
+          lean: { type: "string", enum: ["yes", "no", "abstain"] },
+          confidence: { type: "number", minimum: 0, maximum: 1 },
+          evidence: { type: "string", maxLength: 400 },
+          sourceUrl: { type: ["string", "null"] },
+        },
+      },
+    },
+  },
+} as const;
+
+const COMBINED_SEARCH_PROMPT = [
+  "Search the web for direct evidence about this one place and evaluate every supplied criterion.",
+  "Return exactly one row per criterion. Use lean=abstain, confidence=0, evidence=\"\", and sourceUrl=null when no cited source directly supports yes or no.",
+  "For yes or no, evidence must be an exact verbatim source phrase, at least 12 characters and two words, reproduced in this answer, and sourceUrl must be the cited URL supporting it.",
+  "A no needs explicit negative wording. Silence or a missing mention always requires abstain.",
+  "Never repeat a criterion, key, label, or the user's question as evidence. Never claim verification.",
+  "Use only supplied criterionId values and output only the strict JSON object.",
+].join("\n");
+
+interface CombinedDraftClaim {
+  criterionId?: unknown;
+  lean?: unknown;
+  confidence?: unknown;
+  evidence?: unknown;
+  sourceUrl?: unknown;
+}
+
+const WORDS = /[\p{L}\p{N}]+/gu;
 
 type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
@@ -31,6 +93,110 @@ function safeHttpUrl(value: string): string | null {
   } catch {
     return null;
   }
+}
+
+/** Compare citation URLs after removing only the tracking parameter the
+ * Responses web tool appends. Other query parameters remain identity-bearing. */
+export function normalizedCitationUrl(value: string): string | null {
+  const safe = safeHttpUrl(value);
+  if (!safe) return null;
+  const url = new URL(safe);
+  url.hash = "";
+  url.searchParams.delete("utm_source");
+  return url.toString();
+}
+
+/**
+ * Validate one combined search answer. This guarantee is intentionally
+ * weaker than split mode: the server can only prove that the cited URL and
+ * evidence occur in the model's own answer, not in page text held by the
+ * server. Split mode validates the span against its server-held snippet.
+ */
+export function combinedClaimsFromReply(
+  reply: Pick<Reply, "text" | "citations" | "model">,
+  input: CombinedSearchInput,
+  observedAt = new Date().toISOString(),
+): EvaluatedInference[] {
+  const answer = normalizeEvidence(reply.text ?? "");
+  const citedUrls = new Set(
+    (reply.citations ?? []).flatMap((citation) => {
+      const normalized = normalizedCitationUrl(citation.url);
+      return normalized ? [normalized] : [];
+    }),
+  );
+  const criteria = new Map(input.criteria.map((criterion) => [criterion.id, criterion]));
+  const drafts = (parseJson<{ claims?: unknown }>(reply.text)?.claims ?? []) as unknown;
+  if (!Array.isArray(drafts)) return [];
+  const seen = new Set<string>();
+  const claims: EvaluatedInference[] = [];
+  for (const raw of drafts as CombinedDraftClaim[]) {
+    if (!raw || typeof raw !== "object") continue;
+    const criterionId = String(raw.criterionId ?? "");
+    if (seen.has(criterionId)) continue;
+    const criterion = criteria.get(criterionId);
+    if (!criterion || raw.lean === "abstain") continue;
+    if (raw.lean !== "yes" && raw.lean !== "no") continue;
+    if (typeof raw.sourceUrl !== "string") continue;
+    const sourceUrl = normalizedCitationUrl(raw.sourceUrl);
+    if (!sourceUrl || !citedUrls.has(sourceUrl)) continue;
+    const evidence = normalizeEvidence(String(raw.evidence ?? ""));
+    if (evidence.length < 12 || (evidence.match(WORDS)?.length ?? 0) < 2) continue;
+    if (echoesCriterion(criterion, evidence)) continue;
+    if (!hasWholeSpan(answer, evidence)) continue;
+    const safeEvidence = sanitizeInferenceNote(evidence);
+    if (!safeEvidence || typeof raw.confidence !== "number") continue;
+    if (!Number.isFinite(raw.confidence) || raw.confidence <= 0) continue;
+    const confidence = Math.min(raw.confidence, MATRIX_CONFIDENCE_CAPS[input.source]);
+    const status = graded(raw.lean === "yes", confidence);
+    if (status === "verified_true" || status === "verified_false") continue;
+    seen.add(criterionId);
+    claims.push({
+      candidateId: input.candidateId,
+      osmRef: input.osmRef,
+      criterionId,
+      key: criterion.kind === "key" ? criterion.key : criterion.id,
+      lean: raw.lean,
+      status,
+      confidence,
+      evidence: safeEvidence,
+      source: `infer:${reply.model}:${input.source}`,
+      sourceIndex: 0,
+      observedAt,
+      sourceUrl,
+      ...(criterion.kind === "question"
+        ? { question: normalizeQuestion(criterion.text), label: criterion.label }
+        : {}),
+    });
+  }
+  return claims;
+}
+
+/** One Responses call does both the search and the row evaluation. */
+export async function combinedSearch(input: CombinedSearchInput): Promise<EvaluatedInference[]> {
+  const domains = cleanDomains(input.domains);
+  const reply = await respond({
+    model: config.nlFastModel,
+    instructions: COMBINED_SEARCH_PROMPT,
+    input: [{
+      role: "user",
+      content: JSON.stringify({
+        query: input.query,
+        place: { name: input.name, category: input.category },
+        criteria: input.criteria,
+      }),
+    }],
+    schema: { name: "venue_search_matrix_row", schema: COMBINED_SEARCH_SCHEMA },
+    tools: [{
+      type: "web_search",
+      ...(domains.length ? { filters: { allowed_domains: domains } } : {}),
+      search_context_size: "low",
+    }],
+    include: ["web_search_call.action.sources"],
+    reasoning: "none",
+    maxOutputTokens: 2_400,
+    timeoutMs: 30_000,
+  });
+  return combinedClaimsFromReply(reply, input);
 }
 
 /**

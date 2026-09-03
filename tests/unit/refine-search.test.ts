@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
   citedSpans,
+  combinedClaimsFromReply,
   openAiSearchProvider,
   setSearchFetch,
   tavilySearchProvider,
@@ -82,6 +83,58 @@ describe("refinement web search", () => {
       title: "Visit",
       snippet: "Free wireless internet is available.",
     }]);
+  });
+
+  it("keeps separate prose for citation markers following separate paragraphs", () => {
+    const first = "Dogs are welcome in the covered courtyard.";
+    const markerA = " ([one.example](https://one.example/dogs))";
+    const second = "The rear entrance has a permanent step-free ramp.";
+    const markerB = " ([two.example](https://two.example/access))";
+    const text = `${first}${markerA}\n\n${second}${markerB}`;
+    expect(citedSpans(text, [
+      { url: "https://one.example/dogs", start: first.length, end: first.length + markerA.length },
+      { url: "https://two.example/access", start: text.length - markerB.length, end: text.length },
+    ])).toEqual([
+      { url: "https://one.example/dogs", title: "https://one.example/dogs", snippet: first },
+      { url: "https://two.example/access", title: "https://two.example/access", snippet: second },
+    ]);
+  });
+
+  it("validates combined rows against citations and the answer, then applies the search cap", () => {
+    const input = {
+      candidateId: "p1",
+      osmRef: "node/1",
+      name: "Alpha",
+      category: "cafe",
+      query: "Alpha Berlin cafe",
+      source: "open_web_search" as const,
+      criteria: [
+        { id: "delivery", kind: "key" as const, key: "delivery", label: "delivery" },
+        { id: "takeaway", kind: "key" as const, key: "takeaway", label: "takeaway" },
+        { id: "dog-friendly", kind: "key" as const, key: "dog-friendly", label: "dogs welcome" },
+        { id: "outdoor-seating", kind: "key" as const, key: "outdoor-seating", label: "outdoor seating" },
+      ],
+    };
+    const claims = [
+      { criterionId: "delivery", lean: "yes", confidence: 0.95, evidence: "Delivery is offered every evening", sourceUrl: "https://source.example/facts" },
+      { criterionId: "takeaway", lean: "yes", confidence: 0.9, evidence: "Takeaway meals are available", sourceUrl: "https://wrong.example/facts" },
+      { criterionId: "dog-friendly", lean: "yes", confidence: 0.9, evidence: "Pets may enter the courtyard", sourceUrl: "https://source.example/facts" },
+      { criterionId: "outdoor-seating", lean: "yes", confidence: 0.9, evidence: "outdoor seating", sourceUrl: "https://source.example/facts" },
+    ];
+    const text = JSON.stringify({ claims }).replace(
+      "Pets may enter the courtyard",
+      "Pets\\u0020may\\u0020enter\\u0020the\\u0020courtyard",
+    );
+    expect(combinedClaimsFromReply({
+      text,
+      model: "fast",
+      citations: [{ url: "https://source.example/facts?utm_source=openai" }],
+    }, input)).toEqual([expect.objectContaining({
+      criterionId: "delivery",
+      confidence: 0.5,
+      status: "likely_true",
+      sourceUrl: "https://source.example/facts",
+    })]);
   });
 
   it("maps Tavily results onto the same thin interface", async () => {
