@@ -184,15 +184,47 @@ evidence hash means that exact question was already answered.
 
 ## Verified state
 
-Measured on this tree at `3d3e1f2`, 2026-09-03:
+Every number below was measured on this tree, not carried over from an earlier
+session. The unit and api rows were re-measured on 2026-09-04; the e2e row
+still stands from 2026-09-03.
 
 | Lane | Command | Result |
 |---|---|---|
 | typecheck | `pnpm typecheck` | clean, 3 projects |
-| unit | `pnpm test:unit` | **752 passed / 752**, 56 files, no database |
-| api | `pnpm exec vitest run tests/api --maxWorkers=2` | see below |
-| e2e | `pnpm test:e2e` | see below |
+| unit | `pnpm test:unit` | **778 / 778**, 57 files, no database |
+| api | `vitest run tests/api --maxWorkers=4` | **221 / 225**, 35 files — 4 failures, see below |
+| e2e | `pnpm test:e2e` | **32 / 46 — 14 failing**, see below |
 | native | `pnpm test:native` | not run — needs real Chrome ≥ 149 |
+
+**Cap the api lane's workers.** Left to itself vitest opens one worker per
+core, and on a 32-core machine the spawned servers ask Postgres for more
+connections than `max_connections` (100 by default) allows: about twenty files
+then fail with `sorry, too many clients already`, which says nothing about the
+code. `--maxWorkers=4` is enough to stay under it.
+
+**The api lane only means something on a fresh database.** Against the
+long-lived compose database the four remaining failures were `demo-seed`,
+`pipeline`, `providers` and `rooms`; they reproduce on a clean checkout of the
+same commit, and they come from global rows that accumulate across runs
+(confirmed facts, place images, the caches), not from the change under test.
+`DROP`/`CREATE` a scratch database, migrate into it, and point `DATABASE_URL`
+at it before quoting a number.
+
+**The e2e lane has a real regression.** All 14 failures are in
+`tests/e2e/spokes-ui.spec.ts` and all of them funnel through one helper,
+`closeDrawer` (`tests/e2e/spokes-ui.spec.ts:559`): the `{ }` drawer's close
+control satisfies the visibility assertion and is then gone by the time the
+click is attempted, so every spec that opens the drawer times out at 60 s. A
+fresh database does not change it. Landing, three-user and spokes-flow all pass.
+
+It is not yet bisected. The lane was 46 / 46 at `133c81b`, which already
+contained the wire-timeline drawer rewrite, so the cause is somewhere in the
+nine commits after it — of which only `cca69ce` (the place panel settling after
+a mid-read lookup) and `b18c814` (the new dev server) touch the client at all.
+One caveat on the measurement: a second session had uncommitted edits to
+`Landing.tsx` and `landing.css` in this working tree while the lane ran. They
+are landing-only and the landing specs pass, but attribution is not settled
+until someone runs the lane on a clean checkout.
 
 Static `it(`/`test(` counts undercount the real total by 20–30 %, because
 several suites are table-driven off `tests/fixtures/nl-corpus.jsonl`. Quote a
@@ -257,6 +289,12 @@ working tree.
 
 ## Open gaps
 
+**Broken now**
+
+0. **14 e2e specs fail on `main`** — the drawer-close regression described under
+   "Verified state". It is the only red lane, it is reproducible, and it blocks
+   any honest "all green" claim. Fix it before anything on this list.
+
 **The submission**
 
 1. No narrated video. The submission is frozen, so this can only improve the
@@ -317,8 +355,7 @@ working tree.
 
 **Current, written or rewritten against the shipped code**
 
-- `README.md` — demo-first, accurate. Only fault: it links
-  `docs/DEPLOY-COOLIFY.md` as the deployment guide.
+- `README.md` — demo-first, accurate, and now pointing at `docs/DEPLOY.md`.
 - `docs/SYSTEM-ARCHITECTURE.md` — carries the scheduler, outbound routing and
   the interactive lane.
 - `docs/ENRICHMENT-SOURCES.md` — the pipeline document that matches the code.
