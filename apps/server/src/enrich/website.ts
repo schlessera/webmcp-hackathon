@@ -283,8 +283,9 @@ function visibleFragment(fragment: string): string {
 /**
  * The bounded prose made available to inference for this pass only. This is
  * deliberately narrower than a generic HTML-to-text conversion: title, meta
- * description, headings, paragraphs and list items, with page chrome and
- * executable/style content removed first.
+ * description, headings, paragraphs, list items, and the direct text of layout
+ * containers that hold a whole clause, with page chrome and executable/style
+ * content removed first.
  */
 export function extractVisibleText(html: string, max = MAX_PAGE_TEXT): string {
   const stripped = html
@@ -309,12 +310,30 @@ export function extractVisibleText(html: string, max = MAX_PAGE_TEXT): string {
     }
   }
   for (const element of stripped.matchAll(/<(h[1-6]|p|li)\b([^>]*)>([\s\S]*?)<\/\1>/gi)) {
-    if (/\bhidden(?:\s|=|$)/i.test(element[2]) || /aria-hidden\s*=\s*["']?true/i.test(element[2])) {
-      continue;
-    }
+    if (hiddenAttributes(element[2])) continue;
+    add(element[3]);
+  }
+  // Plenty of venue sites write their one descriptive sentence straight into a
+  // layout container rather than a paragraph, and the pass above cannot see it.
+  // Take only a container's DIRECT text — the run before its first child tag —
+  // so a wrapper around real paragraphs contributes nothing and cannot
+  // duplicate them. Require a whole clause, which also keeps timestamps,
+  // opening times and one-word chrome out.
+  for (const element of stripped.matchAll(
+    /<(div|section|article|td|dd|blockquote|figcaption)\b([^>]*)>([^<]+)/gi,
+  )) {
+    if (hiddenAttributes(element[2])) continue;
+    const direct = visibleFragment(element[3]);
+    if (direct.length < 12 || !/\s/.test(direct)) continue;
     add(element[3]);
   }
   return clip(pieces.join("\n"), Math.max(0, max));
+}
+
+function hiddenAttributes(attributes: string): boolean {
+  return (
+    /\bhidden(?:\s|=|$)/i.test(attributes) || /aria-hidden\s*=\s*["']?true/i.test(attributes)
+  );
 }
 
 /** Every `<a href>` with its visible text, entities decoded, tags stripped. */

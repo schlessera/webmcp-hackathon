@@ -117,6 +117,31 @@ describe("transient website text", () => {
     expect(extractVisibleText(`<p>${"word ".repeat(2_000)}</p>`).length).toBeLessThanOrEqual(MAX_PAGE_TEXT);
   });
 
+  it("takes a layout container's own sentence without duplicating what it wraps", () => {
+    const text = extractVisibleText(`
+      <body>
+        <div>Sourdough baked here every morning.<span>ignored child</span></div>
+        <div><p>Dogs are welcome in the garden.</p></div>
+        <section>Our terrace opens in May.</section>
+        <div>Menü</div>
+        <div>08:00</div>
+        <td>Lunch is served until four.</td>
+      </body>
+    `);
+    // A container's own clause is taken; a wrapper around a paragraph yields
+    // the paragraph once, never twice.
+    expect(text.split("\n")).toEqual([
+      "Dogs are welcome in the garden.",
+      "Sourdough baked here every morning.",
+      "Our terrace opens in May.",
+      "Lunch is served until four.",
+    ]);
+    // Single words and bare times are not quotable evidence.
+    expect(text).not.toContain("Men\u00fc");
+    expect(text).not.toContain("08:00");
+    expect(text).not.toContain("ignored child");
+  });
+
   it("returns separately budgeted homepage and menu text without putting either in WebFacts", async () => {
     const result = await fetchWebsiteFacts("https://93.184.216.34/", async (url) => {
       if (url.endsWith("/robots.txt")) return new Response("", { status: 404 });
