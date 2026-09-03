@@ -286,6 +286,43 @@ function safeHttpUrl(value: string | null | undefined): string | null {
   }
 }
 
+/* The panel's two affordances, drawn as strokes rather than characters.
+   A character icon inherits the display face's metrics and can wrap; a
+   stroke inherits colour, scales cleanly and stays a shape, not a glyph
+   pretending to be a state (CLAUDE.md "marks, not glyphs"). */
+function CloseGlyph() {
+  return (
+    <svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true" focusable="false">
+      <path
+        d="M4 4l8 8M12 4l-8 8"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function RefreshGlyph() {
+  return (
+    <svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true" focusable="false">
+      <path
+        d="M13 8a5 5 0 1 1-2.5-4.33"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
+      <path
+        d="M9.2 1.4 10.5 3.7 7.9 3.7"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 export function PlaceDetails({
   candidate,
   proposal,
@@ -654,8 +691,30 @@ export function PlaceDetails({
   const minutesSinceLookup = dossier?.lookedUpAt
     ? Math.floor((Date.now() - new Date(dossier.lookedUpAt).getTime()) / 60_000)
     : null;
-  const recentlyLookedUp =
-    lookupPhase === "done" || (minutesSinceLookup !== null && minutesSinceLookup < 10);
+  /* One "something is happening here" signal for the nav: the room's
+     pipeline, the open fast track, a read this page asked for, or the very
+     first dossier read. */
+  const working = lookingUp || openStage !== null || lookupPhase === "asked" || !dossier;
+  /* The busy face carries words as well as the ring: reduced motion stands
+     the ring still, and the words are then the whole signal (§9). */
+  const workLabel =
+    openStage !== null
+      ? COPY.openStageLine(openStage)
+      : lookingUp
+        ? stage
+          ? COPY.stageLine(stage)
+          : COPY.lookingUp
+        : lookupPhase === "asked"
+          ? COPY.lookingUp
+          : COPY.readingRecord;
+  /* What the last read left behind. It costs no line of its own: the idle
+     control carries it on hover and announces it once. */
+  const idleTitle =
+    lookupPhase === "done"
+      ? COPY.lookedUpJustNow(lookupChanged)
+      : minutesSinceLookup !== null
+        ? COPY.lookedUpAgo(minutesSinceLookup)
+        : COPY.recordRead;
   const safeLinks = (dossier?.links ?? []).flatMap((link) => {
     const href = safeHttpUrl(link.url);
     return href ? [{ ...link, href }] : [];
@@ -669,45 +728,61 @@ export function PlaceDetails({
       data-facts-settling={factsSettlingCandidate === candidate.candidateId || undefined}
       data-testid="place-details"
       aria-label={candidate.name}
+      aria-busy={working || undefined}
     >
+      {/* One element top-left with two faces, never both. Busy names the
+          step the panel is on; idle is the way to ask for a fresh read.
+          Close sits alone on the right. */}
       <div className="details-nav">
-        <button className="btn-text tap-wide" data-testid="details-close" onClick={onClose}>
-          Close
-        </button>
-        <span className="details-nav-spacer" aria-hidden="true" />
-        {/* Ask the room's server to look this place up now; what lands
-            arrives on the facts frame and updates the rows in place. */}
-        {negotiable && (
-          <>
-            {recentlyLookedUp && lookupPhase !== "done" && minutesSinceLookup !== null && (
-              <span className="details-lookup-ago" data-testid="details-lookup-ago">
-                {COPY.lookedUpAgo(minutesSinceLookup)}
+        {working ? (
+          <span
+            className="details-work"
+            data-state="busy"
+            data-testid="details-lookup"
+            role="status"
+            aria-live="polite"
+          >
+            <i className="busy-ring line-busy" aria-hidden="true" />
+            <span className="details-work-label">{workLabel}</span>
+          </span>
+        ) : (
+          /* Ask the room's server to look this place up now; what lands
+             arrives on the facts frame and updates the rows in place. */
+          negotiable && (
+            <>
+              <button
+                className="details-work tap-44"
+                data-state="idle"
+                data-testid="details-lookup-btn"
+                aria-label="Look it up again"
+                title={idleTitle}
+                onClick={askLookup}
+              >
+                <RefreshGlyph />
+              </button>
+              <span className="sr-only" role="status" aria-live="polite">
+                {idleTitle}
               </span>
-            )}
-            <button
-              className="btn-text tap-wide"
-              data-testid="details-lookup-btn"
-              disabled={lookingUp || lookupPhase === "asked"}
-              onClick={askLookup}
-            >
-              {lookingUp
-                ? "Looking it up"
-                : lookupPhase === "asked"
-                  ? "Asked"
-                  : recentlyLookedUp
-                    ? COPY.lookAgain
-                    : "Look it up"}
-            </button>
-          </>
+            </>
+          )
         )}
+        <span className="details-nav-spacer" aria-hidden="true" />
+        <button
+          className="details-close-btn tap-44"
+          data-testid="details-close"
+          aria-label="Close"
+          onClick={onClose}
+        >
+          <CloseGlyph />
+        </button>
       </div>
 
       <div className="details-body">
         {/* Before the dossier lands the summary already says whether a
             photo exists: the band's box is reserved from first paint with
             the blurhash painted, so nothing below shifts when the bytes
-            arrive. Unknown but being looked up: a thin quiet band that only
-            collapses once the lookup ends without a photo. */}
+            arrive. No photo promised: no box and no line — the nav already
+            says a lookup is running. */}
         {photos.length === 0 && !dossier && candidate.image && (
           <div className="details-photo" data-testid="photo-band" data-reserved="true">
             <div
@@ -724,12 +799,6 @@ export function PlaceDetails({
                 }
               />
             </div>
-          </div>
-        )}
-        {photos.length === 0 && dossier && !candidate.image && lookingUp && (
-          <div className="details-photo-looking" data-testid="photo-looking" role="status">
-            <i className="busy-ring row-busy" aria-hidden="true" />
-            {COPY.lookingForPhoto}
           </div>
         )}
         {photos.length > 0 && (
@@ -777,31 +846,6 @@ export function PlaceDetails({
           <div className="verdict" data-state={verdictState} data-testid="verdict">
             <span className="verdict-dot" aria-hidden="true" />
             <span className="verdict-text">{verdictText(candidate, dossier?.needs)}</span>
-          </div>
-          {/* Reserved from the first paint (SPOKES-UI §6): the panel never
-              looks final before the facts have landed. */}
-          <div
-            className="details-lookup"
-            data-state={openStage !== null || lookingUp ? "busy" : dossier ? "done" : "loading"}
-            data-testid="details-lookup"
-            role="status"
-            aria-busy={lookingUp || !dossier || undefined}
-          >
-            {openStage !== null ? (
-              <>
-                <i className="busy-ring line-busy" aria-hidden="true" />
-                {COPY.openStageLine(openStage)}
-              </>
-            ) : lookingUp || !dossier ? (
-              <>
-                <i className="busy-ring line-busy" aria-hidden="true" />
-                {lookingUp ? (stage ? COPY.stageLine(stage) : COPY.lookingUp) : COPY.readingRecord}
-              </>
-            ) : lookupPhase === "done" ? (
-              COPY.lookedUpJustNow(lookupChanged)
-            ) : (
-              COPY.recordRead
-            )}
           </div>
         </div>
 

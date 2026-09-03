@@ -319,7 +319,6 @@ export const COPY = {
   agentBusy: "your agent is on it",
   agentReading: "reading what you said…",
   lookingUp: "looking it up…",
-  lookAgain: "Look again",
   /** After a lookup the reader asked for: what it changed, in facts. */
   lookedUpJustNow: (changed: number) =>
     changed === 0
@@ -331,7 +330,6 @@ export const COPY = {
   readingRecord: "reading the record…",
   recordRead: "what the record says",
   photoFromPlaceSite: "from the place's site ↗",
-  lookingForPhoto: "looking for a photo…",
   photoFromOpenStreetMap: "photo · from OpenStreetMap ↗",
   photoNearPlace: (credit: string) => `photo near this place · ${credit} ↗`,
   photoCredit: (credit: string, license: string) => `photo · ${credit} · ${license} ↗`,
