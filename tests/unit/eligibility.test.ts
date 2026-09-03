@@ -129,6 +129,39 @@ describe("eligibility against the Berlin Mitte dataset", () => {
     }
   });
 
+  it("evaluates a distance need from its owner's origin and falls back to the scope centre", () => {
+    const scope: ScopeState = {
+      scopeId: "scope_origin",
+      area: {
+        kind: "circle",
+        center: { lat: 52.52, lng: 13.39 },
+        radiusM: 5000,
+      },
+      transport: ["walk"],
+      category: "places",
+    };
+    const candidate: CandidateRow = {
+      ...candidates[0],
+      id: "c_origin",
+      location: { lat: 52.53, lng: 13.39 },
+      attributes: [],
+    };
+    const need = req({ kind: "scope", dimension: "walk_min", max: 5 });
+
+    const fromOwner = classifyAll(
+      [candidate],
+      [{ ...need, owner_origin: candidate.location }],
+      [],
+      scope,
+    )[0];
+    expect(fromOwner.eligibility).toBe("eligible");
+
+    const fallback = classifyAll([candidate], [{ ...need, owner_origin: null }], [], scope)[0];
+    expect(fallback.eligibility).toBe("excluded");
+    expect(whyFor(fallback, need.owner_id)).toMatch(/^\d+ min from you$/);
+    expect(whyFor(fallback, "p_peer")).toBe("too far for one person");
+  });
+
   it("budget maps price levels to EUR bands: band above cap excludes, missing level is uncertain", () => {
     const budget = [req({ kind: "budget", perPersonMax: { amount: 15, currency: "EUR" } })];
     const rows = classifyAll(

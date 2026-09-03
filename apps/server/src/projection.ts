@@ -1,4 +1,8 @@
-import type { ProjectedEvent } from "@webmcp-hackathon/contracts";
+import type {
+  ParticipantOrigin,
+  ParticipantSummary,
+  ProjectedEvent,
+} from "@webmcp-hackathon/contracts";
 
 /**
  * Per-viewer event projection — NEGOTIATION-PROTOCOL.md §4.1.
@@ -14,6 +18,18 @@ export interface StoredEvent {
   actorId: string | null;
   visibility: string;
   payload: Record<string, unknown>;
+}
+
+/** The roster privacy boundary shared by sync and spatial context reads. */
+export function projectParticipantSummary(
+  participant: Omit<ParticipantSummary, "origin"> & { origin?: ParticipantOrigin | null },
+  viewerId: string,
+): ParticipantSummary {
+  const { origin, ...shared } = participant;
+  return {
+    ...shared,
+    ...(participant.participantId === viewerId && origin ? { origin } : {}),
+  };
 }
 
 export function projectEvent(
@@ -131,6 +147,17 @@ export function projectEvent(
         type: event.type,
         level: "aggregate",
         text: aggregateEligibilityText(p),
+      };
+
+    case "origin_updated":
+      if (isActor) {
+        return full(event, "You updated where you start from.");
+      }
+      return {
+        revision: event.revision,
+        type: event.type,
+        level: "existence",
+        text: `${actorName} updated where they start from.`,
       };
 
     case "candidates_added": {

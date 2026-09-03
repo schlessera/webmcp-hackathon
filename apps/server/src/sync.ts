@@ -12,6 +12,7 @@ import { computeEligibility, feasibilityOf } from "./eligibility.ts";
 import { outstandingFor } from "./outstanding.ts";
 import { presentIn } from "./presence.ts";
 import { config } from "./config.ts";
+import { projectParticipantSummary } from "./projection.ts";
 
 /**
  * sync_session — NEGOTIATION-PROTOCOL.md §6.1. Read-only; no baseRevision.
@@ -57,13 +58,13 @@ export async function syncSession(
   const present = presentIn(actor.roomId);
   const participantRows = (
     await client.query(
-      `SELECT id, display_name, role, ready_state, arrived_at, last_synced_revision
+      `SELECT id, display_name, role, ready_state, arrived_at, last_synced_revision, origin
          FROM participants
         WHERE room_id = $1 ORDER BY role <> 'organizer', id`,
       [actor.roomId],
     )
   ).rows;
-  const participants = participantRows.map((p) => ({
+  const participants = participantRows.map((p) => projectParticipantSummary({
     participantId: p.id as string,
     displayName: p.display_name as string,
     role: p.role as "organizer" | "member",
@@ -71,7 +72,8 @@ export async function syncSession(
     // This very sync is the caller's arrival.
     arrived: p.id === actor.id || p.arrived_at !== null,
     present: present.has(p.id as string),
-  }));
+    origin: p.origin,
+  }, actor.id));
   // Read BEFORE this sync stamps it: it is what the caller had seen. A
   // never-arrived participant has no such revision — 0 would mean "saw the
   // empty room", which is a different fact.

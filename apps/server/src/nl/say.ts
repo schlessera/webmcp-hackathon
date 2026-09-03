@@ -48,6 +48,7 @@ interface Draft {
     expect: "verified_true" | "verified_false" | null;
     amountEur: number | null;
     walkMin: number | null;
+    radiusM: number | null;
     excludeValues: string[];
     includeValues: string[];
     text: string | null;
@@ -75,7 +76,7 @@ const SCHEMA = {
         type: "object",
         additionalProperties: false,
         required: [
-          "kind", "attributeKey", "expect", "amountEur", "walkMin",
+          "kind", "attributeKey", "expect", "amountEur", "walkMin", "radiusM",
           "excludeValues", "includeValues", "text", "window", "phrase", "topic", "gist",
         ],
         properties: {
@@ -84,6 +85,7 @@ const SCHEMA = {
           expect: { type: ["string", "null"], enum: ["verified_true", "verified_false", null] },
           amountEur: NULLABLE_NUMBER,
           walkMin: NULLABLE_NUMBER,
+          radiusM: NULLABLE_NUMBER,
           excludeValues: { type: "array", items: { type: "string" } },
           includeValues: { type: "array", items: { type: "string" } },
           text: NULLABLE_STRING,
@@ -164,7 +166,7 @@ function instructions(
     "For needs:",
     `- kind attribute: only for these keys: ${vocab}. expect verified_true for wanting it, verified_false for wanting its absence.`,
     "- kind budget: a per-person ceiling in euros (amountEur). Words like cheap mean 15, mid-range 25, splurge 40.",
-    "- kind walk: a maximum walking time in minutes (walkMin). 'close by' means 10, 'not far' 15.",
+    "- kind walk: distance from the person. Use a maximum walking time in minutes (walkMin), or metres (radiusM), never both. 'not more than 20 min from me' is walkMin 20; 'close to me' is walkMin 10; 'within 2 km of me' is radiusM 2000. Phrases without 'me' such as 'close by' still mean walkMin 10.",
     `Area timezone: ${clock.timezone}.`,
     `Current local date/time: ${clock.localNow}.`,
     "- kind time: when the sentence names a date, weekday, meal, part of day, clock time, or 'open now'. Return an absolute window in `window`, and copy the time words the person actually said into `phrase`. Never turn a sentence that names a time into kind text.",
@@ -224,6 +226,11 @@ export async function say(
       needs.push({
         ...base,
         payload: { kind: "budget", perPersonMax: { amount: Math.round(n.amountEur), currency: "EUR" } },
+      });
+    } else if (n.kind === "walk" && n.radiusM && n.radiusM > 0) {
+      needs.push({
+        ...base,
+        payload: { kind: "scope", dimension: "radius_m", max: Math.round(n.radiusM) },
       });
     } else if (n.kind === "walk" && n.walkMin && n.walkMin > 0) {
       needs.push({

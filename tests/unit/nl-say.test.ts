@@ -72,6 +72,25 @@ describe("say: draft → payloads", () => {
     expect(out.needs[0].topic).toBe("dietary");
   });
 
+  it("maps distance-from-me language to scope predicates", async () => {
+    let request: Record<string, unknown> | undefined;
+    scripted({
+      intent: "need",
+      reply: null,
+      needs: [
+        { kind: "walk", attributeKey: null, expect: null, amountEur: null, walkMin: 20, radiusM: null, excludeValues: [], includeValues: [], text: null, window: null, phrase: null, topic: "distance", gist: "within twenty minutes" },
+        { kind: "walk", attributeKey: null, expect: null, amountEur: null, walkMin: null, radiusM: 2000, excludeValues: [], includeValues: [], text: null, window: null, phrase: null, topic: "distance", gist: "within two kilometres" },
+      ],
+    }, (body) => { request = body; });
+
+    const out = await say("not more than 20 min from me, within 2 km of me", "shared", context);
+    expect(out.needs.map((need) => need.payload)).toEqual([
+      { kind: "scope", dimension: "walk_min", max: 20 },
+      { kind: "scope", dimension: "radius_m", max: 2000 },
+    ]);
+    expect(request?.instructions).toContain("'close to me' is walkMin 10");
+  });
+
   it("refuses keys and cuisine values outside what the server published", async () => {
     scripted({
       intent: "need",

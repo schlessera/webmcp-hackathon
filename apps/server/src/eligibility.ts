@@ -109,6 +109,8 @@ export interface RequirementRow {
   active?: boolean;
   created_at_revision?: number;
   scope_hint?: { affects?: string; category?: string } | null;
+  /** Server-only owner position joined at read time. Never projected. */
+  owner_origin?: { lat: number; lng: number } | null;
 }
 export interface VerdictRow {
   owner_id: string;
@@ -132,6 +134,9 @@ export interface EligibilityReason {
   ownerId: string;
   shared: boolean;
   text: string;
+  /** Safe explanation for a different viewer when the shared predicate's
+   * owner position must not be recoverable from the reason. */
+  peerText?: string;
 }
 
 export interface CandidateEligibility {
@@ -168,7 +173,8 @@ const PRIVATE_PENDING = "a private condition not yet checked";
 export function whyFor(row: CandidateEligibility, viewerId: string): string | undefined {
   if (row.eligibility === "excluded") {
     const r = row.exclusion!;
-    if (r.shared || r.ownerId === viewerId) return r.text.slice(0, 60);
+    if (r.ownerId === viewerId || r.ownerId === "") return r.text.slice(0, 60);
+    if (r.shared) return (r.peerText ?? r.text).slice(0, 60);
     return PRIVATE_EXCLUDED;
   }
   if (row.eligibility === "uncertain") {
@@ -271,9 +277,8 @@ export async function loadScope(
 
 const WALK_SPEED_M_PER_MIN = 4500 / 60;
 
-/** Minutes on foot from the scope centre. Recomputed on every read: the
- * seeded walk_min is measured from wherever the room started and goes stale
- * the moment the scope moves. */
+/** Minutes on foot from a supplied origin. Recomputed on every read: the
+ * seeded walk_min is only a last-resort compatibility fallback. */
 export function walkMinutesFrom(
   center: { lat: number; lng: number } | undefined,
   location: { lat: number; lng: number },
@@ -294,6 +299,8 @@ export interface EligibilityInputs {
   now?: Date;
   /** Server-only cache rows used by background scheduling guards. */
   enrichments?: Map<string, Enrichment>;
+  /** Server-only origins, keyed by owner. Values never enter peer projections. */
+  origins?: Map<string, { lat: number; lng: number }>;
 }
 
 /**
@@ -305,7 +312,7 @@ export async function loadEligibilityInputs(
   q: pg.PoolClient | pg.Pool,
   roomId: string,
 ): Promise<EligibilityInputs> {
-  const [candidates, requirements, verdicts, scope, attestations, room] = await Promise.all([
+  const [candidates, requirements, verdicts, scope, attestations, room, participantOrigins] = await Promise.all([
     q.query("SELECT * FROM candidates WHERE room_id = $1 ORDER BY id", [roomId]),
     q.query(
       "SELECT * FROM requirements WHERE room_id = $1 AND NOT withdrawn",
@@ -315,8 +322,21 @@ export async function loadEligibilityInputs(
     loadScope(q, roomId),
     loadAttestations(q, roomId),
     q.query("SELECT area_id FROM rooms WHERE id = $1", [roomId]),
+    q.query("SELECT id, origin FROM participants WHERE room_id = $1", [roomId]),
   ]);
   const center = scope?.area?.center;
+  const origins = new Map<string, { lat: number; lng: number }>();
+  for (const row of participantOrigins.rows as Array<{
+    id: string;
+    origin: { lat?: unknown; lng?: unknown } | null;
+  }>) {
+    if (
+      typeof row.origin?.lat === "number" && Number.isFinite(row.origin.lat) &&
+      typeof row.origin?.lng === "number" && Number.isFinite(row.origin.lng)
+    ) {
+      origins.set(row.id, { lat: row.origin.lat, lng: row.origin.lng });
+    }
+  }
   const refs = (candidates.rows as CandidateRow[]).map((c) => c.osm_ref).filter((r): r is string => Boolean(r));
   const enrichments = await loadCached(q, refs);
   return {
@@ -328,12 +348,16 @@ export async function loadEligibilityInputs(
       website_hours: enrichments.get(c.osm_ref ?? "")?.website?.hours,
       walk_min: walkMinutesFrom(center, c.location, c.walk_min),
     })),
-    requirements: requirements.rows as RequirementRow[],
+    requirements: (requirements.rows as RequirementRow[]).map((requirement) => ({
+      ...requirement,
+      owner_origin: origins.get(requirement.owner_id) ?? null,
+    })),
     verdicts: verdicts.rows as VerdictRow[],
     scope,
     timezone: areaById(room.rows[0]?.area_id as string)?.timezone ?? "UTC",
     now: new Date(),
     enrichments,
+    origins,
   };
 }
 
@@ -488,20 +512,31 @@ export function classifyCandidate(
         break;
       }
       case "scope": {
+        const origin = req.owner_origin ?? scope?.area?.center;
         if (p.dimension === "walk_min" && typeof p.max === "number") {
-          if (candidate.walk_min > p.max) {
-            return excluded(candidate, {
-              ...owner,
-              text: `beyond ${p.max} min walk`,
-            });
+          if (!origin) {
+            pending.push({ ...owner, text: "distance not on record" });
+          } else {
+            const minutes = walkMinutesFrom(origin, candidate.location, candidate.walk_min);
+            if (minutes > p.max) {
+              return excluded(candidate, {
+                ...owner,
+                text: `${minutes} min from you`,
+                peerText: "too far for one person",
+              });
+            }
           }
         } else if (p.dimension === "radius_m" && typeof p.max === "number") {
-          if (!scope?.area?.center) {
+          if (!origin) {
             pending.push({ ...owner, text: "distance not on record" });
           } else if (
-            haversineMeters(candidate.location, scope.area.center) > p.max
+            haversineMeters(candidate.location, origin) > p.max
           ) {
-            return excluded(candidate, { ...owner, text: `beyond ${p.max} m` });
+            return excluded(candidate, {
+              ...owner,
+              text: `${Math.round(haversineMeters(candidate.location, origin))} m from you`,
+              peerText: "too far for one person",
+            });
           }
         } else {
           pending.push({ ...owner, text: "distance not on record" });
@@ -801,6 +836,7 @@ const strip = (l: EligibilityReason & { lean: boolean; confidence: number }): El
   ownerId: l.ownerId,
   shared: l.shared,
   text: l.text,
+  ...(l.peerText ? { peerText: l.peerText } : {}),
 });
 /** Independent guesses compound: the confidence that ALL of them hold. */
 const product = (ls: Array<{ confidence: number }>) =>

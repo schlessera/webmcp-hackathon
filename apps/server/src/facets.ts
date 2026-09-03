@@ -189,7 +189,11 @@ export function computeFacetsBundle(
     matching,
     likely,
     facets: [
-      ...computeFacets(candidates, inputs.scope),
+      ...computeFacets(
+        candidates,
+        inputs.scope,
+        inputs.origins?.get(viewerId) ?? inputs.scope?.area?.center,
+      ),
       ...temporalFacets(
         active.filter((req) => req.owner_id === viewerId || req.visibility === "shared"),
         inputs,
@@ -254,6 +258,7 @@ function temporalFacets(
 export function computeFacets(
   candidates: CandidateRow[],
   scope: ScopeState | null,
+  viewerOrigin?: { lat: number; lng: number },
 ): Facet[] {
   const booleans: Facet[] = [];
   for (const key of ATTRIBUTE_VOCABULARY) {
@@ -289,7 +294,7 @@ export function computeFacets(
   const facets = [...booleans];
   const cuisine = cuisineFacet(candidates);
   if (cuisine) facets.push(cuisine);
-  const walk = walkFacet(candidates, scope);
+  const walk = walkFacet(candidates, viewerOrigin ?? scope?.area?.center);
   if (walk) facets.push(walk);
   const price = priceFacet(candidates);
   if (price) facets.push(price);
@@ -361,13 +366,12 @@ function cuisineFacet(candidates: CandidateRow[]): Facet | null {
   };
 }
 
-/** Walking time from the CURRENT scope centre. Without a centre there is
- * nothing to measure from, so the facet is absent rather than wrong. */
+/** Walking time from this viewer's origin, falling back to the shared scope
+ * centre. Without either, the facet is absent rather than wrong. */
 function walkFacet(
   candidates: CandidateRow[],
-  scope: ScopeState | null,
+  center: { lat: number; lng: number } | undefined,
 ): Facet | null {
-  const center = scope?.area?.center;
   if (!center || candidates.length === 0) return null;
   const minutes = candidates.map((c) =>
     Math.max(

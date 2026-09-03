@@ -193,7 +193,7 @@ describe("facets describe what is askable about the current set", () => {
     expect(bundle.likely).toBe(2);
   });
 
-  it("measures walking time from the CURRENT scope centre, and omits it without one", () => {
+  it("measures walking time from the viewer's origin, falling back to the scope centre", () => {
     expect(facets.find((f) => f.key === "walk-minutes")).toBeUndefined();
 
     const near = facetFor(computeFacets(candidates, scopeAt(1400)), "walk-minutes");
@@ -215,6 +215,12 @@ describe("facets describe what is askable about the current set", () => {
     };
     const far = facetFor(computeFacets(candidates, moved), "walk-minutes");
     expect(far.range!.max).toBeGreaterThan(near.range!.max);
+
+    const viewer = facetFor(
+      computeFacets(candidates, scopeAt(1400), moved.area.center),
+      "walk-minutes",
+    );
+    expect(viewer.range).toEqual(far.range);
   });
 });
 

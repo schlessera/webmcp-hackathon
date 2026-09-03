@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { projectEvent, type StoredEvent } from "../../apps/server/src/projection.ts";
+import {
+  projectEvent,
+  projectParticipantSummary,
+  type StoredEvent,
+} from "../../apps/server/src/projection.ts";
 
 /** Lane 1 additions: per-viewer projection of every new domain event type.
  * The projector's default drops unknown types silently, so every event a
@@ -14,6 +18,26 @@ const ev = (overrides: Partial<StoredEvent>): StoredEvent => ({
 });
 
 describe("new event projections", () => {
+  it("omits a participant origin unless that participant is the viewer", () => {
+    const participant = {
+      participantId: "p_sarah",
+      displayName: "Sarah",
+      role: "member" as const,
+      readyState: "contributing" as const,
+      arrived: true,
+      present: true,
+      origin: {
+        lat: 52.5226,
+        lng: 13.4024,
+        label: "Hackescher Markt",
+        source: "fixture" as const,
+        updatedAt: "2026-09-03T00:00:00.000Z",
+      },
+    };
+    expect(projectParticipantSummary(participant, "p_sarah")).toHaveProperty("origin");
+    expect(projectParticipantSummary(participant, "p_org")).not.toHaveProperty("origin");
+  });
+
   it("every emitted domain event type projects for its actor (never dropped)", () => {
     const types = [
       "scope_change_proposed", "scope_change_applied", "proposal_created",
@@ -23,6 +47,7 @@ describe("new event projections", () => {
       "adjustment_grant_staged",
       "impasse_resolved", "agreement_staged", "agreement_stage_aborted",
       "agreement_committed", "proposal_withdrawn", "arrival_plan_updated",
+      "origin_updated",
     ];
     for (const type of types) {
       const projected = projectEvent(
@@ -31,6 +56,31 @@ describe("new event projections", () => {
       );
       expect(projected, `event type ${type} was dropped by the projector`).not.toBeNull();
     }
+  });
+
+  it("keeps origin coordinates in the owner's event and sends peers existence only", () => {
+    const event = ev({
+      type: "origin_updated",
+      visibility: "application-private",
+      payload: {
+        actorName: "Sarah",
+        origin: {
+          lat: 52.5226,
+          lng: 13.4024,
+          label: "Hackescher Markt",
+          source: "stated",
+          updatedAt: "2026-09-03T00:00:00.000Z",
+        },
+      },
+    });
+    const owner = projectEvent({ ...event, actorId: "p_sarah" }, "p_sarah")!;
+    expect(JSON.stringify(owner)).toContain("52.5226");
+
+    const peer = projectEvent({ ...event, actorId: "p_sarah" }, "p_org")!;
+    expect(peer).toMatchObject({ level: "existence", text: "Sarah updated where they start from." });
+    expect(peer).not.toHaveProperty("payload");
+    expect(JSON.stringify(peer)).not.toContain("52.5226");
+    expect(JSON.stringify(peer)).not.toContain("Hackescher Markt");
   });
 
   it("shares who grew the pool but only gives the actor the place names", () => {

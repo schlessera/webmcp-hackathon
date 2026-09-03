@@ -391,14 +391,17 @@ app.post("/api/spatial/lookup", async (req, reply) => {
 app.post("/api/spatial/navigation", async (req) => {
   const actor = await bearer(req);
   if (!actor) return notAuthenticated;
-  const body = (req.body ?? {}) as { candidateId?: string };
+  const body = (req.body ?? {}) as {
+    candidateId?: string;
+    from?: { lat: number; lng: number };
+  };
   if (!validateNavigationInput(body)) {
     return invalidInput(
-      "candidateId must be a string when present.",
-      "Pass a candidateId, or omit it to navigate to the committed destination.",
+      "candidateId must be a string and from a valid position when present.",
+      "Pass a candidateId and optional starting position, or omit it to navigate to the committed destination.",
     );
   }
-  const result = await prepareNavigation(actor, body.candidateId);
+  const result = await prepareNavigation(actor, body.candidateId, body.from);
   logRead(req, actor.id, "PrepareNavigation", result.ok);
   return result;
 });

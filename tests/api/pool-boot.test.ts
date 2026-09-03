@@ -23,14 +23,18 @@ const ANSWER_WITHIN_MS = 5_000;
 
 afterAll(async () => {
   if (seeded.length > 0) {
-    await database.query("DELETE FROM candidates WHERE room_id = ANY($1)", [seeded]);
+    for (const table of [
+      "stances", "proposals", "verdicts", "requirements", "adjustments",
+      "arrival_plans", "attestations", "events", "candidates", "invite_secrets",
+      "nl_agent_actions",
+    ]) {
+      await database.query(`DELETE FROM ${table} WHERE room_id = ANY($1)`, [seeded]);
+    }
     await database.query(
       `DELETE FROM participant_tokens WHERE participant_id IN
          (SELECT id FROM participants WHERE room_id = ANY($1))`,
       [seeded],
     );
-    await database.query("DELETE FROM invite_secrets WHERE room_id = ANY($1)", [seeded]);
-    await database.query("DELETE FROM events WHERE room_id = ANY($1)", [seeded]);
     await database.query("DELETE FROM participants WHERE room_id = ANY($1)", [seeded]);
     await database.query("DELETE FROM rooms WHERE id = ANY($1)", [seeded]);
   }

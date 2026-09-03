@@ -612,6 +612,8 @@ async function dispatch(
       return respondToProposal(client, actor, input as never);
     case "SetReadyState":
       return setReadyState(client, actor, input as never);
+    case "SetOrigin":
+      return setOrigin(client, actor, input as never);
     case "SetSearchScope":
       return setSearchScope(client, actor, input as never);
     case "AddCandidates":
@@ -1175,6 +1177,42 @@ async function setReadyState(
       },
     ],
     effect: `Ready state set to "${cmd.state}".`,
+  };
+}
+
+async function setOrigin(
+  client: pg.PoolClient,
+  actor: Participant,
+  cmd: {
+    position: { lat: number; lng: number };
+    label?: string;
+    source: "device" | "stated";
+  },
+): Promise<HandlerOutcome> {
+  const updatedAt = new Date().toISOString();
+  const origin = {
+    lat: cmd.position.lat,
+    lng: cmd.position.lng,
+    label: cmd.label?.trim() || (cmd.source === "device" ? "your location" : "chosen point"),
+    source: cmd.source,
+    updatedAt,
+  };
+  // Identity comes from the authenticated actor. There is intentionally no
+  // target participant in the command or the write predicate.
+  await client.query("UPDATE participants SET origin = $2 WHERE id = $1", [
+    actor.id,
+    JSON.stringify(origin),
+  ]);
+  return {
+    events: [
+      {
+        type: "origin_updated",
+        actorId: actor.id,
+        visibility: "application-private",
+        payload: { actorName: actor.displayName, origin },
+      },
+    ],
+    effect: "Starting point updated.",
   };
 }
 

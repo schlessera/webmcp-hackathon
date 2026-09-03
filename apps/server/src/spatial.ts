@@ -18,11 +18,13 @@ import {
   feasibilityOf,
   loadEligibilityInputs,
   mergedAttributes,
+  walkMinutesFrom,
   whyFor,
 } from "./eligibility.ts";
 import { computeFacetsBundle, labelForRequirement } from "./facets.ts";
 import { IMPASSE_TEXT } from "./impasse.ts";
 import { presentIn } from "./presence.ts";
+import { projectParticipantSummary } from "./projection.ts";
 import { loadSnapshot, type DataSource } from "./places.ts";
 import {
   cachedPoolPlan,
@@ -107,7 +109,7 @@ export async function spatialContext(
           [actor.roomId],
         ),
         client.query(
-          `SELECT id, display_name, role, ready_state, arrived_at FROM participants
+          `SELECT id, display_name, role, ready_state, arrived_at, origin FROM participants
             WHERE room_id = $1 ORDER BY role <> 'organizer', id`,
           [actor.roomId],
         ),
@@ -157,14 +159,22 @@ export async function spatialContext(
       role: string;
       ready_state: string;
       arrived_at: Date | null;
-    }>).map((p) => ({
+      origin: {
+        lat: number;
+        lng: number;
+        label: string;
+        source: "fixture" | "device" | "stated";
+        updatedAt: string;
+      } | null;
+    }>).map((p) => projectParticipantSummary({
       participantId: p.id,
       displayName: p.display_name,
       role: p.role as "organizer" | "member",
       readyState: p.ready_state as "contributing" | "ready",
       arrived: p.id === actor.id || p.arrived_at !== null,
       present: present.has(p.id),
-    }));
+      origin: p.origin,
+    }, actor.id));
 
     const stanceRows = stances.rows as Array<{
       proposal_id: string;
@@ -269,6 +279,7 @@ export async function spatialContext(
       : undefined;
 
     const source = room.data_source as DataSource | null;
+    const viewerOrigin = inputs.origins?.get(actor.id) ?? scope?.area?.center;
     const poolSize = inputs.candidates.length;
     const area = typeof room.area_id === "string" ? areaById(room.area_id) : undefined;
     const snapshot = area ? loadSnapshot(area.id) : null;
@@ -335,7 +346,7 @@ export async function spatialContext(
           // Per-viewer redaction: private contributions collapse to fixed
           // tokens for everyone but their owner. Eligible rows omit it.
           ...(why !== undefined ? { why } : {}),
-          walkMin: r.walkMin,
+          walkMin: walkMinutesFrom(viewerOrigin, r.location, r.walkMin),
           // null passes through: a phantom 0 would put mass at the bottom of
           // every price reading.
           priceLevel: r.priceLevel,
@@ -632,6 +643,7 @@ export async function lookUpPlaces(
 export async function prepareNavigation(
   actor: Participant,
   candidateId?: string,
+  from?: { lat: number; lng: number },
 ): Promise<PrepareNavigationResponse> {
   return withTransaction(async (client) => {
     let targetId = candidateId;
@@ -673,6 +685,16 @@ export async function prepareNavigation(
       };
     }
     const { lat, lng } = candidate.location as { lat: number; lng: number };
+    const storedOrigin = (
+      await client.query("SELECT origin FROM participants WHERE id = $1", [actor.id])
+    ).rows[0]?.origin as { lat?: unknown; lng?: unknown } | null | undefined;
+    const start = from ?? (
+      typeof storedOrigin?.lat === "number" && typeof storedOrigin?.lng === "number"
+        ? { lat: storedOrigin.lat, lng: storedOrigin.lng }
+        : undefined
+    );
+    const googleOrigin = start ? `&origin=${start.lat},${start.lng}` : "";
+    const appleOrigin = start ? `&saddr=${start.lat},${start.lng}` : "";
     // Links are built from coordinates the session already holds — no
     // provider API call at handoff time (SPATIAL-PROTOCOL.md §9).
     return {
@@ -684,8 +706,8 @@ export async function prepareNavigation(
       },
       links: {
         geo: `geo:${lat},${lng}?q=${lat},${lng}(${encodeURIComponent(candidate.name)})`,
-        googleMaps: `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`,
-        appleMaps: `https://maps.apple.com/?daddr=${lat},${lng}`,
+        googleMaps: `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}${googleOrigin}`,
+        appleMaps: `https://maps.apple.com/?daddr=${lat},${lng}${appleOrigin}`,
       },
     };
   });

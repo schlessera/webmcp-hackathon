@@ -52,6 +52,9 @@ export const PHASE_GATES: Record<CommandType, readonly Phase[]> = {
   // Readiness is a participant's own status, not a negotiation move: legal
   // wherever the room is live, so the always-visible UI toggle never errors.
   SetReadyState: ["setup", "gathering", "deliberation", "agreed", "arrival"],
+  // A starting position is the participant's own status, with the same gate
+  // as readiness. Changing it never changes the shared search area.
+  SetOrigin: ["setup", "gathering", "deliberation", "agreed", "arrival"],
 };
 
 interface Transition {
