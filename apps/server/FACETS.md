@@ -89,6 +89,19 @@ attributes present across the current results.
   places where the answer is a guess with a confidence. Absent means zero.
   Pills count `yes + likely`; the brief row shows "n likely" beside
   "n unknown"; the count block shows "· n likely" apart from the big number.
+- An enum `values[].count` is the number of places that would be fully
+  `eligible` if that value became an inclusion need. For cuisine, that means a
+  verified exact token or a verified implication whose path confidence is at
+  least `CUISINE_IMPLICATION_SATISFACTION_FLOOR`. The constant is derived from
+  `VERIFIED_CONFIDENCE_FLOOR` (currently 0.7): an implication at or above the
+  verified floor may satisfy, while a lower-confidence implication is a guess
+  and does not enter the value's count. Likely facts and lower-confidence
+  implications remain available as enum values so the parser can route them,
+  but each such place contributes zero to that value's count; selecting one
+  therefore cannot overstate the resulting match count.
+- A facet's `counts.yes` / `likely` / `unlikely` / `no` / `unknown` buckets
+  remain disjoint status totals. They describe the evidence distribution and
+  are independent of an enum value's predicate-specific `count`.
 - `salience` — optional 0–1 hint for ordering. Absent → order by
   `counts.yes` descending.
 

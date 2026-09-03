@@ -140,8 +140,7 @@ describe("facets describe what is askable about the current set", () => {
     expect(cuisine.type).toBe("enum");
     expect(cuisine.counts.unknown).toBe(6);
     expect(cuisine.values!.find((v) => v.value === "italian")!.count).toBe(3);
-    // Buckets are disjoint and add up to the set, so a reader can total them;
-    // implications widen `values`, never the counts.
+    // Buckets are disjoint and add up to the set, so a reader can total them.
     const c = cuisine.counts;
     expect((c.yes ?? 0) + (c.likely ?? 0) + (c.unlikely ?? 0) + (c.no ?? 0) + c.unknown)
       .toBe(31);
@@ -161,19 +160,37 @@ describe("facets describe what is askable about the current set", () => {
     expect(tokens.sort()).toEqual(["italian", "pizza"]);
   });
 
-  it("publishes implied and likely cuisine values for fast-tier routing", () => {
+  it("keeps implied and likely cuisine values routable without counting guesses as matches", () => {
     const cuisine = facetFor(computeFacets([
       { ...candidates[0], id: "pizza", attributes: [{ key: "cuisine", status: "verified_true", value: "pizza" }] },
       { ...candidates[0], id: "thai", attributes: [{ key: "cuisine", status: "likely_true", value: "thai" }] },
     ], null), "cuisine");
     expect(cuisine.values).toEqual(expect.arrayContaining([
       { value: "italian", label: "Italian", count: 1 },
-      { value: "thai", label: "Thai", count: 1 },
-      { value: "asian", label: "Asian", count: 1 },
+      { value: "thai", label: "Thai", count: 0 },
+      { value: "asian", label: "Asian", count: 0 },
     ]));
     // The Thai place rests on a guess, the pizza place on the record: one each,
     // and "asian"/"italian" reach the value list only by implication.
     expect(cuisine.counts).toMatchObject({ yes: 1, likely: 1, unknown: 0 });
+  });
+
+  it("makes a cuisine value count equal the matching count after selection", () => {
+    const curryPlaces: CandidateRow[] = [
+      { ...candidates[0], id: "curry_1", attributes: [{ key: "cuisine", status: "verified_true", value: "curry;indian" }] },
+      { ...candidates[0], id: "curry_2", attributes: [{ key: "cuisine", status: "verified_true", value: "curry" }] },
+      { ...candidates[0], id: "curry_3", attributes: [{ key: "cuisine", status: "verified_true", value: "curry" }] },
+    ];
+    const need = req({ kind: "inclusion", key: "cuisine", values: ["indian"] } as never);
+    const bundle = computeFacetsBundle(
+      { candidates: curryPlaces, requirements: [need], verdicts: [], scope: null },
+      "p_org",
+    );
+    const indian = facetFor(bundle.facets, "cuisine").values!
+      .find((value) => value.value === "indian")!;
+    expect(indian.count).toBe(1);
+    expect(indian.count).toBe(bundle.matching);
+    expect(bundle.likely).toBe(2);
   });
 
   it("measures walking time from the CURRENT scope centre, and omits it without one", () => {
@@ -212,7 +229,9 @@ describe("activeNeeds carry the counterfactual deltas the brief rows show", () =
     expect(lactose.label).toBe("lactose-free options");
     expect(lactose.ruledOut).toBe(2); // two places verified as having none
     expect(lactose.unknown).toBe(19); // nineteen never checked
-    expect(lactose.wouldReturn).toBe(11); // dropping it recovers eleven
+    // One place with no cuisine fact now stays unsure under the separate
+    // cuisine exclusion, so dropping lactose recovers ten verified matches.
+    expect(lactose.wouldReturn).toBe(10);
 
     // Sarah's vegetarian need excludes nothing at all — no place in the set is
     // verified as lacking it. It only makes places unsure, which is exactly

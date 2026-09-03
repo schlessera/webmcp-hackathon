@@ -9,8 +9,8 @@ import { VERIFIED_CONFIDENCE_FLOOR } from "../../packages/contracts/src/status.t
 
 /** T3.6: sourced cuisine implications are additive evidence, with noisy venue-type tags omitted. */
 describe("cuisine taxonomy", () => {
-  it("ships the four evidence blocks as 60 sourced rules", () => {
-    expect(CUISINE_RULES).toHaveLength(60);
+  it("ships the four evidence blocks plus two sourced connective rules", () => {
+    expect(CUISINE_RULES).toHaveLength(62);
     expect(CUISINE_RULES.every((rule) => rule.evidence.length > 0)).toBe(true);
   });
 
@@ -29,6 +29,13 @@ describe("cuisine taxonomy", () => {
 
   it("allows one extra transitive hop with multiplied confidence", () => {
     expect(implies("sichuan")).toContainEqual({ cuisine: "asian", confidence: 0.855 });
+  });
+
+  it("connects paella to Spanish and shawarma to Middle Eastern cuisine", () => {
+    expect(implies("paella").find((row) => row.cuisine === "spanish")?.confidence)
+      .toBeCloseTo(0.72);
+    expect(implies("shawarma").find((row) => row.cuisine === "middle_eastern")?.confidence)
+      .toBeCloseTo(0.72);
   });
 
   it("leaves unspecific and noisy venue-type values without implications", () => {
