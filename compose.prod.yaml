@@ -1,0 +1,25 @@
+# Production overlay: TLS + reverse proxy in front of compose.coolify.yaml.
+# Caddy terminates HTTPS (Let's Encrypt via HTTP-01) and proxies to app:4173.
+# WebSocket upgrades pass through untouched — no config needed in Caddy.
+#
+#   docker compose -f compose.coolify.yaml -f compose.prod.yaml up -d --build
+services:
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:?set APP_DOMAIN to the public hostname}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddydata:/data
+      - caddyconfig:/config
+    depends_on:
+      app:
+        condition: service_healthy
+
+volumes:
+  caddydata:
+  caddyconfig:
