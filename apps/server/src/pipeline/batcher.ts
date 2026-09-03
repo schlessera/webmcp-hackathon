@@ -1,6 +1,9 @@
 import type { ReadyCell } from "./queue.ts";
 
-export const MATRIX_BATCH_WAIT_MS = 300;
+/** Long enough for a full place x criterion rectangle to form. At 300ms the
+ * window closed on one to three places and each partial batch still cost a
+ * whole model call. */
+export const MATRIX_BATCH_WAIT_MS = Number(process.env.MATRIX_BATCH_WAIT_MS ?? 800);
 export const MATRIX_BATCH_PLACES = 8;
 export const MATRIX_BATCH_CRITERIA = 5;
 

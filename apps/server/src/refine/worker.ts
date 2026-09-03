@@ -77,7 +77,9 @@ export const REFINE_PLAN_WATCHDOG_MS = positiveInt(
   process.env.REFINE_PLAN_WATCHDOG_MS,
   REFINE_TICK_MS * 120,
 );
-export const REFINE_PLAN_WIDTH = 32;
+/** Places submitted per plan tick. It only needs to keep the fetch pools fed,
+ * so it tracks their combined size rather than a fixed count. */
+export const REFINE_PLAN_WIDTH = positiveInt(process.env.REFINE_PLAN_WIDTH, 96);
 /**
  * Per room per hour. The live walk found the old 40 searches gone 16 seconds
  * after the first need in a 343-place room, which is not a budget, it is a
@@ -87,11 +89,11 @@ export const REFINE_PLAN_WIDTH = 32;
  */
 export const REFINE_MODEL_CALLS_PER_HOUR = positiveInt(
   process.env.REFINE_MODEL_CALLS_PER_HOUR,
-  200,
+  1_000,
 );
 export const REFINE_SEARCHES_PER_HOUR = positiveInt(
   process.env.REFINE_SEARCHES_PER_HOUR,
-  150,
+  750,
 );
 export const INTERACTIVE_MODEL_CALLS_PER_HOUR = positiveInt(
   process.env.INTERACTIVE_MODEL_CALLS_PER_HOUR,

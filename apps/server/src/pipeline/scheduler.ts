@@ -57,7 +57,9 @@ type EnqueueOptions = {
 type EnqueueListener = (item: PipelineItem) => void;
 
 const DEFAULT_PIPELINE_TIMEOUT_MS: Readonly<Record<PipelineKind, number>> = {
-  "fetch.site": 30_000,
+  // Measured proxy p50 is ~2s and the worst observed request 6.5s; thirty
+  // seconds only ever parked a slot behind a hung socket.
+  "fetch.site": 8_000,
   "fetch.asset": 30_000,
   "fetch.search": 45_000,
   "process.judge": 120_000,

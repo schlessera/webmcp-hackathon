@@ -12,7 +12,7 @@ import {
   setOutboundTransportForTests,
   type OutboundRoute,
 } from "../../apps/server/src/net/outbound.ts";
-import { MatrixBatcher } from "../../apps/server/src/pipeline/batcher.ts";
+import { MATRIX_BATCH_WAIT_MS, MatrixBatcher } from "../../apps/server/src/pipeline/batcher.ts";
 import { PipelineFrames } from "../../apps/server/src/pipeline/frames.ts";
 import { PipelinePool, createPipelinePools } from "../../apps/server/src/pipeline/pools.ts";
 import {
@@ -731,7 +731,7 @@ describe("refinement pipeline", () => {
     const background = Array.from({ length: 50 }, (_, index) => scheduler.enqueue(
       item(`sweep-${index}`, { priority: 3 }),
       async () => {
-        await new Promise((resolve) => setTimeout(resolve, 10_000));
+        await new Promise((resolve) => setTimeout(resolve, 5_000));
         return { value: index, actualRoute: "direct" as const };
       },
     ));
@@ -777,7 +777,7 @@ describe("refinement pipeline", () => {
     ]);
     expect(dispatched).toEqual([["opened:wifi", "opened:terrace"]]);
     expect(batcher.size).toBe(1);
-    await vi.advanceTimersByTimeAsync(299);
+    await vi.advanceTimersByTimeAsync(MATRIX_BATCH_WAIT_MS - 1);
     expect(dispatched).toHaveLength(1);
     await vi.advanceTimersByTimeAsync(1);
     expect(dispatched).toEqual([

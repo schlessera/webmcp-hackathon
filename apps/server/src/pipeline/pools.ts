@@ -7,7 +7,7 @@ export type PoolName =
   | "vision"
   | "image-decode";
 
-function boundedEnv(name: string, fallback: number, min = 1, max = 64): number {
+function boundedEnv(name: string, fallback: number, min = 1, max = 128): number {
   const parsed = Number(process.env[name]);
   return Number.isInteger(parsed) ? Math.max(min, Math.min(max, parsed)) : fallback;
 }
@@ -114,7 +114,10 @@ export function createPipelinePools(
 ): PipelinePools {
   const limits: Record<PoolName, number> = {
     interactive: boundedEnv("POOL_INTERACTIVE", 3),
-    proxy: boundedEnv("POOL_PROXY", 8, 8, 12),
+    // Proxied reads are I/O-bound on a remote hop with ~2s of latency each, so
+    // the pool scales far past a CPU-bound one; eight slots was throughput of
+    // roughly four pages a second for the whole room.
+    proxy: boundedEnv("POOL_PROXY", 64, 1, 128),
     direct: boundedEnv("POOL_DIRECT", 4),
     search: boundedEnv("POOL_SEARCH", 4),
     "llm-matrix": boundedEnv("POOL_LLM_MATRIX", 2),
