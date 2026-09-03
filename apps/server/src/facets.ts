@@ -172,6 +172,7 @@ export function computeFacetsBundle(
         hardness: req.hardness === "soft" ? "soft" : "hard",
         ownerId: req.owner_id,
         ...referentView(req, inputs.scope),
+        ...rangeView(req, inputs.scope),
       });
       continue;
     }
@@ -235,6 +236,58 @@ function referentView(
       kind: referent.kind,
       label,
       ...(location ? { location } : {}),
+    },
+  };
+}
+
+/** The metres a scope need reaches, or null when it is not a circle on the
+ * ground. Time bounds are circles too: the engine divides a haversine
+ * distance by a fixed speed, and rounds the minutes, so the true edge of an
+ * n-minute need sits half a minute further out than n x speed. */
+function rangeRadiusM(payload: RequirementRow["payload"]): number | null {
+  if (payload?.kind !== "scope" || typeof payload.max !== "number") return null;
+  if (payload.dimension === "radius_m") return payload.max;
+  const speed = payload.dimension === "walk_min"
+    ? TRAVEL_SPEED_M_PER_MIN.walk
+    : payload.dimension === "travel_min" && payload.mode
+      ? TRAVEL_SPEED_M_PER_MIN[payload.mode]
+      : null;
+  // Transit has no speed of its own; the engine leaves it unevaluated.
+  if (!speed) return null;
+  return (payload.max + 0.5) * speed;
+}
+
+/** The circle a distance need draws, when this viewer may see the point it is
+ * measured from. A private origin yields no range at all, never a guess. */
+function rangeView(
+  req: RequirementRow,
+  scope: ScopeState | null,
+): Pick<ActiveNeed, "range"> {
+  const radiusM = rangeRadiusM(req.payload);
+  if (radiusM === null) return {};
+  const referent = req.payload?.kind === "scope" ? req.payload.referent : undefined;
+  const center = scope?.area?.center;
+  if (!referent || referent.kind === "self") {
+    // The engine measures from the owner's own starting point, falling back
+    // to the room centre when they have none on record.
+    if (req.owner_origin && req.owner_origin_visible) {
+      return { range: { radiusM, center: req.owner_origin, participantId: req.owner_id } };
+    }
+    if (req.owner_origin && !req.owner_origin_visible) return {};
+    return center ? { range: { radiusM, center } } : {};
+  }
+  if (referent.kind === "scopeCenter") return center ? { range: { radiusM, center } } : {};
+  if (referent.kind === "point") {
+    return { range: { radiusM, center: { lat: referent.lat, lng: referent.lng } } };
+  }
+  // candidate, landmark and participant referents are already resolved per
+  // viewer: an unresolved one is missing or private, and draws nothing.
+  if (!req.referent_location) return {};
+  return {
+    range: {
+      radiusM,
+      center: req.referent_location,
+      ...(referent.kind === "participant" ? { participantId: referent.participantId } : {}),
     },
   };
 }

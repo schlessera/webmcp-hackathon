@@ -133,6 +133,9 @@ export interface RequirementRow {
   scope_hint?: { affects?: string; category?: string } | null;
   /** Server-only owner position joined at read time. Never projected. */
   owner_origin?: { lat: number; lng: number } | null;
+  /** Whether this viewer may see where the owner starts from: their own need,
+   * or an owner who shares their origin. Gates the projected range circle. */
+  owner_origin_visible?: boolean;
   /** Viewer-specific, server-only referent resolution. Never stored. */
   referent_location?: { lat: number; lng: number } | null;
   referent_label?: string;
@@ -456,6 +459,9 @@ export async function loadEligibilityInputs(
     requirements: (requirements.rows as RequirementRow[]).map((requirement) => ({
       ...requirement,
       owner_origin: origins.get(requirement.owner_id) ?? null,
+      owner_origin_visible:
+        requirement.owner_id === viewerId ||
+        participantById.get(requirement.owner_id)?.origin_shared === true,
       ...resolveReferent(requirement),
     })),
     verdicts: verdicts.rows as VerdictRow[],

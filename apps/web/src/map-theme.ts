@@ -16,6 +16,7 @@
  * | #7d6396                   | --spoke-scope     |
  * | #e9e5da                   | --spoke-surface-sunk (map plate) |
  * | #a8a291                   | --spoke-out       |
+ * | #1649a5 #a11d67 #00646b #74510b #6c2b7c | --spoke-person-1..5 |
  * | rgba(51, 65, 54, 0.55)    | --spoke-line      |
  * | #5b6158                   | --spoke-ink-soft  |
  */
@@ -32,6 +33,13 @@ export const MAP_THEME = {
   plate: "#e9e5da",
   /** Cheap snapshot places beneath the room's DOM stickers. */
   exploreDot: { color: "#a8a291", opacity: 0.55, stroke: "rgba(51, 65, 54, 0.55)" },
+  /** The circle a distance need reaches, drawn as a dashed outline only: no
+   * fill, no dimming, so it never competes with the scope ring's mask. Green
+   * when it is measured from a place, the owner's person colour when it is
+   * measured from a person. */
+  needRing: { color: "#2c6b52", width: 1.5, opacity: 0.55, dash: [2, 4] },
+  /** --spoke-person-1..5, in the order `personColor` assigns them. */
+  person: ["#1649a5", "#a11d67", "#00646b", "#74510b", "#6c2b7c"],
   /** The optional layers (SPOKES-UI "Layers"). Each is context under the
    * room, so each is drawn in the plate's own family — never in a state
    * colour, which would read as a verdict about a place (§2). */

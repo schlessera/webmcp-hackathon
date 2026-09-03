@@ -307,6 +307,15 @@ export interface ActiveNeed {
     label: string;
     location?: LatLng;
   };
+  /** The circle this need draws on the map: what it reaches, and from where.
+   * Present for a distance or time bound whose measuring point this reader
+   * may see; `participantId` names the person it is anchored on, when it is
+   * anchored on a person rather than a place. */
+  range?: {
+    radiusM: number;
+    center: LatLng;
+    participantId?: string;
+  };
 }
 
 /**

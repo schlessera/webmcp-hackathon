@@ -1,6 +1,6 @@
 {
   "toolContractVersion": "3",
-  "sha256": "1e9120c2f3befa9eb6d3e337d1be4aa2664b45779ae2f22014f934964aaeb6e7",
+  "sha256": "44d53bf0597b39caba7553cb435b3a624cc10e469d358135fc656e1aeb3bce76",
   "manifest": {
     "capabilityManifest": {
       "agreement": {
@@ -3521,6 +3521,38 @@
                     },
                     "ownerId": {
                       "type": "string"
+                    },
+                    "range": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "center": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "lat": {
+                              "type": "number"
+                            },
+                            "lng": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "lat",
+                            "lng"
+                          ],
+                          "type": "object"
+                        },
+                        "participantId": {
+                          "type": "string"
+                        },
+                        "radiusM": {
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "center",
+                        "radiusM"
+                      ],
+                      "type": "object"
                     },
                     "referent": {
                       "additionalProperties": false,

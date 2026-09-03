@@ -140,4 +140,48 @@ describe("distance referents over participant reads", () => {
     expect(peer.raw).not.toContain(String(secret.lng));
     expect(peer.raw).not.toContain("Sarah secret");
   });
+
+  it("projects the circle a distance need reaches, and only to entitled readers", async () => {
+    const room = await roomWithArea();
+    const secret = { lat: 52.507111, lng: 13.401222 };
+    const origin = await apiPost<{ ok: boolean; revision: number }>(
+      server.baseUrl, "/api/commands", room.tokens.sarah,
+      { type: "SetOrigin", input: { baseRevision: 0, position: secret, label: "Sarah range", source: "stated" } },
+    );
+    const metres = await command(room, room.tokens.sarah, origin.body.revision, `${room.roomId}_range_m`, {
+      kind: "scope", dimension: "radius_m", max: 500,
+    });
+    expect(metres.body.ok).toBe(true);
+    // A time bound is the same circle: the engine divides by a fixed speed
+    // and rounds, so 10 walking minutes reach 10.5 x 75 m.
+    const minutes = await command(room, room.tokens.sarah, metres.body.revision, `${room.roomId}_range_min`, {
+      kind: "scope", dimension: "walk_min", max: 10,
+    });
+    expect(minutes.body.ok).toBe(true);
+
+    type NeedsBody = {
+      activeNeeds: Array<{
+        id: string;
+        range?: { radiusM: number; center: { lat: number; lng: number }; participantId?: string };
+      }>;
+    };
+    const owner = await apiPost<NeedsBody>(
+      server.baseUrl, "/api/spatial/context", room.tokens.sarah, {},
+    );
+    const byId = new Map(owner.body.activeNeeds.map((need) => [need.id, need]));
+    expect(byId.get(`${room.roomId}_range_m`)!.range).toEqual({
+      radiusM: 500,
+      center: secret,
+      participantId: room.participantIds.sarah,
+    });
+    expect(byId.get(`${room.roomId}_range_min`)!.range).toMatchObject({ radiusM: 787.5 });
+
+    // A peer who may not see where Sarah starts gets no circle either — the
+    // radius alone would give her position away.
+    const peer = await apiPost<NeedsBody>(
+      server.baseUrl, "/api/spatial/context", room.tokens.org, {},
+    );
+    for (const need of peer.body.activeNeeds) expect(need.range).toBeUndefined();
+    expect(peer.raw).not.toContain(String(secret.lat));
+  });
 });

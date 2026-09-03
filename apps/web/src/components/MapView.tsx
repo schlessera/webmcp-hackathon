@@ -685,6 +685,53 @@ export function MapView({
     [center.lat, center.lng, proposedRadiusM],
   );
 
+  /* A distance need reaches a circle on the ground: draw its edge, dashed, in
+     the colour of whoever it is measured from — a person's own colour when it
+     is anchored on them, the works green when it is anchored on a place.
+     Outline only: no fill and no dimming, so several can overlap and each
+     still reads. While a brief row is held the previewed set drops the held
+     need, and its circle goes with it. */
+  const personIndex = useMemo(() => {
+    const byId = new globalThis.Map<string, number>();
+    participants.forEach((participant, index) => byId.set(participant.participantId, index));
+    return byId;
+  }, [participants]);
+  const needRings = useMemo(() => {
+    const needs = (preview ?? context).activeNeeds.filter(
+      (need) => need.active && need.range,
+    );
+    return {
+      type: "FeatureCollection" as const,
+      features: needs.map((need) => {
+        const range = need.range!;
+        /* Your own circle follows the origin you are dragging, before the
+           server has read the new position back. */
+        const anchor = range.participantId === meId && displayedOrigin
+          ? { lat: displayedOrigin.lat, lng: displayedOrigin.lng }
+          : range.center;
+        const index = range.participantId !== undefined
+          ? personIndex.get(range.participantId)
+          : undefined;
+        return {
+          ...circlePolygon(anchor, range.radiusM),
+          id: need.id,
+          properties: {
+            color: index === undefined
+              ? MAP_THEME.needRing.color
+              : MAP_THEME.person[index % MAP_THEME.person.length],
+          },
+        };
+      }),
+    };
+  }, [
+    preview,
+    context.activeNeeds,
+    personIndex,
+    meId,
+    displayedOrigin?.lat,
+    displayedOrigin?.lng,
+  ]);
+
   /* Inverse of the scope circle: the world with the search area punched out,
      so everything beyond the current range reads dimmed at 8%. */
   const outsideMask = useMemo(
@@ -2152,6 +2199,20 @@ export function MapView({
             }}
           />
         </Source>
+        {needRings.features.length > 0 && (
+          <Source id="need-rings" type="geojson" data={needRings}>
+            <Layer
+              id="need-ring-line"
+              type="line"
+              paint={{
+                "line-color": ["get", "color"],
+                "line-width": MAP_THEME.needRing.width,
+                "line-opacity": MAP_THEME.needRing.opacity,
+                "line-dasharray": [...MAP_THEME.needRing.dash],
+              }}
+            />
+          </Source>
+        )}
         {proposedRing && (
           <Source id="scope-ring-proposed" type="geojson" data={proposedRing}>
             <Layer

@@ -99,6 +99,16 @@ export interface ActiveNeed {
     label: string;
     location?: { lat: number; lng: number };
   };
+  /** The circle this need draws on the map: what it reaches, and from where.
+   * Present for a distance or time bound whose measuring point this reader
+   * may see; `participantId` names the person it is anchored on, when it is
+   * anchored on a person rather than a place. */
+  range?: {
+    radiusM: number;
+    center: { lat: number; lng: number };
+    participantId?: string;
+  };
+
 }
 
 /** A peer's private need, reduced to its effect (FACETS.md §4). Never the
