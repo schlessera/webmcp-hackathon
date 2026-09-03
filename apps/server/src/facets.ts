@@ -13,6 +13,7 @@ import {
   implies,
   normalizeCuisineTokens,
   windowLabel,
+  windowSpanText,
 } from "@webmcp-hackathon/contracts";
 import {
   classifyAll,
@@ -449,8 +450,9 @@ export function labelForRequirement(
     case "time": {
       const start = p.window?.start;
       const end = p.window?.end;
-      if (typeof start === "string" && typeof end === "string" && context) {
-        return windowLabel({ start, end }, context.timezone, context.now);
+      if (typeof start === "string" && typeof end === "string") {
+        if (context) return windowLabel({ start, end }, context.timezone, context.now);
+        return p.phrase?.trim() || `open ${windowSpanText({ start, end })}`;
       }
       return p.phrase?.trim() || "open at the requested time";
     }

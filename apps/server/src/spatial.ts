@@ -490,6 +490,8 @@ export async function inspectCandidates(
         priceLevel: r.price_level ?? (webPrice ?? null),
         hours: r.hours ?? [],
         ...(hasHoursClaim ? { openNow: current?.open ?? null } : {}),
+        ...(current?.until ? { openUntil: current.until } : {}),
+        ...(current?.nextOpen ? { nextOpen: current.nextOpen } : {}),
         attributes: mergedAttributes(
           { id: r.id as string, category: r.category as string, attributes: r.attributes ?? [] },
           enrichment,

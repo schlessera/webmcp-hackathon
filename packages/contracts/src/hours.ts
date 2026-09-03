@@ -288,14 +288,28 @@ export function openNow(
   hours: DossierHours[],
   timezone: string,
   now: Date,
-): { open: boolean; until?: string } | null {
+): { open: boolean; until?: string; nextOpen?: string } | null {
   const week = schedule(hours);
   const format = formatter(timezone);
   const local = format ? localInstant(now, format) : null;
   if (!week || !local) return null;
   const ranges = week.get(local.day) ?? [];
   let range = ranges.find((item) => local.minute >= item.start && local.minute < item.end);
-  if (!range) return { open: false };
+  if (!range) {
+    const currentDay = DAY_INDEX.get(local.day as (typeof DAY_ORDER)[number])!;
+    for (let dayOffset = 0; dayOffset <= 7; dayOffset += 1) {
+      const dayIndex = (currentDay + dayOffset) % 7;
+      const next = (week.get(DAY_ORDER[dayIndex]) ?? []).find(
+        (item) => dayOffset > 0 || item.start > local.minute,
+      );
+      if (!next) continue;
+      return {
+        open: false,
+        nextOpen: `${String(Math.floor(next.start / 60)).padStart(2, "0")}:${String(next.start % 60).padStart(2, "0")}`,
+      };
+    }
+    return { open: false };
+  }
 
   let end = range.end;
   let dayIndex = DAY_INDEX.get(local.day as (typeof DAY_ORDER)[number])!;

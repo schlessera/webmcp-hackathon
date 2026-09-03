@@ -44,13 +44,26 @@ const LABEL_TO_KEY = new Map<string, string>(
 
 type Payload = Record<string, unknown>;
 
+/** The offline command still obeys the offset-bearing wire shape. Its offset
+ * is the browser's because the fallback has no room-timezone parser. */
+function isoWithLocalOffset(date: Date): string {
+  const offsetMinutes = -date.getTimezoneOffset();
+  const sign = offsetMinutes >= 0 ? "+" : "-";
+  const absolute = Math.abs(offsetMinutes);
+  const two = (value: number) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${two(date.getMonth() + 1)}-${two(date.getDate())}`
+    + `T${two(date.getHours())}:${two(date.getMinutes())}:${two(date.getSeconds())}`
+    + `${sign}${two(Math.floor(absolute / 60))}:${two(absolute % 60)}`;
+}
+
 /**
- * Free text → a requirement payload, without an agent. Three protocol-level
+ * Free text → a requirement payload, without an agent. Four protocol-level
  * attempts, then an honest fallback:
  *   1. the text names a facet the server sent → that attribute
  *   2. it reads as money → a budget
  *   3. it reads as minutes → a walking-distance scope
- *   4. otherwise a `text` predicate, which rules nothing out and marks every
+ *   4. it is exactly "open now" → a two-hour absolute window
+ *   5. otherwise a `text` predicate, which rules nothing out and marks every
  *      place pending, because nothing about it has been checked.
  * There is no domain parsing beyond the labels the server itself supplied.
  */
@@ -86,6 +99,16 @@ export function payloadFromText(text: string, facets: Facet[]): Payload {
     if (Number.isFinite(max) && max > 0) {
       return { kind: "scope", dimension: "walk_min", max };
     }
+  }
+
+  if (t === "open now") {
+    const start = new Date();
+    const end = new Date(start.getTime() + 2 * 60 * 60 * 1000);
+    return {
+      kind: "time",
+      window: { start: isoWithLocalOffset(start), end: isoWithLocalOffset(end) },
+      phrase: text.trim(),
+    };
   }
 
   return { kind: "text", text: text.trim().slice(0, 200) };

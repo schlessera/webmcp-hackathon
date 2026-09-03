@@ -15,6 +15,7 @@ const context = {
   revision: 3,
   phase: "gathering",
   scope: { scopeId: "s", area: { kind: "circle", center: { lat: 52.5, lng: 13.4 }, radiusM: 800 }, transport: ["walk"], category: "restaurant" },
+  area: { areaId: "berlin-mitte", label: "Berlin Mitte", kind: "osm-snapshot", source: "test", dataAsOf: "2026-09-01T00:00:00Z", poolSize: 15, focusVenues: 15 },
   feasibility: { state: "feasible", eligible: 10, uncertain: 2, excluded: 3 },
   total: 15,
   matching: 10,
@@ -37,12 +38,15 @@ const context = {
   proposals: [],
 } as unknown as SpatialContextResult;
 
-function scripted(draft: unknown) {
-  setTransport(async () => ({
+function scripted(draft: unknown, inspect?: (body: Record<string, unknown>) => void) {
+  setTransport(async (body) => {
+    inspect?.(body);
+    return ({
     output: [
       { type: "message", content: [{ type: "output_text", text: JSON.stringify(draft) }] },
     ],
-  }));
+    });
+  });
 }
 
 afterEach(() => setTransport(null));
@@ -131,6 +135,116 @@ describe("say: draft → payloads", () => {
   it("an unparseable answer is unclear, never a need", async () => {
     setTransport(async () => ({ output: [{ type: "message", content: [{ type: "output_text", text: "not json" }] }] }));
     const out = await say("???", "shared", context);
+    expect(out.intent).toBe("unclear");
+    expect(out.needs).toEqual([]);
+  });
+
+  it("resolves tomorrow for lunch against the room clock as time, never text", async () => {
+    let request: Record<string, unknown> | undefined;
+    scripted({
+      intent: "need",
+      reply: null,
+      needs: [{
+        kind: "time",
+        attributeKey: null,
+        expect: null,
+        amountEur: null,
+        walkMin: null,
+        excludeValues: [],
+        includeValues: [],
+        text: null,
+        window: {
+          start: "2026-09-04T12:00:00+02:00",
+          end: "2026-09-04T14:00:00+02:00",
+        },
+        phrase: "tomorrow for lunch",
+        topic: "time",
+        gist: "tomorrow lunch",
+      }],
+    }, (body) => { request = body; });
+
+    const out = await say(
+      "open tomorrow for lunch",
+      "shared",
+      context,
+      new Date("2026-09-03T08:15:30.000Z"),
+    );
+    expect(out.needs).toHaveLength(1);
+    expect(out.needs[0].payload).toEqual({
+      kind: "time",
+      window: {
+        start: "2026-09-04T12:00:00+02:00",
+        end: "2026-09-04T14:00:00+02:00",
+      },
+      phrase: "tomorrow for lunch",
+    });
+    expect(out.needs[0].payload.kind).not.toBe("text");
+    expect(request?.instructions).toContain("Area timezone: Europe/Berlin.");
+    expect(request?.instructions).toContain("Current local date/time: 2026-09-03T10:15:30+02:00.");
+  });
+
+  it("resolves a named weekday and an explicit clock time to concrete windows", async () => {
+    const fixed = new Date("2026-09-03T08:15:30.000Z");
+    const timeNeed = (start: string, end: string, phrase: string) => ({
+      kind: "time",
+      attributeKey: null,
+      expect: null,
+      amountEur: null,
+      walkMin: null,
+      excludeValues: [],
+      includeValues: [],
+      text: null,
+      window: { start, end },
+      phrase,
+      topic: "time",
+      gist: phrase,
+    });
+    scripted({
+      intent: "need", reply: null,
+      needs: [timeNeed(
+        "2026-09-04T18:00:00+02:00",
+        "2026-09-04T21:00:00+02:00",
+        "Friday evening",
+      )],
+    });
+    expect((await say("open Friday evening", "shared", context, fixed)).needs[0].payload)
+      .toMatchObject({
+        kind: "time",
+        window: {
+          start: "2026-09-04T18:00:00+02:00",
+          end: "2026-09-04T21:00:00+02:00",
+        },
+      });
+
+    scripted({
+      intent: "need", reply: null,
+      needs: [timeNeed(
+        "2026-09-03T18:00:00+02:00",
+        "2026-09-03T20:00:00+02:00",
+        "at 7pm",
+      )],
+    });
+    expect((await say("open today at 7pm", "shared", context, fixed)).needs[0].payload)
+      .toMatchObject({
+        kind: "time",
+        window: {
+          start: "2026-09-03T18:00:00+02:00",
+          end: "2026-09-03T20:00:00+02:00",
+        },
+      });
+  });
+
+  it("drops malformed, offset-free, and inverted model windows", async () => {
+    scripted({
+      intent: "need",
+      reply: null,
+      needs: [
+        { kind: "time", window: { start: "tomorrow", end: "later" }, phrase: "tomorrow", topic: "time", gist: "tomorrow" },
+        { kind: "time", window: { start: "2026-09-04T14:00:00+02:00", end: "2026-09-04T12:00:00+02:00" }, phrase: "lunch", topic: "time", gist: "lunch" },
+        { kind: "time", window: { start: "2026-09-04T12:00:00Z", end: "2026-09-04T14:00:00Z" }, phrase: "lunch", topic: "time", gist: "lunch" },
+      ],
+    });
+    const out = await say("open tomorrow for lunch", "shared", context, new Date("2026-09-03T08:15:30.000Z"));
     expect(out.intent).toBe("unclear");
     expect(out.needs).toEqual([]);
   });

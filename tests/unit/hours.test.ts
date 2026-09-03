@@ -71,8 +71,19 @@ describe("window labels and current status", () => {
     expect(openNow(hours, "Europe/Berlin", new Date("2026-09-01T12:00:00+02:00")))
       .toEqual({ open: true, until: "23:00" });
     expect(openNow(hours, "Europe/Berlin", new Date("2026-09-01T23:30:00+02:00")))
-      .toEqual({ open: false });
+      .toEqual({ open: false, nextOpen: "11:00" });
     expect(openNow([], "Europe/Berlin", now)).toBeNull();
+  });
+
+  it("finds the next opening later today and across the weekly boundary", () => {
+    const hours: DossierHours[] = [
+      { day: "mon", open: "12:00", close: "14:00" },
+      { day: "fri", open: "18:00", close: "22:00" },
+    ];
+    expect(openNow(hours, "Europe/Berlin", new Date("2026-09-04T15:00:00+02:00")))
+      .toEqual({ open: false, nextOpen: "18:00" });
+    expect(openNow(hours, "Europe/Berlin", new Date("2026-09-04T23:00:00+02:00")))
+      .toEqual({ open: false, nextOpen: "12:00" });
   });
   it("reads a window off its own offset so no label ever shows a timestamp", () => {
     // The fallback every reader-facing label uses when no area clock is at

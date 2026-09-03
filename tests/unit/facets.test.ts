@@ -258,6 +258,15 @@ describe("activeNeeds carry the counterfactual deltas the brief rows show", () =
     expect(label({ kind: "inclusion", key: "cuisine", values: ["asian", "vietnamese"] })).toBe("only asian, vietnamese");
     expect(label({ kind: "text", text: "somewhere the kids can run" }))
       .toBe("somewhere the kids can run");
+    const timeLabel = label({
+      kind: "time",
+      window: {
+        start: "2026-09-04T12:00:00+02:00",
+        end: "2026-09-04T14:00:00+02:00",
+      },
+    });
+    expect(timeLabel).toBe("open Fri 12:00–14:00");
+    expect(timeLabel).not.toContain("2026-");
     // agent-private: the server holds no content to label.
     expect(labelForRequirement(req(null, { visibility: "agent-private" }), true))
       .toBe("your agent's condition");

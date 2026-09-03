@@ -396,6 +396,7 @@ describe("time needs over the API", () => {
       expect(dossier.ok).toBe(true);
       if (dossier.ok) {
         expect(dossier.candidates[0].openNow).toBe(true);
+        expect(dossier.candidates[0].openUntil).toBe("15:00");
         expect(dossier.candidates[1]).not.toHaveProperty("openNow");
       }
     } finally {

@@ -1,6 +1,6 @@
 {
   "toolContractVersion": "3",
-  "sha256": "31e0ab37b783b14e08a73185362ff37dd693abdb122d524738ae3ca001c76e73",
+  "sha256": "7dc885fa74fb881566331b8344901bb006a5fa22ec781c6e4d9c598f15c45758",
   "manifest": {
     "capabilityManifest": {
       "agreement": {
@@ -1644,6 +1644,9 @@
                       },
                       "type": "array"
                     },
+                    "nextOpen": {
+                      "type": "string"
+                    },
                     "openNow": {
                       "anyOf": [
                         {
@@ -1656,6 +1659,9 @@
                           "type": "boolean"
                         }
                       ]
+                    },
+                    "openUntil": {
+                      "type": "string"
                     },
                     "phone": {
                       "type": "string"

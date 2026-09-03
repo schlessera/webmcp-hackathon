@@ -198,6 +198,11 @@ export interface CandidateDossier {
   category: string;
   priceLevel: number | null;
   hours?: Array<{ day: string; open: string; close: string }>;
+  /** Current opening state and server-composed wall-clock details. Absent or
+   * null remains unknown; the page must not infer it from weekly rows. */
+  openNow?: boolean | null;
+  openUntil?: string;
+  nextOpen?: string;
   attributes: DossierAttribute[];
   mapRevision: number;
   /** Server-authored labels; the client renders them verbatim. */
