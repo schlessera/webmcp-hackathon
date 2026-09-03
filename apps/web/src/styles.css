@@ -318,7 +318,7 @@ body { overflow: hidden; }
    focused) marker above its neighbours makes every place reachable without
    moving, resizing or animating anything. */
 .map-region .maplibregl-marker:has(.marker:hover),
-.map-region .maplibregl-marker:has(.marker:focus-visible) { z-index: 6 !important; }
+.map-region .maplibregl-marker:has(.marker:focus-visible) { z-index: 20 !important; }
 
 /* The dot form. Ruled out is 8px, colourless and unbordered; a works or
    unsure place that could not fit a name keeps the mockup's dot vocabulary,

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Layer, Map, Marker, Source, type MapRef } from "@vis.gl/react-maplibre";
+import type { Map as MapLibreMap } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import "../map-worker.ts";
 import { MAP_THEME, TILE_STYLE } from "../map-theme.ts";
@@ -78,6 +79,41 @@ function displayPixelRatio(): number {
 
 function ringImageId(base: string, pixelRatio: number): string {
   return `${base}-${pixelRatio}x`;
+}
+
+function addRingImage(map: MapLibreMap, base: string, pixelRatio: number): void {
+  const id = ringImageId(base, pixelRatio);
+  if (map.hasImage(id)) return;
+  const canvas = document.createElement("canvas");
+  const busy = base === MARK_BUSY_IMAGE;
+  map.addImage(
+    id,
+    ringImage(
+      canvas,
+      (busy ? 28 : 18) * pixelRatio,
+      1.5 * pixelRatio,
+      busy
+        ? [3.5 * pixelRatio, 3 * pixelRatio]
+        : [3 * pixelRatio, 2.5 * pixelRatio],
+    ),
+    { sdf: true, pixelRatio },
+  );
+}
+
+function addRingImages(map: MapLibreMap, pixelRatio: number): void {
+  addRingImage(map, MARK_DASH_IMAGE, pixelRatio);
+  addRingImage(map, MARK_BUSY_IMAGE, pixelRatio);
+}
+
+/** Resolve any supported DPR synchronously, including after a display move. */
+function resolveRingImage(map: MapLibreMap, id: string): void {
+  for (const base of [MARK_DASH_IMAGE, MARK_BUSY_IMAGE]) {
+    const match = id.match(new RegExp(`^${base}-([1-3])x$`));
+    if (match) {
+      addRingImage(map, base, Number(match[1]));
+      return;
+    }
+  }
 }
 
 declare global {
@@ -328,13 +364,19 @@ export function MapView({
   const [ringPixelRatio, setRingPixelRatio] = useState(displayPixelRatio);
   useEffect(() => {
     let resolution: MediaQueryList | null = null;
+    const updatePixelRatio = () => {
+      const next = displayPixelRatio();
+      const map = mapRef.current?.getMap();
+      if (map) addRingImages(map, next);
+      setRingPixelRatio(next);
+    };
     const onResize = () => {
       setViewportWidth(window.innerWidth);
-      setRingPixelRatio(displayPixelRatio());
+      updatePixelRatio();
     };
     const onResolutionChange = () => {
       resolution?.removeEventListener("change", onResolutionChange);
-      setRingPixelRatio(displayPixelRatio());
+      updatePixelRatio();
       resolution = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
       resolution.addEventListener("change", onResolutionChange);
     };
@@ -535,6 +577,29 @@ export function MapView({
       }
     }
     return bestD <= TAP_REACH * TAP_REACH ? best : null;
+  };
+
+  const cardAt = (clientX: number, clientY: number): string | null => {
+    let best: { candidateId: string; zIndex: number } | null = null;
+    const cards = document.querySelectorAll<HTMLElement>(
+      '.marker[data-named="true"] .sticker-box',
+    );
+    for (const card of cards) {
+      const rect = card.getBoundingClientRect();
+      if (
+        clientX < rect.left ||
+        clientX > rect.right ||
+        clientY < rect.top ||
+        clientY > rect.bottom
+      ) continue;
+      const marker = card.closest<HTMLElement>(".marker");
+      const wrapper = marker?.closest<HTMLElement>(".maplibregl-marker");
+      const candidateId = marker?.dataset.candidateId;
+      if (!candidateId || !wrapper) continue;
+      const zIndex = Number.parseInt(getComputedStyle(wrapper).zIndex, 10) || 0;
+      if (!best || zIndex > best.zIndex) best = { candidateId, zIndex };
+    }
+    return best?.candidateId ?? null;
   };
 
   /* One proposal state per place: staged beats vetoed beats open. A veto is
@@ -1012,50 +1077,6 @@ export function MapView({
     if (!loaded) return;
     const map = mapRef.current?.getMap();
     if (!map) return;
-    const dashCanvas = document.createElement("canvas");
-    const busyCanvas = document.createElement("canvas");
-    const dashImage = ringImageId(MARK_DASH_IMAGE, ringPixelRatio);
-    const busyImage = ringImageId(MARK_BUSY_IMAGE, ringPixelRatio);
-    const resolveImage = (id: string) => {
-      if (map.hasImage(id)) return;
-      if (id === dashImage) {
-        map.addImage(
-          id,
-          ringImage(
-            dashCanvas,
-            18 * ringPixelRatio,
-            1.5 * ringPixelRatio,
-            [3 * ringPixelRatio, 2.5 * ringPixelRatio],
-          ),
-          { sdf: true, pixelRatio: ringPixelRatio },
-        );
-      } else if (id === busyImage) {
-        map.addImage(
-          id,
-          ringImage(
-            busyCanvas,
-            28 * ringPixelRatio,
-            1.5 * ringPixelRatio,
-            [3.5 * ringPixelRatio, 3 * ringPixelRatio],
-          ),
-          { sdf: true, pixelRatio: ringPixelRatio },
-        );
-      }
-    };
-    map.setMissingStyleImageResolver(resolveImage);
-    // Register through the same resolver now as well: the child layers may
-    // already have asked for their images in the map's load turn.
-    resolveImage(dashImage);
-    resolveImage(busyImage);
-    return () => {
-      map.setMissingStyleImageResolver(null);
-    };
-  }, [loaded, ringPixelRatio]);
-
-  useEffect(() => {
-    if (!loaded) return;
-    const map = mapRef.current?.getMap();
-    if (!map) return;
     // A render pass is where an updated image actually reaches the atlas, so
     // counting passes is the only way to tell a turning ring from a rAF loop
     // burning canvas work against a static map (W5).
@@ -1445,10 +1466,11 @@ export function MapView({
      a count the remaining hourly search budget cannot reach. */
   const reachableRefineQueue =
     refine && refine.queued <= refine.budgetLeft.searches ? refine.queued : 0;
+  const shownRefineQueue = refine?.paused != null ? 0 : reachableRefineQueue;
   const lookupLine =
     busyCount > 0 && busyReason?.kind !== "place"
       ? busyReason?.kind === "refine"
-        ? COPY.lookingUpMany(busyCount, reachableRefineQueue)
+        ? COPY.lookingUpMany(busyCount, shownRefineQueue)
         : busyReason?.kind === "need" && busyReason.label
           ? `checking ${busyCount} for ${busyReason.label}`
           : `checking ${busyCount} place${busyCount === 1 ? "" : "s"}`
@@ -1466,9 +1488,11 @@ export function MapView({
      quiet, under the count. Out of budget reads as paused, never as an
      error — nothing is wrong, the room is waiting its turn. */
   const refineLine = refine?.active
-    ? refine.budgetLeft.calls === 0 || refine.budgetLeft.searches === 0
+    ? refine.paused === "budget" ||
+      refine.budgetLeft.calls === 0 ||
+      refine.budgetLeft.searches === 0
       ? COPY.refinePaused
-      : COPY.refining(refine.checkedToday, statedNeeds.length, reachableRefineQueue)
+      : COPY.refining(refine.checkedToday, statedNeeds.length, shownRefineQueue)
     : null;
   const settled = committedId !== null;
   useEffect(() => {
@@ -1526,6 +1550,13 @@ export function MapView({
         mapStyle={tileStyle}
         attributionControl={{ compact: true }}
         onLoad={() => {
+          const map = mapRef.current?.getMap();
+          if (map) {
+            map.setMissingStyleImageResolver((id) => resolveRingImage(map, id));
+            // Symbol layers mount only after this handler marks the map
+            // loaded, so both DPR-specific images exist before first paint.
+            addRingImages(map, ringPixelRatio);
+          }
           fitOnce();
           setLoaded(true);
           viewportSettled();
@@ -1539,33 +1570,11 @@ export function MapView({
           // first — so this is a guard against that changing, not a live fix.
           if ((event.originalEvent.target as Element | null)?.closest?.(".maplibregl-marker")) return;
           const map = mapRef.current;
-          const box: [[number, number], [number, number]] = [
-            [event.point.x - TAP_REACH, event.point.y - TAP_REACH],
-            [event.point.x + TAP_REACH, event.point.y + TAP_REACH],
-          ];
-          const candidateFeatures = map?.queryRenderedFeatures(box, {
-            layers: ["mark-dots", "mark-dashes"],
-          }) ?? [];
-          const seenCandidateIds = new Set<string>();
-          let candidateId: string | null = null;
-          let candidateDistance = Number.POSITIVE_INFINITY;
-          for (const feature of candidateFeatures) {
-            const id =
-              typeof feature.id === "string" || typeof feature.id === "number"
-                ? String(feature.id)
-                : feature.properties?.candidateId;
-            if (typeof id !== "string" || seenCandidateIds.has(id)) continue;
-            seenCandidateIds.add(id);
-            if (feature.geometry.type !== "Point") continue;
-            const [lng, lat] = feature.geometry.coordinates as [number, number];
-            const point = map?.project([lng, lat]);
-            if (!point) continue;
-            const distance = (point.x - event.point.x) ** 2 + (point.y - event.point.y) ** 2;
-            if (distance <= TAP_REACH * TAP_REACH && distance < candidateDistance) {
-              candidateDistance = distance;
-              candidateId = id;
-            }
-          }
+          const mapRect = map?.getContainer().getBoundingClientRect();
+          const clientX = (mapRect?.left ?? 0) + event.point.x;
+          const clientY = (mapRect?.top ?? 0) + event.point.y;
+          const candidateId =
+            cardAt(clientX, clientY) ?? nearestTo(clientX, clientY);
           if (candidateId) {
             setSelectedExploreRef(null);
             dispatchSelect(candidateId);
@@ -1732,7 +1741,7 @@ export function MapView({
               "circle-opacity-transition": { duration: motion.settleMs },
             }}
           />
-          <Layer
+          {loaded && <Layer
             id="mark-dashes"
             type="symbol"
             filter={["==", ["get", "dashed"], true]}
@@ -1760,8 +1769,8 @@ export function MapView({
                 0,
               ],
             }}
-          />
-          {busy.size > 0 && (
+          />}
+          {loaded && busy.size > 0 && (
             <Layer
               id="mark-busy"
               type="symbol"
@@ -1794,7 +1803,6 @@ export function MapView({
         </Source>
         {domCandidates.map((c) => {
           const state = stateOf(c);
-          const onTable = state === "proposed" || state === "staged" || state === "vetoed";
           const viewers = viewersOf.get(c.candidateId) ?? [];
           return (
             <Marker
@@ -1804,20 +1812,28 @@ export function MapView({
               offset={collisionOffsets.get(c.candidateId) ?? [0, 0]}
               anchor="center"
               style={{
-                zIndex:
-                  state === "selected" || state === "settled" || onTable
-                    ? 5
-                    : viewers.length > 0
-                      ? 4
-                      : state === "out"
-                        ? 1
-                        : 3,
+                zIndex: named.has(c.candidateId)
+                  ? state === "selected"
+                    ? 14
+                    : state === "settled"
+                      ? 13
+                      : state === "staged"
+                        ? 12
+                        : state === "proposed"
+                          ? 11
+                          : 10
+                  : state === "out" || state === "unlikely"
+                    ? 1
+                    : state === "unsure"
+                      ? 2
+                      : 3,
               }}
             >
               <div
                 className="marker"
                 data-state={state}
                 data-named={named.has(c.candidateId)}
+                data-candidate-id={c.candidateId}
                 data-busy={busy.has(c.candidateId) || undefined}
                 data-viewers={viewers.length || undefined}
                 data-testid={`pin-${c.candidateId}`}
@@ -1832,11 +1848,12 @@ export function MapView({
                 }`}
                 onClick={(e) => {
                   e.stopPropagation();
-                  // The nearest dot wins, whatever box is on top — a name
-                  // card that happens to cover a neighbour's dot must not
-                  // swallow that neighbour's tap (§13). A tap on the card's
-                  // text, away from every dot, means the card's place.
-                  dispatchSelect(nearestTo(e.clientX, e.clientY) ?? c.candidateId);
+                  // A drawn name card owns every tap in its box, even where
+                  // it covers a nearer bare dot. Outside the card, the 44px
+                  // marker target still routes to the nearest dot (§13).
+                  dispatchSelect(
+                    cardAt(e.clientX, e.clientY) ?? nearestTo(e.clientX, e.clientY),
+                  );
                 }}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" || e.key === " ") {

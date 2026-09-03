@@ -117,6 +117,19 @@ only on `moveend` and viewport resize, never during a drag. A card must remain
 inside both sides of the map band; if neither orientation fits, draw the dot
 only.
 
+A name card always stacks above every unlabelled dot, regardless of either
+place's state. DOM marker wrappers use two explicit tiers: dot-only markers
+at 1–3 by state, and carded markers at 10+, with selected, settled, staged
+and proposed cards above the ordinary card tier. Presence badges stay inside
+their marker's tier. Hover and keyboard focus lift the whole marker above
+both tiers; stacking never changes a marker's size or position.
+
+A map tap resolves in this order: first, a DOM name card whose drawn box
+contains the point; second, the nearest DOM or GL dot within the 22px reach;
+third, an explore dot; otherwise nothing. The card owns its whole box, name
+included, even when a bare dot lies nearer or underneath it. A dot-only
+mark keeps nearest-dot routing, and keyboard selection is unchanged.
+
 > **Implementation trap.** Position on an outer wrapper, animate on an inner
 > element. An `animation` that sets `transform` will silently overwrite a
 > positioning `translate` and the sticker will jump to the anchor point.
