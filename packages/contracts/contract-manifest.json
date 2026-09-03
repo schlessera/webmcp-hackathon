@@ -1,6 +1,6 @@
 {
   "toolContractVersion": "3",
-  "sha256": "d0381d3b10bbbfb4829d7afae461258b1f3424ef164b1b1aaba8b6eaeb1f9e53",
+  "sha256": "4492973392c4ba3b6bc8cd4c3539a3d7ab50ae32db72ae4db5d95cd6f03f7f91",
   "manifest": {
     "capabilityManifest": {
       "agreement": {
@@ -242,6 +242,97 @@
         "required": [
           "baseRevision",
           "proposalId"
+        ],
+        "type": "object"
+      },
+      "ConfirmFact": {
+        "additionalProperties": false,
+        "properties": {
+          "baseRevision": {
+            "description": "Use the revision from your last sync; on sync_required, read the delta before retrying.",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "candidateId": {
+            "maxLength": 40,
+            "type": "string"
+          },
+          "criterionId": {
+            "anyOf": [
+              {
+                "const": "vegetarian-options",
+                "type": "string"
+              },
+              {
+                "const": "vegan-options",
+                "type": "string"
+              },
+              {
+                "const": "gluten-free-options",
+                "type": "string"
+              },
+              {
+                "const": "halal-options",
+                "type": "string"
+              },
+              {
+                "const": "lactose-free-options",
+                "type": "string"
+              },
+              {
+                "const": "wheelchair-accessible",
+                "type": "string"
+              },
+              {
+                "const": "outdoor-seating",
+                "type": "string"
+              },
+              {
+                "const": "dog-friendly",
+                "type": "string"
+              },
+              {
+                "const": "takeaway",
+                "type": "string"
+              },
+              {
+                "const": "delivery",
+                "type": "string"
+              },
+              {
+                "const": "price-level",
+                "type": "string"
+              },
+              {
+                "const": "cuisine",
+                "type": "string"
+              },
+              {
+                "maxLength": 42,
+                "pattern": "^q:[0-9a-f]{40}$",
+                "type": "string"
+              }
+            ]
+          },
+          "lean": {
+            "type": "boolean"
+          },
+          "note": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "sourceUrl": {
+            "format": "uri",
+            "maxLength": 300,
+            "type": "string"
+          }
+        },
+        "required": [
+          "baseRevision",
+          "candidateId",
+          "criterionId",
+          "lean"
         ],
         "type": "object"
       },
@@ -1098,6 +1189,83 @@
         ],
         "type": "object"
       },
+      "UnconfirmFact": {
+        "additionalProperties": false,
+        "properties": {
+          "baseRevision": {
+            "description": "Use the revision from your last sync; on sync_required, read the delta before retrying.",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "candidateId": {
+            "maxLength": 40,
+            "type": "string"
+          },
+          "criterionId": {
+            "anyOf": [
+              {
+                "const": "vegetarian-options",
+                "type": "string"
+              },
+              {
+                "const": "vegan-options",
+                "type": "string"
+              },
+              {
+                "const": "gluten-free-options",
+                "type": "string"
+              },
+              {
+                "const": "halal-options",
+                "type": "string"
+              },
+              {
+                "const": "lactose-free-options",
+                "type": "string"
+              },
+              {
+                "const": "wheelchair-accessible",
+                "type": "string"
+              },
+              {
+                "const": "outdoor-seating",
+                "type": "string"
+              },
+              {
+                "const": "dog-friendly",
+                "type": "string"
+              },
+              {
+                "const": "takeaway",
+                "type": "string"
+              },
+              {
+                "const": "delivery",
+                "type": "string"
+              },
+              {
+                "const": "price-level",
+                "type": "string"
+              },
+              {
+                "const": "cuisine",
+                "type": "string"
+              },
+              {
+                "maxLength": 42,
+                "pattern": "^q:[0-9a-f]{40}$",
+                "type": "string"
+              }
+            ]
+          }
+        },
+        "required": [
+          "baseRevision",
+          "candidateId",
+          "criterionId"
+        ],
+        "type": "object"
+      },
       "WithdrawRequirement": {
         "additionalProperties": false,
         "properties": {
@@ -1428,6 +1596,15 @@
                           },
                           "confidence": {
                             "type": "number"
+                          },
+                          "confirmedAt": {
+                            "type": "string"
+                          },
+                          "confirmedByName": {
+                            "type": "string"
+                          },
+                          "confirmedByParticipant": {
+                            "type": "string"
                           },
                           "key": {
                             "type": "string"
@@ -2286,6 +2463,10 @@
               },
               "reason": {
                 "anyOf": [
+                  {
+                    "const": "confirmation",
+                    "type": "string"
+                  },
                   {
                     "const": "pool",
                     "type": "string"
@@ -5507,6 +5688,102 @@
           "type": "object"
         },
         "name": "plan_arrival"
+      },
+      {
+        "annotations": {},
+        "description": "Record what you verified yourself; this is kept permanently for every room",
+        "inputSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "baseRevision": {
+              "description": "Use the revision from your last sync; on sync_required, read the delta before retrying.",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "candidateId": {
+              "maxLength": 40,
+              "type": "string"
+            },
+            "criterionId": {
+              "anyOf": [
+                {
+                  "const": "vegetarian-options",
+                  "type": "string"
+                },
+                {
+                  "const": "vegan-options",
+                  "type": "string"
+                },
+                {
+                  "const": "gluten-free-options",
+                  "type": "string"
+                },
+                {
+                  "const": "halal-options",
+                  "type": "string"
+                },
+                {
+                  "const": "lactose-free-options",
+                  "type": "string"
+                },
+                {
+                  "const": "wheelchair-accessible",
+                  "type": "string"
+                },
+                {
+                  "const": "outdoor-seating",
+                  "type": "string"
+                },
+                {
+                  "const": "dog-friendly",
+                  "type": "string"
+                },
+                {
+                  "const": "takeaway",
+                  "type": "string"
+                },
+                {
+                  "const": "delivery",
+                  "type": "string"
+                },
+                {
+                  "const": "price-level",
+                  "type": "string"
+                },
+                {
+                  "const": "cuisine",
+                  "type": "string"
+                },
+                {
+                  "maxLength": 42,
+                  "pattern": "^q:[0-9a-f]{40}$",
+                  "type": "string"
+                }
+              ]
+            },
+            "lean": {
+              "type": "boolean"
+            },
+            "note": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            "sourceUrl": {
+              "format": "uri",
+              "maxLength": 300,
+              "type": "string"
+            }
+          },
+          "required": [
+            "baseRevision",
+            "candidateId",
+            "criterionId",
+            "lean"
+          ],
+          "type": "object"
+        },
+        "name": "confirm_fact"
       },
       {
         "annotations": {},

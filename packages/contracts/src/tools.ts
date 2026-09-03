@@ -1,6 +1,7 @@
 import { Type, type TSchema } from "@sinclair/typebox";
 import {
   AttestAttributeInput,
+  ConfirmFactInput,
   ConfirmAgreementInput,
   EvaluateCandidatesInput,
   PlanArrivalInput,
@@ -17,7 +18,7 @@ import {
 
 /**
  * WebMCP tool surface — INTERACTION-AND-BINDING.md §2.3: the full static
- * 19-tool surface (9 negotiation + 10 spatial), registered once at page load.
+ * 20-tool surface (9 negotiation + 11 spatial), registered once at page load.
  * Names ≤30 chars, descriptions ≤500 chars, results ≤1.5K chars except the
  * additive 8K sync allowance. All schemas additionalProperties: false. v1
  * names carry no version suffix.
@@ -299,6 +300,13 @@ const spatialTools: ToolDefinition[] = [
       "and an optional pickup note. Available once the room has agreed on a " +
       "destination.",
     inputSchema: PlanArrivalInput,
+    annotations: {},
+  },
+  {
+    name: "confirm_fact",
+    description:
+      "Record what you verified yourself; this is kept permanently for every room",
+    inputSchema: ConfirmFactInput,
     annotations: {},
   },
   {
