@@ -1039,51 +1039,51 @@ export function applyEnrichmentAttributes<T extends AttributeLike>(
         confidence: 0.7,
       });
     }
-  // A word on the menu page is evidence, not a verdict (§8.2): a likely fact
-  // at modest confidence, so the room sees there is something to check and
-  // the engine reads the place as likely, never as in.
-  for (const key of web.menuMentions ?? []) {
-    const existing = at(key);
-    if (!existing || existing.status === "unknown") {
-      setWeb(key, { status: "likely_true", value: "mentioned on the menu", confidence: 0.6 });
+    // A word on the menu page is evidence, not a verdict (§8.2): a likely fact
+    // at modest confidence, so the room sees there is something to check and
+    // the engine reads the place as likely, never as in.
+    for (const key of web.menuMentions ?? []) {
+      const existing = at(key);
+      if (!existing || existing.status === "unknown") {
+        setWeb(key, { status: "likely_true", value: "mentioned on the menu", confidence: 0.6 });
+      }
     }
-  }
-  // What a model read off a menu picture: a guess with its confidence,
-  // capped below verified (menu-reader.ts), labelled as read, evidence kept.
-  const reading = web.menuReading;
-  if (reading?.legible) {
-    const readSource = `menu:${web.host}`;
-    for (const c of reading.claims) {
-      const existing = at(c.key);
-      if (existing && existing.status !== "unknown" && !existing.source?.startsWith("guess:")) continue;
-      const patch = {
-        status: (c.lean === "yes" ? "likely_true" : "likely_false") as string,
-        value: c.evidence ? `menu: ${c.evidence}` : "read from the menu",
-        confidence: c.confidence,
-        source: readSource,
-        observedAt: reading.readAt,
-      };
-      if (existing) Object.assign(existing, patch);
-      else out.push({ key: c.key, ...patch } as T);
+    // What a model read off a menu picture: a guess with its confidence,
+    // capped below verified (menu-reader.ts), labelled as read, evidence kept.
+    const reading = web.menuReading;
+    if (reading?.legible) {
+      const readSource = `menu:${web.host}`;
+      for (const c of reading.claims) {
+        const existing = at(c.key);
+        if (existing && existing.status !== "unknown" && !existing.source?.startsWith("guess:")) continue;
+        const patch = {
+          status: (c.lean === "yes" ? "likely_true" : "likely_false") as string,
+          value: c.evidence ? `menu: ${c.evidence}` : "read from the menu",
+          confidence: c.confidence,
+          source: readSource,
+          observedAt: reading.readAt,
+        };
+        if (existing) Object.assign(existing, patch);
+        else out.push({ key: c.key, ...patch } as T);
+      }
+      if (reading.cuisine.length && fillable(at("cuisine"))) {
+        const existing = at("cuisine");
+        const patch = { status: "likely_true", value: reading.cuisine.join(";"), confidence: 0.6, source: readSource, observedAt: reading.readAt };
+        if (existing) Object.assign(existing, patch);
+        else out.push({ key: "cuisine", ...patch } as T);
+      }
+      if (reading.priceLevel && fillable(at("price-level"))) {
+        const existing = at("price-level");
+        const patch = { status: "likely_true", value: reading.priceLevel, confidence: 0.5, source: readSource, observedAt: reading.readAt };
+        if (existing) Object.assign(existing, patch);
+        else out.push({ key: "price-level", ...patch } as T);
+      }
     }
-    if (reading.cuisine.length && fillable(at("cuisine"))) {
-      const existing = at("cuisine");
-      const patch = { status: "likely_true", value: reading.cuisine.join(";"), confidence: 0.6, source: readSource, observedAt: reading.readAt };
-      if (existing) Object.assign(existing, patch);
-      else out.push({ key: "cuisine", ...patch } as T);
+    if (web.hours?.length && (at("hours")?.status === "unknown" || at("hours")?.status === "likely_true")) {
+      // A pill, not a timetable: the first rules, capped, as published.
+      const value = web.hours.slice(0, 3).join("; ");
+      setWeb("hours", { status: "likely_true", value: value.length > 80 ? `${value.slice(0, 79)}…` : value, confidence: 0.6 });
     }
-    if (reading.priceLevel && fillable(at("price-level"))) {
-      const existing = at("price-level");
-      const patch = { status: "likely_true", value: reading.priceLevel, confidence: 0.5, source: readSource, observedAt: reading.readAt };
-      if (existing) Object.assign(existing, patch);
-      else out.push({ key: "price-level", ...patch } as T);
-    }
-  }
-  if (web.hours?.length && (at("hours")?.status === "unknown" || at("hours")?.status === "likely_true")) {
-    // A pill, not a timetable: the first rules, capped, as published.
-    const value = web.hours.slice(0, 3).join("; ");
-    setWeb("hours", { status: "likely_true", value: value.length > 80 ? `${value.slice(0, 79)}…` : value, confidence: 0.6 });
-  }
   }
 
   for (const [key, stored] of Object.entries(enrichment?.inferred ?? {})) {
