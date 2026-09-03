@@ -481,56 +481,84 @@ function correlationId(req: { headers: Record<string, unknown> }): string {
   return String(req.headers["x-correlation-id"] ?? "none");
 }
 
+/**
+ * Serialize duplicate turns for one participant and key.
+ *
+ * This used to be a session-scoped Postgres advisory lock, which meant
+ * holding a pool client for the whole turn — across a language-model call and
+ * across `submitCommand`, which needs a client of its own. Twenty concurrent
+ * turns would take every client in the pool and then wait for a twenty-first,
+ * which is the boot deadlock in a different building. The lock is process
+ * local now, and the durable idempotency row is what survives a restart, as
+ * it always was.
+ */
+const nlTurnGate = new Map<string, Promise<unknown>>();
+
 async function runIdempotentNlTurn(
   participantId: string,
   key: string,
   requestHash: string,
   work: () => Promise<unknown>,
 ): Promise<unknown> {
-  const client = await pool.connect();
-  // X3: a session advisory lock serializes duplicate turns before either can
-  // call the model or commit actions. The completed response remains durable
-  // in the existing participant-scoped idempotency table for ten minutes.
-  await client.query("SELECT pg_advisory_lock(hashtext($1), hashtext($2))", [
-    participantId,
-    key,
-  ]);
+  const gateKey = `${participantId}\u0000${key}`;
+  const queued = nlTurnGate.get(gateKey);
+  // Wait for an in-flight duplicate, then read its stored answer below.
+  if (queued) await queued.catch(() => undefined);
+  const turn = nlTurn(participantId, key, requestHash, work);
+  nlTurnGate.set(gateKey, turn);
   try {
-    await client.query(
-      `DELETE FROM command_idempotency
-        WHERE participant_id = $1 AND idempotency_key = $2 AND expires_at <= now()`,
-      [participantId, key],
-    );
-    const stored = (
-      await client.query(
-        `SELECT request_hash, response FROM command_idempotency
-          WHERE participant_id = $1 AND idempotency_key = $2`,
-        [participantId, key],
-      )
-    ).rows[0] as { request_hash: string; response: unknown } | undefined;
-    if (stored) {
-      return stored.request_hash === requestHash
-        ? stored.response
-        : invalidInput(
-            "Idempotency-Key was already used with a different natural-language turn.",
-            "Use a new key for different words or visibility.",
-          );
-    }
-    const result = await work();
-    await client.query(
-      `INSERT INTO command_idempotency
-         (participant_id, idempotency_key, request_hash, response, expires_at)
-       VALUES ($1, $2, $3, $4, now() + interval '10 minutes')`,
-      [participantId, key, requestHash, result],
-    );
-    return result;
+    return await turn;
   } finally {
-    await client.query("SELECT pg_advisory_unlock(hashtext($1), hashtext($2))", [
-      participantId,
-      key,
-    ]);
-    client.release();
+    if (nlTurnGate.get(gateKey) === turn) nlTurnGate.delete(gateKey);
   }
+}
+
+async function nlTurn(
+  participantId: string,
+  key: string,
+  requestHash: string,
+  work: () => Promise<unknown>,
+): Promise<unknown> {
+  await pool.query(
+    `DELETE FROM command_idempotency
+      WHERE participant_id = $1 AND idempotency_key = $2 AND expires_at <= now()`,
+    [participantId, key],
+  );
+  const stored = await storedTurn(participantId, key);
+  if (stored) {
+    return stored.request_hash === requestHash
+      ? stored.response
+      : invalidInput(
+          "Idempotency-Key was already used with a different natural-language turn.",
+          "Use a new key for different words or visibility.",
+        );
+  }
+  const result = await work();
+  // Another process may have finished the same turn while this one ran. The
+  // first answer stands, so this one yields to it rather than failing.
+  const inserted = await pool.query(
+    `INSERT INTO command_idempotency
+       (participant_id, idempotency_key, request_hash, response, expires_at)
+     VALUES ($1, $2, $3, $4, now() + interval '10 minutes')
+     ON CONFLICT (participant_id, idempotency_key) DO NOTHING`,
+    [participantId, key, requestHash, result],
+  );
+  if (inserted.rowCount === 1) return result;
+  const winner = await storedTurn(participantId, key);
+  return winner && winner.request_hash === requestHash ? winner.response : result;
+}
+
+async function storedTurn(
+  participantId: string,
+  key: string,
+): Promise<{ request_hash: string; response: unknown } | undefined> {
+  return (
+    await pool.query(
+      `SELECT request_hash, response FROM command_idempotency
+        WHERE participant_id = $1 AND idempotency_key = $2`,
+      [participantId, key],
+    )
+  ).rows[0] as { request_hash: string; response: unknown } | undefined;
 }
 
 /**
