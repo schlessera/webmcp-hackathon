@@ -10,7 +10,34 @@ import { config } from "../../apps/server/src/config.ts";
 export const DATABASE_URL =
   process.env.DATABASE_URL ?? "postgres://webmcp:webmcp@127.0.0.1:5432/webmcp";
 
+/** Global evidence caches are intentionally shared between production rooms,
+ * so API runs must reset them as a lane-level fixture rather than pretending
+ * room teardown owns their rows. */
+export async function resetApiCacheState(
+  queryable: Pick<pg.Pool, "query">,
+): Promise<void> {
+  await queryable.query(
+    "TRUNCATE page_cache, search_cache, matrix_cache, outbound_metadata_cache",
+  );
+}
+
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
+let serverSequence = 0;
+
+/** Give each Vitest worker a disjoint slice of the test port range. Random
+ * selection allowed two parallel suites to choose the same port; worse, a
+ * readiness probe could then succeed against the other suite's server. */
+function nextServerPort(): number {
+  const rawWorkerId = process.env.VITEST_POOL_ID ?? process.env.VITEST_WORKER_ID;
+  const parsedWorkerId = Number(rawWorkerId);
+  const workerId = Number.isSafeInteger(parsedWorkerId) && parsedWorkerId > 0
+    ? parsedWorkerId
+    : process.pid;
+  const workerLane = (workerId - 1) % 32;
+  const port = 42_000 + workerLane * 32 + serverSequence;
+  serverSequence = (serverSequence + 1) % 32;
+  return port;
+}
 
 export interface TestServer {
   baseUrl: string;
@@ -26,7 +53,7 @@ export interface TestServerOptions {
 
 /** Spawn a real server process, capturing its log output for invariant checks. */
 export async function startServer(options: TestServerOptions = {}): Promise<TestServer> {
-  const port = 42000 + Math.floor(Math.random() * 2000);
+  const port = nextServerPort();
   let captured = "";
   const child: ChildProcess = spawn(
     "node",
@@ -38,6 +65,9 @@ export async function startServer(options: TestServerOptions = {}): Promise<Test
         PORT: String(port),
         SERVE_STATIC: "1", // skip Vite middleware in API tests
         ENRICH_NETWORK: "0", // no venue or Wikidata lookups from a test server
+        // A server must opt into the global background filler. Otherwise a
+        // parallel suite can discover and mutate another suite's area rooms.
+        POOL_FILL: "0",
         LOG_LEVEL: "info",
         ...options.env,
       },

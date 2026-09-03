@@ -124,6 +124,7 @@ describe("POST /api/rooms", () => {
     // sources even with the lookup network off (ENRICH_NETWORK=0); a shared
     // cache may add web:* ones from a live server on the same database.
     const withLinks = await apiPost<{
+      revision: number;
       candidates: Array<{ candidateId: string; links?: Array<{ kind: string; label: string; url: string; source: string }> }>;
     }>(server.baseUrl, "/api/spatial/inspect", token, {
       candidateIds: context.body.candidates.slice(0, 3).map((c) => c.candidateId),
@@ -140,7 +141,10 @@ describe("POST /api/rooms", () => {
     const budget = await apiPost<{ ok: boolean }>(server.baseUrl, "/api/commands", token, {
       type: "SubmitRequirement",
       input: {
-        baseRevision: 0,
+        // Inspection may publish newly available shared enrichment before the
+        // command. Carry its current revision instead of assuming room create
+        // is the last writer in a parallel API lane.
+        baseRevision: withLinks.body.revision,
         requirementId: `req_budget_${room.roomId.replace("room_", "")}`,
         visibility: "shared",
         hardness: "hard",

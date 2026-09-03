@@ -82,7 +82,7 @@ describe("resuming many pool fills at boot", () => {
     // Boot with filling on. Every seeded room resumes; the request below has
     // to get a database client anyway.
     booted = await startServer({
-      env: { POOL_FILL_INTERVAL_MS: "10", POOL_FILL_BATCH: "50" },
+      env: { POOL_FILL: "1", POOL_FILL_INTERVAL_MS: "10", POOL_FILL_BATCH: "50" },
     });
     try {
       expect(inviteSecret).not.toBe("");

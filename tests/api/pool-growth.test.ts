@@ -102,7 +102,7 @@ async function openRoom() {
 
 beforeAll(async () => {
   server = await startServer({
-    env: { POOL_FILL_INTERVAL_MS: "75", POOL_FILL_BATCH: "50" },
+    env: { POOL_FILL: "1", POOL_FILL_INTERVAL_MS: "75", POOL_FILL_BATCH: "50" },
   });
 });
 
@@ -165,7 +165,7 @@ describe("whole-area pool growth", () => {
       await paused.stop();
 
       resumed = await startServer({
-        env: { POOL_FILL_INTERVAL_MS: "10", POOL_FILL_BATCH: "50" },
+        env: { POOL_FILL: "1", POOL_FILL_INTERVAL_MS: "10", POOL_FILL_BATCH: "50" },
       });
       await pollFor(
         async () => Number((await database.query(
@@ -295,6 +295,7 @@ describe("whole-area pool growth", () => {
       env: {
         ENRICH_NETWORK: "1",
         INFER: "0",
+        POOL_FILL: "1",
         // Small batches: the first one past the seed is all this needs, and
         // a warm-up server that fetches for the whole circle would starve the
         // suites running beside it.
