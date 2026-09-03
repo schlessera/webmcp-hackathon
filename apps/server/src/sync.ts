@@ -2,11 +2,12 @@ import {
   BUDGETS,
   CAPABILITY_MANIFEST,
   TOOL_CONTRACT_VERSION,
+  type Delta,
   type SyncSessionResponse,
 } from "@webmcp-hackathon/contracts";
 import { withTransaction } from "./db.ts";
 import type { Participant } from "./auth.ts";
-import { buildDelta, InvalidDeltaCursor } from "./delta.ts";
+import { buildDelta, DELTA_CAP, InvalidDeltaCursor } from "./delta.ts";
 import { computeEligibility, feasibilityOf } from "./eligibility.ts";
 import { outstandingFor } from "./outstanding.ts";
 import { presentIn } from "./presence.ts";
@@ -81,18 +82,26 @@ export async function syncSession(
   const outstanding = await outstandingFor(client, actor.roomId, actor.id);
 
   const firstConnection = sinceRevision === undefined && cursor === undefined;
-  let delta;
+  let delta: Delta | undefined;
   try {
-    delta = firstConnection
-      ? undefined
-      : await buildDelta(
+    if (!firstConnection) {
+      // X1: select a smaller forward page until the complete sync envelope
+      // fits. The cursor is then produced by buildDelta at the last scanned
+      // stored revision, so the first omitted revision remains fetchable.
+      for (let eventCap = DELTA_CAP; eventCap >= 1; eventCap -= 1) {
+        const candidate = await buildDelta(
           client,
           actor.roomId,
           actor.id,
           sinceRevision,
           cursor,
           Number(room.revision),
+          eventCap,
         );
+        delta = candidate;
+        if (JSON.stringify(responseFor(candidate)).length <= BUDGETS.syncResultMax) break;
+      }
+    }
   } catch (err) {
     if (!(err instanceof InvalidDeltaCursor)) throw err;
     return {
@@ -105,22 +114,43 @@ export async function syncSession(
     };
   }
 
-  const briefParts = [
-    `${feasibility.eligible} candidate${feasibility.eligible === 1 ? "" : "s"} remain eligible.`,
-  ];
-  if (delta) {
-    for (const event of delta.events.slice(0, 3)) briefParts.push(event.text);
-  } else {
-    briefParts.push(
-      `You are ${actor.displayName} (${actor.role}) in phase "${room.phase}".`,
-    );
+  function responseFor(page: typeof delta): SyncSessionResponse {
+    const briefParts = [
+      `${feasibility.eligible} candidate${feasibility.eligible === 1 ? "" : "s"} remain eligible.`,
+    ];
+    if (page) {
+      for (const event of page.events.slice(0, 3)) briefParts.push(event.text);
+    } else {
+      briefParts.push(
+        `You are ${actor.displayName} (${actor.role}) in phase "${room.phase}".`,
+      );
+    }
+    if (outstanding.length > 0) {
+      briefParts.push(
+        `${outstanding.length} decision${outstanding.length === 1 ? "" : "s"} pending for you.`,
+      );
+    }
+    const brief = briefParts.join(" ").slice(0, BUDGETS.briefMax);
+    return {
+      ok: true,
+      revision: room.revision,
+      buildId: config.buildId,
+      toolContractVersion: TOOL_CONTRACT_VERSION,
+      phase: room.phase,
+      identity: {
+        participantId: actor.id,
+        displayName: actor.displayName,
+        role: actor.role,
+      },
+      ...(firstConnection ? { manifest: CAPABILITY_MANIFEST } : {}),
+      feasibility,
+      brief,
+      ...(page ? { delta: page } : {}),
+      outstanding,
+      participants,
+      lastSyncedRevision,
+    };
   }
-  if (outstanding.length > 0) {
-    briefParts.push(
-      `${outstanding.length} decision${outstanding.length === 1 ? "" : "s"} pending for you.`,
-    );
-  }
-  const brief = briefParts.join(" ").slice(0, BUDGETS.briefMax);
 
   await client.query(
     `UPDATE participants
@@ -131,24 +161,6 @@ export async function syncSession(
     [actor.id, delta?.throughRevision ?? room.revision],
   );
 
-  return {
-    ok: true,
-    revision: room.revision,
-    buildId: config.buildId,
-    toolContractVersion: TOOL_CONTRACT_VERSION,
-    phase: room.phase,
-    identity: {
-      participantId: actor.id,
-      displayName: actor.displayName,
-      role: actor.role,
-    },
-    ...(firstConnection ? { manifest: CAPABILITY_MANIFEST } : {}),
-    feasibility,
-    brief,
-    ...(delta ? { delta } : {}),
-    outstanding,
-    participants,
-    lastSyncedRevision,
-  };
+  return responseFor(delta);
   });
 }

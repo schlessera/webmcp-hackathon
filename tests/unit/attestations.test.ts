@@ -96,6 +96,7 @@ describe("applyAttestations", () => {
 describe("attested facts and the classifier", () => {
   const candidate = (attributes: CandidateRow["attributes"]): CandidateRow => ({
     id: "c1",
+    map_revision: 0,
     name: "X",
     category: "cafe",
     price_level: null,

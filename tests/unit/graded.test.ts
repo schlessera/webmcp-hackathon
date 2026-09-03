@@ -11,7 +11,7 @@ import { graded, normalizeStatus } from "../../packages/contracts/src/status.ts"
  */
 
 const candidate = (id: string, attributes: CandidateRow["attributes"], category = "restaurant"): CandidateRow => ({
-  id, name: id, category, price_level: null, walk_min: 5, location: { lat: 52.5, lng: 13.4 }, attributes,
+  id, map_revision: 0, name: id, category, price_level: null, walk_min: 5, location: { lat: 52.5, lng: 13.4 }, attributes,
 });
 const need = (key: string, expect: "verified_true" | "verified_false" = "verified_true", id = `r_${key}`): RequirementRow => ({
   id, owner_id: "p_joe", visibility: "shared", hardness: "hard",

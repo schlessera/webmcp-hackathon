@@ -246,10 +246,15 @@ describe("agent-private tier", () => {
 
   it("verdict batch is recorded disposition-only and folds into eligibility", async () => {
     const excludedId = `place_a_${room.roomId.slice("room_test_".length)}`;
+    const screenedMapRevision = Number(
+      (
+        await room.pool.query("SELECT map_revision FROM candidates WHERE id = $1", [excludedId])
+      ).rows[0].map_revision,
+    );
     const verdicts = await command(room.tokens.joe, "EvaluateCandidates", {
       baseRevision: revision,
       verdicts: [
-        { candidateId: excludedId, verdict: "unacceptable" },
+        { candidateId: excludedId, verdict: "unacceptable", screenedMapRevision },
       ],
     });
     expect(verdicts.body.ok).toBe(true);

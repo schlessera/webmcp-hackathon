@@ -24,6 +24,9 @@
 // stricter validation of already-invalid inputs (R15/R17); it also corrected
 // the manifest by withdrawing the never-implemented meeting-points claim and
 // replaced the incomplete field mirror with generated result schemas (R16/R18).
+// Protocol fixes then added optional verdict `screenedMapRevision` and a
+// sync-specific 8K result allowance; both only add accepted input/room for
+// existing output, so TOOL_CONTRACT_VERSION remains v3 (X1/X2).
 // No callable field or tool was removed, so the additive policy keeps v3.
 export const TOOL_CONTRACT_VERSION = "3";
 

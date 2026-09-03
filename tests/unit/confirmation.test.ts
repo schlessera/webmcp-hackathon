@@ -3,6 +3,7 @@ import {
   CONFIRMATION_TTL_MS,
   consumeConfirmation,
   mintConfirmation,
+  reissueConfirmation,
 } from "../../apps/server/src/confirmation.ts";
 
 /**
@@ -96,5 +97,14 @@ describe("confirmation nonces", () => {
     const second = mintConfirmation(ROOM, ME, SUBJECT);
     expect(consumeConfirmation(ROOM, ME, SUBJECT, first.nonce)).toBe(false);
     expect(consumeConfirmation(ROOM, ME, SUBJECT, second.nonce)).toBe(true);
+  });
+
+  it("reissues the same live nonce when another tab authenticates", () => {
+    const now = 2_000_000;
+    const first = mintConfirmation(ROOM, ME, SUBJECT, now);
+    const secondTab = reissueConfirmation(ROOM, ME, SUBJECT, now + 100);
+    expect(secondTab.nonce).toBe(first.nonce);
+    expect(secondTab.expiresInMs).toBe(CONFIRMATION_TTL_MS - 100);
+    expect(consumeConfirmation(ROOM, ME, SUBJECT, first.nonce, now + 200)).toBe(true);
   });
 });

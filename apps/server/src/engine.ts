@@ -25,7 +25,6 @@ import type { Participant } from "./auth.ts";
 import {
   consumeConfirmation,
   mintConfirmation,
-  type ConfirmationGrant,
   type ConfirmationSubject,
 } from "./confirmation.ts";
 import { buildDelta } from "./delta.ts";
@@ -53,6 +52,12 @@ import {
   type CandidateSeed,
 } from "./places.ts";
 import { warmEnrichments, type RoomLookupTarget } from "./enrich/index.ts";
+import { notifyCommit } from "./commit-notifications.ts";
+export {
+  notifyCommit,
+  onCommit,
+  type CommitNotification,
+} from "./commit-notifications.ts";
 
 /**
  * The single command bus (INTERACTION-AND-BINDING.md §1 rule 4): UI gestures
@@ -68,14 +73,6 @@ const validators = new Map<CommandType, ValidateFunction>(
     ([type, schema]) => [type, ajv.compile(schema)],
   ),
 );
-
-export interface CommitNotification {
-  roomId: string;
-  revision: number;
-  storedRevisions: number[];
-  /** Nonces to hand to their owner's page sockets — realtime channel only. */
-  confirmations: Array<ConfirmationGrant & { participantId: string }>;
-}
 
 export interface CommandIdempotency {
   key: string;
@@ -128,12 +125,6 @@ async function rememberNonMutatingOutcome(
   if (inserted.rowCount === 1) return outcome;
   return (await storedIdempotencyOutcome(pool, actorId, idempotency)) ?? outcome;
 }
-type CommitListener = (n: CommitNotification) => void;
-const listeners: CommitListener[] = [];
-export function onCommit(listener: CommitListener): void {
-  listeners.push(listener);
-}
-
 interface AppendedEvent {
   type: string;
   actorId: string | null;
@@ -414,7 +405,7 @@ export async function submitCommand(
     return failure(
       "temporarily_unavailable",
       "The command could not be completed.",
-      "Retry with the same idempotency key; if it continues, resync the room.",
+      "Sync the room to check the outcome before deciding whether to try again.",
     );
   }
 
@@ -457,19 +448,6 @@ export async function submitCommand(
     warmEnrichments(pool, actor.roomId, result.warmTargets);
   }
   return result.success;
-}
-
-/** Notify realtime and held-agent listeners after an independently managed
- * transaction commits. Fact producers use the same post-commit path as the
- * command bus, so their screening requests are delivered in order too. */
-export function notifyCommit(notification: CommitNotification): void {
-  for (const listener of listeners) {
-    try {
-      listener(notification);
-    } catch (err) {
-      console.error("commit listener failed:", err);
-    }
-  }
 }
 
 async function triggerNeedLookup(
@@ -897,7 +875,14 @@ async function setRequirementActive(
 async function evaluateCandidates(
   client: pg.PoolClient,
   actor: Participant,
-  cmd: { verdicts: Array<{ candidateId: string; verdict: string; infoNeeded?: string }> },
+  cmd: {
+    verdicts: Array<{
+      candidateId: string;
+      verdict: string;
+      infoNeeded?: string;
+      screenedMapRevision?: number;
+    }>;
+  },
 ): Promise<HandlerOutcome> {
   const declared = (
     await client.query(
@@ -929,6 +914,18 @@ async function evaluateCandidates(
       "Call sync_session or get_spatial_context to refresh candidate IDs.",
     );
   }
+  const ahead = cmd.verdicts.find(
+    (v) =>
+      v.screenedMapRevision !== undefined &&
+      v.screenedMapRevision > candidateRevisions.get(v.candidateId)!,
+  );
+  if (ahead) {
+    return errorOutcome(
+      "invalid_input",
+      `screenedMapRevision ${ahead.screenedMapRevision} is ahead of candidate ${ahead.candidateId}.`,
+      "Inspect the candidate again and send the mapRevision from that dossier.",
+    );
+  }
   const room = (
     await client.query("SELECT revision FROM rooms WHERE id = $1", [actor.roomId])
   ).rows[0];
@@ -948,7 +945,10 @@ async function evaluateCandidates(
         v.verdict,
         v.infoNeeded ?? null,
         room.revision + 1,
-        candidateRevisions.get(v.candidateId),
+        // X2: never bless an old judgment with a revision read during this
+        // write. Legacy callers may omit the additive field; -1 records that
+        // verdict as already stale while preserving input compatibility.
+        v.screenedMapRevision ?? -1,
       ],
     );
   }

@@ -55,7 +55,14 @@ export function screeningPending(
   return declared.some((req) =>
     candidates.some((c) => {
       const v = verdicts.find(
-        (x) => x.owner_id === req.owner_id && x.candidate_id === c.id,
+        (x) =>
+          x.owner_id === req.owner_id &&
+          x.candidate_id === c.id &&
+          // X12: a stale verdict is unresolved for impasse purposes too;
+          // otherwise recovery could begin while re-screening is pending.
+          Number.isSafeInteger(x.screened_map_revision) &&
+          Number.isSafeInteger(c.map_revision) &&
+          x.screened_map_revision === c.map_revision,
       );
       return !v || v.verdict === "needs_info";
     }),

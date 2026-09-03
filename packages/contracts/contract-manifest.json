@@ -1,6 +1,6 @@
 {
   "toolContractVersion": "3",
-  "sha256": "ed429da50865c6a22b9f9226bd62f3acf4c00663f6427a97611c3b2dc9251302",
+  "sha256": "8a6249de73af839e6e2d815d986558b966e1ae990d6bbaaf5a1cc659f129ab61",
   "manifest": {
     "capabilityManifest": {
       "agreement": {
@@ -287,6 +287,11 @@
                       "minLength": 1,
                       "type": "string"
                     },
+                    "screenedMapRevision": {
+                      "description": "mapRevision from the inspected dossier; omission records a legacy verdict as stale.",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
                     "verdict": {
                       "anyOf": [
                         {
@@ -317,6 +322,11 @@
                       "maxLength": 100,
                       "minLength": 1,
                       "type": "string"
+                    },
+                    "screenedMapRevision": {
+                      "description": "mapRevision from the inspected dossier; omission records a legacy verdict as stale.",
+                      "minimum": 0,
+                      "type": "integer"
                     },
                     "verdict": {
                       "const": "needs_info",
@@ -4699,7 +4709,7 @@
       },
       {
         "annotations": {},
-        "description": "Return bulk screening verdicts (acceptable / unacceptable / needs_info) for candidates against your agent-private requirement. Use when your outstanding list carries an evaluation_request. Verdicts are recorded disposition-only: the room never learns your reason. Up to 10 per call.",
+        "description": "Return bulk screening verdicts (acceptable / unacceptable / needs_info) for candidates against your agent-private requirement. Use when your outstanding list carries an evaluation_request. Verdicts are recorded disposition-only: the room never learns your reason. Include each dossier's mapRevision; old revisions stay stale. Up to 10 per call.",
         "inputSchema": {
           "additionalProperties": false,
           "properties": {
@@ -4722,6 +4732,11 @@
                         "maxLength": 100,
                         "minLength": 1,
                         "type": "string"
+                      },
+                      "screenedMapRevision": {
+                        "description": "mapRevision from the inspected dossier; omission records a legacy verdict as stale.",
+                        "minimum": 0,
+                        "type": "integer"
                       },
                       "verdict": {
                         "anyOf": [
@@ -4753,6 +4768,11 @@
                         "maxLength": 100,
                         "minLength": 1,
                         "type": "string"
+                      },
+                      "screenedMapRevision": {
+                        "description": "mapRevision from the inspected dossier; omission records a legacy verdict as stale.",
+                        "minimum": 0,
+                        "type": "integer"
                       },
                       "verdict": {
                         "const": "needs_info",

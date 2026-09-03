@@ -302,16 +302,19 @@ against its private knowledge and returns bulk verdicts:
 {
   "baseRevision": 44,
   "verdicts": [
-    { "candidateId": "place_42", "verdict": "acceptable" },
-    { "candidateId": "place_17", "verdict": "unacceptable" },
+    { "candidateId": "place_42", "verdict": "acceptable", "screenedMapRevision": 8 },
+    { "candidateId": "place_17", "verdict": "unacceptable", "screenedMapRevision": 3 },
     { "candidateId": "place_29", "verdict": "needs_info",
-      "infoNeeded": "attribute:dairy-free-options" }
+      "infoNeeded": "attribute:dairy-free-options", "screenedMapRevision": 5 }
   ]
 }
 ```
 
-Verdicts are recorded as agent-private stances (disposition only). The council
-folds them into eligibility; peers see aggregate effects. Screening requests
+Verdicts are recorded as agent-private stances (disposition only), stamped with
+the dossier `mapRevision` the agent actually screened. An omitted revision is
+accepted for additive compatibility but recorded already stale; a revision
+behind the candidate remains stale and one ahead is rejected. The council
+folds only current verdicts into eligibility; peers see aggregate effects. Screening requests
 are batched (≤ ~10 candidates) and re-issued only for new or changed
 candidates, tracked by `mapRevision` on each dossier.
 
@@ -378,7 +381,11 @@ Personal agents are not daemons; they catch up on their next tool call.
   rule — see INTERACTION-AND-BINDING.md §2.2) and a state summary instead of
   a delta. This is the first-connection contract.
 - `brief` is a ≤400-character natural-language summary the agent can relay.
-- Deltas are forward pages capped at about ten projected events. A caller MUST
+- The implementation may lower a delta's event count to keep the complete
+  sync envelope within its declared allowance. It never deletes events from an
+  already-described page; the cursor resumes at the first omitted stored revision.
+- Deltas are forward pages capped at ten projected events. The server may use
+  a smaller page when the complete envelope would exceed its allowance. A caller MUST
   return `cursor` unchanged while `truncated: true`; it MUST NOT advance its
   consumed-event watermark to the room's `revision` until every page is
   consumed. `throughRevision` is the last stored revision scanned and advances
@@ -494,7 +501,7 @@ INTERACTION-AND-BINDING.md §2. Every mutation includes `baseRevision`.
 | `SyncSession { sinceRevision? }` | any | read-only projection + delta + outstanding |
 | `SubmitRequirement { requirementId?, visibility, hardness, delegation, payload? }` | owner | create or update (upsert by ID); agent-private ⇒ declaration only |
 | `WithdrawRequirement { requirementId }` | owner | requirement_withdrawn |
-| `EvaluateCandidates { verdicts[] }` | owner w/ agent-private declaration | bulk screening verdicts |
+| `EvaluateCandidates { verdicts[{…, screenedMapRevision?}] }` | owner w/ agent-private declaration | bulk screening verdicts, authoritative only at the screened dossier revision |
 | `RespondToProposal { proposalId, disposition, visibility, reason? }` | any | stance_submitted; `conditionally_accept` blocks commit until a later stance |
 | `ResolvePrivateRequest { requestId, decision, payload? }` | addressee | resolves adjustment/disclosure requests; consent outside delegated bounds requires in-page confirmation |
 | `SetReadyState { state }` | any | ready_state_changed |

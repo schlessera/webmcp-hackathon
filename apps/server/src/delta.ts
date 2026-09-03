@@ -2,7 +2,10 @@ import type pg from "pg";
 import type { Delta, ProjectedEvent } from "@webmcp-hackathon/contracts";
 import { projectEvent, type StoredEvent } from "./projection.ts";
 
-const DELTA_CAP = 10;
+// X1: sync may lower this normal page cap before encoding when the complete
+// envelope would exceed its allowance. Larger histories continue through the
+// existing opaque cursor; events are never deleted from an already-built page.
+export const DELTA_CAP = 10;
 // R1: normal reconnects page completely, but an unbounded replay must not hold
 // a room share lock or allocate without limit. Crossing this cap is explicit:
 // the caller replaces its projections from a full sync instead of skipping.
@@ -53,6 +56,7 @@ export async function buildDelta(
   sinceRevision: number | undefined,
   cursor?: string,
   currentRevision?: number,
+  projectedEventCap = DELTA_CAP,
 ): Promise<Delta> {
   const continuation = cursor ? decodeCursor(cursor, roomId, viewerId) : null;
   if (!continuation && sinceRevision === undefined) {
@@ -60,12 +64,23 @@ export async function buildDelta(
   }
   const fromRevision = continuation?.fromRevision ?? sinceRevision!;
   const afterRevision = continuation?.afterRevision ?? sinceRevision!;
-  const targetRevision = continuation?.targetRevision ?? currentRevision;
-  if (targetRevision === undefined) {
+  let roomRevision = currentRevision;
+  if (roomRevision === undefined) {
     const row = (await q.query("SELECT revision FROM rooms WHERE id = $1", [roomId])).rows[0];
     if (!row) throw new InvalidDeltaCursor("Session not found.");
-    return buildDelta(q, roomId, viewerId, sinceRevision, cursor, Number(row.revision));
+    roomRevision = Number(row.revision);
   }
+  const requestedTargetRevision = continuation?.targetRevision ?? roomRevision;
+  if (afterRevision > roomRevision) {
+    // X6: cursor and non-cursor paths enforce the same room-head boundary.
+    throw new InvalidDeltaCursor(
+      `Delta cursor revision ${afterRevision} is ahead of room revision ${roomRevision}.`,
+    );
+  }
+  // X6: the cursor is opaque but not signed. Binding prevents cross-viewer
+  // reads; clamping prevents a forged target from advancing this viewer's
+  // last-synced stamp beyond the actual room head.
+  const targetRevision = Math.min(requestedTargetRevision, roomRevision);
 
   const remaining = Number(
     (
@@ -110,7 +125,7 @@ export async function buildDelta(
     // R1: advance over omitted private events too; otherwise a page containing
     // only peer-private history could never complete.
     throughRevision = Number(row.revision);
-    if (projected.length === DELTA_CAP) break;
+    if (projected.length === projectedEventCap) break;
   }
   const truncated = throughRevision < targetRevision;
   return {

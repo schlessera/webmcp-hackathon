@@ -47,7 +47,7 @@ export type Eligibility = "eligible" | "likely" | "uncertain" | "unlikely" | "ex
 
 export interface CandidateRow {
   id: string;
-  map_revision?: number;
+  map_revision: number;
   osm_ref?: string | null;
   name: string;
   category: string;
@@ -90,7 +90,7 @@ export interface VerdictRow {
   owner_id: string;
   candidate_id: string;
   verdict: string;
-  screened_map_revision?: number;
+  screened_map_revision: number;
 }
 export interface ScopeState {
   scopeId: string;
@@ -338,6 +338,10 @@ function classify(
           v.candidate_id === candidate.id &&
           // R3: a fact revision makes every earlier private verdict stale,
           // regardless of which path produced the changed facts.
+          // X12: runtime data can still come from untyped counterfactual
+          // callers. Missing revisions are never equal-by-accident.
+          Number.isSafeInteger(v.screened_map_revision) &&
+          Number.isSafeInteger(candidate.map_revision) &&
           v.screened_map_revision === candidate.map_revision,
       );
       if (!verdict || verdict.verdict === "needs_info") {

@@ -191,6 +191,10 @@ const CandidateVerdict = Type.Union([
       candidateId: Type.String({ maxLength: 40 }),
       verdict: Type.Union([Type.Literal("acceptable"), Type.Literal("unacceptable")]),
       infoNeeded: Type.Optional(Type.String({ minLength: 1, maxLength: 100 })),
+      screenedMapRevision: Type.Optional(Type.Integer({
+        minimum: 0,
+        description: "mapRevision from the inspected dossier; omission records a legacy verdict as stale.",
+      })),
     },
     { additionalProperties: false },
   ),
@@ -199,6 +203,10 @@ const CandidateVerdict = Type.Union([
       candidateId: Type.String({ maxLength: 40 }),
       verdict: Type.Literal("needs_info"),
       infoNeeded: Type.String({ minLength: 1, maxLength: 100 }),
+      screenedMapRevision: Type.Optional(Type.Integer({
+        minimum: 0,
+        description: "mapRevision from the inspected dossier; omission records a legacy verdict as stale.",
+      })),
     },
     { additionalProperties: false },
   ),

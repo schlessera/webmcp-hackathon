@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { TOOL_CONTRACT_VERSION } from "@webmcp-hackathon/contracts";
+import { BUDGETS, TOOL_CONTRACT_VERSION } from "@webmcp-hackathon/contracts";
 import {
   apiPost,
   createTestRoom,
@@ -28,16 +28,19 @@ interface Envelope {
 let server: TestServer;
 let room: TestRoom;
 let largeRoom: TestRoom;
+let budgetRoom: TestRoom;
 
 beforeAll(async () => {
   server = await startServer();
   room = await createTestRoom(server.baseUrl);
   largeRoom = await createTestRoom(server.baseUrl);
+  budgetRoom = await createTestRoom(server.baseUrl);
 });
 
 afterAll(async () => {
   await room.cleanup();
   await largeRoom.cleanup();
+  await budgetRoom.cleanup();
   await server.stop();
 });
 
@@ -83,6 +86,34 @@ async function collectDelta(
 }
 
 describe("R1 cursor-based catch-up", () => {
+  it("pages a sync before the WebMCP budget instead of deleting delivered events", async () => {
+    await budgetRoom.pool.query(
+      `INSERT INTO events (room_id, revision, type, actor_id, visibility, payload)
+       SELECT $1, n, 'ready_state_changed', $2, 'shared',
+              jsonb_build_object('actorName', 'Alex', 'state', 'ready',
+                                 'detail', repeat('bounded detail ', 100))
+         FROM generate_series(1, 10) AS n`,
+      [budgetRoom.roomId, budgetRoom.participantIds.org],
+    );
+    await budgetRoom.pool.query("UPDATE rooms SET revision = 10 WHERE id = $1", [
+      budgetRoom.roomId,
+    ]);
+
+    const sync = await apiPost<Envelope>(
+      server.baseUrl,
+      "/api/sync",
+      budgetRoom.tokens.org,
+      { sinceRevision: 0 },
+    );
+    expect(sync.raw.length).toBeLessThanOrEqual(BUDGETS.syncResultMax);
+    expect(sync.body.delta?.truncated).toBe(true);
+    expect(sync.body.delta?.cursor).toBeTruthy();
+    expect(sync.body.delta!.events.length).toBeLessThan(10);
+    expect(sync.body.delta!.throughRevision).toBe(
+      sync.body.delta!.events.at(-1)!.revision,
+    );
+  });
+
   it("pages every authorized event once and advances across omitted private events", async () => {
     const values: unknown[] = [];
     for (let revision = 1; revision <= 30; revision += 1) {

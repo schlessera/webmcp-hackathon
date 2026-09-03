@@ -1,10 +1,16 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { EventEmitter } from "node:events";
 import type { SpatialContext } from "../../apps/web/src/spatial-types.ts";
 import { SpatialStore } from "../../apps/web/src/spatial-store.ts";
 import { hasRevisionGap, reconnectDelayMs } from "../../apps/web/src/ws-client.ts";
-import { RoomBroadcastQueue } from "../../apps/server/src/ws.ts";
+import {
+  RoomBroadcastQueue,
+  attachSocketErrorHandler,
+} from "../../apps/server/src/ws.ts";
 import { RevisionWatermarks } from "../../apps/web/src/revision-watermarks.ts";
 import { serializeToolOutput } from "../../apps/server/src/nl/tool-output.ts";
+import { BoundedSemaphore } from "../../apps/server/src/enrich/index.ts";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -63,6 +69,14 @@ describe("projection refresh revision discipline", () => {
 });
 
 describe("ordered realtime delivery", () => {
+  it("does not defer fact commits through a dynamic engine import", () => {
+    const source = readFileSync(
+      new URL("../../apps/server/src/enrich/index.ts", import.meta.url),
+      "utf8",
+    );
+    expect(source).not.toContain('await import("../engine.ts")');
+  });
+
   it("serializes a second room delivery behind a delayed first delivery", async () => {
     const releaseFirst = deferred<void>();
     const started: number[] = [];
@@ -92,7 +106,39 @@ describe("ordered realtime delivery", () => {
   });
 });
 
+describe("bounded enrichment scheduling", () => {
+  it("reserves a released slot for the queued waiter and refuses excess waiters", async () => {
+    const semaphore = new BoundedSemaphore(1, 1);
+    const release = deferred<void>();
+    const order: string[] = [];
+    const first = semaphore.use(async () => {
+      order.push("first");
+      await release.promise;
+    });
+    const second = semaphore.use(async () => {
+      order.push("second");
+    });
+    const refused = await semaphore.use(async () => {
+      order.push("barged");
+    });
+    expect(refused).toBeUndefined();
+    expect(order).toEqual(["first"]);
+    release.resolve();
+    await Promise.all([first, second]);
+    expect(order).toEqual(["first", "second"]);
+  });
+});
+
 describe("realtime reconnect backoff", () => {
+  it("handles transport error events instead of throwing from EventEmitter", () => {
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const socket = new EventEmitter();
+    attachSocketErrorHandler(socket);
+    expect(() => socket.emit("error", new Error("transport reset"))).not.toThrow();
+    expect(warning).toHaveBeenCalledWith("websocket transport error:", "transport reset");
+    warning.mockRestore();
+  });
+
   it("uses bounded jitter over an exponential delay", () => {
     expect(reconnectDelayMs(0, () => 0)).toBe(500);
     expect(reconnectDelayMs(0, () => 1)).toBe(1000);

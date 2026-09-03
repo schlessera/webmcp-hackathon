@@ -70,6 +70,30 @@ export function mintConfirmation(
   return { ...subject, nonce, expiresInMs: CONFIRMATION_TTL_MS };
 }
 
+/** Re-send a staged subject to a newly authenticated tab without revoking
+ * the credential another live tab already holds. Only a real restage calls
+ * mintConfirmation and replaces it. */
+export function reissueConfirmation(
+  roomId: string,
+  participantId: string,
+  subject: ConfirmationSubject,
+  now = Date.now(),
+): ConfirmationGrant {
+  sweep(now);
+  for (const [nonce, entry] of live) {
+    if (
+      entry.roomId === roomId &&
+      entry.participantId === participantId &&
+      entry.kind === subject.kind &&
+      entry.subjectId === subject.subjectId
+    ) {
+      // X5: reconnect/authentication is delivery, not a new stage.
+      return { ...subject, nonce, expiresInMs: entry.expiresAt - now };
+    }
+  }
+  return mintConfirmation(roomId, participantId, subject, now);
+}
+
 export function consumeConfirmation(
   roomId: string,
   participantId: string,
@@ -100,8 +124,8 @@ function sweep(now: number): void {
 
 /**
  * Everything currently staged and awaiting this participant's in-page
- * confirmation. A reconnecting page has lost whatever nonce it held, so the
- * realtime channel re-mints from this list on welcome — without it a dropped
+ * confirmation. A reconnecting page may have lost its nonce delivery, so the
+ * realtime channel re-issues from this list on welcome — without it a dropped
  * socket would wedge a staged agreement for good.
  */
 export async function pendingConfirmations(

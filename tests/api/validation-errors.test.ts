@@ -206,4 +206,36 @@ describe("actionable HTTP validation", () => {
     expect(result.body.error.code).toBe("invalid_input");
     expect(result.body.error.message).toContain("ahead of room revision");
   });
+
+  it("clamps a cursor target to the room head and rejects a cursor already past it", async () => {
+    const revision = Number(
+      (await room.pool.query("SELECT revision FROM rooms WHERE id = $1", [room.roomId])).rows[0]
+        .revision,
+    );
+    const cursor = (afterRevision: number, targetRevision: number) =>
+      `d1.${Buffer.from(JSON.stringify({
+        version: 1,
+        roomId: room.roomId,
+        viewerId: room.participantIds.org,
+        fromRevision: afterRevision,
+        afterRevision,
+        targetRevision,
+      })).toString("base64url")}`;
+
+    const clamped = await apiPost<{
+      ok: boolean;
+      delta?: { throughRevision?: number; truncated: boolean };
+    }>(server.baseUrl, "/api/sync", room.tokens.org, {
+      cursor: cursor(revision, revision + 100),
+    });
+    expect(clamped.body.ok).toBe(true);
+    expect(clamped.body.delta?.throughRevision).toBe(revision);
+    expect(clamped.body.delta?.truncated).toBe(false);
+
+    const ahead = await apiPost<Failure>(server.baseUrl, "/api/sync", room.tokens.org, {
+      cursor: cursor(revision + 1, revision + 100),
+    });
+    expect(ahead.body.error.code).toBe("invalid_input");
+    expect(ahead.body.error.message).toContain("ahead of room revision");
+  });
 });

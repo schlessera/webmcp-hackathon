@@ -9,8 +9,8 @@ import {
 import { pool } from "./db.ts";
 import { authenticateToken } from "./auth.ts";
 import { config } from "./config.ts";
-import { onCommit, type CommitNotification } from "./engine.ts";
-import { mintConfirmation, pendingConfirmations } from "./confirmation.ts";
+import { onCommit, type CommitNotification } from "./commit-notifications.ts";
+import { pendingConfirmations, reissueConfirmation } from "./confirmation.ts";
 import { projectEvent } from "./projection.ts";
 import { markClosed, markOpen, presentIn, setViewing, viewingIn } from "./presence.ts";
 import { currentLookups, onFacts, onLookupProgress } from "./enrich/progress.ts";
@@ -28,6 +28,16 @@ const connections = new Set<Connection>();
 
 const PING_INTERVAL_MS = Number(process.env.WS_PING_INTERVAL_MS ?? 30_000);
 const PONG_TIMEOUT_MS = Number(process.env.WS_PONG_TIMEOUT_MS ?? 45_000);
+
+export function attachSocketErrorHandler(socket: {
+  on(event: "error", listener: (error: Error) => void): unknown;
+}): void {
+  // X8: ws emits transport faults through EventEmitter. Having no listener
+  // turns routine abrupt disconnects into uncaught process exceptions.
+  socket.on("error", (error) => {
+    console.warn("websocket transport error:", error.message);
+  });
+}
 
 /** R10: one tail per room preserves commit order without coupling unrelated
  * rooms. A failed delivery is reported for that item but cannot poison the
@@ -70,6 +80,7 @@ export function attachWebSocket(server: Server): void {
   const wss = new WebSocketServer({ server, path: "/ws" });
 
   wss.on("connection", (socket) => {
+    attachSocketErrorHandler(socket);
     let connection: Connection | null = null;
     // R13: a half-open mobile connection never emits `close` on its own. A
     // pong deadline makes `terminate()` drive the ordinary cleanup path, so
@@ -204,13 +215,12 @@ export function attachWebSocket(server: Server): void {
           displayName: participant.displayName,
           role: participant.role,
         });
-        // A reconnecting page has lost any confirmation nonce it held, and the
-        // nonce has no other delivery route — re-mint whatever is still
-        // staged for this participant so a dropped socket cannot wedge it.
+        // A reconnecting page may have lost its nonce delivery, so re-issue
+        // whatever is still staged without invalidating another tab's copy.
         for (const subject of await pendingConfirmations(pool, participant)) {
           send(socket, {
             type: "confirmation",
-            ...mintConfirmation(participant.roomId, participant.id, subject),
+            ...reissueConfirmation(participant.roomId, participant.id, subject),
           });
         }
         // Presence: this socket learns who is here; the room learns of a

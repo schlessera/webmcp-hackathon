@@ -35,6 +35,8 @@ the shape of the job is. Models are configurable (`NL_FAST_MODEL`,
   the composer keeps its label matching and no agent card ever appears; the
   app is fully usable.
 - `POST /api/nl/say { text, scope }` — the composer, for Shared and Private.
+  The page attaches one participant-scoped idempotency key to the whole turn;
+  retries replay its completed response instead of re-running model actions.
   - `need` → `{ needs: [{ payload, topic?, gist }] }`. The **page** submits
     each through `SubmitRequirement`, so revision discipline, the `{ }`
     drawer and every server check are the same as for a typed need. The
@@ -81,6 +83,10 @@ the shape of the job is. Models are configurable (`NL_FAST_MODEL`,
   `{ "truncated": true, "omitted": { … } }` when fields or rows were left
   out. Replies remain capped at 320 characters and follow COPY.md (second
   person, no exclamation marks, no tool names).
+- Private screening submits the dossier's room revision and each candidate's
+  `mapRevision`. If facts land while the model is judging, its write receives
+  `sync_required`; the runtime does not query a fresh revision and bless the
+  old verdict.
 - A failed or partial `ask`/`act` is never reinterpreted by the composer as a
   new need. The original text stays in the input and the page offers retry,
   because an earlier action from that same turn may already be committed.

@@ -13,6 +13,11 @@ function newCorrelationId(): string {
   return `c_${crypto.randomUUID().slice(0, 12)}`;
 }
 
+/** X3: identity of one logical mutation/turn, stable across HTTP attempts. */
+export function newIdempotencyKey(): string {
+  return `i_${crypto.randomUUID()}`;
+}
+
 const notAuthenticated = {
   ok: false as const,
   error: {
@@ -32,11 +37,42 @@ const cancelled = {
   },
 };
 
+const ambiguousTransportResults = new WeakSet<object>([cancelled]);
+const retryKeys = new Map<string, string>();
+const MAX_AMBIGUOUS_OPERATIONS = 64;
+
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, item]) => `${JSON.stringify(key)}:${stableJson(item)}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "null";
+}
+
+function finishLogicalAttempt(
+  signature: string,
+  key: string,
+  result: unknown,
+): void {
+  if (result && typeof result === "object" && ambiguousTransportResults.has(result)) {
+    retryKeys.delete(signature);
+    retryKeys.set(signature, key);
+    if (retryKeys.size > MAX_AMBIGUOUS_OPERATIONS) {
+      retryKeys.delete(retryKeys.keys().next().value!);
+    }
+  } else {
+    retryKeys.delete(signature);
+  }
+}
+
 async function post(
   path: string,
   body: unknown,
   signal?: AbortSignal,
-  idempotent = false,
+  idempotencyKey?: string,
 ): Promise<unknown> {
   const token = currentToken();
   if (!token) {
@@ -54,9 +90,9 @@ async function post(
         authorization: `Bearer ${token}`,
         "x-correlation-id": correlationId,
         "x-tool-contract-version": TOOL_CONTRACT_VERSION,
-        // R6: one invocation already has a unique diagnostic identity. Reuse
-        // it as the mutation key so a transport retry cannot apply twice.
-        ...(idempotent ? { "idempotency-key": correlationId } : {}),
+        // X3: correlation IDs identify HTTP attempts; this separate key
+        // identifies the logical action and survives every retry.
+        ...(idempotencyKey ? { "idempotency-key": idempotencyKey } : {}),
       },
       body: JSON.stringify(body),
       signal,
@@ -72,16 +108,18 @@ async function post(
       return cancelled;
     }
     diagnostics.log(`<- ${path} [${correlationId}] network error`);
-    return {
+    const failure = {
       ok: false,
       error: {
         // R17: transport and JSON-decoding failures say nothing about whether
         // an ID exists; `not_found` would send an agent down the wrong path.
         code: "temporarily_unavailable",
         message: `Request failed before a result was received: ${String(err).slice(0, 120)}`,
-        recovery: "Retry once the page shows a live connection.",
+        recovery: "Wait for the live connection, then sync the room before deciding whether to try again.",
       },
     };
+    ambiguousTransportResults.add(failure);
+    return failure;
   }
 }
 
@@ -114,12 +152,18 @@ export function syncSessionRaw(
   return post("/api/sync", input === undefined ? {} : input, signal);
 }
 
-export function submitCommand(
+export async function submitCommand(
   type: string,
   input: unknown,
   signal?: AbortSignal,
+  idempotencyKey?: string,
 ): Promise<unknown> {
-  return post("/api/commands", { type, input }, signal, true);
+  const body = { type, input };
+  const signature = stableJson({ path: "/api/commands", body });
+  const key = idempotencyKey ?? retryKeys.get(signature) ?? newIdempotencyKey();
+  const result = await post("/api/commands", body, signal, key);
+  finishLogicalAttempt(signature, key, result);
+  return result;
 }
 
 /**
@@ -221,8 +265,18 @@ export async function fetchExplorePlaces(
  * the person's agent and returns a reply. `nlCondition` hands the agent a
  * condition the room never receives.
  */
-export function nlSay(text: string, scope: string): Promise<unknown> {
-  return post("/api/nl/say", { text, scope });
+export async function nlSay(
+  text: string,
+  scope: string,
+  turnIdempotencyKey?: string,
+): Promise<unknown> {
+  // X3: the whole routed/model/action loop is one side-effecting turn.
+  const body = { text, scope };
+  const signature = stableJson({ path: "/api/nl/say", body });
+  const key = turnIdempotencyKey ?? retryKeys.get(signature) ?? newIdempotencyKey();
+  const result = await post("/api/nl/say", body, undefined, key);
+  finishLogicalAttempt(signature, key, result);
+  return result;
 }
 
 export function nlCondition(text: string): Promise<unknown> {

@@ -144,6 +144,15 @@ describe("character budgets (Chrome guidance)", () => {
 });
 
 describe("contract hash and version bump policy (Gate 2)", () => {
+  it("pins the compiler that derives the committed result schemas", () => {
+    for (const path of ["../../package.json", "../../packages/contracts/package.json"]) {
+      const pkg = JSON.parse(readFileSync(new URL(path, import.meta.url), "utf8")) as {
+        devDependencies: { typescript: string };
+      };
+      expect(pkg.devDependencies.typescript, path).toMatch(/^\d+\.\d+\.\d+$/);
+    }
+  });
+
   it("committed manifest snapshot matches the live contract", async () => {
     const committed = JSON.parse(
       readFileSync(
