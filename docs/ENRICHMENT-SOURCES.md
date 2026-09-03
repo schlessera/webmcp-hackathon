@@ -151,6 +151,41 @@ awards as P166 (Michelin star Q20824563, Bib Gourmand Q16143906), the
 official site as P856, and links the Wikipedia article. CC0: storable,
 redistributable, no attribution obligation (we attribute anyway).
 
+## Images
+
+Place photos use the following precedence, with at most three candidate image
+downloads for one place:
+
+1. `image` and `wikimedia_commons` on the OpenStreetMap record;
+2. Wikidata P18, for a place whose OSM record carries a `wikidata` id;
+3. the place's own homepage: `og:image`, `twitter:image`, schema.org `image`
+   in JSON-LD or microdata, `<link rel="image_src">`, then the largest
+   dimensioned `<img>` in a bounded approximation of the page's first fold.
+
+The homepage candidates come from the same HTML response that supplies the
+other website facts. There is no second homepage request for photos. A
+Wikidata P18 or Commons file tag is resolved through the Commons `imageinfo`
+API with `extmetadata`; the image is accepted only when the metadata names a
+usable Creative Commons licence. Its actual licence and cleaned artist credit
+are retained. An image linked directly by the OSM `image` tag retains the OSM
+record as its source; the application does not invent a licence or credit the
+source did not supply.
+
+Every image fetch is server-side and passes through the website reader's same
+DNS/IP SSRF guard, manual redirect checks and robots.txt policy, with the
+project's identifying User-Agent. Inputs are capped at 6 MB and ten seconds.
+Decoded images are resized to at most 960 px wide and encoded as WebP quality
+72; results above 200 KB are rejected. A response that forbids shared caching
+or grants less than the seven-day TTL is rejected. The database stores only those WebP
+bytes, dimensions, MIME, source and source URL, source page, credit, licence,
+and fetch/expiry timestamps. Rows expire after seven days and are re-fetched;
+expired bytes are never served.
+
+The participant receives only an authenticated, same-origin `/api/places/…`
+URL. No participant IP ever reaches the place, Wikimedia Commons, or another
+third-party image host. This is the same rule as every other enrichment
+source, not a browser optimization.
+
 ## Inference: evidence-backed likely facts
 
 When the record, looked-up web facts and the small deterministic guess table

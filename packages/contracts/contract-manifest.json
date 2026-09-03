@@ -1,6 +1,6 @@
 {
   "toolContractVersion": "3",
-  "sha256": "a0728689ff4c0754cfe28a0c294831089a12b2cac6d36342ada00aebb702ac6d",
+  "sha256": "6d2213cfc5e6c731ccb326a6899bd77035d782d78e9b7bcbbd417ce4ad9853f6",
   "manifest": {
     "capabilityManifest": {
       "agreement": {
@@ -1536,6 +1536,42 @@
                       },
                       "type": "array"
                     },
+                    "images": {
+                      "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "credit": {
+                            "type": "string"
+                          },
+                          "height": {
+                            "type": "number"
+                          },
+                          "license": {
+                            "type": "string"
+                          },
+                          "pageUrl": {
+                            "type": "string"
+                          },
+                          "source": {
+                            "type": "string"
+                          },
+                          "url": {
+                            "type": "string"
+                          },
+                          "width": {
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "height",
+                          "source",
+                          "url",
+                          "width"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
                     "links": {
                       "items": {
                         "additionalProperties": false,
@@ -2678,6 +2714,9 @@
                           "type": "string"
                         }
                       ]
+                    },
+                    "imageCount": {
+                      "type": "number"
                     },
                     "location": {
                       "additionalProperties": false,

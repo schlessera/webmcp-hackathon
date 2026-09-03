@@ -51,11 +51,20 @@ export interface WebFacts {
   reservationsUrl?: string;
   deliveryUrl?: string;
   description?: string;
+  /** Candidate URLs found in this same homepage fetch. They are inputs to the
+   * server-side image cache only and are never sent to a participant. */
+  imageCandidates?: WebsiteImageCandidate[];
+}
+
+export interface WebsiteImageCandidate {
+  url: string;
+  source: "website";
+  pageUrl: string;
 }
 
 export type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
 
-const UA =
+export const ENRICH_USER_AGENT =
   "spokes-enrich/0.2 (+https://github.com/schlessera/webmcp-hackathon; reads what a venue publishes about itself)";
 const TIMEOUT_MS = 8000;
 const MAX_HTML = 1_500_000;
@@ -124,7 +133,7 @@ async function assertPublicTarget(target: URL): Promise<void> {
   }
 }
 
-async function fetchPublic(
+export async function fetchPublic(
   target: URL,
   init: RequestInit,
   fetchImpl: FetchLike,
@@ -367,6 +376,82 @@ function resolve(base: string, href: string): string | undefined {
   }
 }
 
+function imageUrl(base: string, raw: unknown): string | undefined {
+  if (typeof raw === "string") return resolve(base, decodeEntities(raw.trim()));
+  if (Array.isArray(raw)) {
+    for (const value of raw) {
+      const found = imageUrl(base, value);
+      if (found) return found;
+    }
+    return undefined;
+  }
+  if (raw && typeof raw === "object") {
+    const value = raw as Record<string, unknown>;
+    return imageUrl(base, value.url ?? value.contentUrl ?? value["@id"]);
+  }
+  return undefined;
+}
+
+/**
+ * Candidate images from one already-fetched homepage, in product precedence:
+ * Open Graph, Twitter, schema.org (JSON-LD then microdata), image_src, then
+ * the largest dimensioned image in the first bounded portion of the page.
+ */
+export function extractImageCandidates(html: string, pageUrl: string): WebsiteImageCandidate[] {
+  const candidates: string[] = [];
+  const add = (raw: unknown) => {
+    const url = imageUrl(pageUrl, raw);
+    if (url && !candidates.includes(url)) candidates.push(url);
+  };
+
+  for (const meta of html.matchAll(/<meta\b([^>]*)>/gi)) {
+    const attrs = meta[1];
+    const key = (attributeOf(attrs, "property") ?? attributeOf(attrs, "name") ?? "").toLowerCase();
+    if (key === "og:image" || key === "og:image:url") add(attributeOf(attrs, "content"));
+  }
+  for (const meta of html.matchAll(/<meta\b([^>]*)>/gi)) {
+    const attrs = meta[1];
+    const key = (attributeOf(attrs, "name") ?? attributeOf(attrs, "property") ?? "").toLowerCase();
+    if (key === "twitter:image" || key === "twitter:image:src") add(attributeOf(attrs, "content"));
+  }
+
+  for (const script of html.matchAll(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)) {
+    try {
+      for (const node of collectNodes(JSON.parse(script[1].trim()))) add(node.image);
+    } catch {
+      /* broken JSON-LD contributes no candidate */
+    }
+  }
+  for (const element of html.matchAll(/<(?:meta|link|img)\b([^>]*\bitemprop\s*=\s*(?:["'][^"']*\bimage\b[^"']*["']|image\b)[^>]*)>/gi)) {
+    add(
+      attributeOf(element[1], "content") ??
+      attributeOf(element[1], "href") ??
+      attributeOf(element[1], "src"),
+    );
+  }
+  for (const link of html.matchAll(/<link\b([^>]*)>/gi)) {
+    const rel = (attributeOf(link[1], "rel") ?? "").toLowerCase().split(/\s+/);
+    if (rel.includes("image_src")) add(attributeOf(link[1], "href"));
+  }
+
+  // "Above the fold" cannot be measured without running venue JavaScript.
+  // Bound the approximation to the first 256 KiB and first 40 image tags.
+  let largest: { raw: string; area: number } | undefined;
+  let seen = 0;
+  for (const img of html.slice(0, 256_000).matchAll(/<img\b([^>]*)>/gi)) {
+    if (++seen > 40) break;
+    const raw = attributeOf(img[1], "src");
+    if (!raw) continue;
+    const width = Number.parseInt(attributeOf(img[1], "width") ?? "0", 10);
+    const height = Number.parseInt(attributeOf(img[1], "height") ?? "0", 10);
+    const area = Math.max(1, width) * Math.max(1, height);
+    if (!largest || area > largest.area) largest = { raw, area };
+  }
+  if (largest) add(largest.raw);
+
+  return candidates.slice(0, 12).map((url) => ({ url, source: "website", pageUrl }));
+}
+
 /** `\b` is ASCII-only in JavaScript: "Menü" never ends on a word boundary.
  * These use letter/number look-arounds instead. */
 const word = (alternatives: string) =>
@@ -545,17 +630,19 @@ export function parseWebsite(html: string, url: string, fetchedAt: string): WebF
   if (!facts.reservationsUrl) facts.reservationsUrl = pickPlatform(anchors, url, RESERVATION_HOSTS);
   const delivery = pickPlatform(anchors, url, DELIVERY_HOSTS);
   if (delivery) facts.deliveryUrl = delivery;
+  const imageCandidates = extractImageCandidates(html, url);
+  if (imageCandidates.length) facts.imageCandidates = imageCandidates;
   return facts;
 }
 
 // --- fetching -----------------------------------------------------------------
 
-const headers = { "user-agent": UA, accept: "text/html,application/xhtml+xml,application/pdf;q=0.5" };
+const headers = { "user-agent": ENRICH_USER_AGENT, accept: "text/html,application/xhtml+xml,application/pdf;q=0.5" };
 
-async function fetchAllowed(target: URL, fetchImpl: FetchLike): Promise<boolean> {
+export async function fetchAllowed(target: URL, fetchImpl: FetchLike, timeoutMs = TIMEOUT_MS): Promise<boolean> {
   const robots = await fetchPublic(new URL("/robots.txt", target.origin), {
     headers,
-    signal: AbortSignal.timeout(TIMEOUT_MS),
+    signal: AbortSignal.timeout(timeoutMs),
   }, fetchImpl).catch(() => null);
   if (!robots || !robots.ok) return true;
   const text = (await robots.text()).slice(0, 100_000);

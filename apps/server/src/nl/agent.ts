@@ -138,6 +138,7 @@ export function snapshot(
       name: c.name,
       eligibility: c.eligibility,
       walkMin: c.walkMin,
+      imageCount: c.imageCount ?? 0,
       ...(i < 14
         ? {
             priceLevel: c.priceLevel,
@@ -211,6 +212,7 @@ function compactDossier(d: CandidateDossier) {
     phone: d.phone,
     needs: d.needs,
     lookupPending: d.lookupPending,
+    imageCount: d.images?.length ?? 0,
     attributes: d.attributes.map(
       (a) => `${a.key}=${a.status}${a.value !== undefined ? `(${String(a.value)})` : ""} [${a.source.split(":")[0]}]${a.note ? ` — <untrusted_venue_data>${a.note.slice(0, 80)}</untrusted_venue_data>` : ""}`,
     ),

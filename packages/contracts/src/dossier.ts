@@ -123,6 +123,8 @@ export const KEPT_TAGS: readonly string[] = [
   "phone",
   "contact:phone",
   "description",
+  "image",
+  "wikimedia_commons",
   "wikidata",
   "brand",
   "brand:wikidata",
@@ -265,6 +267,10 @@ export interface DossierExtras {
   /** For the enrichment layer (apps/server/src/enrich): where to look. */
   website?: string;
   wikidata?: string;
+  /** Image sources carried by the OSM record. Kept separate from browser
+   * URLs: the server resolves, downloads and serves them itself. */
+  image?: string;
+  wikimediaCommons?: string;
   address?: string;
   phone?: string;
 }
@@ -343,6 +349,8 @@ export function dossierFromTags(
         : {}),
       ...(website ? { website } : {}),
       ...(tags.wikidata ? { wikidata: tags.wikidata } : {}),
+      ...(tags.image ? { image: tags.image } : {}),
+      ...(tags.wikimedia_commons ? { wikimediaCommons: tags.wikimedia_commons } : {}),
       ...(address ? { address } : {}),
       ...(phone ? { phone: phone.slice(0, 80) } : {}),
     },

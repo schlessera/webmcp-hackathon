@@ -65,12 +65,18 @@ export async function insertCandidateSeeds(
 export function warmTargetsFor(seeds: CandidateSeed[]): RoomLookupTarget[] {
   return seeds.flatMap((seed) => {
     const extras = seed.extras;
-    return seed.osmRef && (extras?.website || extras?.wikidata)
+    return seed.osmRef && (
+      extras?.website || extras?.wikidata || extras?.image || extras?.wikimediaCommons
+    )
       ? [{
           candidateId: seed.id,
           osmRef: seed.osmRef,
           ...(extras.website ? { website: extras.website } : {}),
           ...(extras.wikidata ? { wikidata: extras.wikidata } : {}),
+          ...(extras.image ? { image: extras.image } : {}),
+          ...(extras.wikimediaCommons
+            ? { wikimediaCommons: extras.wikimediaCommons }
+            : {}),
         }]
       : [];
   });

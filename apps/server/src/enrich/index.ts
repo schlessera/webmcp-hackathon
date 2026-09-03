@@ -17,7 +17,17 @@ import {
   type WebsiteFetchResult,
   type WebsiteTransientText,
 } from "./website.ts";
-import { fetchWikidataFacts, type WikiFacts } from "./wikidata.ts";
+import {
+  fetchWikidataFacts,
+  resolveCommonsImage,
+  type WikiFacts,
+} from "./wikidata.ts";
+import {
+  imageRefreshDue,
+  loadImageVersions,
+  refreshPlaceImages,
+  type ImageCandidate,
+} from "./images.ts";
 import { menuReaderEnabled, readMenu } from "./menu-reader.ts";
 import {
   applyInferredAttributes,
@@ -66,6 +76,7 @@ export interface Enrichment {
   inferred?: Record<string, StoredCriterionInference>;
   inferredAt?: string | null;
   error: string | null;
+  imageExpiresAt?: string | null;
   providerStatus?: {
     website: ProviderFetchState;
     wikidata: ProviderFetchState;
@@ -101,6 +112,8 @@ export interface LookupTarget {
   osmRef: string;
   website?: string;
   wikidata?: string;
+  image?: string;
+  wikimediaCommons?: string;
 }
 
 /** A successful lookup is good for a week; a failed one is retried after an hour. */
@@ -165,6 +178,7 @@ interface Row {
   wikidata_fetched_at: Date | null;
   wikidata_expires_at: Date | null;
   wikidata_error: string | null;
+  image_expires_at: Date | null;
 }
 
 const stateOf = (
@@ -195,6 +209,7 @@ const rowToEnrichment = (r: Row): Enrichment => {
     inferred,
     inferredAt: r.inferred_at?.toISOString() ?? null,
     error: r.error,
+    imageExpiresAt: r.image_expires_at?.toISOString() ?? null,
     providerStatus: {
       website: stateOf(
         r.website_status,
@@ -293,6 +308,70 @@ function dueProviders(target: LookupTarget, cached: Enrichment | undefined, forc
     website: Boolean(target.website) && due(cached?.providerStatus?.website, now),
     wikidata: Boolean(target.wikidata) && due(cached?.providerStatus?.wikidata, now),
   };
+}
+
+const hasLookupSource = (target: LookupTarget): boolean =>
+  Boolean(
+    target.website || target.wikidata || target.image || target.wikimediaCommons,
+  );
+
+function commonsFilename(raw: string | undefined): string | undefined {
+  if (!raw) return undefined;
+  if (/^(?:File:)?[^/]+\.(?:jpe?g|png|webp|gif|tiff?|svg)$/i.test(raw.trim())) {
+    return raw.trim().replace(/^File:/i, "");
+  }
+  try {
+    const url = new URL(raw);
+    if (url.hostname !== "commons.wikimedia.org") return undefined;
+    const title = decodeURIComponent(url.pathname.split("/").pop() ?? "");
+    return title.replace(/^File:/i, "") || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function imageCandidatesFor(
+  target: LookupTarget,
+  enrichment: Enrichment | undefined,
+): Promise<ImageCandidate[]> {
+  const pageUrl = `https://www.openstreetmap.org/${target.osmRef}`;
+  const out: ImageCandidate[] = [];
+  const osmImageFile = commonsFilename(target.image);
+  if (osmImageFile) {
+    const image = await resolveCommonsImage(osmImageFile, "osm:image", fetchImpl);
+    if (image) out.push(image);
+  } else if (target.image) {
+    try {
+      const url = new URL(target.image.split(";")[0].trim());
+      if (url.protocol === "http:" || url.protocol === "https:") {
+        out.push({ url: url.toString(), source: "osm:image", pageUrl });
+      }
+    } catch {
+      /* an unresolvable tag contributes no candidate */
+    }
+  }
+  const commonsFile = commonsFilename(target.wikimediaCommons);
+  if (commonsFile) {
+    const image = await resolveCommonsImage(
+      commonsFile,
+      "osm:wikimedia_commons",
+      fetchImpl,
+    );
+    if (image) out.push(image);
+  }
+  if (enrichment?.wikidata?.image) out.push(enrichment.wikidata.image);
+  else if (enrichment?.wikidata?.commonsFile) {
+    const image = await resolveCommonsImage(
+      enrichment.wikidata.commonsFile,
+      `wikidata:${enrichment.wikidata.id}`,
+      fetchImpl,
+    );
+    if (image) out.push(image);
+  }
+  for (const candidate of enrichment?.website?.imageCandidates ?? []) {
+    out.push(candidate);
+  }
+  return [...new Map(out.map((candidate) => [candidate.url, candidate])).values()];
 }
 
 async function acquireLease(db: pg.Pool, osmRef: string, owner: string): Promise<boolean> {
@@ -399,7 +478,12 @@ export interface LookupPass {
 
 async function lookup(db: pg.Pool, target: LookupTarget, force = false): Promise<LookupPass> {
   const initial = (await loadCached(db, [target.osmRef])).get(target.osmRef);
-  if (!Object.values(dueProviders(target, initial, force)).some(Boolean)) {
+  const initialImagesDue = await imageRefreshDue(
+    db,
+    target.osmRef,
+    force ? FORCE_STALE_MS : undefined,
+  );
+  if (!Object.values(dueProviders(target, initial, force)).some(Boolean) && !initialImagesDue) {
     return { enrichment: initial ?? null };
   }
 
@@ -407,7 +491,12 @@ async function lookup(db: pg.Pool, target: LookupTarget, force = false): Promise
   // never consume lease lifetime while another lookup owns all network slots.
   const completed = await lookupSlots.use(async () => {
     const beforeLease = (await loadCached(db, [target.osmRef])).get(target.osmRef);
-    if (!Object.values(dueProviders(target, beforeLease, force)).some(Boolean)) {
+    const beforeLeaseImagesDue = await imageRefreshDue(
+      db,
+      target.osmRef,
+      force ? FORCE_STALE_MS : undefined,
+    );
+    if (!Object.values(dueProviders(target, beforeLease, force)).some(Boolean) && !beforeLeaseImagesDue) {
       return { enrichment: beforeLease ?? null };
     }
     const owner = randomUUID();
@@ -419,7 +508,12 @@ async function lookup(db: pg.Pool, target: LookupTarget, force = false): Promise
     try {
       const current = (await loadCached(db, [target.osmRef])).get(target.osmRef);
       const attempted = dueProviders(target, current, force);
-      if (!attempted.website && !attempted.wikidata) {
+      const attemptedImages = attempted.website || attempted.wikidata || await imageRefreshDue(
+        db,
+        target.osmRef,
+        force ? FORCE_STALE_MS : undefined,
+      );
+      if (!attempted.website && !attempted.wikidata && !attemptedImages) {
         return { enrichment: current ?? null };
       }
 
@@ -444,6 +538,15 @@ async function lookup(db: pg.Pool, target: LookupTarget, force = false): Promise
         }
       }
       await persistProviderResults(db, target, owner, attempted, site, wiki);
+      const refreshed = (await loadCached(db, [target.osmRef])).get(target.osmRef);
+      if (attemptedImages) {
+        await refreshPlaceImages(
+          db,
+          target.osmRef,
+          await imageCandidatesFor(target, refreshed),
+          fetchImpl,
+        );
+      }
       return {
         enrichment: (await loadCached(db, [target.osmRef])).get(target.osmRef) ?? null,
         ...(site.pageText ? { pageText: site.pageText } : {}),
@@ -477,11 +580,18 @@ export async function ensureEnrichments(
   targets: LookupTarget[],
   waitMs: number,
 ): Promise<Map<string, Enrichment>> {
-  const wanted = targets.filter((t) => t.website || t.wikidata);
+  const wanted = targets.filter(hasLookupSource);
   const found = await loadCached(db, wanted.map((t) => t.osmRef));
-  const stale = wanted.filter((target) =>
-    Object.values(dueProviders(target, found.get(target.osmRef))).some(Boolean),
-  );
+  const stale = (
+    await Promise.all(
+      wanted.map(async (target) =>
+        Object.values(dueProviders(target, found.get(target.osmRef))).some(Boolean) ||
+        await imageRefreshDue(db, target.osmRef)
+          ? target
+          : null,
+      ),
+    )
+  ).filter((target): target is LookupTarget => target !== null);
   if (stale.length === 0) return found;
 
   const jobs = stale.map((target) => lookup(db, target));
@@ -743,7 +853,7 @@ export function lookupNow(
     ...new Map(
       targets
         .filter(
-          (target) => target.osmRef && (target.website || target.wikidata || inferenceEnabled()),
+          (target) => target.osmRef && (hasLookupSource(target) || inferenceEnabled()),
         )
         .map((target) => [target.candidateId, target]),
     ).values(),
@@ -811,11 +921,11 @@ async function runLookupNow(
   ).rows as LookupCandidateRow[];
   const actionable = rows.filter((row) => {
     const target = targetById.get(row.id);
-    return Boolean(row.osm_ref && (target?.website || target?.wikidata || inferenceEnabled()));
+    return Boolean(row.osm_ref && (target && hasLookupSource(target) || inferenceEnabled()));
   });
   if (actionable.length === 0) return [];
 
-  const [attestations, requirementRows, initialCache] = await Promise.all([
+  const [attestations, requirementRows, initialCache, initialImageVersions] = await Promise.all([
     loadAttestations(pool, roomId),
     // Shared and application-private payloads may reach the server-side model:
     // that is application-private's tier contract. Agent-private content stays
@@ -828,6 +938,7 @@ async function runLookupNow(
       [roomId],
     ),
     loadCached(pool, actionable.map((row) => row.osm_ref!).filter(Boolean)),
+    loadImageVersions(pool, actionable.map((row) => row.osm_ref!).filter(Boolean)),
   ]);
   const activeCriteria = new Map<string, Criterion>();
   for (const criterion of options.criteria ?? []) activeCriteria.set(criterion.id, criterion);
@@ -1004,7 +1115,23 @@ async function runLookupNow(
   if (changed.length > 0) {
     await publishInferenceChanges(pool, roomId, changed, inferenceChanged ? "inference" : "lookup");
   }
-  return changed;
+  const finalImageVersions = await loadImageVersions(
+    pool,
+    actionable.map((row) => row.osm_ref!).filter(Boolean),
+  );
+  const imageChanged = actionable.flatMap((row) =>
+    initialImageVersions.get(row.osm_ref!) !== finalImageVersions.get(row.osm_ref!)
+      ? [row.id]
+      : [],
+  );
+  const attributeChanged = new Set(changed);
+  const imageOnly = imageChanged.filter((candidateId) => !attributeChanged.has(candidateId));
+  if (imageOnly.length > 0) {
+    // An image does not change eligibility or invalidate private screening,
+    // so it needs a facts frame but no room/map revision bump.
+    publishFacts(roomId, { type: "facts", candidateIds: imageOnly, reason: "lookup" });
+  }
+  return [...new Set([...changed, ...imageChanged])];
 }
 
 /** Defense in depth for callers/tests that supply rows without the SQL gate. */
@@ -1270,12 +1397,21 @@ export function enrichmentView(
 /** What to look up for a candidate row: its site and its Wikidata id. */
 export function lookupTargetOf(row: {
   osm_ref?: string | null;
-  extras?: { website?: string; wikidata?: string } | null;
+  extras?: {
+    website?: string;
+    wikidata?: string;
+    image?: string;
+    wikimediaCommons?: string;
+  } | null;
 }): LookupTarget | null {
   if (!row.osm_ref) return null;
   return {
     osmRef: row.osm_ref,
     ...(row.extras?.website ? { website: row.extras.website } : {}),
     ...(row.extras?.wikidata ? { wikidata: row.extras.wikidata } : {}),
+    ...(row.extras?.image ? { image: row.extras.image } : {}),
+    ...(row.extras?.wikimediaCommons
+      ? { wikimediaCommons: row.extras.wikimediaCommons }
+      : {}),
   };
 }
