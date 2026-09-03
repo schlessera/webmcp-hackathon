@@ -88,6 +88,9 @@ export type StoredCriterionInference =
   | {
       omitted: true;
       observedAt: string;
+      /** Durable search-leg accounting. Absent for a local-matrix abstention. */
+      searchDay?: string;
+      searchAttempts?: number;
     };
 
 export interface ProviderFetchState {
@@ -110,6 +113,7 @@ const TTL_INFER_MS = 7 * 24 * 60 * 60 * 1000;
 const TTL_OMITTED_MS = 24 * 60 * 60 * 1000;
 export const INFERENCE_PRUNE_DAYS = 30;
 export const MAX_QUESTION_INFERENCES = 64;
+export const SEARCH_ATTEMPT_CAP = 3;
 const WARM_CONCURRENCY = 4;
 export const ON_DEMAND_CONCURRENCY = 4;
 export const ON_DEMAND_MAX_WAITERS = 32;
@@ -632,6 +636,8 @@ export interface InferenceBatchWrite {
   claims: EvaluatedInference[];
   /** Criterion ids returned as validated claims or explicit abstentions. */
   answeredCriterionIds: string[];
+  /** Cells for which an outbound search leg was actually spent. */
+  searchedCriterionIds?: string[];
   observedAt: string;
 }
 
@@ -642,7 +648,10 @@ export async function saveInferences(
   writes: InferenceBatchWrite[],
 ): Promise<void> {
   const rows = writes.filter(
-    (write) => write.claims.length > 0 || write.answeredCriterionIds.length > 0,
+    (write) =>
+      write.claims.length > 0 ||
+      write.answeredCriterionIds.length > 0 ||
+      (write.searchedCriterionIds?.length ?? 0) > 0,
   );
   if (rows.length === 0) return;
   const refs: string[] = [];
@@ -651,6 +660,7 @@ export async function saveInferences(
   for (const write of rows) {
     const claimed = new Map(write.claims.map((claim) => [claim.criterionId, claim]));
     const answered = new Set(write.answeredCriterionIds);
+    const searched = new Set(write.searchedCriterionIds ?? []);
     const inferred: Record<string, StoredCriterionInference> = {};
     for (const criterion of write.criteria) {
       const key = criterion.id;
@@ -670,10 +680,13 @@ export async function saveInferences(
           ...(claim.value ? { value: claim.value } : {}),
           ...(claim.sourceUrl ? { sourceUrl: claim.sourceUrl } : {}),
         };
-      } else if (answered.has(criterion.id)) {
+      } else if (answered.has(criterion.id) || searched.has(criterion.id)) {
         inferred[key] = {
           omitted: true,
           observedAt: write.observedAt,
+          ...(searched.has(criterion.id)
+            ? { searchDay: write.observedAt.slice(0, 10), searchAttempts: 1 }
+            : {}),
         };
       }
     }
@@ -696,7 +709,32 @@ export async function saveInferences(
             AS batch(osm_ref, ttl_ms, inferred)
      ON CONFLICT (osm_ref) DO UPDATE SET
        inferred = (
-         WITH merged AS (
+         WITH incoming AS (
+           SELECT fresh.key,
+                  CASE
+                    WHEN fresh.value->>'omitted' = 'true'
+                     AND fresh.value ? 'searchDay'
+                     AND old.value->>'omitted' = 'true'
+                     AND old.value->>'searchDay' = fresh.value->>'searchDay'
+                    THEN fresh.value || jsonb_build_object(
+                      'searchAttempts',
+                      LEAST($6::int,
+                        COALESCE((old.value->>'searchAttempts')::int, 0) +
+                        COALESCE((fresh.value->>'searchAttempts')::int, 0))
+                    )
+                    ELSE fresh.value
+                  END AS value
+             FROM jsonb_each(EXCLUDED.inferred) AS fresh
+             LEFT JOIN LATERAL (
+               SELECT enrichments.inferred->fresh.key AS value
+             ) AS old ON true
+         ), merged AS (
+           SELECT key, value FROM incoming
+           UNION ALL
+           SELECT old.key, old.value
+             FROM jsonb_each(enrichments.inferred) AS old
+            WHERE NOT EXCLUDED.inferred ? old.key
+         ), observed AS (
            SELECT entry.key,
                   entry.value,
                   CASE
@@ -707,7 +745,7 @@ export async function saveInferences(
                     THEN (entry.value->>'observedAt')::timestamptz
                     ELSE NULL
                   END AS observed_at
-             FROM jsonb_each(enrichments.inferred || EXCLUDED.inferred) AS entry
+             FROM merged AS entry
          ), ranked AS (
            SELECT key,
                   value,
@@ -719,7 +757,7 @@ export async function saveInferences(
                     END
                     ORDER BY observed_at DESC NULLS LAST, key
                   ) AS age_rank
-             FROM merged
+             FROM observed
             WHERE observed_at >= now() - ($4 || ' days')::interval
          )
          SELECT COALESCE(jsonb_object_agg(key, value), '{}'::jsonb)
@@ -727,7 +765,14 @@ export async function saveInferences(
           WHERE (key NOT LIKE 'q:%' AND key NOT LIKE 'open:%') OR age_rank <= $5
        ),
        inferred_at = now()`,
-    [refs, ttls, payloads, String(INFERENCE_PRUNE_DAYS), MAX_QUESTION_INFERENCES],
+    [
+      refs,
+      ttls,
+      payloads,
+      String(INFERENCE_PRUNE_DAYS),
+      MAX_QUESTION_INFERENCES,
+      SEARCH_ATTEMPT_CAP,
+    ],
   );
 }
 

@@ -21,6 +21,7 @@ import {
   publishInferenceChanges,
   readRefinementSource,
   saveInferences,
+  SEARCH_ATTEMPT_CAP,
   stableAttributeHash,
   type Enrichment,
   type LookupPass,
@@ -186,10 +187,24 @@ function activeCriteria(inputs: EligibilityInputs): Map<string, ActiveCriterion>
   return result;
 }
 
-function unknown(candidate: CandidateRow, criterion: Criterion): boolean {
+function unknown(
+  inputs: EligibilityInputs,
+  candidate: CandidateRow,
+  criterion: Criterion,
+  now: number,
+): boolean {
   const key = criterion.kind === "key" ? criterion.key : criterion.id;
-  return (candidate.attributes.find((attribute) => attribute.key === key)?.status ?? "unknown") ===
-    "unknown";
+  if ((candidate.attributes.find((attribute) => attribute.key === key)?.status ?? "unknown") !==
+    "unknown") return false;
+  const stored = candidate.osm_ref
+    ? inputs.enrichments?.get(candidate.osm_ref)?.inferred?.[criterion.id]
+    : undefined;
+  return !(
+    stored &&
+    "omitted" in stored &&
+    stored.searchDay === utcDay(now) &&
+    (stored.searchAttempts ?? 0) >= SEARCH_ATTEMPT_CAP
+  );
 }
 
 function factsAreStale(candidate: CandidateRow, now: number): boolean {
@@ -241,10 +256,10 @@ export function buildRefinementQueue(
     if (eligibility === "excluded") continue;
     const done = state.evaluated.get(candidate.id);
     const activeOpen = activeList.filter((criterion) =>
-      unknown(candidate, criterion) && !done?.has(criterion.id)
+      unknown(inputs, candidate, criterion, now) && !done?.has(criterion.id)
     );
     const inactiveOpen = inactiveVocabulary.filter((criterion) =>
-      unknown(candidate, criterion) && !done?.has(criterion.id)
+      unknown(inputs, candidate, criterion, now) && !done?.has(criterion.id)
     );
     let tier: RefinementQueueItem["tier"] | null = null;
     let criteria: Criterion[] = [];
@@ -662,6 +677,7 @@ export async function runRefinementTick(
     const firstCells = new Set(firstClaims.map((claim) => `${claim.candidateId}\u0000${claim.criterionId}`));
     const placeInfo = await roomPlace(roomId);
     const searchRequests: RefinementSearchRequest[] = [];
+    const searchedCells = new Set<string>();
     const active = activeCriteria(inputs);
     for (const preparedPlace of prepared) {
       const unresolved = preparedPlace.item.criteria.filter((criterion) =>
@@ -690,6 +706,11 @@ export async function runRefinementTick(
     searchBudget.consume(roomId, searchRequests.length, now);
     let searchClaims: EvaluatedInference[] = [];
     if (searchMode === "combined") {
+      for (const request of searchRequests) {
+        for (const criterion of request.searchCriteria) {
+          searchedCells.add(`${request.candidateId}\u0000${criterion.id}`);
+        }
+      }
       modelBudget.consume(roomId, searchRequests.length, now);
       searchClaims = (await Promise.all(searchRequests.map(async (request) => {
         const domains = refinementSearchDomains(request, options.domainRule);
@@ -721,6 +742,12 @@ export async function runRefinementTick(
         ...entry,
         prepared: preparedById.get(entry.candidateId)!,
       }));
+      for (const entry of searched) {
+        const attempted = entry.results.length > 0 ? entry.criteria : entry.searchCriteria;
+        for (const criterion of attempted) {
+          searchedCells.add(`${entry.candidateId}\u0000${criterion.id}`);
+        }
+      }
       const withSnippets = searched.filter((entry) => entry.results.length > 0);
       if (withSnippets.length > 0) {
         const searchCriteria = [...new Map(withSnippets.flatMap((entry) => entry.criteria).map(
@@ -766,6 +793,9 @@ export async function runRefinementTick(
             answeredCells.has(`${item.candidate.id}\u0000${id}`) ||
             claims.some((claim) => claim.candidateId === item.candidate.id && claim.criterionId === id)
           ),
+        searchedCriterionIds: open
+          .map((criterion) => criterion.id)
+          .filter((id) => searchedCells.has(`${item.candidate.id}\u0000${id}`)),
         observedAt,
       }] : [];
     }));

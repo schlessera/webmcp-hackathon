@@ -67,6 +67,31 @@ describe("continuous refinement queue", () => {
       .some((item) => item.candidate.id === "active-near")).toBe(false);
   });
 
+  it("honours the persisted three-attempt daily cell cap", () => {
+    const value = inputs();
+    const today = Date.parse("2026-09-03T12:00:00Z");
+    value.enrichments = new Map([["node/2", {
+      osmRef: "node/2",
+      fetchedAt: "2026-09-03T00:00:00Z",
+      website: null,
+      wikidata: null,
+      inferred: {
+        "dog-friendly": {
+          omitted: true,
+          observedAt: "2026-09-03T11:00:00Z",
+          searchDay: "2026-09-03",
+          searchAttempts: 3,
+        },
+      },
+      error: null,
+    }]]);
+    const state = { evaluated: new Map(), providerChecked: new Set() };
+    expect(buildRefinementQueue(value, state, "room", today)
+      .some((item) => item.candidate.id === "active-near")).toBe(false);
+    expect(buildRefinementQueue(value, state, "room", today + 24 * 60 * 60_000)
+      .some((item) => item.candidate.id === "active-near")).toBe(true);
+  });
+
   it("does not queue a time-window criterion for model evaluation", () => {
     const value = inputs();
     value.candidates = [value.candidates[0]];

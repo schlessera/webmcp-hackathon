@@ -339,6 +339,13 @@ outbound work. `SEARCH_PROVIDER=tavily` selects the Tavily fallback and needs
 `NL_FAST_MODEL` with low search context. Combined mode is intrinsically an
 OpenAI Responses tool call.
 
+An unresolved place-and-criterion cell records each spent search leg in its
+small omission sentinel. After three attempts on the same UTC day, that cell
+is not queued again until the day changes. The marker is persisted in the
+cross-room `enrichments.inferred` blob, follows its 24-hour omission lifetime,
+and is pruned and cardinality-capped with the other synthetic keys. A local
+matrix abstention without a search does not spend an attempt.
+
 The only search-derived data stored is a claim that passed criterion, source,
 span, confidence and status validation, plus its `sourceUrl`. Search queries,
 snippets and raw responses are not stored. An abstention remains unknown and

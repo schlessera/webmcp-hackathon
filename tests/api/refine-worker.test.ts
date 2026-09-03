@@ -140,6 +140,44 @@ describe("continuous refinement over the API", () => {
     expect(lookupFrames.some((frame) => frame.reason?.kind === "refine")).toBe(true);
     expect(JSON.stringify(lookupFrames)).not.toContain(PRIVATE_SENTENCE);
 
+    const gammaSearches = () => server.logs().split("\n").filter((line) =>
+      line.includes("web-search-request") && line.includes("Gamma Berlin free wifi")
+    ).length;
+    expect(gammaSearches()).toBe(1);
+    const requirementId = `need_refine_${room.roomId}`;
+    const toggle = async (active: boolean) => {
+      const current = await contextWithRevision();
+      const changed = await apiPost<{ ok: boolean }>(
+        server.baseUrl,
+        "/api/commands",
+        room.tokens.org,
+        {
+          type: "SetRequirementActive",
+          input: { baseRevision: current.revision, requirementId, active },
+        },
+      );
+      expect(changed.body.ok).toBe(true);
+    };
+    for (const expected of [2, 3]) {
+      await toggle(false);
+      await toggle(true);
+      await waitFor(() => gammaSearches() === expected, 4_000);
+    }
+    const gammaRef = `refine/${room.roomId}/gamma`;
+    const attempt = (await room.pool.query(
+      "SELECT inferred->$2 AS entry FROM enrichments WHERE osm_ref = $1",
+      [gammaRef, key],
+    )).rows[0].entry as Record<string, unknown>;
+    expect(attempt).toMatchObject({
+      omitted: true,
+      searchDay: new Date().toISOString().slice(0, 10),
+      searchAttempts: 3,
+    });
+    await toggle(false);
+    await toggle(true);
+    await new Promise((resolve) => setTimeout(resolve, 1_200));
+    expect(gammaSearches()).toBe(3);
+
     realtime.close();
     await waitFor(async () => !(await context()).refine.active, 2_000);
     expect((await context()).refine.active).toBe(false);
@@ -149,6 +187,17 @@ describe("continuous refinement over the API", () => {
     refine: { active: boolean; queued: number; checkedToday: number };
   }> {
     const response = await apiPost<{
+      refine: { active: boolean; queued: number; checkedToday: number };
+    }>(server.baseUrl, "/api/spatial/context", room.tokens.org, {});
+    return response.body;
+  }
+
+  async function contextWithRevision(): Promise<{
+    revision: number;
+    refine: { active: boolean; queued: number; checkedToday: number };
+  }> {
+    const response = await apiPost<{
+      revision: number;
       refine: { active: boolean; queued: number; checkedToday: number };
     }>(server.baseUrl, "/api/spatial/context", room.tokens.org, {});
     return response.body;
