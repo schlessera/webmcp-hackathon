@@ -80,13 +80,18 @@ export function refreshAssetsThroughPipeline(context: PipelineAssetContext): Pro
     };
     const downloaded = await scheduler.enqueue(
       { ...fetchBase, dedupeKey: pipelineDedupeKey(fetchBase) },
-      async (route) => ({
-        value: await fetchPlaceImageBytes(
-          candidate,
-          context.fetchForRoute(route ?? "direct", purpose),
-        ),
-        actualRoute: route ?? "direct",
-      }),
+      async (route, _attempt, signal) => {
+        const fetcher = context.fetchForRoute(route ?? "direct", purpose);
+        return {
+          value: await fetchPlaceImageBytes(candidate, (url, init = {}) => fetcher(url, {
+            ...init,
+            signal: signal && init.signal
+              ? AbortSignal.any([signal, init.signal])
+              : signal ?? init.signal,
+          })),
+          actualRoute: route ?? "direct",
+        };
+      },
       { reason: { kind: "place" }, present: true },
     );
     const decodeBase = {

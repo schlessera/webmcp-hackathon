@@ -342,6 +342,14 @@ function wikiFetch(): FetchLike {
   return injectedFetch ? fetchImpl : liveWikiFetch;
 }
 
+function withAbortSignal(fetcher: FetchLike, signal?: AbortSignal): FetchLike {
+  if (!signal) return fetcher;
+  return (url, init = {}) => fetcher(url, {
+    ...init,
+    signal: init.signal ? AbortSignal.any([init.signal, signal]) : signal,
+  });
+}
+
 /** A scheduled asset attempt uses the pool's route; outbound remains
  * authoritative and may still move a proxy attempt to direct via its breaker. */
 function pipelineImageFetch(
@@ -414,15 +422,23 @@ function fetchInjectedWebsiteFacts(
   db: pg.Pool,
   target: LookupTarget,
   previousFacts?: WebFacts | null,
+  signal?: AbortSignal,
 ) {
   const url = target.website!;
   const cache = pageCache(db);
-  if (!injectedFetch) return fetchWebsiteFacts(url, liveVenueFetch(target), cache, previousFacts);
+  if (!injectedFetch) {
+    return fetchWebsiteFacts(
+      url,
+      withAbortSignal(liveVenueFetch(target), signal),
+      cache,
+      previousFacts,
+    );
+  }
   let original: URL;
   try {
     original = new URL(url);
   } catch {
-    return fetchWebsiteFacts(url, fetchImpl, cache, previousFacts);
+    return fetchWebsiteFacts(url, withAbortSignal(fetchImpl, signal), cache, previousFacts);
   }
   const safe = new URL(original);
   safe.hostname = "93.184.216.34";
@@ -430,7 +446,7 @@ function fetchInjectedWebsiteFacts(
     const translated = new URL(requested);
     translated.hostname = original.hostname;
     translated.port = original.port;
-    return fetchImpl(translated.toString(), init);
+    return withAbortSignal(fetchImpl, signal)(translated.toString(), init);
   }, translatedPageCache(cache, safe.hostname, original), previousFacts);
 }
 
@@ -768,7 +784,9 @@ async function lookup(
   scheduledRoute?: OutboundRoute,
   reuseFreshPage = false,
   skipMenuRead = false,
+  signal?: AbortSignal,
 ): Promise<LookupPass> {
+  signal?.throwIfAborted();
   const interactive = intent === "interactive";
   const passTarget: LookupTarget = {
     ...target,
@@ -822,10 +840,10 @@ async function lookup(
       const noWiki: { facts: WikiFacts | null; error?: string } = { facts: null };
       const [site, wiki] = await Promise.all([
         attempted.website
-          ? fetchInjectedWebsiteFacts(db, passTarget, current?.website)
+          ? fetchInjectedWebsiteFacts(db, passTarget, current?.website, signal)
           : Promise.resolve(noSite),
         attempted.wikidata
-          ? fetchWikidataFacts(target.wikidata!, wikiFetch())
+          ? fetchWikidataFacts(target.wikidata!, withAbortSignal(wikiFetch(), signal))
           : Promise.resolve(noWiki),
       ]);
       // A menu that is a picture gets read (menu-reader.ts); the bytes are
@@ -865,8 +883,17 @@ export function readRefinementSource(
   countryCode?: string,
   intent: LookupIntent = "background",
   scheduledRoute?: OutboundRoute,
+  signal?: AbortSignal,
 ): Promise<LookupPass> {
-  return lookup(db, { ...target, ...(countryCode ? { countryCode } : {}) }, intent, scheduledRoute);
+  return lookup(
+    db,
+    { ...target, ...(countryCode ? { countryCode } : {}) },
+    intent,
+    scheduledRoute,
+    false,
+    false,
+    signal,
+  );
 }
 
 /**
@@ -973,8 +1000,11 @@ async function scheduledLookup(
   };
   return pipelineScheduler.enqueue(
     { ...base, dedupeKey: pipelineDedupeKey(base) },
-    async (route): Promise<DispatchResult<LookupPass>> => {
-      if (signal?.aborted) throw new DOMException("prefetch cancelled", "AbortError");
+    async (route, _attempt, deadlineSignal): Promise<DispatchResult<LookupPass>> => {
+      const combinedSignal = signal && deadlineSignal
+        ? AbortSignal.any([signal, deadlineSignal])
+        : signal ?? deadlineSignal;
+      if (combinedSignal?.aborted) throw new DOMException("prefetch cancelled", "AbortError");
       return {
         value: await lookup(
           db,
@@ -983,6 +1013,7 @@ async function scheduledLookup(
           route,
           reuseFreshPage,
           siteOnly,
+          combinedSignal,
         ),
         actualRoute: route ?? "direct",
       };

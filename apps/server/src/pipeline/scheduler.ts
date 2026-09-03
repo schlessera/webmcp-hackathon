@@ -11,7 +11,9 @@ import {
   PipelineQueue,
   ReadyBuffer,
   pipelineDedupeKey,
+  type PipelineKind,
   type PipelineItem,
+  type PipelinePriority,
   type QueuedPipelineItem,
 } from "./queue.ts";
 import { PipelineVolumeModel } from "./volume.ts";
@@ -28,6 +30,7 @@ export type PipelineDispatcher = <T>(
   item: PipelineItem,
   route: OutboundRoute | undefined,
   attempt: 0 | 1,
+  signal?: AbortSignal,
 ) => Promise<DispatchResult<T>>;
 
 export interface SchedulerOptions {
@@ -39,6 +42,7 @@ export interface SchedulerOptions {
   dispatcher?: PipelineDispatcher;
   routeFor?: (host: string, purpose: OutboundPurpose) => OutboundRoute;
   hostGateOpen?: (host: string) => boolean;
+  timeouts?: Partial<Record<PipelineKind, number>>;
 }
 
 type EnqueueOptions = {
@@ -49,6 +53,31 @@ type EnqueueOptions = {
 };
 
 type EnqueueListener = (item: PipelineItem) => void;
+
+const DEFAULT_PIPELINE_TIMEOUT_MS: Readonly<Record<PipelineKind, number>> = {
+  "fetch.site": 30_000,
+  "fetch.asset": 30_000,
+  "fetch.search": 45_000,
+  "process.judge": 120_000,
+  "process.adjudicate": 120_000,
+  "process.vision": 60_000,
+  "process.decode": 30_000,
+};
+
+const PIPELINE_TIMEOUT_ENV: Readonly<Record<PipelineKind, string>> = {
+  "fetch.site": "PIPELINE_TIMEOUT_FETCH_SITE_MS",
+  "fetch.asset": "PIPELINE_TIMEOUT_FETCH_ASSET_MS",
+  "fetch.search": "PIPELINE_TIMEOUT_FETCH_SEARCH_MS",
+  "process.judge": "PIPELINE_TIMEOUT_PROCESS_JUDGE_MS",
+  "process.adjudicate": "PIPELINE_TIMEOUT_PROCESS_ADJUDICATE_MS",
+  "process.vision": "PIPELINE_TIMEOUT_PROCESS_VISION_MS",
+  "process.decode": "PIPELINE_TIMEOUT_PROCESS_DECODE_MS",
+};
+
+function positiveTimeout(value: string | undefined, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
+}
 
 function poolForKind(item: PipelineItem, route?: OutboundRoute): PoolName {
   if (item.kind === "fetch.search") return "search";
@@ -74,6 +103,20 @@ function blockShapedError(error: unknown): boolean {
     candidate.failureClass === "connect-502" || candidate.outboundFailure?.proxyStatus === 502;
 }
 
+function withSignal<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return promise;
+  if (signal.aborted) return Promise.reject(signal.reason);
+  let rejectAbort!: (reason: unknown) => void;
+  const aborted = new Promise<never>((_resolve, reject) => {
+    rejectAbort = reject;
+  });
+  const onAbort = () => rejectAbort(signal.reason);
+  signal.addEventListener("abort", onAbort, { once: true });
+  return Promise.race([promise, aborted]).finally(() => {
+    signal.removeEventListener("abort", onAbort);
+  });
+}
+
 /** Process-global admission controller: DRR queue, route-aware pools and host hints. */
 export class PipelineScheduler {
   readonly pools: PipelinePools;
@@ -84,6 +127,7 @@ export class PipelineScheduler {
   private readonly dispatcher?: PipelineDispatcher;
   private readonly routeAuthority: (host: string, purpose: OutboundPurpose) => OutboundRoute;
   private readonly gateOpen: (host: string) => boolean;
+  private readonly timeouts: Record<PipelineKind, number>;
   private pumping = false;
   private pumpAgain = false;
   private readonly inFlight = new Map<string, PipelineItem>();
@@ -104,12 +148,25 @@ export class PipelineScheduler {
     this.dispatcher = options.dispatcher;
     this.routeAuthority = options.routeFor ?? outboundRouteFor;
     this.gateOpen = options.hostGateOpen ?? outboundHostGateOpen;
+    this.timeouts = Object.fromEntries(
+      (Object.keys(DEFAULT_PIPELINE_TIMEOUT_MS) as PipelineKind[]).map((kind) => [
+        kind,
+        options.timeouts?.[kind] ?? positiveTimeout(
+          process.env[PIPELINE_TIMEOUT_ENV[kind]],
+          DEFAULT_PIPELINE_TIMEOUT_MS[kind],
+        ),
+      ]),
+    ) as Record<PipelineKind, number>;
     this.ready.onDrain(() => this.wake());
   }
 
   enqueue<T>(
     item: Omit<PipelineItem, "predictedPool" | "predictedRoute">,
-    run?: (route: OutboundRoute | undefined, attempt: 0 | 1) => Promise<DispatchResult<T>>,
+    run?: (
+      route: OutboundRoute | undefined,
+      attempt: 0 | 1,
+      signal?: AbortSignal,
+    ) => Promise<DispatchResult<T>>,
     options: EnqueueOptions = {},
   ): Promise<T> {
     const predictedRoute = this.enqueueRoute(item);
@@ -118,22 +175,29 @@ export class PipelineScheduler {
       ...(predictedRoute ? { predictedRoute } : {}),
       predictedPool: poolForKind(item as PipelineItem, predictedRoute),
     };
-    const execute = async (route?: OutboundRoute): Promise<T> => {
+    const execute = async (route?: OutboundRoute, signal?: AbortSignal): Promise<T> => {
       const dispatch = run ?? (this.dispatcher
-        ? ((chosen, attempt) => this.dispatcher!(planned, chosen, attempt) as Promise<DispatchResult<T>>)
+        ? ((chosen, attempt, dispatchSignal) =>
+          this.dispatcher!(planned, chosen, attempt, dispatchSignal) as Promise<DispatchResult<T>>)
         : undefined);
       if (!dispatch) throw new Error("pipeline item has no dispatcher");
       let first: DispatchResult<T>;
       try {
-        first = await dispatch(route, 0);
+        first = await withSignal(dispatch(route, 0, signal), signal);
       } catch (error) {
         if (planned.intent !== "interactive" || route !== "direct" || !blockShapedError(error)) throw error;
-        const retried = await this.pools.proxy.submit(() => dispatch("proxy", 1), planned.priority);
+        const retried = await this.pools.proxy.submit(
+          () => withSignal(dispatch("proxy", 1, signal), signal),
+          planned.priority,
+        );
         this.routeCompletions[retried.actualRoute] += 1;
         return retried.value;
       }
       if (planned.intent === "interactive" && route === "direct" && blockShaped(first)) {
-        const retried = await this.pools.proxy.submit(() => dispatch("proxy", 1), planned.priority);
+        const retried = await this.pools.proxy.submit(
+          () => withSignal(dispatch("proxy", 1, signal), signal),
+          planned.priority,
+        );
         this.routeCompletions[retried.actualRoute] += 1;
         return retried.value;
       }
@@ -245,10 +309,26 @@ export class PipelineScheduler {
       }
       this.frames.changed(roomId);
     }
-    // Fetches are criterion-independent; buffered evidence is viewed through
-    // the current set instead of being discarded or cancelling in-flight work.
-    this.ready.rematch(roomId, activeCriterionIds);
     this.wake();
+    return dropped;
+  }
+
+  reprioritise(roomId: string, ranking: Map<string, PipelinePriority>): PipelineItem[] {
+    const changed = this.queue.reprioritise(roomId, ranking);
+    if (changed.length > 0) {
+      this.frames.changed(roomId);
+      this.wake();
+    }
+    return changed;
+  }
+
+  dropQueued(roomId: string, predicate: (item: PipelineItem) => boolean): PipelineItem[] {
+    const dropped = this.queue.dropQueued(roomId, (item) => {
+      const tracked = this.batches.get(item.dedupeKey) ?? [item];
+      return tracked.some(predicate);
+    });
+    for (const item of dropped) this.cleanup(item, true);
+    if (dropped.length > 0) this.wake();
     return dropped;
   }
 
@@ -304,21 +384,34 @@ export class PipelineScheduler {
 
   private pump(): void {
     this.pumping = true;
-    do {
-      this.pumpAgain = false;
-      for (const [name, pool] of Object.entries(this.pools) as Array<[PoolName, PipelinePools[PoolName]]>) {
-        while (pool.available > 0) {
-          const entry = this.queue.take(
-            name,
-            (item) => pool.canRun(item.priority) && this.eligible(item),
-            32,
-          );
-          if (!entry) break;
-          this.launch(entry);
+    try {
+      do {
+        this.pumpAgain = false;
+        for (const [name, pool] of Object.entries(this.pools) as Array<[PoolName, PipelinePools[PoolName]]>) {
+          while (pool.available > 0) {
+            let entry: QueuedPipelineItem | undefined;
+            try {
+              entry = this.queue.take(
+                name,
+                (item) => pool.canRun(item.priority) && this.eligible(item),
+                32,
+                (failed, error) => this.fail(failed, error),
+              );
+              if (!entry) break;
+              this.launch(entry);
+            } catch (error) {
+              if (entry) this.fail(entry, error);
+              else console.warn(
+                "pipeline pump failed:",
+                error instanceof Error ? error.message : String(error),
+              );
+            }
+          }
         }
-      }
-    } while (this.pumpAgain);
-    this.pumping = false;
+      } while (this.pumpAgain);
+    } finally {
+      this.pumping = false;
+    }
   }
 
   private launch(entry: QueuedPipelineItem): void {
@@ -338,26 +431,74 @@ export class PipelineScheduler {
         trackedItem.kind.startsWith("fetch.") ? "fetching" : "processing",
       );
     }
-    void actualPool.submit(() => entry.run(route), item.priority).then(
+    void actualPool.submit(
+      () => this.runWithDeadline(entry, route),
+      item.priority,
+    ).then(
       (value) => {
-        for (const trackedItem of tracked) {
-          this.inFlight.delete(trackedItem.dedupeKey);
-          this.volume.settle(trackedItem);
-          this.frames.update(trackedItem, null);
-        }
-        this.batches.delete(item.dedupeKey);
+        this.cleanup(item);
         this.queue.settle(entry, value);
       },
       (error) => {
-        for (const trackedItem of tracked) {
-          this.inFlight.delete(trackedItem.dedupeKey);
-          this.volume.settle(trackedItem);
-          this.frames.update(trackedItem, null);
-        }
-        this.batches.delete(item.dedupeKey);
+        this.cleanup(item);
         this.queue.settle(entry, undefined, error);
       },
     ).finally(() => this.wake());
+  }
+
+  private runWithDeadline(
+    entry: QueuedPipelineItem,
+    route: OutboundRoute | undefined,
+  ): Promise<unknown> {
+    const timeoutMs = this.timeouts[entry.item.kind];
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => {
+        const error = new PipelineTimeoutError(entry.item.kind, timeoutMs);
+        console.warn(JSON.stringify({
+          msg: "pipeline timeout",
+          roomId: entry.item.roomId,
+          candidateId: entry.item.candidateId,
+          kind: entry.item.kind,
+          timeoutMs,
+        }));
+        controller.abort(error);
+        reject(error);
+      }, timeoutMs);
+      timer.unref?.();
+    });
+    return Promise.race([entry.run(route, controller.signal), timeout]).finally(() => {
+      if (timer) clearTimeout(timer);
+    });
+  }
+
+  private fail(entry: QueuedPipelineItem, error: unknown): void {
+    this.cleanup(entry.item, true);
+    this.queue.settle(entry, undefined, error);
+  }
+
+  private cleanup(item: PipelineItem, dropped = false): void {
+    const tracked = this.batches.get(item.dedupeKey) ?? [item];
+    for (const trackedItem of tracked) {
+      this.inFlight.delete(trackedItem.dedupeKey);
+      if (dropped) this.volume.drop(trackedItem);
+      else this.volume.settle(trackedItem);
+      this.frames.update(trackedItem, null);
+    }
+    this.batches.delete(item.dedupeKey);
+  }
+}
+
+export class PipelineTimeoutError extends Error {
+  readonly kind: PipelineKind;
+  readonly timeoutMs: number;
+
+  constructor(kind: PipelineKind, timeoutMs: number) {
+    super(`pipeline ${kind} timed out after ${timeoutMs} ms`);
+    this.name = "PipelineTimeoutError";
+    this.kind = kind;
+    this.timeoutMs = timeoutMs;
   }
 }
 

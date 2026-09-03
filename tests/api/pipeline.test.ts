@@ -21,7 +21,9 @@ describe("pipeline over HTTP, WebSocket, and PostgreSQL", () => {
   let server: TestServer;
   let room: TestRoom;
   let openRoom: TestRoom;
+  let hangRoom: TestRoom;
   let realtime: TestRealtime;
+  let hangRealtime: TestRealtime;
   let candidateId: string;
   let openCandidateId: string;
 
@@ -33,7 +35,9 @@ describe("pipeline over HTTP, WebSocket, and PostgreSQL", () => {
         INFER: "1",
         REFINE: "1",
         REFINE_TICK_MS: "250",
+        REFINE_PLAN_WATCHDOG_MS: "300",
         REFINE_IDLE_STOP_MS: "200",
+        PIPELINE_TIMEOUT_FETCH_SITE_MS: "150",
         OPENAI_API_KEY: "scripted",
         PARALLEL_API_KEY: "scripted",
       },
@@ -108,15 +112,50 @@ describe("pipeline over HTTP, WebSocket, and PostgreSQL", () => {
       ],
     );
     realtime = await openRealtime(server.baseUrl, room.tokens.org);
+
+    hangRoom = await createTestRoom(server.baseUrl);
+    const hangCandidate = (await hangRoom.pool.query(
+      "SELECT id FROM candidates WHERE room_id = $1 ORDER BY id LIMIT 1",
+      [hangRoom.roomId],
+    )).rows[0].id as string;
+    await hangRoom.pool.query(
+      "UPDATE candidates SET osm_ref = NULL WHERE room_id = $1",
+      [hangRoom.roomId],
+    );
+    await hangRoom.pool.query(
+      `UPDATE candidates
+          SET osm_ref = $2, extras = $3::jsonb, attributes = $4::jsonb
+        WHERE id = $1`,
+      [
+        hangCandidate,
+        `pipeline-hang/${hangRoom.roomId}/alpha`,
+        JSON.stringify({ website: "https://hang-forever.example/place" }),
+        JSON.stringify(KNOWN_ATTRIBUTES),
+      ],
+    );
+    await hangRoom.pool.query(
+      `INSERT INTO requirements
+         (id, room_id, owner_id, visibility, hardness, delegation, payload, active)
+       VALUES ($1, $2, $3, 'shared', 'hard', '{}', $4, true)`,
+      [
+        `pipeline_hang_${hangRoom.roomId}`,
+        hangRoom.roomId,
+        hangRoom.participantIds.org,
+        JSON.stringify({ kind: "text", text: "free wifi" }),
+      ],
+    );
+    hangRealtime = await openRealtime(server.baseUrl, hangRoom.tokens.org);
   });
 
   afterAll(async () => {
     realtime?.close();
+    hangRealtime?.close();
     await room?.pool.query("DELETE FROM enrichments WHERE osm_ref LIKE $1", [
       `pipeline/${room.roomId}/%`,
     ]);
     await room?.cleanup();
     await openRoom?.cleanup();
+    await hangRoom?.cleanup();
     await server?.stop();
   });
 
@@ -141,9 +180,27 @@ describe("pipeline over HTTP, WebSocket, and PostgreSQL", () => {
       frame.outstanding.process + frame.inFlight.process > 0
     )).toBe(true);
     expect(pipelineFrames().some((frame) => frame.done > 0)).toBe(true);
-    expect(countLog('"msg":"pipeline loop started"')).toBe(1);
+    expect(server.logs().split("\n").filter((line) =>
+      line.includes('"msg":"pipeline loop started"') &&
+      line.includes(`"roomId":"${room.roomId}"`)
+    )).toHaveLength(1);
     expect(countLog('"msg":"pipeline tick"')).toBeGreaterThan(0);
     expect(countLog('"command":"InspectCandidates"')).toBe(0);
+  });
+
+  it("times out a stuck dispatch, releases its slot, and replans the occupied room", async () => {
+    const roomMarker = `\"roomId\":\"${hangRoom.roomId}\"`;
+    await waitFor(() => server.logs().split("\n").some((line) =>
+      line.includes('"msg":"pipeline timeout"') && line.includes(roomMarker) &&
+      line.includes('"kind":"fetch.site"')
+    ), 8_000, () => server.logs());
+    await waitFor(() => server.logs().split("\n").filter((line) =>
+      line.includes('"msg":"pipeline tick"') && line.includes(roomMarker)
+    ).length >= 2, 8_000, () => server.logs());
+    const timeoutLine = server.logs().split("\n").find((line) =>
+      line.includes('"msg":"pipeline timeout"') && line.includes(roomMarker)
+    );
+    expect(timeoutLine).toContain('"timeoutMs":150');
   });
 
   it("keeps vision and decode out of the sweep and enqueues both when a place opens", async () => {

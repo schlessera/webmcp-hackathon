@@ -12,6 +12,7 @@ import { PipelineFrames } from "../../apps/server/src/pipeline/frames.ts";
 import { PipelinePool, createPipelinePools } from "../../apps/server/src/pipeline/pools.ts";
 import {
   PipelineQueue,
+  OutOfScopePipelineItemError,
   ReadyBuffer,
   pipelineDedupeKey,
   type PipelineItem,
@@ -20,6 +21,7 @@ import {
 } from "../../apps/server/src/pipeline/queue.ts";
 import {
   PipelineScheduler,
+  PipelineTimeoutError,
   pipelineScheduler,
   type DispatchResult,
 } from "../../apps/server/src/pipeline/scheduler.ts";
@@ -32,6 +34,8 @@ import {
 import { judge } from "../../apps/server/src/pipeline/stages/judge.ts";
 import {
   searchRefinementPlaces,
+  refinementPlanSettled,
+  REFINE_TICK_MS,
   type RefinementSearchRequest,
 } from "../../apps/server/src/refine/worker.ts";
 import {
@@ -322,14 +326,81 @@ describe("refinement pipeline", () => {
     await Promise.all(jobs);
   });
 
-  it("bounds a closed-host selection scan at 32 probes", () => {
-    const queue = new PipelineQueue();
-    for (let index = 0; index < 2_000; index += 1) {
-      const pipelineItem = item(String(index), { predictedPool: "direct", host: "closed.example" });
-      queue.enqueue(pipelineItem, async () => 1);
-    }
-    expect(queue.take("direct", () => false)).toBeUndefined();
-    expect(queue.lastProbeCount).toBe(32);
+  it("admits a judge batch with 300 tier-three fetches ahead", async () => {
+    const scheduler = new PipelineScheduler({
+      pools: testPools({ direct: 1, proxy: 1, search: 1, "llm-matrix": 1, vision: 1, "image-decode": 1 }),
+      routeFor: () => "direct",
+      hostGateOpen: () => true,
+    });
+    const firstFetch = controlled<number>();
+    const fetches = Array.from({ length: 300 }, (_, index) => scheduler.enqueue(
+      item(`fetch-${index}`, { priority: 3 }),
+      async () => ({
+        value: index === 0 ? await firstFetch.promise : index,
+        actualRoute: "direct",
+      }),
+    ));
+    let judgeStarts = 0;
+    const judgeItem = item("judge-after-fetches", {
+      kind: "process.judge",
+      priority: 3,
+      host: undefined,
+      purpose: undefined,
+    });
+    const judged = scheduler.enqueue(judgeItem, async () => {
+      judgeStarts += 1;
+      return { value: "judged", actualRoute: "direct" };
+    });
+    await expect(judged).resolves.toBe("judged");
+    expect(judgeStarts).toBe(1);
+    firstFetch.resolve(0);
+    await Promise.all(fetches);
+  });
+
+  it("recovers the pump after a host-gate exception", async () => {
+    let throwGate = true;
+    const scheduler = new PipelineScheduler({
+      pools: testPools({ direct: 1, proxy: 1, search: 1, "llm-matrix": 1, vision: 1, "image-decode": 1 }),
+      routeFor: () => "direct",
+      hostGateOpen: () => {
+        if (throwGate) {
+          throwGate = false;
+          throw new Error("gate exploded");
+        }
+        return true;
+      },
+    });
+    const failed = scheduler.enqueue(item("bad-gate"), async () => ({
+      value: 0,
+      actualRoute: "direct",
+    }));
+    await expect(failed).rejects.toThrow("gate exploded");
+    await expect(scheduler.enqueue(item("after-gate"), async () => ({
+      value: 1,
+      actualRoute: "direct",
+    }))).resolves.toBe(1);
+  });
+
+  it("times out a stuck dispatch, aborts it, releases the slot, and settles its plan", async () => {
+    vi.useFakeTimers();
+    let signal: AbortSignal | undefined;
+    const scheduler = new PipelineScheduler({
+      pools: testPools({ direct: 1, proxy: 1, search: 1, "llm-matrix": 1, vision: 1, "image-decode": 1 }),
+      routeFor: () => "direct",
+      hostGateOpen: () => true,
+      timeouts: { "fetch.site": 25 },
+    });
+    const job = scheduler.enqueue(item("never"), async (_route, _attempt, dispatchSignal) => {
+      signal = dispatchSignal;
+      return new Promise<DispatchResult<number>>(() => undefined);
+    });
+    const plan = refinementPlanSettled([job.then(() => 1)], 100);
+    await vi.advanceTimersByTimeAsync(25);
+    await expect(job).rejects.toBeInstanceOf(PipelineTimeoutError);
+    expect(signal?.aborted).toBe(true);
+    expect(scheduler.pools.direct.inFlight).toBe(0);
+    expect(scheduler.volume.snapshot("room-a").inFlight.fetch).toBe(0);
+    await expect(plan).resolves.toBe(REFINE_TICK_MS);
   });
 
   it("wakes an idle pool immediately when a host gate is released", async () => {
@@ -616,10 +687,85 @@ describe("refinement pipeline", () => {
     await expect(firstJob).resolves.toBe(1);
     await expect(staleJob).rejects.toThrow("stale need set");
     await expect(fetchJob).resolves.toBe(3);
+  });
 
-    scheduler.ready.push({ roomId: "room-a", candidateId: "a", criterionId: "old", priority: 1, bytes: 1, value: 1 });
-    scheduler.ready.push({ roomId: "room-a", candidateId: "a", criterionId: "new", priority: 1, bytes: 1, value: 2 });
-    expect(scheduler.ready.rematch("room-a", new Set(["new"])).map((cell) => cell.value)).toEqual([2]);
+  it("drops out-of-scope queued work, reprioritises the rest, and lets in-flight work settle", async () => {
+    const scheduler = new PipelineScheduler({
+      pools: testPools({ direct: 1, proxy: 1, search: 1, "llm-matrix": 1, vision: 1, "image-decode": 1 }),
+      routeFor: () => "direct",
+      hostGateOpen: () => true,
+    });
+    const running = controlled<number>();
+    const seen: PipelineItem[] = [];
+    scheduler.onEnqueue((entry) => seen.push(entry));
+    const inFlight = scheduler.enqueue(item("running-scope", { priority: 3 }), async () => ({
+      value: await running.promise,
+      actualRoute: "direct",
+    }));
+    const kept = scheduler.enqueue(item("kept-scope", { priority: 3 }), async () => ({
+      value: 2,
+      actualRoute: "direct",
+    }));
+    const dropped = scheduler.enqueue(item("dropped-scope", { priority: 3 }), async () => ({
+      value: 3,
+      actualRoute: "direct",
+    }));
+    const reprioritised = scheduler.reprioritise("room-a", new Map([["kept-scope", 1]]));
+    expect(reprioritised.map((entry) => entry.candidateId)).toEqual(["kept-scope"]);
+    expect(seen.find((entry) => entry.candidateId === "kept-scope")?.priority).toBe(1);
+    expect(seen.find((entry) => entry.candidateId === "running-scope")?.priority).toBe(3);
+    expect(scheduler.dropQueued("room-a", (entry) => entry.candidateId === "dropped-scope"))
+      .toHaveLength(1);
+    await expect(dropped).rejects.toBeInstanceOf(OutOfScopePipelineItemError);
+    running.resolve(1);
+    await expect(inFlight).resolves.toBe(1);
+    await expect(kept).resolves.toBe(2);
+  });
+
+  it("raises a queued dedupe hit to the incoming priority", async () => {
+    let open = false;
+    const scheduler = new PipelineScheduler({
+      pools: testPools({ direct: 1, proxy: 1, search: 1, "llm-matrix": 1, vision: 1, "image-decode": 1 }),
+      routeFor: () => "direct",
+      hostGateOpen: () => open,
+    });
+    const low = item("dedupe-raised", { priority: 3 });
+    const first = scheduler.enqueue(low, async () => ({ value: 1, actualRoute: "direct" }));
+    const second = scheduler.enqueue({ ...low, priority: 1 }, async () => ({
+      value: 2,
+      actualRoute: "direct",
+    }));
+    expect(second).toBe(first);
+    expect(scheduler.queue.roomItems("room-a")[0]?.priority).toBe(1);
+    open = true;
+    scheduler.notifyHostGateReleased(low.host!);
+    await expect(first).resolves.toBe(1);
+  });
+
+  it("keeps queued sweep cells across a need change", async () => {
+    const scheduler = new PipelineScheduler({
+      pools: testPools({ direct: 1, proxy: 1, search: 1, "llm-matrix": 1, vision: 1, "image-decode": 1 }),
+      hostGateOpen: () => true,
+    });
+    const running = controlled<number>();
+    const blocker = scheduler.enqueue(item("matrix-blocker", {
+      kind: "process.judge",
+      host: undefined,
+      purpose: undefined,
+    }), async () => ({ value: await running.promise, actualRoute: "direct" }));
+    const sweep = scheduler.enqueue(item("sweep-kept", {
+      kind: "process.judge",
+      priority: 3,
+      sweep: true,
+      host: undefined,
+      purpose: undefined,
+    }), async () => ({ value: 2, actualRoute: "direct" }));
+    expect(scheduler.needsChanged("room-a", 2, new Set())).toEqual([]);
+    expect(scheduler.queue.roomItems("room-a").find((entry) => entry.candidateId === "sweep-kept"))
+      .toMatchObject({ needsEpoch: 2, sweep: true });
+    running.resolve(1);
+    await expect(blocker).resolves.toBe(1);
+    await expect(sweep).resolves.toBe(2);
   });
 
   it("pauses only the full room's fetches and resumes them on drain", async () => {
@@ -663,6 +809,25 @@ describe("refinement pipeline", () => {
     expect(started).toEqual(["other", "full"]);
   });
 
+  it("charges ready-buffer bytes once for all criterion cells of a place", () => {
+    const ready = new ReadyBuffer(100, 100);
+    const cells = ["wifi", "terrace", "dogs"].map((criterionId) => ({
+      roomId: "room-a",
+      candidateId: "one-place",
+      criterionId,
+      priority: 3 as const,
+      bytes: 40,
+      chargeKey: "one-place\0evidence",
+      value: criterionId,
+    }));
+    for (const cell of cells) expect(ready.push(cell)).toBe(true);
+    expect(ready.bytes()).toBe(40);
+    ready.take((cell) => cell.criterionId === "wifi");
+    expect(ready.bytes()).toBe(40);
+    ready.take(() => true);
+    expect(ready.bytes()).toBe(0);
+  });
+
   it("serves a four-item room within one DRR round beside a 2,000-item room", () => {
     const queue = new PipelineQueue();
     for (let index = 0; index < 2_000; index += 1) {
@@ -677,13 +842,13 @@ describe("refinement pipeline", () => {
     expect(admitted.filter((entry) => entry.roomId === "small")).toHaveLength(4);
   });
 
-  it("counts only priority zero and one and follows RFC 6298 EWMA/DEV", () => {
+  it("counts every priority and follows RFC 6298 EWMA/DEV", () => {
     const volume = new PipelineVolumeModel({ fetch: 1, process: 1 });
     for (const priority of [0, 1, 2, 3, 4] as PipelinePriority[]) {
       volume.enqueue(item(`p${priority}`, { priority }));
     }
-    expect(volume.snapshot("room-a").outstanding.fetch).toBe(2);
-    expect(volume.snapshot("room-a").total).toBe(2);
+    expect(volume.snapshot("room-a").outstanding.fetch).toBe(5);
+    expect(volume.snapshot("room-a").total).toBe(5);
 
     const estimate = new Rfc6298Estimator();
     estimate.sample(100);

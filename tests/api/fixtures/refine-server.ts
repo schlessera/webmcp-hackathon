@@ -18,6 +18,9 @@ pipelineScheduler.onEnqueue((item) => {
 
 setEnrichFetch(async (url) => {
   console.info(`scripted-site-fetch ${new URL(url).hostname}`);
+  if (new URL(url).hostname === "hang-forever.example") {
+    return new Promise<Response>(() => undefined);
+  }
   if (url.endsWith("/robots.txt")) return new Response("", { status: 200 });
   if (url.includes("/venue-") && url.endsWith(".png")) {
     return new Response(SCRIPTED_IMAGE, {

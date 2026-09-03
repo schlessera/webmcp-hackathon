@@ -58,7 +58,6 @@ export class PipelineVolumeModel {
   }
 
   enqueue(item: PipelineItem): void {
-    if (item.priority > 1) return;
     const room = this.state(item.roomId);
     room.done.delete(item.candidateId);
     room.items.set(item.dedupeKey, { item, status: "outstanding" });

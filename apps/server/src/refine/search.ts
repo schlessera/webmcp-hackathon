@@ -13,6 +13,7 @@ export interface SearchResult {
 
 export interface SearchOptions {
   domains?: string[];
+  signal?: AbortSignal;
 }
 
 export interface SearchProvider {
@@ -190,7 +191,9 @@ export const tavilySearchProvider: SearchProvider = {
             ? { include_domains: cleanDomains(opts.domains) }
             : {}),
         }),
-        signal: controller.signal,
+        signal: opts.signal
+          ? AbortSignal.any([controller.signal, opts.signal])
+          : controller.signal,
       });
       if (!response.ok) {
         await response.body?.cancel();
@@ -309,11 +312,13 @@ export function findVerbatimPageSpan(
 async function validatedParallelResult(
   result: ParallelRawResult,
   query: string,
+  signal?: AbortSignal,
 ): Promise<SearchResult | null> {
   let response: Response;
   try {
     response = await parallelFetch(result.url, {
       headers: { accept: "text/html, text/plain;q=0.9" },
+      ...(signal ? { signal } : {}),
     });
   } catch {
     return null;
@@ -357,6 +362,7 @@ export const parallelSearchProvider: SearchProvider = {
             ...(domains.length ? { source_policy: { include_domains: domains } } : {}),
           },
         }),
+        ...(opts.signal ? { signal: opts.signal } : {}),
       });
     } catch {
       return [];
@@ -369,7 +375,7 @@ export const parallelSearchProvider: SearchProvider = {
     // Excerpts are discovery hints, not dependable quotations. Fetch at most
     // two result pages and expose only exact spans recovered from those pages.
     const checked = await Promise.all(parsed.slice(0, 2).map((result) =>
-      validatedParallelResult(result, query)
+      validatedParallelResult(result, query, opts.signal)
     ));
     return checked.filter((result): result is SearchResult => result !== null);
   },

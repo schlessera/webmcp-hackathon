@@ -267,7 +267,8 @@ describe("continuous refinement queue", () => {
     );
     for (const [query, opts] of provider.mock.calls) {
       expect(query).toMatch(/^Place \d+ Berlin first words second words$/);
-      expect(opts).toBeUndefined();
+      expect(opts?.domains).toBeUndefined();
+      expect(opts?.signal).toBeInstanceOf(AbortSignal);
     }
   });
 
