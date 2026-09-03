@@ -17,8 +17,16 @@ import {
   type FetchLike,
   type WebFacts,
   type WebsiteFetchResult,
+  type WebsitePageCache,
   type WebsiteTransientText,
 } from "./website.ts";
+import {
+  loadPageCache,
+  removePageCache,
+  refreshPageCache,
+  storePageCache,
+  transientTextFromPages,
+} from "./cache.ts";
 import {
   fetchWikidataFacts,
   resolveCommonsImage,
@@ -71,9 +79,10 @@ import {
  *   overwritten. Sources are `web:<host>` and `wikidata:<id>`, distinct from
  *   `osm:*`, `curated:*` and `agent:*`, so the ledger can say where each
  *   fact came from.
- * - Everything stored is a parsed fact, a URL or a one-line description;
- *   page text exists only on the fresh lookup's in-memory return path to
- *   inference, never in Enrichment, a dossier or a log.
+ * - Enrichment stores parsed facts, URLs and short descriptions. Separately,
+ *   page_cache keeps at most 6,000 extracted characters per page for seven
+ *   days so a new criterion can reuse them. That text is evaluator-only:
+ *   never projected to a person, put in a dossier, or written to a log.
  */
 
 export interface Enrichment {
@@ -136,6 +145,7 @@ export interface LookupTarget {
 
 /** A successful lookup is good for a week; a failed one is retried after an hour. */
 const TTL_OK_MS = 7 * 24 * 60 * 60 * 1000;
+const TTL_WIKIDATA_OK_MS = 30 * 24 * 60 * 60 * 1000;
 const TTL_FAIL_MS = 60 * 60 * 1000;
 const TTL_INFER_MS = 7 * 24 * 60 * 60 * 1000;
 const TTL_OMITTED_MS = 24 * 60 * 60 * 1000;
@@ -189,6 +199,7 @@ const liveWikiFetch: FetchLike = (url, init = {}) => outboundFetch(url, {
   ...init,
   purpose: url.includes("commons.wikimedia.org") ? "commons" : "wikidata",
   direct: true,
+  cacheResponse: true,
   maxBytes: 4 * 1024 * 1024,
   timeoutMs: 10_000,
 });
@@ -215,14 +226,64 @@ function imageFetch(target: LookupTarget): FetchLike {
 /** The website reader validates DNS before invoking its transport. For the
  * injected test transport there is no network to protect, so resolve against
  * a public numeric placeholder and translate requests back for the fixture. */
-function fetchInjectedWebsiteFacts(target: LookupTarget) {
+function pageCache(db: pg.Pool): WebsitePageCache {
+  return {
+    load: (url) => loadPageCache(db, url),
+    store: (input) => storePageCache(db, input),
+    refresh: (url, ttlMs) => refreshPageCache(db, url, ttlMs),
+    remove: (url) => removePageCache(db, url),
+  };
+}
+
+function translatedPageCache(
+  cache: WebsitePageCache,
+  safeHost: string,
+  original: URL,
+): WebsitePageCache {
+  const translate = (value: string | URL): string => {
+    const url = new URL(value);
+    if (url.hostname === safeHost) {
+      url.hostname = original.hostname;
+      url.port = original.port;
+    }
+    return url.toString();
+  };
+  return {
+    load: (url) => cache.load(translate(url)),
+    store: (input) => cache.store({ ...input, url: translate(input.url) }),
+    refresh: (url, ttlMs) => cache.refresh(translate(url), ttlMs),
+    remove: (url) => cache.remove?.(translate(url)) ?? Promise.resolve(),
+  };
+}
+
+async function cachedPageText(
+  db: pg.Pool,
+  target: LookupTarget,
+  enrichment: Enrichment | undefined,
+): Promise<WebsiteTransientText | undefined> {
+  if (!target.website) return undefined;
+  const [home, menu] = await Promise.all([
+    loadPageCache(db, target.website),
+    enrichment?.website?.menuUrl
+      ? loadPageCache(db, enrichment.website.menuUrl)
+      : Promise.resolve(null),
+  ]);
+  return transientTextFromPages(home?.fresh ? home : null, menu?.fresh ? menu : null);
+}
+
+function fetchInjectedWebsiteFacts(
+  db: pg.Pool,
+  target: LookupTarget,
+  previousFacts?: WebFacts | null,
+) {
   const url = target.website!;
-  if (!injectedFetch) return fetchWebsiteFacts(url, liveVenueFetch(target));
+  const cache = pageCache(db);
+  if (!injectedFetch) return fetchWebsiteFacts(url, liveVenueFetch(target), cache, previousFacts);
   let original: URL;
   try {
     original = new URL(url);
   } catch {
-    return fetchWebsiteFacts(url, fetchImpl);
+    return fetchWebsiteFacts(url, fetchImpl, cache, previousFacts);
   }
   const safe = new URL(original);
   safe.hostname = "93.184.216.34";
@@ -231,17 +292,18 @@ function fetchInjectedWebsiteFacts(target: LookupTarget) {
     translated.hostname = original.hostname;
     translated.port = original.port;
     return fetchImpl(translated.toString(), init);
-  });
+  }, translatedPageCache(cache, safe.hostname, original), previousFacts);
 }
 
-function fetchInjectedWebsiteImageCandidates(target: LookupTarget) {
+function fetchInjectedWebsiteImageCandidates(db: pg.Pool, target: LookupTarget) {
   const url = target.website!;
-  if (!injectedFetch) return fetchWebsiteImageCandidates(url, liveVenueFetch(target));
+  const cache = pageCache(db);
+  if (!injectedFetch) return fetchWebsiteImageCandidates(url, liveVenueFetch(target), cache);
   let original: URL;
   try {
     original = new URL(url);
   } catch {
-    return fetchWebsiteImageCandidates(url, fetchImpl);
+    return fetchWebsiteImageCandidates(url, fetchImpl, cache);
   }
   const safe = new URL(original);
   safe.hostname = "93.184.216.34";
@@ -250,7 +312,7 @@ function fetchInjectedWebsiteImageCandidates(target: LookupTarget) {
     translated.hostname = original.hostname;
     translated.port = original.port;
     return fetchImpl(translated.toString(), init);
-  }).then((candidates) => candidates.map((candidate) => ({
+  }, translatedPageCache(cache, safe.hostname, original)).then((candidates) => candidates.map((candidate) => ({
     ...candidate,
     source: `web:${original.host}` as const,
     pageUrl: original.toString(),
@@ -535,7 +597,7 @@ async function persistProviderResults(
           target.osmRef,
           wiki.facts ? JSON.stringify(wiki.facts) : null,
           !wiki.error,
-          String(wiki.error ? TTL_FAIL_MS : TTL_OK_MS),
+          String(wiki.error ? TTL_FAIL_MS : TTL_WIKIDATA_OK_MS),
           wiki.error ?? null,
           owner,
         ],
@@ -571,7 +633,7 @@ async function releaseLease(db: pg.Pool, osmRef: string, owner: string): Promise
 
 export interface LookupPass {
   enrichment: Enrichment | null;
-  /** Present only when this call fetched the website successfully. */
+  /** Server-private evaluator text, normally served from the seven-day page cache. */
   pageText?: WebsiteTransientText;
 }
 
@@ -587,7 +649,8 @@ async function lookup(db: pg.Pool, target: LookupTarget, force = false): Promise
     force ? FORCE_STALE_MS : undefined,
   );
   if (!Object.values(dueProviders(target, initial, force)).some(Boolean) && !initialImagesDue) {
-    return { enrichment: initial ?? null };
+    const pageText = await cachedPageText(db, target, initial);
+    return { enrichment: initial ?? null, ...(pageText ? { pageText } : {}) };
   }
 
   // X4: queue before acquiring the cross-process lease. A bounded waiter can
@@ -600,7 +663,8 @@ async function lookup(db: pg.Pool, target: LookupTarget, force = false): Promise
       force ? FORCE_STALE_MS : undefined,
     );
     if (!Object.values(dueProviders(target, beforeLease, force)).some(Boolean) && !beforeLeaseImagesDue) {
-      return { enrichment: beforeLease ?? null };
+      const pageText = await cachedPageText(db, target, beforeLease);
+      return { enrichment: beforeLease ?? null, ...(pageText ? { pageText } : {}) };
     }
     const owner = randomUUID();
     // R11: this lease is visible to every server process and is acquired in a
@@ -617,7 +681,8 @@ async function lookup(db: pg.Pool, target: LookupTarget, force = false): Promise
         force ? FORCE_STALE_MS : undefined,
       );
       if (!attempted.website && !attempted.wikidata && !attemptedImages) {
-        return { enrichment: current ?? null };
+        const pageText = await cachedPageText(db, target, current);
+        return { enrichment: current ?? null, ...(pageText ? { pageText } : {}) };
       }
 
       const noSite: WebsiteFetchResult = { facts: null };
@@ -625,13 +690,13 @@ async function lookup(db: pg.Pool, target: LookupTarget, force = false): Promise
       const harvestWebsiteImages = attemptedImages && Boolean(target.website) && !attempted.website;
       const [site, wiki, harvestedWebsiteCandidates] = await Promise.all([
         attempted.website
-          ? fetchInjectedWebsiteFacts(passTarget)
+          ? fetchInjectedWebsiteFacts(db, passTarget, current?.website)
           : Promise.resolve(noSite),
         attempted.wikidata
           ? fetchWikidataFacts(target.wikidata!, wikiFetch())
           : Promise.resolve(noWiki),
         harvestWebsiteImages
-          ? fetchInjectedWebsiteImageCandidates(passTarget)
+          ? fetchInjectedWebsiteImageCandidates(db, passTarget)
           : Promise.resolve([]),
       ]);
       // A menu that is a picture gets read (menu-reader.ts); the bytes are
@@ -658,9 +723,11 @@ async function lookup(db: pg.Pool, target: LookupTarget, force = false): Promise
           imageFetch(passTarget),
         );
       }
+      const finalEnrichment = (await loadCached(db, [target.osmRef])).get(target.osmRef);
+      const pageText = site.pageText ?? await cachedPageText(db, target, finalEnrichment);
       return {
-        enrichment: (await loadCached(db, [target.osmRef])).get(target.osmRef) ?? null,
-        ...(site.pageText ? { pageText: site.pageText } : {}),
+        enrichment: finalEnrichment ?? null,
+        ...(pageText ? { pageText } : {}),
       };
     } finally {
       // Offline mode deliberately does not advance provider freshness, but it
@@ -669,11 +736,13 @@ async function lookup(db: pg.Pool, target: LookupTarget, force = false): Promise
     }
   });
   // A full queue is load shedding, not a failed fact read: return stale data.
-  return completed === undefined ? { enrichment: initial ?? null } : completed;
+  if (completed !== undefined) return completed;
+  const pageText = await cachedPageText(db, target, initial);
+  return { enrichment: initial ?? null, ...(pageText ? { pageText } : {}) };
 }
 
-/** The refinement worker's one provider pass for a place. The transient text
- * stays on this return value only and is never accepted by a persistence API. */
+/** The refinement worker's one provider pass for a place. Page text stays on
+ * this server-private return path; page_cache persists it only for evaluators. */
 export function readRefinementSource(
   db: pg.Pool,
   target: LookupTarget,
@@ -1246,7 +1315,7 @@ async function runLookupNow(
           }),
         );
         if (accepted.length > 0) inferenceChanged = true;
-      });
+      }, pool);
       inferenceChanged ||= claims.length > 0;
       const refreshed = await loadCached(
         pool,

@@ -1,6 +1,7 @@
 import type pg from "pg";
 import sharp from "sharp";
 import { outboundFetchFor } from "../net/outbound.ts";
+import { IMAGE_CACHE_TTL_MS } from "./cache.ts";
 import {
   ENRICH_USER_AGENT,
   fetchAllowed,
@@ -43,7 +44,7 @@ export const MAX_IMAGE_ATTEMPTS = 6;
 export const MAX_IMAGE_DOWNLOAD_BYTES = 6 * 1024 * 1024;
 export const MAX_STORED_IMAGE_BYTES = 200 * 1024;
 export const IMAGE_TIMEOUT_MS = 10_000;
-export const IMAGE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+export const IMAGE_TTL_MS = IMAGE_CACHE_TTL_MS;
 const IMAGE_FAILURE_TTL_MS = 60 * 60 * 1000;
 /** A source that asks for a shorter life gets a shorter life, but re-fetching
  * every hour for thousands of places is its own kind of rudeness. */
@@ -110,7 +111,7 @@ export async function resizePlaceImage(input: Uint8Array): Promise<ProcessedImag
   return { mime: "image/webp", width: info.width, height: info.height, bytes: data };
 }
 
-/** Clamp our seven-day store to the source's own `max-age`, with a one-day
+/** Clamp our thirty-day store to the source's own `max-age`, with a one-day
  * floor so a short hint cannot turn into an hourly re-fetch of every place. */
 export function cacheTtlMs(cacheControl: string): number {
   const declared = [...cacheControl.matchAll(/(?:^|,)\s*(?:s-maxage|max-age)=(\d+)/g)]

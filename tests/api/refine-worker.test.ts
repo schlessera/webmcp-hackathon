@@ -159,25 +159,25 @@ describe("continuous refinement over the API", () => {
       );
       expect(changed.body.ok).toBe(true);
     };
-    for (const expected of [2, 3]) {
+    for (let pass = 0; pass < 2; pass += 1) {
       await toggle(false);
       await toggle(true);
-      await waitFor(() => gammaSearches() === expected, 6_000);
+      await new Promise((resolve) => setTimeout(resolve, 1_200));
+      expect(gammaSearches()).toBe(1);
     }
     const gammaRef = `refine/${room.roomId}/gamma`;
     const attempt = (await room.pool.query(
       "SELECT inferred->$2 AS entry FROM enrichments WHERE osm_ref = $1",
       [gammaRef, key],
     )).rows[0].entry as Record<string, unknown>;
-    expect(attempt).toMatchObject({
-      omitted: true,
-      searchDay: new Date().toISOString().slice(0, 10),
-      searchAttempts: 3,
-    });
+    expect(attempt).toMatchObject({ omitted: true });
+    // Revisiting the need replays the cached negative result. It is not a
+    // second paid search attempt and therefore carries no new attempt marker.
+    expect(attempt).not.toHaveProperty("searchAttempts");
     await toggle(false);
     await toggle(true);
     await new Promise((resolve) => setTimeout(resolve, 1_200));
-    expect(gammaSearches()).toBe(3);
+    expect(gammaSearches()).toBe(1);
 
     realtime.close();
     await waitFor(async () => !(await context()).refine.active, 2_000);

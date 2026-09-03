@@ -3,6 +3,12 @@ import { isIP } from "node:net";
 import { lookup } from "node:dns/promises";
 import { Pool, ProxyAgent, fetch as undiciFetch } from "undici";
 import { config } from "../config.ts";
+import { pool } from "../db.ts";
+import {
+  cacheUrlHash,
+  DNS_CACHE_TTL_MS,
+  METADATA_CACHE_TTL_MS,
+} from "../enrich/cache.ts";
 
 export type OutboundPurpose =
   | "venue-site"
@@ -39,6 +45,8 @@ export interface OutboundOptions extends Omit<RequestInit, "redirect"> {
   direct?: boolean;
   maxBytes: number;
   timeoutMs: number;
+  /** Durable body caching is restricted below to freely reusable metadata. */
+  cacheResponse?: boolean;
 }
 
 export interface OutboundDiagRow {
@@ -106,6 +114,7 @@ const PROXY_ATTEMPTS = 3;
 const CONNECT_TIMEOUT_MS = 3_000;
 const TUNNEL = /^Proxy response \((\d+)\) !== 200 when HTTP Tunneling$/;
 const NON_PUBLIC_NAME = /(?:^|\.)(?:localhost|local|internal|home\.arpa)$/i;
+const METADATA_PURPOSES = new Set<OutboundPurpose>(["wikidata", "wikimedia", "commons"]);
 
 let warnedProxyOff = false;
 let cachedProxyEnv: string | undefined | null = null;
@@ -116,6 +125,7 @@ let sessionFactory = () => randomUUID().replace(/-/g, "").slice(0, 16);
 const sessionRotations = new Map<string, string>();
 const proxyFailures = new Map<string, number[]>();
 const breakerUntil = new Map<string, number>();
+const dnsCache = new Map<string, { addresses: string[]; expiresAt: number }>();
 let lastProxySuccess = 0;
 let diagnosticLogger: ((fields: Record<string, unknown>, message: string) => void) | null = null;
 let diagnosticTimer: ReturnType<typeof setInterval> | null = null;
@@ -331,16 +341,24 @@ export function isPublicAddress(address: string): boolean {
     !/^2001:db8(?::|$)/.test(value);
 }
 
-export async function assertPublicTarget(target: URL): Promise<string[]> {
+export async function assertPublicTarget(target: URL, allowPublicIp = false): Promise<string[]> {
   const hostname = target.hostname.replace(/^\[|\]$/g, "").toLowerCase();
-  if (!hostname || isIP(hostname) !== 0 || NON_PUBLIC_NAME.test(hostname)) {
+  if (!hostname || NON_PUBLIC_NAME.test(hostname)) {
     throw new Error("non-public network target");
   }
+  if (isIP(hostname) !== 0) {
+    if (allowPublicIp && isPublicAddress(hostname)) return [hostname];
+    throw new Error("non-public network target");
+  }
+  const cached = dnsCache.get(hostname);
+  if (cached && cached.expiresAt > Date.now()) return [...cached.addresses];
   const addresses = await lookup(hostname, { all: true, verbatim: true });
   if (addresses.length === 0 || addresses.some(({ address }) => !isPublicAddress(address))) {
     throw new Error("non-public network target");
   }
-  return addresses.map(({ address }) => address);
+  const resolved = addresses.map(({ address }) => address);
+  dnsCache.set(hostname, { addresses: resolved, expiresAt: Date.now() + DNS_CACHE_TTL_MS });
+  return [...resolved];
 }
 
 function prune(now = Date.now()): void {
@@ -667,7 +685,7 @@ function redirectStatus(status: number): boolean {
   return status === 301 || status === 302 || status === 303 || status === 307 || status === 308;
 }
 
-export async function outboundFetch(url: string | URL, options: OutboundOptions): Promise<Response> {
+async function networkOutboundFetch(url: string | URL, options: OutboundOptions): Promise<Response> {
   let current = url instanceof URL ? new URL(url) : new URL(url);
   if (!/^https?:$/.test(current.protocol)) throw new Error("not a fetchable URL");
   const originalHost = current.hostname.toLowerCase();
@@ -730,6 +748,125 @@ export async function outboundFetch(url: string | URL, options: OutboundOptions)
   throw new Error("too many redirects");
 }
 
+interface MetadataCacheRow {
+  url: string;
+  status: number;
+  content_type: string | null;
+  body: Buffer;
+  etag: string | null;
+  last_modified: string | null;
+  fresh: boolean;
+}
+
+function cachedMetadataResponse(row: MetadataCacheRow): Response {
+  // Copy out of Node's Buffer<ArrayBufferLike>; DOM BodyInit requires an
+  // ArrayBuffer-backed view and must not inherit a possible SharedArrayBuffer.
+  const body = new Uint8Array(row.body.byteLength);
+  body.set(row.body);
+  const response = new Response(body, {
+    status: row.status,
+    headers: {
+      ...(row.content_type ? { "content-type": row.content_type } : {}),
+      ...(row.etag ? { etag: row.etag } : {}),
+      ...(row.last_modified ? { "last-modified": row.last_modified } : {}),
+      "x-spokes-cache": "hit",
+    },
+  });
+  Object.defineProperty(response, "url", { value: row.url });
+  return response;
+}
+
+async function loadMetadata(url: string): Promise<MetadataCacheRow | null> {
+  const row = (await pool.query(
+    `SELECT url, status, content_type, body, etag, last_modified,
+            expires_at > now() AS fresh
+       FROM outbound_metadata_cache WHERE url_hash = $1`,
+    [cacheUrlHash(url)],
+  )).rows[0] as MetadataCacheRow | undefined;
+  return row ?? null;
+}
+
+async function storeMetadata(
+  url: string,
+  purpose: OutboundPurpose,
+  response: Response,
+  body: Buffer,
+): Promise<void> {
+  await pool.query(
+    `INSERT INTO outbound_metadata_cache
+       (url_hash, url, host, purpose, fetched_at, expires_at, etag,
+        last_modified, status, content_type, body)
+     VALUES ($1, $2, $3, $4, now(), now() + ($5 || ' milliseconds')::interval,
+             $6, $7, $8, $9, $10)
+     ON CONFLICT (url_hash) DO UPDATE SET
+       url = EXCLUDED.url, host = EXCLUDED.host, purpose = EXCLUDED.purpose,
+       fetched_at = EXCLUDED.fetched_at, expires_at = EXCLUDED.expires_at,
+       etag = EXCLUDED.etag, last_modified = EXCLUDED.last_modified,
+       status = EXCLUDED.status, content_type = EXCLUDED.content_type,
+       body = EXCLUDED.body`,
+    [
+      cacheUrlHash(url), url, new URL(url).hostname.toLowerCase(), purpose,
+      String(METADATA_CACHE_TTL_MS), response.headers.get("etag"),
+      response.headers.get("last-modified"), response.status,
+      response.headers.get("content-type"), body,
+    ],
+  );
+}
+
+/** The outbound client owns reusable metadata caching as well as transport.
+ * Venue pages are parsed by the enrichment layer and therefore use page_cache
+ * there; raw venue HTML is deliberately never stored. */
+export async function outboundFetch(url: string | URL, options: OutboundOptions): Promise<Response> {
+  const cacheable = options.cacheResponse === true &&
+    METADATA_PURPOSES.has(options.purpose) &&
+    (options.method === undefined || options.method === "GET");
+  if (!cacheable) return networkOutboundFetch(url, options);
+
+  const canonical = new URL(url).toString();
+  let cached: MetadataCacheRow | null = null;
+  try {
+    cached = await loadMetadata(canonical);
+    if (cached?.fresh) return cachedMetadataResponse(cached);
+  } catch {
+    // Cache availability must not turn a reusable public metadata read into a
+    // provider failure. The migration runs before app startup in production.
+  }
+
+  const headers = new Headers(options.headers);
+  if (cached?.etag) headers.set("if-none-match", cached.etag);
+  if (cached?.last_modified) headers.set("if-modified-since", cached.last_modified);
+  const response = await networkOutboundFetch(canonical, { ...options, headers });
+  if (response.status === 304 && cached) {
+    await response.body?.cancel();
+    try {
+      await pool.query(
+        `UPDATE outbound_metadata_cache
+            SET fetched_at = now(), expires_at = now() + ($2 || ' milliseconds')::interval
+          WHERE url_hash = $1`,
+        [cacheUrlHash(canonical), String(METADATA_CACHE_TTL_MS)],
+      );
+    } catch {
+      /* the already-cached metadata remains usable for this request */
+    }
+    return cachedMetadataResponse(cached);
+  }
+  if (!response.ok) return response;
+
+  const body = Buffer.from(await response.arrayBuffer());
+  try {
+    await storeMetadata(canonical, options.purpose, response, body);
+  } catch {
+    /* cache writes are opportunistic */
+  }
+  const replay = new Response(body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  });
+  Object.defineProperty(replay, "url", { value: response.url || canonical });
+  return replay;
+}
+
 export function outboundFetchFor(
   purpose: OutboundPurpose,
   context: Omit<OutboundOptions, keyof RequestInit | "purpose" | "maxBytes" | "timeoutMs"> & {
@@ -756,6 +893,7 @@ export function resetOutboundStateForTests(): void {
   events = [];
   proxyFailures.clear();
   breakerUntil.clear();
+  dnsCache.clear();
   sessionRotations.clear();
   hostLimits.clear();
   sessionNextAt.clear();

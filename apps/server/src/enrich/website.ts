@@ -1,6 +1,11 @@
-import { lookup as resolveHost } from "node:dns/promises";
 import { config } from "../config.ts";
-import { outboundFetchFor } from "../net/outbound.ts";
+import { assertPublicTarget as assertOutboundPublicTarget, outboundFetchFor } from "../net/outbound.ts";
+import {
+  PAGE_CACHE_TTL_MS,
+  ROBOTS_CACHE_TTL_MS,
+  type PageCacheEntry,
+  type StorePageInput,
+} from "./cache.ts";
 
 /**
  * A place's own website as a source (docs/ENRICHMENT-SOURCES.md, S2).
@@ -9,9 +14,9 @@ import { outboundFetchFor } from "../net/outbound.ts";
  * itself, explicitly for machines, as schema.org JSON-LD — cuisine, price
  * range, hours, a menu, a rating it chose to show, accessibility features —
  * and, for machines only by accident, the links in its navigation. Selected
- * visible page text is held in memory for the current inference pass, but it
- * is returned separately from WebFacts and is never persisted. Stored data
- * remains parsed facts, a few URLs and a one-line description; robots.txt is
+ * visible page text is returned separately from WebFacts and kept in the
+ * server-private page cache for evaluator reuse. It is never shown to a user.
+ * Dossier data remains parsed facts, a few URLs and a one-line description; robots.txt is
  * honoured; a normal facts read makes at most two content requests (homepage,
  * then the menu page); the User-Agent names the project.
  *
@@ -128,14 +133,6 @@ export function isPublicAddress(address: string): boolean {
   return true;
 }
 
-async function assertPublicTarget(target: URL): Promise<void> {
-  const hostname = target.hostname.replace(/^\[|\]$/g, "");
-  const addresses = await resolveHost(hostname, { all: true, verbatim: true });
-  if (addresses.length === 0 || addresses.some(({ address }) => !isPublicAddress(address))) {
-    throw new Error("non-public network target");
-  }
-}
-
 export async function fetchPublic(
   target: URL,
   init: RequestInit,
@@ -143,7 +140,10 @@ export async function fetchPublic(
 ): Promise<Response> {
   let current = target;
   for (let redirects = 0; redirects <= MAX_REDIRECTS; redirects += 1) {
-    await assertPublicTarget(current);
+    // The shared outbound resolver supplies the ten-minute DNS cache. Public
+    // numeric targets remain accepted here for deterministic injected tests;
+    // production outbound transport separately rejects literal IP targets.
+    await assertOutboundPublicTarget(current, true);
     const response = await fetchImpl(current.toString(), { ...init, redirect: "manual" });
     if (![301, 302, 303, 307, 308].includes(response.status)) return response;
     const location = response.headers.get("location");
@@ -293,7 +293,7 @@ function visibleFragment(fragment: string): string {
 }
 
 /**
- * The bounded prose made available to inference for this pass only. This is
+ * The bounded prose made available only to the server-side evaluator. This is
  * deliberately narrower than a generic HTML-to-text conversion: title, meta
  * description, headings, paragraphs, list items, and the direct text of layout
  * containers that hold a whole clause, with page chrome and executable/style
@@ -674,17 +674,47 @@ export async function readBoundedHtmlBody(
   return Buffer.concat(chunks.map((chunk) => Buffer.from(chunk)), size).toString("utf8");
 }
 
-export async function fetchAllowed(target: URL, fetchImpl: FetchLike, timeoutMs = TIMEOUT_MS): Promise<boolean> {
-  const robots = await fetchPublic(new URL("/robots.txt", target.origin), {
-    headers,
+export async function fetchAllowed(
+  target: URL,
+  fetchImpl: FetchLike,
+  timeoutMs = TIMEOUT_MS,
+  cache?: WebsitePageCache,
+): Promise<boolean> {
+  const robotsUrl = new URL("/robots.txt", target.origin);
+  const cached = await cache?.load(robotsUrl);
+  if (cached?.fresh) return robotsAllows(cached.robots ?? "", target.pathname || "/");
+  const robotsHeaders = new Headers(headers);
+  if (cached?.etag) robotsHeaders.set("if-none-match", cached.etag);
+  if (cached?.lastModified) robotsHeaders.set("if-modified-since", cached.lastModified);
+  const robots = await fetchPublic(robotsUrl, {
+    headers: robotsHeaders,
     signal: AbortSignal.timeout(timeoutMs),
   }, fetchImpl).catch(() => null);
   if (!robots) return true;
+  if (robots.status === 304 && cached) {
+    await robots.body?.cancel();
+    await cache?.refresh(robotsUrl, ROBOTS_CACHE_TTL_MS);
+    return robotsAllows(cached.robots ?? "", target.pathname || "/");
+  }
   if (!robots.ok) {
     await robots.body?.cancel();
+    await storeCacheResponse(cache, robots, {
+      url: robotsUrl.toString(),
+      status: robots.status,
+      ttlMs: ROBOTS_CACHE_TTL_MS,
+      robots: null,
+    });
     return true;
   }
   const text = await readBoundedHtmlBody(robots, 100_000);
+  await storeCacheResponse(cache, robots, {
+    url: robotsUrl.toString(),
+    status: robots.status,
+    ttlMs: ROBOTS_CACHE_TTL_MS,
+    etag: robots.headers.get("etag"),
+    lastModified: robots.headers.get("last-modified"),
+    robots: text,
+  });
   return robotsAllows(text, target.pathname || "/");
 }
 
@@ -702,6 +732,7 @@ export async function fetchWebsiteImageCandidates(
     maxBytes: MAX_HTML,
     timeoutMs: TIMEOUT_MS,
   }),
+  cache?: WebsitePageCache,
 ): Promise<WebsiteImageCandidate[]> {
   let target: URL;
   try {
@@ -711,7 +742,9 @@ export async function fetchWebsiteImageCandidates(
     return [];
   }
   try {
-    if (!(await fetchAllowed(target, fetchImpl))) return [];
+    if (!(await fetchAllowed(target, fetchImpl, TIMEOUT_MS, cache))) return [];
+    const cached = await cache?.load(target);
+    if (cached?.fresh) return cached.imageCandidates ?? [];
 
     // HEAD is advisory. Sites commonly reject it, so only a successful HEAD
     // can rule the GET out. A large declared document is still useful because
@@ -729,16 +762,35 @@ export async function fetchWebsiteImageCandidates(
       if (Number.isFinite(declared) && declared === 0) return [];
     }
 
+    const conditionalHeaders = new Headers(headers);
+    if (cached?.etag) conditionalHeaders.set("if-none-match", cached.etag);
+    if (cached?.lastModified) conditionalHeaders.set("if-modified-since", cached.lastModified);
     const response = await fetchPublic(target, {
-      headers,
+      headers: conditionalHeaders,
       signal: AbortSignal.timeout(TIMEOUT_MS),
     }, fetchImpl);
+    if (response.status === 304 && cached) {
+      await response.body?.cancel();
+      await cache?.refresh(target, PAGE_CACHE_TTL_MS);
+      return cached.imageCandidates ?? [];
+    }
     if (!response.ok || !isHtmlResponse(response)) {
       await response.body?.cancel();
       return [];
     }
     const html = await readBoundedHtmlBody(response);
-    return extractImageCandidates(html, response.url || target.toString());
+    const pageUrl = response.url || target.toString();
+    const candidates = extractImageCandidates(html, pageUrl);
+    await storeCacheResponse(cache, response, {
+      url: target.toString(),
+      status: response.status,
+      ttlMs: PAGE_CACHE_TTL_MS,
+      etag: response.headers.get("etag"),
+      lastModified: response.headers.get("last-modified"),
+      text: extractVisibleText(html),
+      imageCandidates: candidates,
+    });
+    return candidates;
   } catch {
     return [];
   }
@@ -763,8 +815,34 @@ export interface WebsiteFetchResult {
   facts: WebFacts | null;
   error?: string;
   menuFile?: MenuFile;
-  /** In-memory evidence for the caller's current lookup pass; never WebFacts. */
+  /** Server-private evaluator evidence, backed by page_cache for seven days;
+   * never included in WebFacts, a dossier, an API response, or a log. */
   pageText?: WebsiteTransientText;
+}
+
+export interface WebsitePageCache {
+  load(url: string | URL): Promise<PageCacheEntry | null>;
+  store(input: StorePageInput): Promise<void>;
+  refresh(url: string | URL, ttlMs?: number): Promise<void>;
+  remove?(url: string | URL): Promise<void>;
+}
+
+function responseAllowsSharedCache(response: Response): boolean {
+  const value = (response.headers.get("cache-control") ?? "").toLowerCase();
+  return !/(?:^|,)\s*(?:no-store|no-cache|private)(?:\s|,|$)/.test(value);
+}
+
+async function storeCacheResponse(
+  cache: WebsitePageCache | undefined,
+  response: Response,
+  input: StorePageInput,
+): Promise<void> {
+  if (!cache) return;
+  if (!responseAllowsSharedCache(response)) {
+    await cache.remove?.(input.url);
+    return;
+  }
+  await cache.store(input);
 }
 const MAX_MENU_FILE = 4_000_000;
 
@@ -774,6 +852,8 @@ export async function fetchWebsiteFacts(
     maxBytes: MAX_HTML,
     timeoutMs: TIMEOUT_MS,
   }),
+  cache?: WebsitePageCache,
+  previousFacts?: WebFacts | null,
 ): Promise<WebsiteFetchResult> {
   let target: URL;
   try {
@@ -783,11 +863,47 @@ export async function fetchWebsiteFacts(
     return { facts: null, error: "not a fetchable URL" };
   }
   try {
-    if (!(await fetchAllowed(target, fetchImpl))) return { facts: null, error: "robots.txt disallows" };
+    if (!(await fetchAllowed(target, fetchImpl, TIMEOUT_MS, cache))) return { facts: null, error: "robots.txt disallows" };
+    const cached = await cache?.load(target);
+    if (cached?.fresh) {
+      const facts = previousFacts
+        ? { ...previousFacts, ...(cached.imageCandidates?.length ? { imageCandidates: cached.imageCandidates } : {}) }
+        : null;
+      const followed = facts?.menuUrl ? await followMenu(facts, fetchImpl, cache) : undefined;
+      const pageText = {
+        ...(cached.text ? { homepage: cached.text } : {}),
+        ...(followed?.text ? { menu: followed.text } : {}),
+      };
+      return {
+        facts,
+        ...(followed?.menuFile ? { menuFile: followed.menuFile } : {}),
+        ...(Object.keys(pageText).length ? { pageText } : {}),
+      };
+    }
+    const conditionalHeaders = new Headers(headers);
+    if (cached?.etag) conditionalHeaders.set("if-none-match", cached.etag);
+    if (cached?.lastModified) conditionalHeaders.set("if-modified-since", cached.lastModified);
     const res = await fetchPublic(target, {
-      headers,
+      headers: conditionalHeaders,
       signal: AbortSignal.timeout(TIMEOUT_MS),
     }, fetchImpl);
+    if (res.status === 304 && cached) {
+      await res.body?.cancel();
+      await cache?.refresh(target, PAGE_CACHE_TTL_MS);
+      const facts = previousFacts
+        ? { ...previousFacts, ...(cached.imageCandidates?.length ? { imageCandidates: cached.imageCandidates } : {}) }
+        : null;
+      const followed = facts?.menuUrl ? await followMenu(facts, fetchImpl, cache) : undefined;
+      const pageText = {
+        ...(cached.text ? { homepage: cached.text } : {}),
+        ...(followed?.text ? { menu: followed.text } : {}),
+      };
+      return {
+        facts,
+        ...(followed?.menuFile ? { menuFile: followed.menuFile } : {}),
+        ...(Object.keys(pageText).length ? { pageText } : {}),
+      };
+    }
     if (!res.ok) {
       await res.body?.cancel();
       return { facts: null, error: `HTTP ${res.status}` };
@@ -800,7 +916,16 @@ export async function fetchWebsiteFacts(
     const html = await readBoundedHtmlBody(res, MAX_HTML);
     const homepageText = extractVisibleText(html);
     const facts = parseWebsite(html, res.url || target.toString(), new Date().toISOString());
-    const followed = facts.menuUrl ? await followMenu(facts, fetchImpl) : undefined;
+    await storeCacheResponse(cache, res, {
+      url: target.toString(),
+      status: res.status,
+      ttlMs: PAGE_CACHE_TTL_MS,
+      etag: res.headers.get("etag"),
+      lastModified: res.headers.get("last-modified"),
+      text: homepageText,
+      imageCandidates: facts.imageCandidates ?? [],
+    });
+    const followed = facts.menuUrl ? await followMenu(facts, fetchImpl, cache) : undefined;
     const pageText = {
       ...(homepageText ? { homepage: homepageText } : {}),
       ...(followed?.text ? { menu: followed.text } : {}),
@@ -822,12 +947,23 @@ export async function fetchWebsiteFacts(
 async function followMenu(
   facts: WebFacts,
   fetchImpl: FetchLike,
+  cache?: WebsitePageCache,
 ): Promise<{ menuFile?: MenuFile; text?: string } | undefined> {
   try {
     const menu = new URL(facts.menuUrl!);
     // Same origin was already cleared by robots; a third-party host gets its own check.
-    if (menu.host !== new URL(facts.url).host && !(await fetchAllowed(menu, fetchImpl))) return undefined;
-    const res = await fetchPublic(menu, { headers, signal: AbortSignal.timeout(TIMEOUT_MS) }, fetchImpl);
+    if (menu.host !== new URL(facts.url).host && !(await fetchAllowed(menu, fetchImpl, TIMEOUT_MS, cache))) return undefined;
+    const cached = await cache?.load(menu);
+    if (cached?.fresh) return cached.text ? { text: cached.text } : undefined;
+    const conditionalHeaders = new Headers(headers);
+    if (cached?.etag) conditionalHeaders.set("if-none-match", cached.etag);
+    if (cached?.lastModified) conditionalHeaders.set("if-modified-since", cached.lastModified);
+    const res = await fetchPublic(menu, { headers: conditionalHeaders, signal: AbortSignal.timeout(TIMEOUT_MS) }, fetchImpl);
+    if (res.status === 304 && cached) {
+      await res.body?.cancel();
+      await cache?.refresh(menu, PAGE_CACHE_TTL_MS);
+      return cached.text ? { text: cached.text } : undefined;
+    }
     if (!res.ok) {
       await res.body?.cancel();
       return undefined;
@@ -865,6 +1001,15 @@ async function followMenu(
     }
     const html = await readBoundedHtmlBody(res, MAX_HTML);
     const text = extractVisibleText(html);
+    await storeCacheResponse(cache, res, {
+      url: menu.toString(),
+      status: res.status,
+      ttlMs: PAGE_CACHE_TTL_MS,
+      etag: res.headers.get("etag"),
+      lastModified: res.headers.get("last-modified"),
+      text,
+      imageCandidates: extractImageCandidates(html, fileUrl),
+    });
     const mentions = scanMenuMentions(html);
     if (mentions.length) facts.menuMentions = mentions;
     // A menu page with almost no text and a big picture: the picture is the menu.

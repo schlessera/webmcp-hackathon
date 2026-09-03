@@ -135,6 +135,7 @@ export async function resolveCommonsImage(
   source: string,
   fetchImpl: FetchLike = outboundFetchFor("commons", {
     direct: true,
+    cacheResponse: true,
     maxBytes: 2 * 1024 * 1024,
     timeoutMs: 10_000,
   }),
@@ -167,6 +168,7 @@ export async function fetchWikidataFacts(
   id: string,
   fetchImpl: FetchLike = outboundFetchFor("wikidata", {
     direct: true,
+    cacheResponse: true,
     maxBytes: 4 * 1024 * 1024,
     timeoutMs: TIMEOUT_MS,
   }),

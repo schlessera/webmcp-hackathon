@@ -378,6 +378,10 @@ export function setSearchProvider(next: SearchProvider | null): void {
   injectedProvider = next;
 }
 
+export function searchProviderId(): "tavily" | "openai" {
+  return process.env.SEARCH_PROVIDER === "tavily" ? "tavily" : "openai";
+}
+
 export function search(
   query: string,
   opts?: SearchOptions,

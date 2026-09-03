@@ -30,11 +30,7 @@ describe("outbound diagnostics API", () => {
   it("reports a rotated CONNECT retry and a non-retried target 404", async () => {
     const unauthorized = await fetch(`${server.baseUrl}/api/diag/outbound`);
     expect(unauthorized.status).toBe(401);
-    const response = await fetch(`${server.baseUrl}/api/diag/outbound`, {
-      headers: { authorization: `Bearer ${room.tokens.org}` },
-    });
-    expect(response.status).toBe(200);
-    const body = await response.json() as {
+    type Body = {
       rows: Array<{
         host: string;
         route: string;
@@ -44,7 +40,22 @@ describe("outbound diagnostics API", () => {
         targetStatus: Record<string, number>;
       }>;
     };
-    const row = body.rows.find((entry) => entry.host === "example.org" && entry.route === "proxy");
+    // The fixture starts listening before its scripted diagnostic requests
+    // finish. Poll the authenticated view rather than racing startup.
+    let row: Body["rows"][number] | undefined;
+    const deadline = Date.now() + 5_000;
+    while (Date.now() < deadline) {
+      const response = await fetch(`${server.baseUrl}/api/diag/outbound`, {
+        headers: { authorization: `Bearer ${room.tokens.org}` },
+      });
+      expect(response.status).toBe(200);
+      const body = await response.json() as Body;
+      row = body.rows.find((entry) =>
+        entry.host === "example.org" && entry.route === "proxy" && entry.attempts >= 3
+      );
+      if (row) break;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
     expect(row).toMatchObject({
       attempts: 3,
       successes: 1,

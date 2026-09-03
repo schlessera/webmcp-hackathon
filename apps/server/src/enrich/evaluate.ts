@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import type pg from "pg";
 import {
   graded,
   normalizeQuestion,
@@ -251,6 +253,30 @@ function uniqueInput(input: EvaluateMatrixInput): EvaluateMatrixInput {
   };
 }
 
+/** Stable cache identity for every piece of evidence the model can inspect,
+ * including the record tokens available through sourceIndex -1. */
+export function matrixEvidenceHash(place: EvaluateMatrixInput["places"][number]): string {
+  const bounded = trimMatrixPlace(place);
+  return createHash("sha256").update(JSON.stringify({
+    name: bounded.name,
+    category: bounded.category,
+    website: bounded.website ?? null,
+    cuisine: bounded.cuisine ?? [],
+    texts: bounded.texts.map((text) => ({
+      source: text.source,
+      text: text.text,
+      url: text.url ?? null,
+    })),
+  })).digest("hex");
+}
+
+export function matrixCacheKey(
+  place: EvaluateMatrixInput["places"][number],
+  criterion: Criterion,
+): string {
+  return `${place.osmRef}\u0000${criterion.id}\u0000${matrixEvidenceHash(place)}`;
+}
+
 function isTimeCriterion(criterion: Criterion): boolean {
   return criterion.kind === "key" && criterion.key.startsWith("open:");
 }
@@ -372,31 +398,151 @@ async function evaluateBounded(input: EvaluateMatrixInput): Promise<EvaluatedMat
   return matrixBatchFromAnswer(answer, input, reply.model);
 }
 
+type MatrixCacheQuery = Pick<pg.Pool, "query"> | Pick<pg.PoolClient, "query">;
+
+interface MatrixCacheRow {
+  osm_ref: string;
+  criterion_id: string;
+  evidence_hash: string;
+  claim: EvaluatedInference | null;
+  answered: boolean;
+}
+
+async function loadMatrixCache(
+  q: MatrixCacheQuery,
+  input: EvaluateMatrixInput,
+): Promise<Map<string, MatrixCacheRow>> {
+  const cells = input.places.flatMap((place) => input.criteria.map((criterion) => ({
+    osmRef: place.osmRef,
+    criterionId: criterion.id,
+    evidenceHash: matrixEvidenceHash(place),
+  })));
+  if (!cells.length) return new Map();
+  const rows = (await q.query(
+    `SELECT m.osm_ref, m.criterion_id, m.evidence_hash, m.claim, m.answered
+       FROM matrix_cache m
+       JOIN jsonb_to_recordset($1::jsonb)
+         AS wanted(osm_ref text, criterion_id text, evidence_hash text)
+         USING (osm_ref, criterion_id, evidence_hash)`,
+    [JSON.stringify(cells.map((cell) => ({
+      osm_ref: cell.osmRef,
+      criterion_id: cell.criterionId,
+      evidence_hash: cell.evidenceHash,
+    })))],
+  )).rows as MatrixCacheRow[];
+  return new Map(rows.map((row) => [
+    `${row.osm_ref}\u0000${row.criterion_id}\u0000${row.evidence_hash}`,
+    row,
+  ]));
+}
+
+async function storeMatrixBatch(q: MatrixCacheQuery, batch: EvaluatedMatrixBatch): Promise<void> {
+  const places = new Map(batch.input.places.map((place) => [place.candidateId, place]));
+  const claims = new Map(batch.claims.map((claim) => [
+    `${claim.candidateId}\u0000${claim.criterionId}`,
+    claim,
+  ]));
+  const rows = batch.answered.flatMap((cell) => {
+    const place = places.get(cell.candidateId);
+    if (!place) return [];
+    return [{
+      osm_ref: place.osmRef,
+      criterion_id: cell.criterionId,
+      evidence_hash: matrixEvidenceHash(place),
+      claim: claims.get(`${cell.candidateId}\u0000${cell.criterionId}`) ?? null,
+      answered: true,
+    }];
+  });
+  if (!rows.length) return;
+  await q.query(
+    `INSERT INTO matrix_cache
+       (osm_ref, criterion_id, evidence_hash, evaluated_at, claim, answered)
+     SELECT osm_ref, criterion_id, evidence_hash, now(), claim, answered
+       FROM jsonb_to_recordset($1::jsonb)
+         AS x(osm_ref text, criterion_id text, evidence_hash text,
+              claim jsonb, answered boolean)
+     ON CONFLICT (osm_ref, criterion_id, evidence_hash) DO UPDATE SET
+       evaluated_at = EXCLUDED.evaluated_at,
+       claim = EXCLUDED.claim,
+       answered = EXCLUDED.answered`,
+    [JSON.stringify(rows)],
+  );
+}
+
 /** Split on both axes and merge every validated cell; no model answer is
  * truncated merely because the caller supplied more than one bounded batch. */
 export async function evaluateMatrix(
   input: EvaluateMatrixInput,
   persistBatch?: (batch: EvaluatedMatrixBatch) => Promise<void>,
+  cacheDb?: MatrixCacheQuery,
 ): Promise<EvaluatedInference[]> {
   if (!inferenceEnabled()) return [];
   const clean = uniqueInput(input);
   if (clean.places.length === 0 || clean.criteria.length === 0) return [];
   const claims: EvaluatedInference[] = [];
-  for (let placeAt = 0; placeAt < clean.places.length; placeAt += MAX_MATRIX_PLACES) {
-    const places = clean.places.slice(placeAt, placeAt + MAX_MATRIX_PLACES);
-    for (
-      let criterionAt = 0;
-      criterionAt < clean.criteria.length;
-      criterionAt += MAX_MATRIX_CRITERIA
-    ) {
-      const criteria = clean.criteria.slice(criterionAt, criterionAt + MAX_MATRIX_CRITERIA);
-      try {
-        const batch = await evaluateBounded({ places, criteria });
-        if (persistBatch) await persistBatch(batch);
-        claims.push(...batch.claims);
-      } catch {
-        // A transport, parse, or persistence failure is not an answer. Other
-        // bounded batches remain independent and may still be persisted.
+  let cached = new Map<string, MatrixCacheRow>();
+  if (cacheDb) {
+    try {
+      cached = await loadMatrixCache(cacheDb, clean);
+    } catch {
+      // A cache outage may cost a model call but must not stop evaluation.
+    }
+  }
+
+  const cachedAnswered: EvaluatedMatrixBatch["answered"] = [];
+  const cachedClaims: EvaluatedInference[] = [];
+  for (const place of clean.places) {
+    for (const criterion of clean.criteria) {
+      const hit = cached.get(matrixCacheKey(place, criterion));
+      if (!hit?.answered) continue;
+      cachedAnswered.push({ candidateId: place.candidateId, criterionId: criterion.id });
+      // The cache is cross-room by OSM ref. Candidate ids are room-local, so
+      // replay the validated result under this input's identity.
+      if (hit.claim) cachedClaims.push({
+        ...hit.claim,
+        candidateId: place.candidateId,
+        osmRef: place.osmRef,
+        criterionId: criterion.id,
+      });
+    }
+  }
+  if (cachedAnswered.length) {
+    const batch = { input: clean, claims: cachedClaims, answered: cachedAnswered };
+    if (persistBatch) await persistBatch(batch);
+    claims.push(...cachedClaims);
+  }
+
+  // Group identical missing criterion sets. Every rectangle sent below is all
+  // misses, so a hit is never incidentally re-asked alongside another cell.
+  const groups = new Map<string, { places: EvaluateMatrixInput["places"]; criteria: Criterion[] }>();
+  for (const place of clean.places) {
+    const criteria = clean.criteria.filter((criterion) => !cached.has(matrixCacheKey(place, criterion)));
+    if (!criteria.length) continue;
+    const signature = criteria.map((criterion) => criterion.id).join("\u0000");
+    const group = groups.get(signature) ?? { places: [], criteria };
+    group.places.push(place);
+    groups.set(signature, group);
+  }
+  for (const group of groups.values()) {
+    for (let placeAt = 0; placeAt < group.places.length; placeAt += MAX_MATRIX_PLACES) {
+      const places = group.places.slice(placeAt, placeAt + MAX_MATRIX_PLACES);
+      for (
+        let criterionAt = 0;
+        criterionAt < group.criteria.length;
+        criterionAt += MAX_MATRIX_CRITERIA
+      ) {
+        const criteria = group.criteria.slice(criterionAt, criterionAt + MAX_MATRIX_CRITERIA);
+        try {
+          const batch = await evaluateBounded({ places, criteria });
+          if (cacheDb) {
+            await storeMatrixBatch(cacheDb, batch).catch(() => undefined);
+          }
+          if (persistBatch) await persistBatch(batch);
+          claims.push(...batch.claims);
+        } catch {
+          // A transport, parse, or persistence failure is not an answer. Other
+          // bounded batches remain independent and may still be persisted.
+        }
       }
     }
   }

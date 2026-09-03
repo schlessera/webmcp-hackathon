@@ -3,6 +3,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 import { attachWebSocket } from "../../apps/server/src/ws.ts";
 import { submitCommand } from "../../apps/server/src/engine.ts";
 import { lookupNow, setEnrichFetch } from "../../apps/server/src/enrich/index.ts";
+import { storePageCache } from "../../apps/server/src/enrich/cache.ts";
 import { setTransport } from "../../apps/server/src/nl/openai.ts";
 import {
   apiPost,
@@ -193,7 +194,78 @@ describe("look_up_places route and dossier privacy", () => {
 });
 
 describe("need-triggered lookup and realtime facts", () => {
-  it("a forced lookup validates a claim from transient page text without persisting that page", async () => {
+  it("serves cached page evidence to the evaluator without calling the fetch dispatcher", async () => {
+    vi.stubEnv("ENRICH_NETWORK", "1");
+    vi.stubEnv("INFER", "1");
+    vi.stubEnv("OPENAI_API_KEY", "test");
+    const candidateId = `place_c_${room.roomId.slice("room_test_".length)}`;
+    const osmRef = `node/page-cache-${room.roomId}`;
+    const website = `https://cached-${room.roomId}.example/`;
+    await room.pool.query(
+      `UPDATE candidates SET osm_ref = $2, extras = $3::jsonb,
+         attributes = '[{"key":"dog-friendly","status":"unknown","source":"osm:dog","confidence":0}]'::jsonb
+       WHERE id = $1`,
+      [candidateId, osmRef, JSON.stringify({ website })],
+    );
+    await room.pool.query(
+      `INSERT INTO enrichments
+         (osm_ref, fetched_at, expires_at, website, website_status,
+          website_fetched_at, website_expires_at, image_fetched_at,
+          image_expires_at)
+       VALUES ($1, now(), now() + interval '7 days', $2::jsonb, 'ok', now(),
+               now() + interval '7 days', now(), now() + interval '30 days')
+       ON CONFLICT (osm_ref) DO UPDATE SET
+         website = EXCLUDED.website, website_status = 'ok',
+         website_fetched_at = now(), website_expires_at = now() + interval '7 days',
+         image_fetched_at = now(), image_expires_at = now() + interval '30 days'`,
+      [osmRef, JSON.stringify({ url: website, host: new URL(website).host, fetchedAt: new Date().toISOString(), types: [] })],
+    );
+    await storePageCache(room.pool, {
+      url: website,
+      status: 200,
+      text: "Dogs are welcome throughout our quiet courtyard.",
+    });
+
+    const dispatcher = vi.fn(async () => {
+      throw new Error("cached page must not fetch");
+    });
+    setEnrichFetch(dispatcher);
+    setTransport(async (body) => {
+      const matrix = JSON.parse((body.input as Array<{ content: string }>)[0].content) as {
+        places: Array<{ candidateId: string }>;
+      };
+      return {
+        output: [{ type: "message", content: [{
+          type: "output_text",
+          text: JSON.stringify({ claims: [{
+            candidateId: matrix.places[0].candidateId,
+            criterionId: "dog-friendly",
+            lean: "yes",
+            confidence: 0.6,
+            evidence: "Dogs are welcome throughout",
+            sourceIndex: 0,
+            explicit: false,
+          }] }),
+        }] }],
+      };
+    });
+
+    await lookupNow(room.pool, room.roomId, [{ candidateId, osmRef, website }], {
+      keys: ["dog-friendly"],
+    });
+
+    expect(dispatcher).not.toHaveBeenCalled();
+    const stored = (await room.pool.query(
+      "SELECT inferred FROM enrichments WHERE osm_ref = $1",
+      [osmRef],
+    )).rows[0];
+    expect(stored.inferred["dog-friendly"]).toMatchObject({
+      lean: "yes",
+      evidence: "Dogs are welcome throughout",
+    });
+  });
+
+  it("a forced lookup validates a claim from cached private page text without putting it in the dossier", async () => {
     vi.stubEnv("ENRICH_NETWORK", "1");
     vi.stubEnv("INFER", "1");
     vi.stubEnv("OPENAI_API_KEY", "test");
@@ -405,7 +477,7 @@ describe("need-triggered lookup and realtime facts", () => {
     ).toMatchObject({ host: "93.184.216.34" });
   });
 
-  it("force re-runs inference over stored answers and re-reads a site only past ten minutes", async () => {
+  it("force reuses unchanged matrix evidence and refreshes only an expired page", async () => {
     vi.stubEnv("ENRICH_NETWORK", "1");
     vi.stubEnv("INFER", "1");
     vi.stubEnv("OPENAI_API_KEY", "test");
@@ -454,23 +526,36 @@ describe("need-triggered lookup and realtime facts", () => {
     expect(siteFetches).toBe(1);
     expect(deliveryCalls).toBe(1);
 
-    // Force, minutes after a good read: the site stays cached, inference
-    // runs again and its answer replaces the stored omission.
+    // Force, minutes after a good read: both the page and the exact matrix cell
+    // stay cached. Unchanged evidence is not an invitation to ask again.
     await lookupNow(room.pool, room.roomId, [target], { keys: ["delivery"], force: true });
     expect(siteFetches).toBe(1);
-    expect(deliveryCalls).toBe(2);
+    expect(deliveryCalls).toBe(1);
     const stored = (await room.pool.query("SELECT inferred FROM enrichments WHERE osm_ref = $1", [osmRef])).rows[0];
-    expect(stored.inferred.delivery).toMatchObject({ lean: "yes", source: expect.stringMatching(/^infer:/) });
+    expect(stored.inferred.delivery).toMatchObject({ omitted: true });
 
-    // Force once the last good read is older than ten minutes: the site is
-    // read again inside its seven-day TTL.
+    // Aging the provider clock alone still reuses the seven-day page row.
+    await room.pool.query(
+      "UPDATE enrichments SET website_fetched_at = now() - interval '11 minutes' WHERE osm_ref = $1",
+      [osmRef],
+    );
+    await lookupNow(room.pool, room.roomId, [target], { keys: ["delivery"], force: true });
+    expect(siteFetches).toBe(1);
+    expect(deliveryCalls).toBe(1);
+
+    // Once the actual page row expires, a 200 replaces it. Its unchanged
+    // extracted evidence still hits the matrix cache.
+    await room.pool.query(
+      "UPDATE page_cache SET expires_at = now() - interval '1 second' WHERE url = $1",
+      [website],
+    );
     await room.pool.query(
       "UPDATE enrichments SET website_fetched_at = now() - interval '11 minutes' WHERE osm_ref = $1",
       [osmRef],
     );
     await lookupNow(room.pool, room.roomId, [target], { keys: ["delivery"], force: true });
     expect(siteFetches).toBe(2);
-    expect(deliveryCalls).toBe(3);
+    expect(deliveryCalls).toBe(1);
 
     // A failed read keeps its retry TTL even under force.
     setEnrichFetch(async (url) => {
@@ -481,6 +566,10 @@ describe("need-triggered lookup and realtime facts", () => {
     await room.pool.query(
       "UPDATE enrichments SET website_fetched_at = now() - interval '11 minutes' WHERE osm_ref = $1",
       [osmRef],
+    );
+    await room.pool.query(
+      "UPDATE page_cache SET expires_at = now() - interval '1 second' WHERE url = $1",
+      [website],
     );
     await lookupNow(room.pool, room.roomId, [target], { keys: ["delivery"], force: true });
     expect(siteFetches).toBe(3);
