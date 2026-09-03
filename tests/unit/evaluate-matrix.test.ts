@@ -456,8 +456,6 @@ describe("bulk inference persistence", () => {
       sourceIndex: 0,
       observedAt: "2026-09-03T00:00:00.000Z",
       sourceUrl: "https://alpha.example/visit",
-      question: wifi.text,
-      label: wifi.label,
       explicit: false,
     };
     await saveInferences(db as never, [
@@ -487,5 +485,20 @@ describe("bulk inference persistence", () => {
       expect.objectContaining({ kind: "question", label: "server evaluable" }),
       expect.objectContaining({ kind: "question", label: "room visible" }),
     ]);
+  });
+  it("never puts a question's sentence on a claim, only its hash", async () => {
+    // A claim is what reaches the cross-room enrichments cache, and a question
+    // may be application-private, so the sentence must not ride along
+    // (CLAUDE.md 5). Authorized copy comes from the viewer's own requirement.
+    const question = criterionFor({ kind: "text", text: "is there a quiet room" } as never)!;
+    setTransport(async () => response([
+      { candidateId: "alpha", criterionId: question.id, lean: "yes", confidence: 0.9, evidence: "free wireless internet throughout", sourceIndex: 0 },
+    ]));
+    const claims = await evaluateMatrix({ ...input(), criteria: [question] });
+    expect(claims).toHaveLength(1);
+    expect(claims[0].criterionId).toBe(question.id);
+    expect(claims[0]).not.toHaveProperty("question");
+    expect(claims[0]).not.toHaveProperty("label");
+    expect(JSON.stringify(claims[0])).not.toContain("quiet room");
   });
 });

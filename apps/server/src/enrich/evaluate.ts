@@ -79,8 +79,9 @@ export interface EvaluatedInference {
   sourceUrl?: string;
   explicit: boolean;
   value?: string;
-  question?: string;
-  label?: string;
+  // Deliberately absent: a question's sentence never travels on a claim. It
+  // may be application-private, and a claim is what reaches the cross-room
+  // enrichments cache. Authorized copy is recovered from the requirement.
 }
 
 export interface EvaluatedMatrixBatch {
@@ -332,9 +333,6 @@ export function matrixBatchFromAnswer(
         ? { value: criterion.values.join(";") }
         : {}),
       ...(sourceUrl ? { sourceUrl } : {}),
-      ...(criterion.kind === "question"
-        ? { question: normalizeQuestion(criterion.text), label: criterion.label }
-        : {}),
     });
   }
   return { input, claims, answered };
