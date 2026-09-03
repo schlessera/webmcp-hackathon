@@ -989,25 +989,29 @@ export function PlaceDetails({
         {whereWhen && (
           <div className="details-group" data-testid="where-when">
             <div className="group-heading">Where and when</div>
-            <div className="ledger">
-              {hoursStatus && (
-                <div className="ledger-row hours-status">
-                  <span className="ledger-label">{hoursStatus}</span>
-                </div>
-              )}
-              {dossier.address && (
-                <div className="ledger-row">
-                  <span className="ledger-label">{dossier.address}</span>
-                </div>
-              )}
-              {dossier.phone && (
-                <div className="ledger-row">
-                  <a className="ledger-label details-phone" href={`tel:${dossier.phone.replace(/\s+/g, "")}`}>
-                    {dossier.phone}
-                  </a>
-                </div>
-              )}
-            </div>
+            {/* An empty ledger still draws its rule, and a rule with nothing
+                under it reads as a section that failed to load. */}
+            {(hoursStatus || dossier.address || dossier.phone) && (
+              <div className="ledger">
+                {hoursStatus && (
+                  <div className="ledger-row hours-status">
+                    <span className="ledger-label">{hoursStatus}</span>
+                  </div>
+                )}
+                {dossier.address && (
+                  <div className="ledger-row">
+                    <span className="ledger-label">{dossier.address}</span>
+                  </div>
+                )}
+                {dossier.phone && (
+                  <div className="ledger-row">
+                    <a className="ledger-label details-phone" href={`tel:${dossier.phone.replace(/\s+/g, "")}`}>
+                      {dossier.phone}
+                    </a>
+                  </div>
+                )}
+              </div>
+            )}
             {/* Open now, the address and the phone answer the reader's
                 question; the week rarely does. It stays one tap away, as a
                 count of what the record carries (§10). */}
