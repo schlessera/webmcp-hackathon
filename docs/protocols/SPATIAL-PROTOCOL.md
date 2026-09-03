@@ -112,6 +112,12 @@ in sync results and spatial context is a summary row:
 }
 ```
 
+`why` is optional and is omitted for `eligible` rows; when present it is at
+most 60 characters. Consumers MUST fall back to the structured `eligibility`
+state when it is absent. This is a backward-compatible payload reduction.
+Ordinary HTTP context responses also use content negotiation for gzip and
+Brotli; compression changes transport bytes, not the JSON contract.
+
 ## 5. Domain payloads for negotiation objects
 
 These are the `payload` shapes the negotiation envelope carries when
@@ -166,15 +172,32 @@ pool and has no negotiation effect until a participant dispatches
 `AddCandidates {refs}`. Any participant may do that during gathering or
 deliberation. The server MUST resolve every ref against the room area's loaded
 snapshot, ignore refs already represented by an `osm_ref`, and reject a change
-that would take the room above `POOL_CAP` (400 candidate rows).
+that would take the room above `POOL_CAP` (2,500 candidate rows).
 
-A search-scope centre change MUST top the pool up from the same deterministic
-seed rule used at creation: 40 places per distance ring, ordered first by
-distance and ref, then thinned on a 100 m grid with greedy farthest-point
-selection. Existing candidates are never removed. A successful growth emits
-`candidates_added` with the shared actor and count, followed by the ordinary
-`candidates_updated` reconciliation when classifications changed. Pool growth
-does not itself move or fit any participant's map.
+A snapshot-backed room synchronously starts with 60 venues from its narrow
+scope circle. The source order is distance then stable ref; the existing 100 m
+grid thinning and deterministic greedy farthest-point selection spread that
+first batch across the circle. After creation, the server MUST add every
+remaining snapshot venue inside the current scope circle nearest-first in
+stable batches, without blocking room creation. A radius or centre change
+recomputes missing refs for the new circle. Existing candidates are never
+removed, jobs resume from persisted candidate refs after a restart, and every
+write is bounded by `POOL_CAP`.
+
+Each background batch emits exactly one shared `candidates_added` event with
+`actor_id = null` and the additive payload discriminator
+`{ "source": "pool", "count": N }`. It projects at existence level for every
+viewer as "N more places on the map." The uniform discriminator/count shape
+allows consecutive pool rows to be collapsed without changing participant-
+driven `AddCandidates` projections. It is followed by a `facts` realtime frame
+with `reason: "pool"` and the inserted candidate IDs.
+
+The spatial context's `pool` object has additive fields `filling` and `target`:
+`filling` is true while the current circle still has missing snapshot venues
+and the cap has not been reached; `target` is the total snapshot venue count in
+that circle clamped to the cap. `size`, `cap`, and `explorable` retain their
+existing meanings. Pool growth never moves, fits, or recentres a participant's
+map.
 
 ### 5.6 Hint taxonomy (L1 disclosure)
 

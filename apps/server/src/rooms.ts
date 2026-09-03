@@ -10,6 +10,7 @@ import { sha256 } from "./auth.ts";
 import { candidatesFor, type DataSource } from "./places.ts";
 import { pool } from "./db.ts";
 import { warmEnrichments } from "./enrich/index.ts";
+import { startPoolFill } from "./pool-fill.ts";
 
 /**
  * Room creation from the area picker: one organizer, up to five members,
@@ -165,5 +166,8 @@ export async function createRoom(input: CreateRoomInput): Promise<CreateRoomResu
         : [];
     }),
   );
+  // Creation returns after the deterministic seed. The rest of the current
+  // scope circle arrives under the ordinary room write lock in the background.
+  startPoolFill(roomId);
   return { ok: true, roomId, areaId: area.id, invites, dataSource: set.dataSource };
 }

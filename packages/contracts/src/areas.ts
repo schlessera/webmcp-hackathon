@@ -21,8 +21,9 @@ export interface AreaDefinition {
   /** Opening hours are local to the venue. */
   timezone: string;
   center: { lat: number; lng: number };
-  /** The room's starting radius, the widening the demo rehearses, and the
-   * outermost ring the pool is drawn from (the engine's widening ceiling). */
+  /** The room's starting scope radius, the wider scope the demo rehearses,
+   * and the engine's maximum supported widening. Every snapshot venue inside
+   * the current scope circle is added incrementally, up to POOL_CAP. */
   radii: { narrow: number; wide: number; max: number };
   /** south, west, north, east — the whole city, so a room centred anywhere
    * in it has buffer to widen into. The default centre is where the
@@ -90,14 +91,10 @@ export function areaById(id: string): AreaDefinition | undefined {
   return AREAS.find((a) => a.id === id);
 }
 
-/**
- * What a room starts with in each distance ring. Places are first ordered by
- * distance then stable ref, thinned to one representative per 100 m grid
- * cell, and greedily chosen by farthest-point distance. The fixed count keeps
- * the room legible while the spread keeps a dense city centre from collapsing
- * into a nearest-neighbour blob.
- */
+/** Legacy snapshot-build coverage sample size per ring. Runtime room seeding
+ * no longer uses ring quotas; kept for committed snapshot manifest metadata. */
 export const POOL_PER_RING = 40;
 
-/** Additive room-pool ceiling. Explore places remain available on the map. */
-export const POOL_CAP = 400;
+/** Ceiling for the additive room pool while whole-scope filling runs. Places
+ * beyond it remain available through the explore layer. */
+export const POOL_CAP = 2500;

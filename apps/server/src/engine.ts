@@ -48,11 +48,12 @@ import {
 import {
   candidatesForRefs,
   loadSnapshot,
-  topUp,
   type CandidateSeed,
 } from "./places.ts";
 import { warmEnrichments, type RoomLookupTarget } from "./enrich/index.ts";
 import { notifyCommit } from "./commit-notifications.ts";
+import { insertCandidateSeeds, numberCandidateSeeds } from "./candidate-write.ts";
+import { startPoolFill } from "./pool-fill.ts";
 export {
   notifyCommit,
   onCommit,
@@ -141,6 +142,8 @@ interface HandlerOutcome {
   confirm?: ConfirmationSubject;
   /** Snapshot-backed places to warm only after the transaction commits. */
   warmTargets?: RoomLookupTarget[];
+  /** The committed scope changed its circle; resume whole-area filling. */
+  poolFill?: boolean;
   error?: FailureEnvelope;
   /** An attribute need that should start an opportunistic lookup after commit. */
   lookup?: {
@@ -386,6 +389,7 @@ export async function submitCommand(
       confirm: outcome.confirm,
       lookup: outcome.lookup,
       warmTargets: outcome.warmTargets ?? [],
+      poolFill: outcome.poolFill ?? false,
       replayed: false as const,
     };
     });
@@ -447,6 +451,7 @@ export async function submitCommand(
   if (result.warmTargets.length > 0) {
     warmEnrichments(pool, actor.roomId, result.warmTargets);
   }
+  if (result.poolFill) startPoolFill(actor.roomId);
   return result.success;
 }
 
@@ -1150,7 +1155,7 @@ async function addCandidates(
       `Bring in at most ${Math.max(0, POOL_CAP - existingRows.length)} more places.`,
     );
   }
-  numberSeeds(actor.roomId, novel, existingRows.map((row) => row.id));
+  numberCandidateSeeds(actor.roomId, novel, existingRows.map((row) => row.id));
   await insertCandidateSeeds(client, actor.roomId, novel);
   if (novel.length === 0) {
     return { events: [], effect: "Those places are already in the room." };
@@ -1187,7 +1192,7 @@ async function setSearchScope(
     );
   }
   const room = (
-    await client.query("SELECT scope, scope_seq, area_id FROM rooms WHERE id = $1", [
+    await client.query("SELECT scope, scope_seq FROM rooms WHERE id = $1", [
       actor.roomId,
     ])
   ).rows[0];
@@ -1208,44 +1213,8 @@ async function setSearchScope(
     [actor.roomId, JSON.stringify(next), seq],
   );
   const summary = `${next.area.radiusM} m around the center; ${next.transport.join("/")}`;
-  const events: AppendedEvent[] = [];
-  let added: CandidateSeed[] = [];
-  const centerChanged =
-    cmd.area !== undefined &&
-    (previous?.area.center.lat !== next.area.center.lat ||
-      previous?.area.center.lng !== next.area.center.lng);
-  if (centerChanged && room.area_id) {
-    const area = areaById(room.area_id as string);
-    const snapshot = area ? loadSnapshot(area.id) : null;
-    if (area && snapshot) {
-      const existingRows = (
-        await client.query(
-          "SELECT id, osm_ref FROM candidates WHERE room_id = $1 ORDER BY id",
-          [actor.roomId],
-        )
-      ).rows as Array<{ id: string; osm_ref: string | null }>;
-      const existingRefs = existingRows
-        .map((row) => row.osm_ref)
-        .filter((ref): ref is string => ref !== null);
-      added = topUp(
-        actor.roomId,
-        area,
-        snapshot,
-        next.area.center,
-        next.area.radiusM,
-        existingRefs,
-      ).slice(
-        0,
-        Math.max(0, POOL_CAP - existingRows.length),
-      );
-      numberSeeds(actor.roomId, added, existingRows.map((row) => row.id));
-      await insertCandidateSeeds(client, actor.roomId, added);
-      if (added.length > 0) events.push(candidatesAddedEvent(actor, added));
-    }
-  }
   return {
     events: [
-      ...events,
       {
         type: "scope_change_proposed",
         actorId: actor.id,
@@ -1261,59 +1230,8 @@ async function setSearchScope(
       },
     ],
     effect: `Search scope is now ${summary}.`,
-    warmTargets: warmTargetsFor(added),
+    poolFill: cmd.area !== undefined,
   };
-}
-
-function numberSeeds(roomId: string, seeds: CandidateSeed[], existingIds: string[]): void {
-  const prefix = `pl_${roomId.replace(/^room_/, "")}_`;
-  let next = existingIds.reduce((highest, id) => {
-    if (!id.startsWith(prefix)) return highest;
-    const suffix = id.slice(prefix.length);
-    return /^\d+$/.test(suffix) ? Math.max(highest, Number(suffix)) : highest;
-  }, 0) + 1;
-  for (const seed of seeds) seed.id = `${prefix}${String(next++).padStart(3, "0")}`;
-}
-
-async function insertCandidateSeeds(
-  client: pg.PoolClient,
-  roomId: string,
-  seeds: CandidateSeed[],
-): Promise<void> {
-  if (seeds.length > 0) {
-    const values: unknown[] = [];
-    const rows = seeds.map((seed, index) => {
-      const offset = index * 11;
-      values.push(
-        seed.id,
-        roomId,
-        seed.name,
-        seed.category,
-        seed.price_level,
-        seed.walk_min,
-        JSON.stringify(seed.location),
-        JSON.stringify(seed.attributes),
-        JSON.stringify(seed.hours),
-        seed.osmRef ?? null,
-        JSON.stringify(seed.extras ?? {}),
-      );
-      return `(${Array.from({ length: 11 }, (_, i) => `$${offset + i + 1}`).join(", ")})`;
-    });
-    await client.query(
-      `INSERT INTO candidates
-         (id, room_id, name, category, price_level, walk_min, location, attributes, hours, osm_ref, extras)
-       VALUES ${rows.join(", ")}`,
-      values,
-    );
-    await client.query(
-      `UPDATE rooms
-          SET data_source = CASE WHEN data_source IS NULL THEN NULL
-            ELSE jsonb_set(data_source, '{poolSize}',
-              to_jsonb((SELECT count(*)::int FROM candidates WHERE room_id = $1))) END
-        WHERE id = $1`,
-      [roomId],
-    );
-  }
 }
 
 function candidatesAddedEvent(actor: Participant, seeds: CandidateSeed[]): AppendedEvent {

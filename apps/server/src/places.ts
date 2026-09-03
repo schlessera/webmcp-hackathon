@@ -3,7 +3,6 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import {
   AREAS,
-  POOL_PER_RING,
   dossierFromTags,
   type AreaDefinition,
   type DossierExtras,
@@ -165,8 +164,10 @@ export function areaSummaries(): AreaSummary[] {
 }
 
 const GRID_M = 100;
+/** Synchronous first batch for a snapshot-backed room. */
+export const POOL_SEED_SIZE = 60;
 
-type LocatedVenue = SnapshotVenue & { distance: number };
+export type LocatedVenue = SnapshotVenue & { distance: number };
 
 function stableRefOrder(a: LocatedVenue, b: LocatedVenue): number {
   return a.distance - b.distance || (a.ref < b.ref ? -1 : a.ref > b.ref ? 1 : 0);
@@ -236,30 +237,60 @@ function spreadRing(
 }
 
 /**
- * The pool rule, identical in all three rings: stable distance/ref ordering,
- * 100 m grid thinning, then deterministic farthest-point selection. This
- * preserves POOL_PER_RING while covering the usable geography of each ring.
+ * The synchronous room seed: snapshot venues inside the room's current
+ * circle, distance/ref ordered before the existing 100 m grid thinning and
+ * deterministic farthest-point selection spread the first batch across it.
  */
-export function poolFor(
+export function seedFor(
   area: AreaDefinition,
-  snapshot: AreaSnapshot,
   center: { lat: number; lng: number },
-  perRing = POOL_PER_RING,
+  radiusM: number,
 ): Array<SnapshotVenue & { distance: number }> {
+  const snapshot = loadSnapshot(area.id);
+  if (!snapshot) return [];
   // Whole metres, as the builder measures, so the pool and the coverage
   // numbers the picker shows are cut at exactly the same places.
-  const withDistance = snapshot.venues
+  const ordered = snapshot.venues
     .map((v) => ({ ...v, distance: Math.round(haversineMeters(center, v.location)) }))
-    .filter((v) => v.distance <= area.radii.max)
+    .filter((v) => v.distance <= radiusM)
     .sort(stableRefOrder);
-  const { narrow, wide, max } = area.radii;
-  const ring = (from: number, to: number) =>
-    spreadRing(
-      withDistance.filter((v) => v.distance > from && v.distance <= to),
-      center,
-      perRing,
-    );
-  return [...ring(-1, narrow), ...ring(narrow, wide), ...ring(wide, max)];
+  return spreadRing(ordered, center, POOL_SEED_SIZE);
+}
+
+export interface FillPlan {
+  /** Every snapshot venue inside the circle, including refs already present. */
+  total: number;
+  /** Missing venues in stable nearest-first batches. */
+  batches: LocatedVenue[][];
+}
+
+/**
+ * Deterministic incremental work for the whole current scope circle. Existing
+ * refs are excluded; everything else stays nearest-first (ref breaks ties).
+ */
+export function fillPlan(
+  _area: AreaDefinition,
+  snapshot: AreaSnapshot,
+  center: { lat: number; lng: number },
+  radiusM: number,
+  existingRefs: Iterable<string>,
+  batchSize = 50,
+): FillPlan {
+  const existing = new Set(existingRefs);
+  const ordered = snapshot.venues
+    .map((venue) => ({
+      ...venue,
+      distance: Math.round(haversineMeters(center, venue.location)),
+    }))
+    .filter((venue) => venue.distance <= radiusM)
+    .sort(stableRefOrder);
+  const missing = ordered.filter((venue) => !existing.has(venue.ref));
+  const size = Math.max(1, Math.floor(batchSize));
+  const batches: LocatedVenue[][] = [];
+  for (let index = 0; index < missing.length; index += size) {
+    batches.push(missing.slice(index, index + size));
+  }
+  return { total: ordered.length, batches };
 }
 
 const WALK_SPEED_M_PER_MIN = 4500 / 60;
@@ -269,7 +300,7 @@ export interface CandidateSet {
   dataSource: DataSource;
 }
 
-function seedsForVenues(
+export function seedsForVenues(
   roomId: string,
   venues: LocatedVenue[],
   observedAt: string,
@@ -305,8 +336,8 @@ export function candidatesFor(
   const snapshot = loadSnapshot(area.id);
   if (!snapshot) return curatedCandidates(roomId, area);
   const observedAt = snapshot.manifest.extract.timestamp;
-  const pool = poolFor(area, snapshot, center);
-  const candidates = seedsForVenues(roomId, pool, observedAt);
+  const seed = seedFor(area, center, area.radii.narrow);
+  const candidates = seedsForVenues(roomId, seed, observedAt);
   const focusVenues = snapshot.venues.filter(
     (v) => Math.round(haversineMeters(center, v.location)) <= area.radii.wide,
   ).length;
@@ -358,7 +389,7 @@ export function explorePlaces(
   };
 }
 
-/** Places the same spread rule would seed around a moved scope centre. */
+/** Missing places in the current circle, retained for non-job callers. */
 export function topUp(
   roomId: string,
   area: AreaDefinition,
@@ -367,10 +398,14 @@ export function topUp(
   scopeRadiusM: number,
   existingRefs: Iterable<string>,
 ): CandidateSeed[] {
-  const existing = new Set(existingRefs);
-  const venues = poolFor(area, snapshot, center).filter(
-    (venue) => venue.distance <= scopeRadiusM && !existing.has(venue.ref),
-  );
+  const venues = fillPlan(
+    area,
+    snapshot,
+    center,
+    scopeRadiusM,
+    existingRefs,
+    Number.MAX_SAFE_INTEGER,
+  ).batches[0] ?? [];
   return seedsForVenues(roomId, venues, snapshot.manifest.extract.timestamp);
 }
 

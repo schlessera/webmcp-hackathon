@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import pg from "pg";
-import { POOL_PER_RING } from "@webmcp-hackathon/contracts";
 import { DATABASE_URL, apiPost, startServer, type TestServer } from "./helpers.ts";
+import { POOL_SEED_SIZE } from "../../apps/server/src/places.ts";
 
 /**
  * The area picker's server half: GET /api/areas reports what was measured,
@@ -18,7 +18,7 @@ interface Invite { participantId: string; displayName: string; role: string; inv
 interface Created { roomId: string; areaId: string; invites: Invite[]; dataSource: { kind: string; poolSize: number } }
 
 beforeAll(async () => {
-  server = await startServer();
+  server = await startServer({ env: { POOL_FILL: "0" } });
 });
 afterAll(async () => {
   for (const roomId of created) {
@@ -85,7 +85,7 @@ describe("POST /api/rooms", () => {
     created.push(room.roomId);
     expect(room.invites).toHaveLength(3);
     expect(room.invites[0]).toMatchObject({ displayName: "Alex", role: "organizer" });
-    expect(room.dataSource).toMatchObject({ kind: "osm-snapshot", poolSize: 3 * POOL_PER_RING });
+    expect(room.dataSource).toMatchObject({ kind: "osm-snapshot", poolSize: POOL_SEED_SIZE });
 
     const token = await exchange(room.invites[0].inviteSecret);
     expect(token).toBeTruthy();
@@ -101,15 +101,13 @@ describe("POST /api/rooms", () => {
       areaId: "sf-soma",
       label: "San Francisco SoMa",
       kind: "osm-snapshot",
-      poolSize: 3 * POOL_PER_RING,
+      poolSize: POOL_SEED_SIZE,
     });
-    expect(context.body.area!.focusVenues).toBeGreaterThan(3 * POOL_PER_RING);
+    expect(context.body.area!.focusVenues).toBeGreaterThan(POOL_SEED_SIZE);
     expect(context.body.scope.area.radiusM).toBe(800);
     expect(context.body.scope.area.center.lat).toBeCloseTo(37.7845, 3);
-    expect(context.body.candidates).toHaveLength(3 * POOL_PER_RING);
-    // The first ring is inside the starting scope; the other two are the
-    // buffer the room widens into.
-    expect(context.body.total).toBe(POOL_PER_RING);
+    expect(context.body.candidates).toHaveLength(POOL_SEED_SIZE);
+    expect(context.body.total).toBe(POOL_SEED_SIZE);
     for (const c of context.body.candidates) expect(c.priceLevel).toBeNull();
 
     const inspect = await apiPost<{
@@ -155,7 +153,7 @@ describe("POST /api/rooms", () => {
       server.baseUrl, "/api/spatial/context", token, {},
     );
     expect(after.body.matching).toBe(0);
-    expect(after.body.feasibility.uncertain).toBe(POOL_PER_RING);
+    expect(after.body.feasibility.uncertain).toBe(POOL_SEED_SIZE);
   });
 
   it("opens a Berlin room on the snapshot too, distinct from room_demo", async () => {

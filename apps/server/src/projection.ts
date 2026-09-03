@@ -135,6 +135,14 @@ export function projectEvent(
 
     case "candidates_added": {
       const count = (p.count as number) ?? 0;
+      if (p.source === "pool") {
+        return {
+          revision: event.revision,
+          type: event.type,
+          level: "existence",
+          text: `${count} more places on the map.`,
+        };
+      }
       const text = `${isActor ? "You" : actorName} brought ${count} place${count === 1 ? "" : "s"} in.`;
       return isActor
         ? full(event, text)

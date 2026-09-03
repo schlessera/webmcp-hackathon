@@ -237,7 +237,7 @@ describe("contract hash and version bump policy (Gate 2)", () => {
         phase: "gathering",
         scope: { scopeId: "s_1", area: { kind: "circle", center: { lat: 1, lng: 2 }, radiusM: 800 }, transport: ["walk"], category: "category" },
         area: { areaId: "a", label: "area", kind: "curated", source: "source", dataAsOf: "now", poolSize: 3, focusVenues: 2 },
-        pool: { size: 3, cap: 40, explorable: true },
+        pool: { size: 3, cap: 2500, explorable: true, filling: true, target: 12 },
         feasibility: { state: "fragile", eligible: 1, likely: 2, uncertain: 3, unlikely: 4, excluded: 5 },
         total: 15,
         matching: 1,
