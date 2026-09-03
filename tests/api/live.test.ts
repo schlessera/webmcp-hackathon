@@ -264,12 +264,14 @@ describe("need-triggered lookup and realtime facts", () => {
       lean: "yes",
       confidence: 0.6,
       evidence: "dogs are welcome throughout",
+      context: expect.stringContaining(`${marker} DOGS ARE WELCOME throughout our courtyard.`),
       source: expect.stringMatching(/^infer:/),
     });
+    expect(stored.inferred["dog-friendly"].context.length).toBeLessThanOrEqual(1_200);
     expect(stored.website).not.toHaveProperty("pageText");
     expect(stored.website).not.toHaveProperty("homepage");
     expect(stored.website).not.toHaveProperty("menu");
-    expect(stored.serialized).not.toContain(marker);
+    expect(JSON.stringify(stored.website)).not.toContain(marker);
   });
 
   it("deduplicates concurrent lookup work by room, candidate and key set", async () => {

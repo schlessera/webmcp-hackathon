@@ -40,6 +40,18 @@ export interface InferredClaim {
   /** Matrix-only provenance: direct statement rather than indirect inference. */
   explicit?: boolean;
   sourceUrl?: string;
+  /** Bounded reread material captured when the evidence span was validated. */
+  context?: string;
+  pageTitle?: string;
+  publisherNames?: string[];
+  adjudication?: {
+    evidenceHash: string;
+    verdict: "yes" | "no" | "unclear";
+    explicit: boolean;
+    publisher: "venue" | "chain" | "third_party" | "unknown";
+    quote: string;
+    observedAt: string;
+  };
 }
 
 export type StoredInference =
@@ -281,7 +293,7 @@ export function applyInferredAttributes<T extends AttributeLike>(
     const status: AttributeStatus = graded(claim.lean === "yes", claim.confidence);
     const recordGrade =
       claim.explicit === true &&
-      claim.source.startsWith("web:") &&
+      (claim.source.startsWith("web:") || claim.source.startsWith("adjudicated:")) &&
       claim.confidence >= 0.7;
     if ((status === "verified_true" || status === "verified_false") && !recordGrade) continue;
     const patch = {

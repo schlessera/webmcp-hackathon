@@ -495,6 +495,43 @@ strengthenings and the disagreement note. Attestations still merge after all
 cached inference and therefore retain their existing decisive/disputing
 precedence.
 
+#### Adjudication
+
+A likely inference with a validated evidence span receives one focused second
+read on the fast model. This is not another place × criterion sweep: each cell
+carries only its evidence, a bounded nearby context window, page title and URL,
+publisher identity hints, and the place name/category. The model returns
+`yes | no | unclear`, whether the wording is explicit, a publisher class, and
+one verbatim quote. The server validates the quote and publisher independently.
+
+An explicit `yes` or `no` from a validated `venue` or `chain` becomes
+`verified_true` or `verified_false` at **0.75**, with source
+`adjudicated:<host>` and the quote as the displayed note. A third-party answer
+remains likely at **0.69**. `unclear`, an unsupported quote, or an unproved
+first-party label leaves the fact unchanged. All writes pass through the same
+monotonic resolver: adjudication may flip a likely claim, but never an existing
+verified fact.
+
+First-party publishing is established by either a registrable-domain match
+between the evidence URL and the OSM `website`, or a captured
+`og:site_name`/schema.org `name` matching the place or its brand. Thus a chain
+page can be recognized even when its host differs from the OSM website; a model
+label without either server-checked signal is reduced to `unknown`.
+
+The original matrix stores no whole page. It retains at most **1,200
+characters** with the claim: the evidence span (itself at most 400) plus up to
+400 normalized characters on each side, a 160-character title, and up to six
+120-character publisher names. A fresh in-memory page/proxy cache is preferred
+when available; the stored window is the no-refetch fallback.
+
+Opening a place and **Look again** adjudicate all of that place's likely active
+criterion rows in one call and wait no more than three seconds while the normal
+busy ring is shown. Proactively, when in-scope `matching + likely <= 20`, the
+refinement worker adjudicates the viable set nearest-first, with at most eight
+places per call, and wakes again on need changes. A 30-day cache on
+`(place, criterion, sha256(normalized evidence))`, plus an in-flight guard,
+prevents paying for the same read twice.
+
 Cuisine uses a value-specific key criterion carrying `values` and a literal
 question such as “Does this place serve Italian food?”. Its id is derived from
 the normalized wanted-value set, so a stored Italian answer never suppresses a

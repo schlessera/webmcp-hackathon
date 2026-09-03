@@ -43,10 +43,15 @@ import { lookupPending } from "./enrich/progress.ts";
 import { pool } from "./db.ts";
 import { refinementView } from "./refine/worker.ts";
 import { loadImageCounts, loadPlaceImages } from "./enrich/images.ts";
+import {
+  adjudicateLikelyForRoom,
+} from "./enrich/adjudication-runner.ts";
+import type { AdjudicationPageCache } from "./enrich/adjudicate.ts";
+import { consumeRefinementModelCall } from "./refine/worker.ts";
 
 /** How long a place panel waits for a fresh lookup before opening with what
  * is cached. The lookup keeps running and lands for the next read. */
-const INSPECT_LOOKUP_WAIT_MS = 3500;
+const INSPECT_LOOKUP_WAIT_MS = 3000;
 
 type NeedVerdict = NonNullable<CandidateDossier["needs"]>[number]["verdict"];
 
@@ -406,14 +411,26 @@ export async function inspectCandidates(
     // Live lookup/progress starts outside the room lock. The panel may wait
     // for its bounded budget, while the same job continues into cache after
     // the read returns.
+    const pageCache: AdjudicationPageCache = new Map();
     const lookupJob = lookupNow(pool, actor.roomId, targets, {
       reason: { kind: "place" },
+      pageCache,
     });
+    const lookupAndAdjudicate = lookupJob.then(() => adjudicateLikelyForRoom(
+      pool,
+      actor.roomId,
+      {
+        mode: "on_demand",
+        candidateIds,
+        pageCache,
+        consumeModelCall: consumeRefinementModelCall,
+      },
+    ));
     const waitMs = Math.max(0, options.waitMs ?? INSPECT_LOOKUP_WAIT_MS);
     if (waitMs > 0) {
       let timer: ReturnType<typeof setTimeout> | undefined;
       await Promise.race([
-        lookupJob.catch(() => []),
+        lookupAndAdjudicate.catch(() => ({ calls: 0, cells: 0, changed: [] })),
         new Promise<[]>(resolve => {
           timer = setTimeout(() => resolve([]), waitMs);
           timer.unref?.();
@@ -421,7 +438,7 @@ export async function inspectCandidates(
       ]);
       if (timer) clearTimeout(timer);
     } else {
-      void lookupJob.catch(() => {
+      void lookupAndAdjudicate.catch(() => {
         /* explicit fire-and-forget lookups never fail the read */
       });
     }
@@ -624,13 +641,29 @@ export async function lookUpPlaces(
     const target = lookupTargetOf(row as { osm_ref: string | null; extras: Record<string, unknown> | null });
     return target ? [{ candidateId: row.id as string, ...target }] : [];
   });
-  void lookupNow(pool, actor.roomId, targets, {
+  const pageCache: AdjudicationPageCache = new Map();
+  const job = lookupNow(pool, actor.roomId, targets, {
     keys,
     reason: { kind: "place" },
     force,
-  }).catch(() => {
+    pageCache,
+  }).then(() => adjudicateLikelyForRoom(pool, actor.roomId, {
+    mode: "on_demand",
+    candidateIds,
+    pageCache,
+    consumeModelCall: consumeRefinementModelCall,
+  })).catch(() => {
     /* explicit lookups are advisory and never turn a read into a failure */
   });
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  await Promise.race([
+    job,
+    new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, INSPECT_LOOKUP_WAIT_MS);
+      timer.unref?.();
+    }),
+  ]);
+  if (timer) clearTimeout(timer);
   return inspectCandidates(actor, candidateIds, { triggerLookup: false, waitMs: 0 });
 }
 

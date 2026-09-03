@@ -38,6 +38,7 @@ import { beginLookups, lookupPending } from "../enrich/progress.ts";
 import { onPresenceChange, presentIn } from "../presence.ts";
 import { createTokenBucket } from "../token-bucket.ts";
 import { responseMetrics } from "../nl/openai.ts";
+import { adjudicateLikelyForRoom } from "../enrich/adjudication-runner.ts";
 import {
   combinedSearch,
   search,
@@ -722,7 +723,14 @@ export async function runRefinementTick(
 ): Promise<number> {
   if (!refinementEnabled()) return REFINE_TICK_MS;
   const state = stateFor(roomId);
-  const inputs = await loadEligibilityInputs(pool, roomId);
+  let inputs = await loadEligibilityInputs(pool, roomId);
+  const proactive = await adjudicateLikelyForRoom(pool, roomId, {
+    mode: "proactive",
+    inputs,
+    now,
+    consumeModelCall: consumeRefinementModelCall,
+  });
+  if (proactive.changed.length > 0) inputs = await loadEligibilityInputs(pool, roomId);
   const signature = criteriaSignature(inputs);
   if (signature !== state.criteriaKey) {
     state.criteriaKey = signature;
@@ -894,6 +902,7 @@ export async function runRefinementTick(
             source: entry.source,
             text: result.snippet,
             url: result.url,
+            title: result.title,
           })),
         }));
         const secondCalls = modelCalls(searchPlaces.length, searchCriteria.length);
@@ -964,6 +973,12 @@ export async function runRefinementTick(
         : []
     );
     await publishInferenceChanges(pool, roomId, changed, "inference");
+    await adjudicateLikelyForRoom(pool, roomId, {
+      mode: "proactive",
+      inputs: refreshed,
+      now,
+      consumeModelCall: consumeRefinementModelCall,
+    });
     logTick(roomId, {
       places: batch.length,
       criteria: criteria.length,
@@ -1052,6 +1067,11 @@ export function refinementView(
 export function refinementActive(roomId: string): boolean {
   const state = rooms.get(roomId);
   return Boolean(state && !state.stopped);
+}
+
+/** Adjudication spends from the refinement loop's existing per-room bucket. */
+export function consumeRefinementModelCall(roomId: string, now = Date.now()): boolean {
+  return modelBudget.consume(roomId, 1, now);
 }
 
 export function exhaustRefinementBudgetsForTest(roomId: string, now: number): void {

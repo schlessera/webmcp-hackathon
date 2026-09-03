@@ -24,6 +24,8 @@ import {
 export const MAX_MATRIX_PLACES = 8;
 export const MAX_MATRIX_CRITERIA = 5;
 export const MAX_TEXT_CHARS_PER_PLACE = 6_000;
+/** Evidence (up to 400 chars) plus at most 400 normalized chars on each side. */
+export const MAX_EVIDENCE_CONTEXT_CHARS = 1_200;
 /** A full batch is a long prompt on a background path, so it is given more
  * room than an interactive call. Twenty seconds was not enough for a live
  * twelve-place matrix and the whole tick returned nothing. */
@@ -49,7 +51,13 @@ export interface EvaluateMatrixInput {
     /** OSM-recorded venue website, used only to establish own-site provenance. */
     website?: string;
     cuisine?: string[];
-    texts: Array<{ source: MatrixInferenceTextSource; text: string; url?: string }>;
+    texts: Array<{
+      source: MatrixInferenceTextSource;
+      text: string;
+      url?: string;
+      title?: string;
+      publisherNames?: string[];
+    }>;
   }>;
   criteria: Criterion[];
 }
@@ -83,6 +91,10 @@ export interface EvaluatedInference {
   sourceIndex: number;
   observedAt: string;
   sourceUrl?: string;
+  context?: string;
+  pageTitle?: string;
+  publisherNames?: string[];
+  adjudication?: NonNullable<import("./infer.ts").InferredClaim["adjudication"]>;
   explicit: boolean;
   value?: string;
   // Deliberately absent: a question's sentence never travels on a claim. It
@@ -171,6 +183,17 @@ export function hasWholeSpan(text: string, evidence: string): boolean {
     if (!leftIsWord && !rightIsWord) return true;
     from = at + 1;
   }
+}
+
+/** A bounded, normalized window around the exact validated evidence span. */
+export function evidenceContext(text: string, evidence: string): string | undefined {
+  const source = normalizeEvidence(text);
+  const at = source.toLocaleLowerCase().indexOf(evidence.toLocaleLowerCase());
+  if (at < 0) return undefined;
+  const start = Math.max(0, at - 400);
+  const end = Math.min(source.length, at + evidence.length + 400);
+  const window = sanitizeInferenceNote(source.slice(start, end));
+  return window ? window.slice(0, MAX_EVIDENCE_CONTEXT_CHARS) : undefined;
 }
 
 export function echoesCriterion(criterion: Criterion, evidence: string): boolean {
@@ -331,6 +354,15 @@ export function matrixBatchFromAnswer(
     if ((status === "verified_true" || status === "verified_false") && !recordGrade) continue;
     answered.push({ candidateId, criterionId });
     const sourceUrl = sourceIndex >= 0 ? place.texts[sourceIndex].url : undefined;
+    const sourceText = sourceIndex >= 0 ? place.texts[sourceIndex] : undefined;
+    const context = sourceText ? evidenceContext(sourceText.text, evidence) : undefined;
+    const pageTitle = sourceText?.title
+      ? sanitizeInferenceNote(sourceText.title).slice(0, 160)
+      : undefined;
+    const publisherNames = sourceText?.publisherNames
+      ?.map((name) => sanitizeInferenceNote(name).slice(0, 120))
+      .filter(Boolean)
+      .slice(0, 6);
     claims.push({
       candidateId,
       osmRef: place.osmRef,
@@ -350,6 +382,9 @@ export function matrixBatchFromAnswer(
         ? { value: criterion.values.join(";") }
         : {}),
       ...(sourceUrl ? { sourceUrl } : {}),
+      ...(context ? { context } : {}),
+      ...(pageTitle ? { pageTitle } : {}),
+      ...(publisherNames?.length ? { publisherNames } : {}),
     });
   }
   return { input, claims, answered };

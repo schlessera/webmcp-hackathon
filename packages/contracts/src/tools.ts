@@ -19,7 +19,7 @@ import {
 
 /**
  * WebMCP tool surface — INTERACTION-AND-BINDING.md §2.3: the full static
- * 20-tool surface (10 negotiation + 10 spatial), registered once at page load.
+ * 21-tool surface, registered once at page load (see TOOLS for the split).
  * Names ≤30 chars, descriptions ≤500 chars, results ≤1.5K chars except the
  * additive 8K sync allowance. All schemas additionalProperties: false. v1
  * names carry no version suffix.

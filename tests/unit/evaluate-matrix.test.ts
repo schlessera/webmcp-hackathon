@@ -4,12 +4,14 @@ import {
   EVALUATE_MATRIX_PROMPT,
   EVALUATE_MATRIX_SCHEMA,
   EXPLICIT_OWN_SITE_CONFIDENCE,
+  evidenceContext,
   evaluateMatrix,
   matrixClaimsFromAnswer,
   matrixBatchFromAnswer,
   MATRIX_CONFIDENCE_CAPS,
   MAX_MATRIX_CRITERIA,
   MAX_MATRIX_PLACES,
+  MAX_EVIDENCE_CONTEXT_CHARS,
   MAX_TEXT_CHARS_PER_PLACE,
   trimMatrixPlace,
   type EvaluateMatrixInput,
@@ -114,8 +116,8 @@ describe("batched matrix evaluation", () => {
     });
     const claims = await evaluateMatrix(input());
     expect(claims).toEqual([
-      expect.objectContaining({ candidateId: "alpha", criterionId: wifi.id, key: wifi.id, status: "likely_true", sourceUrl: "https://alpha.example/visit" }),
-      expect.objectContaining({ candidateId: "beta", criterionId: dog.id, key: "dog-friendly", status: "likely_false", sourceUrl: "https://beta.example/rules" }),
+      expect.objectContaining({ candidateId: "alpha", criterionId: wifi.id, key: wifi.id, status: "likely_true", sourceUrl: "https://alpha.example/visit", context: "Guests can use free wireless internet throughout the café." }),
+      expect.objectContaining({ candidateId: "beta", criterionId: dog.id, key: "dog-friendly", status: "likely_false", sourceUrl: "https://beta.example/rules", context: "Dogs are not allowed inside the dining room." }),
     ]);
     expect(wire).toMatchObject({
       reasoning: { effort: "none" },
@@ -454,6 +456,16 @@ describe("batched matrix evaluation", () => {
     expect(place.texts.reduce((sum, item) => sum + item.text.length, 0)).toBe(6000);
     expect(place.texts[0].text).toBe("short source");
     expect(place.texts.at(-1)?.text).toHaveLength(2988);
+  });
+
+  it("captures at most 400 characters on each side of a validated span", () => {
+    const span = "Dogs are welcome in every restaurant";
+    const captured = evidenceContext(`${"a".repeat(700)} ${span} ${"b".repeat(700)}`, span)!;
+    expect(captured).toContain(span);
+    expect(captured.length).toBeLessThanOrEqual(MAX_EVIDENCE_CONTEXT_CHARS);
+    const at = captured.indexOf(span);
+    expect(at).toBe(400);
+    expect(captured.length - at - span.length).toBe(400);
   });
 });
 

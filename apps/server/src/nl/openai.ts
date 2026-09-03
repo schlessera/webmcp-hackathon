@@ -68,6 +68,7 @@ export interface Reply {
   model: string;
   inputTokens: number;
   outputTokens: number;
+  usage: { inputTokens: number; outputTokens: number };
 }
 
 export class NlError extends Error {
@@ -237,6 +238,10 @@ export async function respond(call: Call): Promise<Reply> {
     model: call.model,
     inputTokens: Number(raw.usage?.input_tokens ?? 0),
     outputTokens: Number(raw.usage?.output_tokens ?? 0),
+    usage: {
+      inputTokens: Number(raw.usage?.input_tokens ?? 0),
+      outputTokens: Number(raw.usage?.output_tokens ?? 0),
+    },
   };
 }
 

@@ -242,8 +242,8 @@ describe("R9 inspect enrichment bounds", () => {
     const dossier = await inspection;
     const elapsed = Date.now() - inspectStarted;
     expect(dossier.ok).toBe(true);
-    expect(elapsed).toBeGreaterThanOrEqual(3300);
-    expect(elapsed).toBeLessThan(4300);
+    expect(elapsed).toBeGreaterThanOrEqual(2800);
+    expect(elapsed).toBeLessThan(4000);
 
     release();
     const leaseDeadline = Date.now() + 2000;

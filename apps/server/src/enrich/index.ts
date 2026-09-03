@@ -44,6 +44,7 @@ import {
   type EvaluatedInference,
   type MatrixInferenceTextSource,
 } from "./evaluate.ts";
+import type { AdjudicationPageCache } from "./adjudicate.ts";
 import { applyGuesses } from "../guess.ts";
 import { applyAttestations, loadAttestations } from "../attestations.ts";
 import { bumpCandidateMapRevisions } from "../candidate-revisions.ts";
@@ -157,7 +158,9 @@ function isOmitted(
 function inferenceSourceBucket(
   inference: Exclude<StoredCriterionInference, { omitted: true }>,
 ): InferenceSourceBucket {
-  if (inference.source.startsWith("web:")) return "record";
+  if (inference.source.startsWith("web:") || inference.source.startsWith("adjudicated:")) {
+    return "record";
+  }
   const bucket = inference.source.split(":").at(-1);
   if (bucket === "venue_site" || bucket === "menu") {
     return inference.explicit === true ? "own_site_explicit" : "own_site_inferred";
@@ -194,15 +197,28 @@ export function resolveInference(
   }
   if (isOmitted(previous)) return fresh;
 
+  // Cache metadata is monotonic metadata on this evidence cell, not a second
+  // fact path. Retain it even when the evidence comparison keeps the old fact.
+  const retainedPrevious = fresh.adjudication
+    ? { ...previous, adjudication: fresh.adjudication }
+    : previous;
+
+  // A focused reread may flip a likely claim, never a fact already verified.
+  if (
+    fresh.adjudication &&
+    fresh.lean !== previous.lean &&
+    previous.confidence >= 0.7
+  ) return retainedPrevious;
+
   const previousRank = INFERENCE_SOURCE_BUCKET_RANK[inferenceSourceBucket(previous)];
   const freshRank = INFERENCE_SOURCE_BUCKET_RANK[inferenceSourceBucket(fresh)];
   if (fresh.lean === previous.lean) {
     return fresh.confidence > previous.confidence || freshRank > previousRank
       ? fresh
-      : previous;
+      : retainedPrevious;
   }
   if (fresh.explicit === true && freshRank >= previousRank) return fresh;
-  return { ...previous, note: INFERENCE_DISAGREEMENT_NOTE };
+  return { ...retainedPrevious, note: INFERENCE_DISAGREEMENT_NOTE };
 }
 const WARM_CONCURRENCY = 4;
 export const ON_DEMAND_CONCURRENCY = 4;
@@ -299,8 +315,14 @@ const stateOf = (
 const rowToEnrichment = (r: Row): Enrichment => {
   const inferred = Object.fromEntries(
     Object.entries(r.inferred ?? {}).filter(([, claim]) => {
-      const observed = new Date(claim.observedAt).getTime();
-      const ttl = "omitted" in claim ? TTL_OMITTED_MS : TTL_INFER_MS;
+      const observed = new Date(
+        "omitted" in claim ? claim.observedAt : claim.adjudication?.observedAt ?? claim.observedAt,
+      ).getTime();
+      const ttl = "omitted" in claim
+        ? TTL_OMITTED_MS
+        : claim.adjudication
+          ? INFERENCE_PRUNE_DAYS * 24 * 60 * 60 * 1000
+          : TTL_INFER_MS;
       return Number.isFinite(observed) && Date.now() - observed < ttl;
     }),
   );
@@ -740,6 +762,8 @@ export interface LookupNowOptions {
    * robots and network rules, and the per-participant budget all still hold.
    */
   force?: boolean;
+  /** Fresh fetched/proxy page material for focused adjudication in this pass. */
+  pageCache?: AdjudicationPageCache;
 }
 
 /** A forced lookup re-reads a provider only when its last read is older than this. */
@@ -755,6 +779,7 @@ interface LookupCandidateRow {
     description?: { text?: string };
     website?: string;
     wikidata?: string;
+    brand?: string;
   } | null;
 }
 
@@ -794,16 +819,25 @@ export function inferenceTexts(
     source: MatrixInferenceTextSource;
     text: string;
     url?: string;
+    title?: string;
+    publisherNames?: string[];
   }> = [];
   const osmDescription = row.extras?.description?.text;
   if (osmDescription) texts.push({ source: "osm", text: osmDescription });
   const web = enrichment?.website;
-  if (web?.description) texts.push({ source: "web", text: web.description, url: web.url });
+  const webIdentity = web ? {
+    ...(web.pageTitle ? { title: web.pageTitle } : {}),
+    ...(web.publisherNames?.length ? { publisherNames: web.publisherNames } : {}),
+  } : {};
+  if (web?.description) {
+    texts.push({ source: "web", text: web.description, url: web.url, ...webIdentity });
+  }
   if (transient?.homepage) {
     texts.push({
       source: "web",
       text: transient.homepage,
       ...(row.extras?.website ?? web?.url ? { url: row.extras?.website ?? web?.url } : {}),
+      ...webIdentity,
     });
   }
   if (web) {
@@ -814,14 +848,21 @@ export function inferenceTexts(
     const facts = [
       web.cuisine?.length ? `Cuisine: ${web.cuisine.join(", ")}` : "",
     ].filter(Boolean);
-    if (facts.length) texts.push({ source: "web", text: facts.join(". "), url: web.url });
+    if (facts.length) {
+      texts.push({ source: "web", text: facts.join(". "), url: web.url, ...webIdentity });
+    }
     const menu = [
       ...(web.menuMentions ?? []).map((key) => `${key} mentioned on the menu`),
       ...(web.menuReading?.claims ?? []).map((claim) => claim.evidence),
       ...(web.menuReading?.cuisine ?? []),
     ].filter(Boolean);
     if (menu.length) {
-      texts.push({ source: "menu", text: menu.join(". "), url: web.menuUrl ?? web.url });
+      texts.push({
+        source: "menu",
+        text: menu.join(". "),
+        url: web.menuUrl ?? web.url,
+        ...webIdentity,
+      });
     }
   }
   if (transient?.menu) {
@@ -831,6 +872,7 @@ export function inferenceTexts(
       ...(web?.menuUrl ?? web?.url ?? row.extras?.website
         ? { url: web?.menuUrl ?? web?.url ?? row.extras?.website }
         : {}),
+      ...webIdentity,
     });
   }
   if (enrichment?.wikidata?.description) {
@@ -899,6 +941,10 @@ export async function saveInferences(
           explicit: claim.explicit,
           ...(claim.value ? { value: claim.value } : {}),
           ...(claim.sourceUrl ? { sourceUrl: claim.sourceUrl } : {}),
+          ...(claim.context ? { context: claim.context } : {}),
+          ...(claim.pageTitle ? { pageTitle: claim.pageTitle } : {}),
+          ...(claim.publisherNames?.length ? { publisherNames: claim.publisherNames } : {}),
+          ...(claim.adjudication ? { adjudication: claim.adjudication } : {}),
         };
       } else if (answered.has(criterion.id) || searched.has(criterion.id)) {
         inferred[key] = {
@@ -976,11 +1022,18 @@ export async function saveInferences(
          SELECT batch.osm_ref,
                 entry.key,
                 entry.value,
-                CASE
-                  WHEN pg_input_is_valid(entry.value->>'observedAt', 'timestamp with time zone')
-                  THEN (entry.value->>'observedAt')::timestamptz
-                  ELSE NULL
-                END AS observed_at
+                GREATEST(
+                  CASE
+                    WHEN pg_input_is_valid(entry.value->>'observedAt', 'timestamp with time zone')
+                    THEN (entry.value->>'observedAt')::timestamptz
+                    ELSE NULL
+                  END,
+                  CASE
+                    WHEN pg_input_is_valid(entry.value->'adjudication'->>'observedAt', 'timestamp with time zone')
+                    THEN (entry.value->'adjudication'->>'observedAt')::timestamptz
+                    ELSE NULL
+                  END
+                ) AS observed_at
            FROM batch
            CROSS JOIN LATERAL jsonb_each(batch.inferred) AS entry
        ), ranked AS (
@@ -1236,6 +1289,20 @@ async function runLookupNow(
       cuisine: cuisineTokens(evaluation.base),
       texts: evaluation.texts,
     });
+  }
+
+  // Prefer fresh page material during the focused reread. It stays in the
+  // caller-owned process-local map and is never persisted as a whole page.
+  for (const place of matrixPlaces) {
+    for (const source of place.texts) {
+      if (!source.url || !source.text) continue;
+      const previous = options.pageCache?.get(source.url);
+      options.pageCache?.set(source.url, {
+        text: previous ? `${previous.text}\n${source.text}` : source.text,
+        title: source.title ?? previous?.title,
+        publisherNames: source.publisherNames ?? previous?.publisherNames,
+      });
+    }
   }
 
   let inferenceChanged = false;
@@ -1519,9 +1586,13 @@ export function applyEnrichmentAttributes<T extends AttributeLike>(
     };
     const recordGrade =
       questionStored.explicit === true &&
-      questionStored.source.startsWith("web:") &&
+      (questionStored.source.startsWith("web:") ||
+        questionStored.source.startsWith("adjudicated:")) &&
       questionStored.confidence >= 0.7;
-    const confidence = Math.min(questionStored.confidence, recordGrade ? 0.72 : 0.6);
+    const confidence = Math.min(
+      questionStored.confidence,
+      questionStored.source.startsWith("adjudicated:") ? 0.75 : recordGrade ? 0.72 : 0.6,
+    );
     set(key, {
       status: graded(questionStored.lean === "yes", confidence),
       source: questionStored.source,

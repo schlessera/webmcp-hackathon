@@ -121,7 +121,10 @@ describe("continuous refinement over the API", () => {
     }
     expect(rows.find((row) => row.osm_ref.endsWith("/gamma"))?.inferred[key])
       .toMatchObject({ omitted: true });
-    for (const row of rows) expect(row.serialized).not.toContain(TRANSIENT);
+    for (const row of rows) {
+      expect(row.inferred[privateKey]?.context).toContain(TRANSIENT);
+      expect(String(row.inferred[privateKey]?.context).length).toBeLessThanOrEqual(1_200);
+    }
     // The fixture logs every request whose tools include web_search. The
     // application-private sentence may appear in the plain matrix call, but
     // never in a search query or tool-enabled prompt.

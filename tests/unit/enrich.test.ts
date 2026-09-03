@@ -3,6 +3,7 @@ import {
   clip,
   extractAnchors,
   extractVisibleText,
+  extractPageIdentity,
   fetchWebsiteFacts,
   hoursFromSpecification,
   isPublicAddress,
@@ -92,6 +93,19 @@ describe("website network boundary", () => {
 });
 
 describe("transient website text", () => {
+  it("captures bounded Open Graph and schema publisher identity", () => {
+    expect(extractPageIdentity(`
+      <title>HANS IM GLÜCK | Burgergrill &amp; Bar</title>
+      <meta property="og:site_name" content="HANS IM GLÜCK">
+      <script type="application/ld+json">
+        {"@type":"Restaurant","name":"HANS IM GLÜCK Berlin"}
+      </script>
+    `)).toEqual({
+      title: "HANS IM GLÜCK | Burgergrill & Bar",
+      publisherNames: ["HANS IM GLÜCK", "HANS IM GLÜCK Berlin"],
+    });
+  });
+
   it("keeps only selected visible content, strips page chrome, and enforces the page budget", () => {
     const text = extractVisibleText(`
       <html><head>
