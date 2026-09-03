@@ -295,16 +295,17 @@ export class SpatialStore {
     reason: LookupReason | null,
     stageRows: Array<{ candidateId: string; stage: PipelineStage }> = [],
   ): void {
-    // Stage per place: what the frame says, else fetching for anything that
-    // is pending without a stage (an older server sends ids only).
+    // Stage per place: only what the frame says. A pending id without a
+    // stage (an older server sends ids only) stays busy without a stage; the
+    // map draws it as fetching, the panel keeps its plain "looking it up".
     const stages: Record<string, PipelineStage> = {};
     for (const row of stageRows) stages[row.candidateId] = row.stage;
-    for (const id of pending) stages[id] ??= "fetching";
     const ids = [...new Set([...pending, ...stageRows.map((row) => row.candidateId)])];
     const same =
       ids.length === this.state.busy.length &&
       ids.every((id, i) => id === this.state.busy[i]) &&
-      ids.every((id) => this.state.stages[id] === stages[id]);
+      ids.every((id) => this.state.stages[id] === stages[id]) &&
+      Object.keys(this.state.stages).length === Object.keys(stages).length;
     if (!same || reason !== this.state.busyReason) {
       this.update({ busy: ids, busyReason: ids.length ? reason : null, stages });
     }
