@@ -127,19 +127,9 @@ function withResolvedReferent(
   };
 }
 
-function localIso(now: Date, timezone: string): string {
-  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-CA", {
-    timeZone: timezone,
-    year: "numeric", month: "2-digit", day: "2-digit",
-    hour: "2-digit", minute: "2-digit", second: "2-digit",
-    hourCycle: "h23", timeZoneName: "longOffset",
-  }).formatToParts(now).map((part) => [part.type, part.value]));
-  const offset = parts.timeZoneName === "GMT" ? "+00:00" : parts.timeZoneName?.replace("GMT", "") ?? "+00:00";
-  return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:${parts.second}${offset}`;
-}
-
-function openNowWindow(now: Date, timezone: string): { start: string; end: string } {
-  return { start: localIso(now, timezone), end: localIso(new Date(now.getTime() + 2 * 60 * 60 * 1000), timezone) };
+function hasExplicitCalendarDate(concept: Concept): boolean {
+  const words = concept.phrase ?? concept.surface;
+  return /(?:\b\d{4}-\d{2}-\d{2}\b|\bon(?:\s+the)?\s+\d{1,2}(?:st|nd|rd|th)?\b|\bam\s+\d{1,2}\.?(?:\s+[\p{L}]+)?\b)/iu.test(words);
 }
 
 function isSane(concept: Concept): boolean {
@@ -268,9 +258,16 @@ export function mapInterpretation(interpretation: Interpretation, input: Underst
     }
 
     if (concept.role === "time") {
-      const window = concept.window ?? (/^(?:open now|jetzt offen)$/i.test(concept.phrase ?? concept.surface)
-        ? openNowWindow(input.room.now, input.room.timezone)
-        : null);
+      const deterministic = mapPreparsedConcept(concept, {
+        currency: input.room.currency,
+        now: input.room.now,
+        timezone: input.room.timezone,
+      });
+      const window = deterministic?.kind === "time"
+        ? deterministic.window
+        : hasExplicitCalendarDate(concept)
+          ? concept.window
+          : null;
       const hasOffset = (value: string) => /[+-]\d{2}:\d{2}$/.test(value);
       if (window && hasOffset(window.start) && hasOffset(window.end) && Date.parse(window.end) > Date.parse(window.start)) {
         needs.push(parsedNeed(concept, {

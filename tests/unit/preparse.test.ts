@@ -149,3 +149,40 @@ describe("shared pre-parser corpus", () => {
     });
   }
 });
+
+describe("time pre-parser grammar", () => {
+  it.each([
+    ["open tomorrow for lunch", { day: { kind: "tomorrow" }, part: "lunch", clock: null }],
+    ["Friday evening", { day: { kind: "weekday", weekday: 5 }, part: "evening", clock: null }],
+    ["tonight at 7pm", { day: { kind: "today" }, part: "tonight", clock: { hour: 19, minute: 0 } }],
+    ["morgen zum Mittagessen", { day: { kind: "tomorrow" }, part: "lunch", clock: null }],
+    ["Freitagabend", { day: { kind: "weekday", weekday: 5 }, part: "evening", clock: null }],
+    ["Samstagvormittag", { day: { kind: "weekday", weekday: 6 }, part: "morning", clock: null }],
+    ["Sonntagmittag", { day: { kind: "weekday", weekday: 0 }, part: "lunch", clock: null }],
+    ["heute Abend um halb neun", { day: { kind: "today" }, part: "evening", clock: { hour: 8, minute: 30 } }],
+    ["um viertel nach acht", { day: null, part: null, clock: { hour: 8, minute: 15 } }],
+    ["um dreiviertel neun", { day: null, part: null, clock: { hour: 8, minute: 45 } }],
+    ["at eight", { day: null, part: null, clock: { hour: 8, minute: 0 } }],
+    ["around 7", { day: null, part: null, clock: { hour: 7, minute: 0 } }],
+    ["19:30", { day: null, part: null, clock: { hour: 19, minute: 30 } }],
+    ["7.30 pm", { day: null, part: null, clock: { hour: 19, minute: 30 } }],
+    ["open on Tue. for brunch", { day: { kind: "weekday", weekday: 2 }, part: "brunch", clock: null }],
+    ["Donnerstagnachmittag", { day: { kind: "weekday", weekday: 4 }, part: "afternoon", clock: null }],
+    ["heute zum Abendessen", { day: { kind: "today" }, part: "evening", clock: null }],
+    ["spät geöffnet", { day: null, part: "late", clock: null }],
+    ["bis spät", { day: null, part: "late", clock: null }],
+  ] as const)("parses %s as one complete time concept", (text, timeSpec) => {
+    const parsed = preparse(text, { currency: "EUR" });
+    expect(parsed.preparsedWhole).toBe(true);
+    expect(parsed.remainder).toBe("");
+    expect(parsed.concepts).toMatchObject([{ role: "time", timeSpec, phrase: text }]);
+  });
+
+  it("does not steal durations or unrelated uses of late", () => {
+    expect(preparse("in 5 min", { currency: "EUR" }).concepts).toMatchObject([{ role: "travel_time" }]);
+    expect(preparse("in 5 min", { currency: "EUR" }).concepts.some((concept) => concept.role === "time")).toBe(false);
+    expect(preparse("late fee", { currency: "EUR" }).concepts).toEqual([]);
+    expect(preparse("good morning", { currency: "EUR" }).concepts).toEqual([]);
+    expect(preparse("Guten Morgen", { currency: "EUR" }).concepts).toEqual([]);
+  });
+});

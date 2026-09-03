@@ -1,5 +1,6 @@
 import { NEARNESS_DEFAULT, PRICE_DEFAULTS, PRICE_WORDS, RANGE_SANITY } from "./defaults.ts";
-import type { Concept, Quantity, Referent } from "./types.ts";
+import { resolveTimeSpec } from "./time.ts";
+import type { Concept, Quantity, Referent, TimePart, TimeSpec } from "./types.ts";
 
 export interface PreparseLocale {
   currency: "EUR" | "USD";
@@ -34,7 +35,8 @@ export type PreparsedPayload =
       mode: "walk" | "bike" | "car" | "transit";
       referent?: ScopePayloadReferent;
     }
-  | { kind: "budget"; perPersonMax: { amount: number; currency: "EUR" | "USD" } };
+  | { kind: "budget"; perPersonMax: { amount: number; currency: "EUR" | "USD" } }
+  | { kind: "time"; window: { start: string; end: string }; phrase?: string };
 
 const EN_ONES = [
   "zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine",
@@ -222,6 +224,7 @@ function makeConcept(overrides: Partial<Concept> & Pick<Concept, "role" | "surfa
     attributeKey: overrides.attributeKey ?? null,
     values: overrides.values ?? [],
     window: overrides.window ?? null,
+    timeSpec: overrides.timeSpec ?? null,
     phrase: overrides.phrase ?? null,
     topic: overrides.topic ?? null,
     unresolved: overrides.unresolved ?? null,
@@ -307,6 +310,215 @@ function onlyStopwords(text: string): boolean {
   return text.split(/\s+/).every((word) => STOPWORDS.has(foldText(word).text));
 }
 
+interface TimeHit<T> {
+  value: T;
+  span: [number, number];
+}
+
+const WEEKDAY_FORMS: ReadonlyArray<readonly [number, readonly string[]]> = [
+  [0, ["sunday", "sun", "sonntag", "so"]],
+  [1, ["monday", "mon", "montag", "mo"]],
+  [2, ["tuesday", "tues", "tue", "dienstag", "di"]],
+  [3, ["wednesday", "wed", "mittwoch", "mi"]],
+  [4, ["thursday", "thurs", "thu", "donnerstag", "do"]],
+  [5, ["friday", "fri", "freitag", "fr"]],
+  [6, ["saturday", "sat", "samstag", "sa"]],
+];
+
+const TIME_PART_FORMS: ReadonlyArray<readonly [TimePart, readonly string[]]> = [
+  ["now", ["open now", "jetzt offen", "now", "jetzt"]],
+  ["brunch", ["brunch"]],
+  ["lunch", ["mittagessen", "lunch", "mittag"]],
+  ["afternoon", ["nachmittag", "afternoon"]],
+  ["evening", ["abendessen", "evening", "dinner", "abends", "abend"]],
+  ["tonight", ["tonight"]],
+  ["night", ["nachts", "night"]],
+  ["morning", ["vormittag", "morgens", "morning"]],
+];
+
+const TIME_FILLER_RE = /\b(?:open|offen|geoffnet|for|zum|zu|at|um|am|on|gegen)\b/giu;
+const CLOCK_WORDS = [...NUMBER_WORDS.entries()]
+  .filter(([, value]) => Number.isInteger(value) && value >= 0 && value <= 23)
+  .sort((left, right) => right[0].length - left[0].length);
+
+function timeClauses(text: string): Array<[number, number]> {
+  const clauses: Array<[number, number]> = [];
+  const separator = /\s+(?:and|und|but|aber)\s+|[;\n]/giu;
+  let start = 0;
+  for (const match of text.matchAll(separator)) {
+    const end = match.index ?? start;
+    clauses.push([start, end]);
+    start = end + match[0].length;
+  }
+  clauses.push([start, text.length]);
+  return clauses;
+}
+
+function firstForm<T>(
+  text: string,
+  start: number,
+  end: number,
+  forms: ReadonlyArray<readonly [T, readonly string[]]>,
+): TimeHit<T> | null {
+  let best: TimeHit<T> | null = null;
+  for (const [value, alternatives] of forms) {
+    for (const phrase of alternatives) {
+      const escaped = escapeRegExp(phrase);
+      const match = new RegExp(`(?<![\\p{L}\\d])${escaped}\\.?(?![\\p{L}\\d])`, "iu").exec(text.slice(start, end));
+      if (!match) continue;
+      const span: [number, number] = [start + match.index, start + match.index + match[0].length];
+      if (!best || span[0] < best.span[0] || (span[0] === best.span[0] && span[1] > best.span[1])) best = { value, span };
+    }
+  }
+  return best;
+}
+
+function weekdayIn(text: string, start: number, end: number): TimeHit<0 | 1 | 2 | 3 | 4 | 5 | 6> | null {
+  let best: TimeHit<0 | 1 | 2 | 3 | 4 | 5 | 6> | null = null;
+  for (const [value, alternatives] of WEEKDAY_FORMS) {
+    for (const phrase of alternatives) {
+      // The right boundary deliberately admits German compounds such as Freitagabend.
+      const match = new RegExp(`(?<![\\p{L}\\d])${escapeRegExp(phrase)}\\.?(?=$|[^\\p{L}\\d]|vormittag|mittag|nachmittag|abend|nacht)`, "iu")
+        .exec(text.slice(start, end));
+      if (!match) continue;
+      const span: [number, number] = [start + match.index, start + match.index + match[0].length];
+      if (!best || span[0] < best.span[0] || (span[0] === best.span[0] && span[1] > best.span[1])) {
+        best = { value: value as 0 | 1 | 2 | 3 | 4 | 5 | 6, span };
+      }
+    }
+  }
+  return best;
+}
+
+function clockIn(text: string, start: number, end: number): TimeHit<{ hour: number; minute: number }> | null {
+  const clause = text.slice(start, end);
+  const verbal: Array<[RegExp, (hour: number) => { hour: number; minute: number }]> = [
+    [/\bum\s+halb\s+([\p{L}-]+)\b/iu, (hour) => ({ hour: (hour + 23) % 24, minute: 30 })],
+    [/\bum\s+viertel\s+nach\s+([\p{L}-]+)\b/iu, (hour) => ({ hour, minute: 15 })],
+    [/\bum\s+(?:drei(?:\s|-)?viertel)\s+([\p{L}-]+)\b/iu, (hour) => ({ hour: (hour + 23) % 24, minute: 45 })],
+    [/\bum\s+viertel\s+vor\s+([\p{L}-]+)\b/iu, (hour) => ({ hour: (hour + 23) % 24, minute: 45 })],
+  ];
+  for (const [pattern, convert] of verbal) {
+    const match = pattern.exec(clause);
+    if (!match) continue;
+    const hour = numberValue(match[1]);
+    if (hour !== null && Number.isInteger(hour) && hour >= 1 && hour <= 23) {
+      return { value: convert(hour), span: [start + match.index, start + match.index + match[0].length] };
+    }
+  }
+
+  const meridiem = /(?<![\p{L}\d])(?:(?:at|around|about)\s+)?(1[0-2]|0?[1-9])(?:[:.]([0-5]\d))?\s*(am|pm)\b/iu.exec(clause);
+  if (meridiem) {
+    let hour = Number(meridiem[1]) % 12;
+    if (meridiem[3].toLowerCase() === "pm") hour += 12;
+    return {
+      value: { hour, minute: Number(meridiem[2] ?? 0) },
+      span: [start + meridiem.index, start + meridiem.index + meridiem[0].length],
+    };
+  }
+
+  const numeric = /(?<![\p{L}\d])(?:(?:at|around|about|um|gegen)\s+)?([01]?\d|2[0-3])[:.]([0-5]\d)(?!\d)/iu.exec(clause);
+  if (numeric) {
+    return {
+      value: { hour: Number(numeric[1]), minute: Number(numeric[2]) },
+      span: [start + numeric.index, start + numeric.index + numeric[0].length],
+    };
+  }
+
+  const prefixedNumber = /\b(?:at|around|about|um|gegen)\s+([01]?\d|2[0-3])\b/iu.exec(clause);
+  if (prefixedNumber) {
+    return {
+      value: { hour: Number(prefixedNumber[1]), minute: 0 },
+      span: [start + prefixedNumber.index, start + prefixedNumber.index + prefixedNumber[0].length],
+    };
+  }
+
+  for (const [word, hour] of CLOCK_WORDS) {
+    const match = new RegExp(`\\b(?:at|around|about)\\s+${escapeRegExp(word)}\\b`, "iu").exec(clause);
+    if (match) return { value: { hour, minute: 0 }, span: [start + match.index, start + match.index + match[0].length] };
+  }
+  return null;
+}
+
+function parseTimeConcepts(
+  text: string,
+  folded: FoldedText,
+  claimed: (start: number, end: number) => boolean,
+): { concepts: Concept[]; spans: Array<[number, number]> } {
+  const concepts: Concept[] = [];
+  const spans: Array<[number, number]> = [];
+  for (const [clauseStart, clauseEnd] of timeClauses(folded.text)) {
+    const clause = folded.text.slice(clauseStart, clauseEnd);
+    if (/^\s*(?:good\s+(?:morning|afternoon|evening|night)|guten\s+morgen|guten\s+abend|gute\s+nacht)\s*$/iu.test(clause)) continue;
+    const weekday = weekdayIn(folded.text, clauseStart, clauseEnd);
+    const todayMatch = /(?<![\p{L}\d])(?:today|heute)(?![\p{L}\d])/iu.exec(clause);
+    const tomorrowMatch = /(?<![\p{L}\d])(?:tomorrow|morgen)(?![\p{L}\d])/iu.exec(clause);
+    const tonightMatch = /(?<![\p{L}\d])tonight(?![\p{L}\d])/iu.exec(clause);
+    const today = todayMatch
+      ? { value: { kind: "today" as const }, span: [clauseStart + todayMatch.index, clauseStart + todayMatch.index + todayMatch[0].length] as [number, number] }
+      : tonightMatch
+        ? { value: { kind: "today" as const }, span: [clauseStart + tonightMatch.index, clauseStart + tonightMatch.index + tonightMatch[0].length] as [number, number] }
+        : null;
+    const tomorrow = tomorrowMatch && !/\bam\s+morgen\b/iu.test(clause)
+      ? { value: { kind: "tomorrow" as const }, span: [clauseStart + tomorrowMatch.index, clauseStart + tomorrowMatch.index + tomorrowMatch[0].length] as [number, number] }
+      : null;
+    const day = today ?? tomorrow ?? (weekday ? { value: { kind: "weekday" as const, weekday: weekday.value }, span: weekday.span } : null);
+
+    let part = firstForm(folded.text, clauseStart, clauseEnd, TIME_PART_FORMS);
+    // German weekday compounds have no word boundary before their day part.
+    if (!part && weekday) {
+      for (const [value, alternatives] of TIME_PART_FORMS) {
+        const phrase = alternatives.find((candidate) => folded.text.startsWith(candidate, weekday.span[1]));
+        if (phrase) {
+          part = { value, span: [weekday.span[1], weekday.span[1] + phrase.length] };
+          break;
+        }
+      }
+    }
+    if (/\bam\s+morgen\b/iu.test(clause)) {
+      const match = /\bam\s+morgen\b/iu.exec(clause)!;
+      part = { value: "morning", span: [clauseStart + match.index, clauseStart + match.index + match[0].length] };
+    }
+    if (tonightMatch) {
+      part = { value: "tonight", span: [clauseStart + tonightMatch.index, clauseStart + tonightMatch.index + tonightMatch[0].length] };
+    }
+
+    const lateSpecific = /\b(?:open\s+late|bis\s+spat|spat\s+geoffnet)\b/iu.exec(clause);
+    const lateBare = /(?<![\p{L}\d])(?:late|spat)(?![\p{L}\d])/iu.exec(clause);
+    if (lateSpecific || (lateBare && !/\b(?:late|spat)\s+(?:fee|fees|charge|payment|gebuhr)\b/iu.test(clause))) {
+      const match = lateSpecific ?? lateBare!;
+      part = { value: "late", span: [clauseStart + match.index, clauseStart + match.index + match[0].length] };
+    }
+
+    const clock = clockIn(folded.text, clauseStart, clauseEnd);
+    if (!day && !part && !clock) continue;
+    const core = [day?.span, part?.span, clock?.span].filter((span): span is [number, number] => Boolean(span));
+    if (!core.length || core.some((span) => claimed(...span))) continue;
+
+    const claimedHere = [...core];
+    TIME_FILLER_RE.lastIndex = 0;
+    for (const filler of clause.matchAll(TIME_FILLER_RE)) {
+      const start = clauseStart + (filler.index ?? 0);
+      claimedHere.push([start, start + filler[0].length]);
+    }
+    const bounds = mergeSpans(claimedHere);
+    const surfaceStart = Math.min(...bounds.map(([start]) => start));
+    const surfaceEnd = Math.max(...bounds.map(([, end]) => end));
+    const original = originalSpan(folded, surfaceStart, surfaceEnd);
+    const spec: TimeSpec = { day: day?.value ?? null, part: part?.value ?? null, clock: clock?.value ?? null };
+    concepts.push(makeConcept({
+      role: "time",
+      surface: text.slice(...original),
+      timeSpec: spec,
+      phrase: text.slice(...original),
+      topic: "time",
+      gist: text.slice(...original).toLocaleLowerCase().slice(0, 40),
+    }));
+    spans.push(...claimedHere);
+  }
+  return { concepts, spans };
+}
+
 /** Deterministic EN+DE quantity grammar. It performs no I/O and uses no room vocabulary. */
 export function preparse(text: string, locale: PreparseLocale): PreparseResult {
   const folded = foldText(text);
@@ -314,6 +526,10 @@ export function preparse(text: string, locale: PreparseLocale): PreparseResult {
   const concepts: Concept[] = [];
   const consumedFolded: Array<[number, number]> = [];
   const claimed = (start: number, end: number) => consumedFolded.some(([a, b]) => start < b && end > a);
+
+  const times = parseTimeConcepts(text, folded, claimed);
+  concepts.push(...times.concepts);
+  consumedFolded.push(...times.spans);
 
   // Vague named nearness must run before generic "nearby" phrases.
   // Keep the comma-bearing German agreement form intact instead of letting
@@ -517,19 +733,6 @@ export function preparse(text: string, locale: PreparseLocale): PreparseResult {
     }
   }
 
-  const openNow = longestPhrase(source, ["open now", "jetzt offen"]);
-  if (openNow && !claimed(...openNow.span)) {
-    const original = originalSpan(folded, ...openNow.span);
-    concepts.push(makeConcept({
-      role: "time",
-      surface: text.slice(...original),
-      phrase: text.slice(...original),
-      topic: "time",
-      gist: "open now",
-    }));
-    consumedFolded.push(openNow.span);
-  }
-
   const consumed = mergeSpans(consumedFolded.map((span) => originalSpan(folded, ...span)));
   const remainder = cleanRemainder(text, consumed);
   concepts.sort((left, right) => text.indexOf(left.surface) - text.indexOf(right.surface));
@@ -553,8 +756,20 @@ export function mapPreparsedConcept(
     currency: "EUR" | "USD";
     transport?: Array<"walk" | "bike" | "car" | "transit">;
     resolvedReferent?: ScopePayloadReferent;
+    now?: Date;
+    timezone?: string;
   },
 ): PreparsedPayload | null {
+  if (concept.role === "time") {
+    const window = concept.timeSpec && options.now && options.timezone
+      ? resolveTimeSpec(concept.timeSpec, options.now, options.timezone)
+      : null;
+    return window ? {
+      kind: "time",
+      window,
+      ...(concept.phrase ? { phrase: concept.phrase.slice(0, 200) } : {}),
+    } : null;
+  }
   const quantity = concept.quantity;
   if (!quantity || quantity.bound === "min") return null;
   if (concept.role === "money") {

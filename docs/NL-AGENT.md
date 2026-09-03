@@ -132,16 +132,17 @@ cuisine read the same way; the judge answers it from the place's own pages.
   commit in the room. A restart forgets held conditions; the declaration then
   stays pending (uncertain) until it is said again. Nothing is guessed.
 
-## Time resolution using the deployment model
+## Deterministic time resolution
 
-The router receives the room area's IANA timezone and the current local
-date/time with that area's numeric UTC offset. The request clock is captured
-when `say` runs; the area's `areaId` resolves through the area registry to its
-timezone. The model therefore has an explicit civil-date anchor and does not
-invent timestamps without time words from the person.
+The shared EN/DE pre-parser and Stage A produce only civil-time fields: a day
+reference, a day part, and/or a clock. Stage A never does relative-date or
+offset arithmetic; raw model windows remain only as a compatibility fallback
+for explicit calendar dates such as “on the 12th”. Stage B resolves the fields
+from the request instant in the room area's IANA timezone, including DST.
 
-A date word selects a civil date: `today`, `tomorrow`, or the next occurrence
-on or after today of a named weekday. It combines with these fixed windows:
+A weekday means its next occurrence, including today while its window has not
+ended. A clock already past today moves to tomorrow. The shared resolver owns
+these windows (and generates the matching Stage A prompt text):
 
 | Words | Local window |
 |---|---|
@@ -150,20 +151,16 @@ on or after today of a named weekday. It combines with these fixed windows:
 | `brunch` | 10:00–13:00 |
 | `evening` | 18:00–21:00 |
 | `tonight` | today, 18:00–23:00 |
+| `morning` | 08:00–11:00 |
+| `afternoon` | 14:00–17:00 |
+| `night` | 20:00–24:00 |
+| `late` | 22:00–02:00 next day |
 | `at 7pm` | 18:00–20:00 (the stated time ±1 hour) |
 | `open now` | the captured clock through two hours later |
 
-A bare date or weekday spans local 00:00 through the next civil day's 00:00.
-The strict result schema carries a concrete `{ start, end }` window plus the
-person's actual phrase. Both endpoints must be parseable ISO-8601 date-times
-with the area's numeric offset and `end > start`; the server drops a malformed
-time need instead of turning it into free text.
-
-The client does not parse natural-language dates, weekdays, meals, or clock
-times. When the deployment model is unavailable, its one exact time fallback is
-`open now`, which becomes the browser's current instant through two hours
-later with the typed words preserved as `phrase`. Every other time sentence
-uses the existing honest `text` fallback.
+A bare day spans 09:00–23:00. Both server and offline composer call the same
+resolver and preserve the person's words as `phrase`; the client derives the
+timezone from the room area's shared registry entry, never the browser zone.
 
 ## What the participant agent can and cannot do
 

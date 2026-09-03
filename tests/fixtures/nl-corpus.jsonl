@@ -50,14 +50,14 @@
 {"id":"money-010","lang":"de","text":"unter zwanzig","context":"default","expect":{"intent":"clarify","needs":[],"clarify":true},"preparse":"whole","tags":["money","clarify"]}
 {"id":"time-001","lang":"en","text":"open now","context":"default","expect":{"intent":"need","needs":[{"kind":"time"}],"clarify":null},"preparse":"whole","tags":["time"]}
 {"id":"time-002","lang":"de","text":"jetzt offen","context":"default","expect":{"intent":"need","needs":[{"kind":"time"}],"clarify":null},"preparse":"whole","tags":["time"]}
-{"id":"time-003","lang":"en","text":"open tomorrow for lunch","context":"default","expect":{"intent":"need","needs":[{"kind":"time"}],"clarify":null},"preparse":"none","tags":["time"]}
-{"id":"time-004","lang":"en","text":"Friday evening","context":"default","expect":{"intent":"need","needs":[{"kind":"time"}],"clarify":null},"preparse":"none","tags":["time"]}
-{"id":"time-005","lang":"en","text":"open late","context":"default","expect":{"intent":"need","needs":[{"kind":"time"}],"clarify":null},"preparse":"none","tags":["time","report"]}
-{"id":"time-006","lang":"en","text":"tonight at 7pm","context":"default","expect":{"intent":"need","needs":[{"kind":"time"}],"clarify":null},"preparse":"none","tags":["time"]}
-{"id":"time-007","lang":"de","text":"morgen zum Mittagessen","context":"default","expect":{"intent":"need","needs":[{"kind":"time"}],"clarify":null},"preparse":"none","tags":["time"]}
-{"id":"time-008","lang":"de","text":"Freitagabend","context":"default","expect":{"intent":"need","needs":[{"kind":"time"}],"clarify":null},"preparse":"none","tags":["time"]}
-{"id":"time-009","lang":"de","text":"heute Abend um halb neun","context":"default","expect":{"intent":"need","needs":[{"kind":"time"}],"clarify":null},"preparse":"none","tags":["time"]}
-{"id":"time-010","lang":"de","text":"spät geöffnet","context":"default","expect":{"intent":"need","needs":[{"kind":"time"}],"clarify":null},"preparse":"none","tags":["time"]}
+{"id":"time-003","lang":"en","text":"open tomorrow for lunch","context":"default","expect":{"intent":"need","needs":[{"kind":"time"}],"clarify":null},"preparse":"whole","tags":["time"]}
+{"id":"time-004","lang":"en","text":"Friday evening","context":"default","expect":{"intent":"need","needs":[{"kind":"time"}],"clarify":null},"preparse":"whole","tags":["time"]}
+{"id":"time-005","lang":"en","text":"open late","context":"default","expect":{"intent":"need","needs":[{"kind":"time"}],"clarify":null},"preparse":"whole","tags":["time","report"]}
+{"id":"time-006","lang":"en","text":"tonight at 7pm","context":"default","expect":{"intent":"need","needs":[{"kind":"time"}],"clarify":null},"preparse":"whole","tags":["time"]}
+{"id":"time-007","lang":"de","text":"morgen zum Mittagessen","context":"default","expect":{"intent":"need","needs":[{"kind":"time"}],"clarify":null},"preparse":"whole","tags":["time"]}
+{"id":"time-008","lang":"de","text":"Freitagabend","context":"default","expect":{"intent":"need","needs":[{"kind":"time"}],"clarify":null},"preparse":"whole","tags":["time"]}
+{"id":"time-009","lang":"de","text":"heute Abend um halb neun","context":"default","expect":{"intent":"need","needs":[{"kind":"time"}],"clarify":null},"preparse":"whole","tags":["time"]}
+{"id":"time-010","lang":"de","text":"spät geöffnet","context":"default","expect":{"intent":"need","needs":[{"kind":"time"}],"clarify":null},"preparse":"whole","tags":["time"]}
 {"id":"attr-001","lang":"en","text":"step-free access","context":"default","expect":{"intent":"need","needs":[{"kind":"attribute"}],"clarify":null},"preparse":"none","tags":["attribute"]}
 {"id":"attr-002","lang":"en","text":"vegan options","context":"default","expect":{"intent":"need","needs":[{"kind":"attribute"}],"clarify":null},"preparse":"none","tags":["attribute"]}
 {"id":"attr-003","lang":"en","text":"no outdoor seating","context":"default","expect":{"intent":"need","needs":[{"kind":"attribute"}],"clarify":null},"preparse":"none","tags":["attribute","negation"]}

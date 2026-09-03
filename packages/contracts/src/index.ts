@@ -16,3 +16,4 @@ export * from "./place-classes.ts";
 export * from "./understand/types.ts";
 export * from "./understand/defaults.ts";
 export * from "./understand/preparse.ts";
+export * from "./understand/time.ts";
