@@ -328,6 +328,26 @@ candidate are invalid. The in-page screening loop also submits the room
 revision of its dossier read, so a lookup or attestation between inspection and
 write produces `sync_required` rather than rebasing the old judgment.
 
+#### Criteria and questions (amendment, 2026-09-03)
+
+A **criterion** is the independently answerable unit of evidence for one
+place. A vocabulary need uses
+`{ id, kind: "key", key, label }`; a free-text need uses
+`{ id, kind: "question", text, label }`. The text is trimmed, whitespace is
+collapsed, case is folded and one trailing question mark or full stop is
+removed. Its dossier/cache key is `q:<sha1(normalized text)>`, so equivalent
+wording shares evidence without putting the sentence into a machine field.
+
+A model or web lookup can only make a question `likely_true` or
+`likely_false`. A question is never verified without a participant
+attestation, even if malformed cached data claims high confidence. No evidence
+keeps the place `unknown`; abstention is not a negative answer.
+
+Cuisine uses the same criterion mechanism with the sourced implication
+taxonomy. An implication may add a place to an inclusion set (for example,
+`pizza` can support Italian), but it never rules a place out of an exclusion
+set. An implied exclusion remains `unlikely`, not `excluded`.
+
 ## 9. Navigation handoff
 
 `PrepareNavigation` returns provider-agnostic links; the room stays the

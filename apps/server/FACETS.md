@@ -134,6 +134,14 @@ on every change. Better on the server, which already has the index.
 Press-and-hold preview can use `wouldReturn` for the count immediately, then
 reconcile with the real set when it arrives.
 
+### Question needs
+
+A free-text question is a real active need even though it cannot produce a
+reusable facet. Its `ActiveNeed` row carries the stable `criterionId`
+(`q:<sha1>`), plus the same live `ruledOut`, `wouldReturn`, `unknown`, `likely`
+and `unlikely` counts as any other need. The `facets` array deliberately has no
+row for that id: the sentence remains need content, not a new hardcoded control.
+
 ---
 
 ## 3. Provenance
