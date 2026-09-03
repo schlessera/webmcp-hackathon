@@ -11,7 +11,11 @@ export type ConceptRole =
   | "place"
   | "person"
   | "action"
-  | "question";
+  | "question"
+  /** A named thing the place must offer: a film, an exhibition, a band.
+   * Read only at creation, where a goal names what the outing is about
+   * (UNDERSTANDING-ARCH.md §10.3). */
+  | "subject";
 
 export interface Quantity {
   value: number;
@@ -66,7 +70,8 @@ export interface Concept {
 }
 
 export interface Interpretation {
-  intent: "need" | "ask" | "act" | "other";
+  /** `plan` is creation-only: a goal sentence read into one step. */
+  intent: "need" | "ask" | "act" | "other" | "plan";
   concepts: Concept[];
   confidence: number;
   reply: string | null;

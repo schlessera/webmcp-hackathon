@@ -98,6 +98,62 @@ An included kind the room's cuisines cannot reach becomes a text need phrased
 for any class of place ("is this a … kind of place?"), so a cinema and a
 cuisine read the same way; the judge answers it from the place's own pages.
 
+## Reading a goal before the room exists (D1, 2026-09-03)
+
+A room used to open with a fixed goal, a fixed category and a pool of six food
+classes. It now opens from a sentence. `POST /api/plans/preview` reads that
+sentence into **one step** — what kind of place the group is converging on,
+and the criteria the sentence already states — and `POST /api/rooms` opens the
+room from it. UNDERSTANDING-ARCH.md §10 is the design; D1 is its one-step half,
+and the `steps` array on the wire is what D2 adds relations to.
+
+**Step classes** (`packages/contracts/src/step-classes.ts`) group snapshot
+place classes under a key and a label: `food` → somewhere to eat, `park` → a
+park, `cinema` → a cinema, and seven more. The label is server data and the
+client renders it; nothing branches on a key (CLAUDE.md §1). A room records its
+step class as `scope.category` and pools only that class's members, so a room
+with no step, or one whose category the table does not know, keeps the area's
+own list and behaves exactly as it did. `GET /api/areas` reports each area's
+classes with the number of snapshot venues of that class inside the narrow
+radius, so Start can show them before a goal is typed and when offline.
+
+**The same two stages.** Stage A is the call `/api/nl/say` makes — the same
+schema and the same instructions object, with the `plan` intent, the `subject`
+role and the step-class table appended, so the two cannot drift. Stage B is
+`mapInterpretation`, unchanged. Only the room the concepts are read against
+differs: there isn't one. Facets come from the snapshot for the step's classes
+inside the narrow radius, so a cuisine the area records routes in the preview
+the way it will in the room. Nobody has said where they start, so a distance
+is measured from the area centre and the need's `assumed` note says so.
+
+A `subject` — a film, an exhibition, a band — becomes a text question, "does
+this place offer &lt;subject&gt;?", labelled with the subject itself. The step's
+`title` is composed server-side from the concepts (the time phrase, else the
+subject, else the kind) and falls back to the class label. `when` is the first
+time concept's window.
+
+**Referents before the room exists.** "Sarah's subway station" names a
+participant who has not arrived, and the landmark index is keyed by name, not
+by kind, so the design's "Which station?" would have no answers to offer. The
+decision: such a referent drops to `self` and the need says so — "measured from
+where you start, not Sarah's subway station". A referent the index *can* place
+still resolves, and one it places ambiguously still clarifies, so the clarify
+path stays live for goals that name a real landmark.
+
+**What the room does with it.** The goal is stored verbatim on `rooms.goal`
+and rides on the `session_created` event. The step's needs are submitted as the
+ORGANIZER's shared needs, after the room exists, through the same
+`SubmitRequirement` path a typed sentence takes — so they are ordinary rows:
+droppable, hold-to-preview, counted. An invalid payload is skipped; the room is
+already open and stays open. With no model configured the preview answers
+`offline: true` with one `food` step and no needs, and creation still works.
+
+Measured over the eight `plan` rows of `tests/fixtures/nl-corpus.jsonl`, four
+passes on `z-ai/glm-5.3-flash`: the step class was right 32 / 32. The need
+kinds matched exactly 20 / 32; every miss was an extra or missing text need, or
+the second sentence's subject landing on the first step — which is what D2's
+second step is for.
+
 ## How it reaches the page
 
 - `GET /api/meta` carries `nl: true` when the selected provider's key is set. Without it
@@ -205,6 +261,11 @@ logs that it is held. The reply cards in the brief carry none of that.
 
 ## Verification
 
+- `tests/api/plans.test.ts` covers the goal-first path: the offline preview,
+  a scripted preview, a room whose every seeded place belongs to its step
+  class, the seeded need as an ordinary row, an unknown class, and an
+  unchanged pool when no step is given. `tests/unit/plan-preview.test.ts`
+  drives the corpus's `plan` rows from golden stage-A drafts.
 - `tests/api/staging.test.ts` covers the readiness change that came with this
   session (accepting marks you ready) and the viewing presence frame.
 - Scripted API tests cover stale revisions, partial action persistence, total

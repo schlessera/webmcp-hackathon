@@ -12,9 +12,11 @@ interface CorpusRow {
   text: string;
   context: string;
   expect: {
-    intent: string;
-    needs: Array<Record<string, unknown>>;
-    clarify: boolean | null;
+    intent?: string;
+    needs: Array<Record<string, unknown>> | string[];
+    clarify?: boolean | null;
+    /** Plan rows only: the step class the goal must land on. */
+    placeClass?: string;
   };
   preparse: "whole" | "partial" | "none";
   tags: string[];
@@ -22,6 +24,10 @@ interface CorpusRow {
 
 const corpusPath = join(dirname(fileURLToPath(import.meta.url)), "..", "fixtures", "nl-corpus.jsonl");
 const corpus = readFileSync(corpusPath, "utf8").trim().split("\n").map((line) => JSON.parse(line) as CorpusRow);
+/** Plan rows are goals for a room that does not exist yet: they go through
+ * /api/plans/preview, not say(), and tests/unit/plan-preview.test.ts drives
+ * them. They still live in the one corpus so the live check reads one file. */
+const sayCorpus = corpus.filter((row) => !row.tags.includes("plan"));
 
 function context(row: CorpusRow): SpatialContextResult {
   const usd = row.context === "usd";
@@ -103,13 +109,14 @@ describe("shared pre-parser corpus", () => {
       "ask-act": 6,
       clarify: 8,
       other: 4,
+      plan: 8,
     };
     for (const [tag, minimum] of Object.entries(minimums)) {
       expect(corpus.filter((row) => row.tags.includes(tag)).length, tag).toBeGreaterThanOrEqual(minimum);
     }
   });
 
-  for (const row of corpus.filter((candidate) => candidate.preparse === "whole")) {
+  for (const row of sayCorpus.filter((candidate) => candidate.preparse === "whole")) {
     it(`${row.id}: maps the whole sentence without transport`, async () => {
       let calls = 0;
       setTransport(async () => {
@@ -119,12 +126,14 @@ describe("shared pre-parser corpus", () => {
       const out = await say(row.text, "shared", context(row), new Date("2026-09-03T10:00:00Z"));
       expect(calls).toBe(0);
       expect(out.intent).toBe(row.expect.intent);
-      expect(out.needs.map((need) => need.payload)).toMatchObject(row.expect.needs);
+      expect(out.needs.map((need) => need.payload)).toMatchObject(
+        row.expect.needs as Array<Record<string, unknown>>,
+      );
       expect(Boolean(out.clarify)).toBe(Boolean(row.expect.clarify));
     });
   }
 
-  for (const row of corpus.filter((candidate) => candidate.preparse === "partial")) {
+  for (const row of sayCorpus.filter((candidate) => candidate.preparse === "partial")) {
     it(`${row.id}: reports consumed spans and leaves the residual words`, () => {
       const parsed = preparse(row.text, { currency: row.context === "usd" ? "USD" : "EUR" });
       expect(parsed.preparsedWhole).toBe(false);
@@ -139,7 +148,7 @@ describe("shared pre-parser corpus", () => {
     });
   }
 
-  for (const row of corpus.filter((candidate) => candidate.preparse === "none")) {
+  for (const row of sayCorpus.filter((candidate) => candidate.preparse === "none")) {
     it(`${row.id}: leaves model-only words for stage A`, () => {
       const parsed = preparse(row.text, { currency: row.context === "usd" ? "USD" : "EUR" });
       expect(parsed.concepts).toEqual([]);

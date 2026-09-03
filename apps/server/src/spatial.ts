@@ -27,7 +27,7 @@ import { computeFacetsBundle, labelForRequirement } from "./facets.ts";
 import { IMPASSE_TEXT } from "./impasse.ts";
 import { presentIn } from "./presence.ts";
 import { projectParticipantSummary } from "./projection.ts";
-import { loadSnapshot, type DataSource } from "./places.ts";
+import { loadSnapshot, roomPoolClasses, type DataSource } from "./places.ts";
 import {
   cachedPoolPlan,
   poolFillActive,
@@ -504,6 +504,7 @@ export async function spatialContext(
         snapshot,
         scope.area.center,
         scope.area.radiusM,
+        roomPoolClasses(area, scope.category),
       );
       const existingRefs = new Set(inputs.candidates.flatMap((candidate) =>
         candidate.osm_ref ? [candidate.osm_ref] : []
