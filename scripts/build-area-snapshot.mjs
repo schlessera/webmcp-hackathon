@@ -391,7 +391,11 @@ for (const area of areas) {
   }
 
   const pool = poolOf(venues, area);
-  const focus = venues.filter((v) => v.distance <= area.radii.wide);
+  // Focus and pool are measured over the classes a room pools (the picker
+  // says what a room starts with); the city figure counts every class kept.
+  const focus = venues.filter(
+    (v) => v.distance <= area.radii.wide && area.placeClasses.includes(v.placeClass),
+  );
   const coverage = {
     measuredAt: extractTimestamp,
     /** The whole city bbox. */
