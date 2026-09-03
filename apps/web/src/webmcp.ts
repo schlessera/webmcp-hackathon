@@ -256,7 +256,7 @@ const trimWhy = (why: string) => (why.length > 64 ? `${why.slice(0, 61)}…` : w
  * remainder, no coordinates (agents act on stable IDs, the map shows humans
  * the geometry).
  */
-function trimContext(context: SpatialContext) {
+export function trimContext(context: SpatialContext) {
   const order = { eligible: 0, likely: 1, uncertain: 2, unlikely: 3, excluded: 4 } as const;
   const sorted = [...context.candidates].sort(
     (a, b) => order[a.eligibility] - order[b.eligibility] || a.walkMin - b.walkMin,
@@ -271,6 +271,7 @@ function trimContext(context: SpatialContext) {
     why: c.why ? trimWhy(c.why) : undefined,
     walkMin: c.walkMin,
     priceLevel: c.priceLevel,
+    imageCount: c.imageCount ?? 0,
   });
   return {
     ok: true,

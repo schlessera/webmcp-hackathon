@@ -1,6 +1,6 @@
 {
   "toolContractVersion": "3",
-  "sha256": "24edfac7fd9b8afb5d1fd5850b63f7b38dcb4e56f2543f5e301542da27e1e4ce",
+  "sha256": "ba8b546d09fcf9d6852a4ba806d02f2b378f1eccd13451f66c586aa4282ebfbb",
   "manifest": {
     "capabilityManifest": {
       "agreement": {
@@ -1959,6 +1959,9 @@
                       "items": {
                         "additionalProperties": false,
                         "properties": {
+                          "blurhash": {
+                            "type": "string"
+                          },
                           "credit": {
                             "type": "string"
                           },
@@ -3400,6 +3403,30 @@
                           "type": "string"
                         }
                       ]
+                    },
+                    "image": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "blurhash": {
+                          "type": "string"
+                        },
+                        "height": {
+                          "type": "number"
+                        },
+                        "url": {
+                          "type": "string"
+                        },
+                        "width": {
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "blurhash",
+                        "height",
+                        "url",
+                        "width"
+                      ],
+                      "type": "object"
                     },
                     "imageCount": {
                       "type": "number"
