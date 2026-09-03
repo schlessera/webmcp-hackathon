@@ -358,11 +358,46 @@ async function broadcast(n: CommitNotification): Promise<void> {
   // Position sharing is presentation state: after its durable owner-only
   // write commits, peers receive the latest opted-in coordinates only through
   // the presence frame. Both moving and switching off replace the frame.
+  for (const row of rows) {
+    if (row.type !== "origin_sharing_changed") continue;
+    noteSharingChange(n.roomId, row.actor_id, row.payload?.shared === true);
+  }
   if (rows.some((row) =>
     row.type === "origin_updated" || row.type === "origin_sharing_changed"
   )) {
     await broadcastPresence(n.roomId);
   }
+}
+
+/**
+ * Who has sharing switched on, per room. Presence frames go out on every
+ * socket open, close and viewing change, and sharing is off by default — so
+ * without this the common case would pay a database round trip per frame to
+ * learn that nobody shares. Process-local, like the rest of presence: the
+ * demo runs one server. `null` means "not read yet".
+ */
+const sharers = new Map<string, Set<string>>();
+
+async function sharersIn(roomId: string): Promise<Set<string>> {
+  const known = sharers.get(roomId);
+  if (known) return known;
+  const rows = (
+    await pool.query(
+      "SELECT id FROM participants WHERE room_id = $1 AND origin_shared = true",
+      [roomId],
+    )
+  ).rows as Array<{ id: string }>;
+  const set = new Set(rows.map((row) => row.id));
+  sharers.set(roomId, set);
+  return set;
+}
+
+/** Keep the cache honest when a participant flips their own switch. */
+function noteSharingChange(roomId: string, participantId: string, shared: boolean): void {
+  const set = sharers.get(roomId);
+  if (!set) return;
+  if (shared) set.add(participantId);
+  else set.delete(participantId);
 }
 
 async function presenceMessage(roomId: string): Promise<ServerMessage> {
@@ -373,7 +408,10 @@ async function presenceMessage(roomId: string): Promise<ServerMessage> {
     lng: number;
     updatedAt: string;
   }> = [];
-  if (present.length > 0) {
+  // An empty room forgets its cache, so the next arrival re-reads the truth.
+  if (present.length === 0) sharers.delete(roomId);
+  const sharing = present.length > 0 ? await sharersIn(roomId) : new Set<string>();
+  if (present.some((id) => sharing.has(id))) {
     const rows = (
       await pool.query(
         `SELECT id, origin
