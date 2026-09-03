@@ -137,6 +137,26 @@ describe("tool schemas (lane 1)", () => {
     })).toBe(false);
   });
 
+  it("validates and round-trips an additive referent step id", () => {
+    const validate = ajv.compile(COMMAND_SCHEMAS.SubmitRequirement);
+    const input = {
+      baseRevision: 0,
+      visibility: "shared",
+      hardness: "hard",
+      delegation: { mode: "approval_required" },
+      payload: {
+        kind: "scope",
+        dimension: "walk_min",
+        max: 12,
+        referent: { kind: "candidate", candidateId: "place_1", stepId: "s2" },
+      },
+    };
+    const roundTripped = JSON.parse(JSON.stringify(input));
+    expect(validate(roundTripped)).toBe(true);
+    expect(roundTripped).toEqual(input);
+    expect(TOOL_CONTRACT_VERSION).toBe("3");
+  });
+
   it("no tool argument accepts an actor identity", () => {
     for (const tool of TOOLS) {
       const props = (tool.inputSchema as { properties?: Record<string, unknown> })

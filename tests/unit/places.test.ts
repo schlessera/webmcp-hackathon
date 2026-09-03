@@ -2,11 +2,13 @@ import { describe, expect, it } from "vitest";
 import {
   AREAS,
   BOOLEAN_ATTRS,
+  PLACE_CLASSES,
   POOL_CAP,
   POOL_PER_RING,
   areaById,
   dossierFromTags,
   isDecisive,
+  placeClassFromTags,
 } from "../../packages/contracts/src/index.ts";
 import {
   areaSummaries,
@@ -17,6 +19,7 @@ import {
   loadSnapshot,
   POOL_SEED_SIZE,
   seedFor,
+  seedsForVenues,
   topUp,
 } from "../../apps/server/src/places.ts";
 import { haversineMeters } from "../../apps/server/src/eligibility.ts";
@@ -49,7 +52,7 @@ describe.each(AREAS.map((a) => [a.id, a] as const))("snapshot %s", (_id, area) =
       expect(v.location.lat).toBeLessThanOrEqual(n);
       expect(v.location.lng).toBeGreaterThanOrEqual(w);
       expect(v.location.lng).toBeLessThanOrEqual(e);
-      expect(area.amenities).toContain(v.tags.amenity);
+      expect(PLACE_CLASSES).toContain(v.placeClass ?? placeClassFromTags(v.tags));
       expect(v.name.length).toBeGreaterThan(0);
     }
   });
@@ -203,9 +206,55 @@ describe.each(AREAS.map((a) => [a.id, a] as const))("snapshot %s", (_id, area) =
       }
     }
   });
+
+  it("seeds a room from a legacy snapshot without new place fields", () => {
+    const { placeClasses: _placeClasses, ...legacyManifest } = snapshot.manifest;
+    const legacySnapshot = {
+      manifest: legacyManifest,
+      venues: [
+        {
+          ref: "node/legacy-cafe",
+          name: "Legacy cafe",
+          location: area.center,
+          tags: { amenity: "cafe" },
+        },
+        {
+          ref: "node/legacy-park",
+          name: "Legacy park",
+          location: { lat: area.center.lat + 0.0001, lng: area.center.lng },
+          tags: { leisure: "park" },
+        },
+      ],
+    };
+
+    const plan = fillPlan(area, legacySnapshot, area.center, 100, [], 10);
+    expect(plan.batches.flat().map((venue) => venue.ref)).toEqual(["node/legacy-cafe"]);
+    const seeds = seedsForVenues(
+      "room_legacy",
+      plan.batches.flat(),
+      legacySnapshot.manifest.extract.timestamp,
+    );
+    expect(seeds).toHaveLength(1);
+    expect(seeds[0].category).toBe("cafe");
+
+    const read = explorePlaces(
+      area,
+      legacySnapshot,
+      [area.center.lat - 1, area.center.lng - 1, area.center.lat + 1, area.center.lng + 1],
+      10,
+    );
+    expect(read.places.map((place) => place.category).sort()).toEqual(["cafe", "park"]);
+  });
 });
 
 describe("area summaries", () => {
+  it("keeps the existing six food classes as each room's pool", () => {
+    for (const area of AREAS) {
+      expect(area.placeClasses).toEqual([
+        "cafe", "restaurant", "bar", "pub", "biergarten", "fast_food",
+      ]);
+    }
+  });
   it("uses the expanded additive room cap", () => {
     expect(POOL_CAP).toBe(2500);
   });

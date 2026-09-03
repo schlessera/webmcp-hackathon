@@ -1,3 +1,5 @@
+import type { PlaceClass } from "./place-classes.ts";
+
 /**
  * The area registry: the single place that knows an area exists. Geometry
  * and extract provenance only — NO coverage numbers live here. Coverage is
@@ -5,8 +7,8 @@
  * shipped in each area's snapshot manifest, so what the picker shows is what
  * was measured, never what someone typed (docs/DATA-QUALITY.md).
  *
- * Nothing here names a domain: the amenity filter that decides what counts
- * as a "place" for these areas is data on the area, not a branch in the
+ * Nothing here names a domain: the class filter that decides what enters a
+ * room for these areas is data on the area, not a branch in the
  * client (CLAUDE.md §1).
  */
 
@@ -40,13 +42,20 @@ export interface AreaDefinition {
      * so the refresh path is documented next to the data it refreshes). */
     updates: string;
   };
-  /** OSM `amenity` values that count as a place in this area. */
-  amenities: string[];
+  /** Snapshot place classes eligible to enter a room in this area. */
+  placeClasses: readonly PlaceClass[];
   /** Currency the price bands are read in. */
   currency: string;
 }
 
-const AMENITIES = ["cafe", "restaurant", "bar", "pub", "biergarten", "fast_food"];
+const ROOM_PLACE_CLASSES: readonly PlaceClass[] = Object.freeze([
+  "cafe",
+  "restaurant",
+  "bar",
+  "pub",
+  "biergarten",
+  "fast_food",
+]);
 
 export const AREAS: readonly AreaDefinition[] = Object.freeze([
   {
@@ -70,7 +79,7 @@ export const AREAS: readonly AreaDefinition[] = Object.freeze([
       url: "https://download.geofabrik.de/europe/germany/berlin-latest.osm.pbf",
       updates: "https://download.geofabrik.de/europe/germany/berlin-updates/",
     },
-    amenities: AMENITIES,
+    placeClasses: ROOM_PLACE_CLASSES,
     currency: "EUR",
   },
   {
@@ -95,7 +104,7 @@ export const AREAS: readonly AreaDefinition[] = Object.freeze([
       url: "https://download.geofabrik.de/north-america/us/california/norcal-latest.osm.pbf",
       updates: "https://download.geofabrik.de/north-america/us/california/norcal-updates/",
     },
-    amenities: AMENITIES,
+    placeClasses: ROOM_PLACE_CLASSES,
     currency: "USD",
   },
 ]);

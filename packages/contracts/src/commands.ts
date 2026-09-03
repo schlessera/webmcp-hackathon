@@ -43,6 +43,16 @@ const AttributeExpectEnum = Type.Union([
 const AttributeKeyEnum = Type.Union(
   ATTRIBUTE_VOCABULARY.map((v) => Type.Literal(v)),
 );
+const ReferentStep = {
+  /** A later multi-step plan can point this referent at the place chosen in
+   * another step. Absent means the current step, whose id defaults to `s1`. */
+  stepId: Type.Optional(Type.String({
+    minLength: 1,
+    maxLength: 40,
+    description:
+      "Step whose chosen place this referent points at; omit for the current step (`s1` by default).",
+  })),
+};
 export const RequirementPayload = Type.Union([
   Type.Object(
     {
@@ -61,12 +71,19 @@ export const RequirementPayload = Type.Union([
       ]),
       max: Type.Number(),
       referent: Type.Optional(Type.Union([
-        Type.Object({ kind: Type.Literal("self") }, { additionalProperties: false }),
-        Type.Object({ kind: Type.Literal("scopeCenter") }, { additionalProperties: false }),
+        Type.Object(
+          { kind: Type.Literal("self"), ...ReferentStep },
+          { additionalProperties: false },
+        ),
+        Type.Object(
+          { kind: Type.Literal("scopeCenter"), ...ReferentStep },
+          { additionalProperties: false },
+        ),
         Type.Object(
           {
             kind: Type.Literal("candidate"),
             candidateId: Type.String({ minLength: 1, maxLength: 40 }),
+            ...ReferentStep,
           },
           { additionalProperties: false },
         ),
@@ -74,6 +91,7 @@ export const RequirementPayload = Type.Union([
           {
             kind: Type.Literal("participant"),
             participantId: Type.String({ minLength: 1, maxLength: 40 }),
+            ...ReferentStep,
           },
           { additionalProperties: false },
         ),
@@ -83,6 +101,7 @@ export const RequirementPayload = Type.Union([
             lat: Type.Number({ minimum: -90, maximum: 90 }),
             lng: Type.Number({ minimum: -180, maximum: 180 }),
             label: Type.Optional(Type.String({ minLength: 1, maxLength: 100 })),
+            ...ReferentStep,
           },
           { additionalProperties: false },
         ),
@@ -90,6 +109,7 @@ export const RequirementPayload = Type.Union([
           {
             kind: Type.Literal("landmark"),
             landmarkId: Type.String({ minLength: 1, maxLength: 100 }),
+            ...ReferentStep,
           },
           { additionalProperties: false },
         ),

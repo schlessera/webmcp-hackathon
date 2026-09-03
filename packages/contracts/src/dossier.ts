@@ -1,4 +1,5 @@
 import type { AttributeStatus } from "./status.ts";
+import { placeClassFromTags } from "./place-classes.ts";
 
 /**
  * OpenStreetMap tags → dossier attributes. One mapping, shared by the
@@ -98,6 +99,9 @@ export function linksFromTags(tags: Record<string, string | undefined>): Dossier
  * tag set, so the snapshot stays small and its contents reviewable. */
 export const KEPT_TAGS: readonly string[] = [
   "amenity",
+  "leisure",
+  "tourism",
+  "shop",
   "name",
   "cuisine",
   "opening_hours",
@@ -340,7 +344,7 @@ export function dossierFromTags(
   const address = addressFromTags(tags);
   const phone = tags.phone ?? tags["contact:phone"];
   return {
-    category: tags.amenity ?? "place",
+    category: placeClassFromTags(tags) ?? "place",
     attributes,
     hours: hours ?? [],
     priceLevel: null,

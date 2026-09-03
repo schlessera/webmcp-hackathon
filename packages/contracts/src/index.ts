@@ -12,3 +12,4 @@ export * from "./dossier.ts";
 export * from "./hours.ts";
 export * from "./criteria.ts";
 export * from "./cuisine.ts";
+export * from "./place-classes.ts";
