@@ -383,7 +383,10 @@ export interface RefinementSearchRequest {
   website?: string;
   address?: string;
   siteTextUsable: boolean;
+  /** Every unresolved cell that may be evaluated over returned snippets. */
   criteria: Criterion[];
+  /** Shared active need words permitted to leave the server in the search leg. */
+  searchCriteria: Criterion[];
 }
 
 export interface RefinementSearchResponse extends RefinementSearchRequest {
@@ -412,22 +415,6 @@ export function refineSearchMode(value = process.env.REFINE_SEARCH_MODE): Refine
   return value === "combined" || value === "split" ? value : DEFAULT_REFINE_SEARCH_MODE;
 }
 
-const GERMAN_CRITERION_WORDS: Readonly<Record<string, string>> = Object.freeze({
-  "internet-access": "WLAN",
-  "vegetarian-options": "vegetarisch",
-  "vegan-options": "vegan",
-  "gluten-free-options": "glutenfrei",
-  "halal-options": "halal",
-  "lactose-free-options": "laktosefrei",
-  "wheelchair-accessible": "barrierefrei",
-  "outdoor-seating": "Außenbereich Terrasse",
-  "dog-friendly": "Hunde erlaubt",
-  takeaway: "Mitnahme",
-  delivery: "Lieferung",
-  "price-level": "Preis",
-  cuisine: "Küche",
-});
-
 function boundedQuery(parts: string[]): string {
   const query = parts.join(" ").replace(/\s+/g, " ").trim();
   if (query.length <= MAX_REFINE_QUERY_CHARS) return query;
@@ -439,29 +426,17 @@ function boundedQuery(parts: string[]): string {
 /** Query words remain data-derived. Only vocabulary keys receive a small
  * locale lexicon; a person's free-text question is never translated. */
 export function buildRefinementQuery(
-  request: Pick<RefinementSearchRequest, "name" | "category" | "address" | "criteria">,
+  request: Pick<RefinementSearchRequest, "name" | "searchCriteria">,
   area: RefinementAreaContext,
-  shaping: RefineQueryShaping = DEFAULT_REFINE_QUERY_SHAPING,
+  _shaping: RefineQueryShaping = DEFAULT_REFINE_QUERY_SHAPING,
 ): string {
-  if (shaping === "plain") {
-    return boundedQuery([
-      request.name,
-      area.city,
-      ...request.criteria.map((criterion) => criterion.label),
-    ]);
-  }
-  const placeWords = request.address?.split(",")[0]?.trim() || area.label;
-  const criterionWords = request.criteria.flatMap((criterion) => {
-    if (criterion.kind === "question") return [criterion.text];
-    const translated = area.countryCode === "DE" ? GERMAN_CRITERION_WORDS[criterion.key] : undefined;
-    return translated ? [criterion.label, translated] : [criterion.label];
-  });
+  // This is the privacy boundary, not query tuning. Search receives only the
+  // place identity and words from shared active needs. Address/category,
+  // inactive vocabulary and application-private sentences stay server-side.
   return boundedQuery([
     request.name,
-    placeWords,
     area.city,
-    request.category,
-    ...criterionWords,
+    ...request.searchCriteria.map((criterion) => criterion.label),
   ]);
 }
 
@@ -484,7 +459,7 @@ export async function searchRefinementPlaces(
   provider = search,
   policy: RefinementSearchPolicy = {},
 ): Promise<RefinementSearchResponse[]> {
-  return Promise.all(requests.map(async (request) => {
+  return Promise.all(requests.filter((request) => request.searchCriteria.length > 0).map(async (request) => {
     const domains = refinementSearchDomains(request, policy.domainRule);
     let results: SearchResult[] = [];
     try {
@@ -682,12 +657,19 @@ export async function runRefinementTick(
     const firstCells = new Set(firstClaims.map((claim) => `${claim.candidateId}\u0000${claim.criterionId}`));
     const placeInfo = await roomPlace(roomId);
     const searchRequests: RefinementSearchRequest[] = [];
+    const active = activeCriteria(inputs);
     for (const preparedPlace of prepared) {
       const unresolved = preparedPlace.item.criteria.filter((criterion) =>
         !(criterion.kind === "key" && criterion.key === "cuisine") &&
         !firstCells.has(`${preparedPlace.item.candidate.id}\u0000${criterion.id}`)
       );
       if (unresolved.length === 0) continue;
+      const searchCriteria = unresolved.filter((criterion) =>
+        active.get(criterion.id)?.visibilities.has("shared") === true
+      );
+      // A private criterion can be evaluated over text already fetched for a
+      // shared search, but it can never cause a search on its own.
+      if (searchCriteria.length === 0) continue;
       searchRequests.push({
         candidateId: preparedPlace.item.candidate.id,
         osmRef: preparedPlace.item.candidate.osm_ref!,
@@ -697,6 +679,7 @@ export async function runRefinementTick(
         address: preparedPlace.item.candidate.extras?.address,
         siteTextUsable: preparedPlace.siteTextUsable,
         criteria: unresolved,
+        searchCriteria,
       });
     }
     searchBudget.consume(roomId, searchRequests.length, now);
@@ -712,7 +695,9 @@ export async function runRefinementTick(
             name: request.name,
             category: request.category,
             query: buildRefinementQuery(request, placeInfo, queryShaping),
-            criteria: request.criteria,
+            // Combined mode enables web_search in this very call, so private
+            // criteria are excluded from both its query and request body.
+            criteria: request.searchCriteria,
             source: domains ? "domain_search" : "open_web_search",
             ...(domains ? { domains } : {}),
           });

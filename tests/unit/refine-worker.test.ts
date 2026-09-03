@@ -156,6 +156,7 @@ describe("continuous refinement queue", () => {
       website: `https://place${index}.example/about`,
       siteTextUsable: true,
       criteria: [criterionA, criterionB],
+      searchCriteria: [criterionA, criterionB],
     }));
     const responses = await searchRefinementPlaces(requests, {
       city: "Berlin",
@@ -165,7 +166,7 @@ describe("continuous refinement queue", () => {
     expect(responses).toHaveLength(12);
     expect(provider).toHaveBeenCalledTimes(12);
     for (const [query, opts] of provider.mock.calls) {
-      expect(query).toContain("Berlin cafe first words second words");
+      expect(query).toMatch(/^Place \d+ Berlin first words second words$/);
       expect(opts).toBeUndefined();
     }
   });
@@ -182,32 +183,38 @@ describe("continuous refinement queue", () => {
     })).toEqual(["venue.example"]);
   });
 
-  it("shapes locale-aware queries from address data without translating free text", () => {
+  it("keeps address, category, and private criteria out of outbound queries", () => {
     const criteria = [
       { id: "wheelchair-accessible", kind: "key" as const, key: "wheelchair-accessible", label: "step-free access" },
       { id: "q:one", kind: "question" as const, text: "room for a tandem stroller", label: "room for a tandem stroller" },
     ];
-    const request = { name: "Ort", category: "biergarten", address: "Teststraße 7, 10115 Berlin", criteria };
+    const request = {
+      name: "Ort",
+      category: "biergarten",
+      address: "Teststraße 7, 10115 Berlin",
+      criteria,
+      searchCriteria: [criteria[0]],
+    };
     const german = buildRefinementQuery(request, {
       city: "Berlin",
       label: "Berlin Mitte",
       countryCode: "DE",
     }, "shaped");
-    expect(german).toBe("Ort Teststraße 7 Berlin biergarten step-free access barrierefrei room for a tandem stroller");
+    expect(german).toBe("Ort Berlin step-free access");
     const english = buildRefinementQuery({ ...request, address: undefined }, {
       city: "San Francisco",
       label: "San Francisco SoMa",
       countryCode: "US",
     }, "shaped");
-    expect(english).toBe("Ort San Francisco SoMa San Francisco biergarten step-free access room for a tandem stroller");
-    expect(english).not.toContain("barrierefrei");
+    expect(english).toBe("Ort San Francisco step-free access");
+    expect(german).not.toContain("room for a tandem stroller");
   });
 
   it("defaults to the plain query, which measured better than the shaped one", () => {
     const criteria = [
       { id: "wheelchair-accessible", kind: "key" as const, key: "wheelchair-accessible", label: "step-free access" },
     ];
-    const request = { name: "Ort", category: "biergarten", address: "Teststraße 7, 10115 Berlin", criteria };
+    const request = { name: "Ort", searchCriteria: criteria };
     const area = { city: "Berlin", label: "Berlin Mitte", countryCode: "DE" };
     expect(refineQueryShaping(undefined)).toBe("plain");
     expect(refineQueryShaping("shaped")).toBe("shaped");

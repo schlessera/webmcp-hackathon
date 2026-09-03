@@ -208,7 +208,7 @@ export async function combinedSearch(input: CombinedSearchInput): Promise<Evalua
       role: "user",
       content: JSON.stringify({
         query: input.query,
-        place: { name: input.name, category: input.category },
+        place: { name: input.name },
         criteria: input.criteria,
       }),
     }],

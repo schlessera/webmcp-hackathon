@@ -2,17 +2,20 @@ import { setEnrichFetch } from "../../../apps/server/src/enrich/index.ts";
 import { setTransport } from "../../../apps/server/src/nl/openai.ts";
 
 const TRANSIENT = "REFINE-TRANSIENT-PAGE-MARKER";
+const PRIVATE_SENTENCE = "private-zebra-741 needs a quiet courtyard";
+const PRIVATE_EVIDENCE = "A quiet courtyard is available behind the main room";
 
 setEnrichFetch(async (url) => {
   if (url.endsWith("/robots.txt")) return new Response("", { status: 200 });
   return new Response(
-    `<html><body><p>${TRANSIENT} General information about this place.</p></body></html>`,
+    `<html><body><p>${TRANSIENT} General information about this place. ${PRIVATE_EVIDENCE}.</p></body></html>`,
     { status: 200, headers: { "content-type": "text/html" } },
   );
 });
 
 setTransport(async (body) => {
   if (Array.isArray(body.tools)) {
+    console.info(`web-search-request ${JSON.stringify(body)}`);
     const content = String((body.input as Array<{ content?: string }>)[0]?.content ?? "");
     const combined = (body.text as { format?: { name?: string } } | undefined)?.format?.name ===
       "venue_search_matrix_row";
@@ -108,6 +111,24 @@ setTransport(async (body) => {
     throw new Error("the second tick lost its transient page-text LRU");
   }
   const claims = matrix.places.flatMap((place) => matrix.criteria.map((criterion) => {
+    const privateSourceIndex = place.texts.findIndex((item) =>
+      item.source === "web" && item.text.includes(PRIVATE_EVIDENCE)
+    );
+    if (
+      privateSourceIndex >= 0 &&
+      criterion.kind === "question" &&
+      criterion.text === PRIVATE_SENTENCE
+    ) {
+      return {
+        candidateId: place.candidateId,
+        criterionId: criterion.id,
+        lean: "yes",
+        confidence: 0.95,
+        evidence: PRIVATE_EVIDENCE,
+        sourceIndex: privateSourceIndex,
+        explicit: true,
+      };
+    }
     const sourceIndex = place.texts.findIndex((item) =>
       (item.source === "domain_search" || item.source === "open_web_search") &&
       item.text.includes("Free wireless internet is available")
@@ -120,6 +141,7 @@ setTransport(async (body) => {
         confidence: 0.95,
         evidence: "Free wireless internet is available",
         sourceIndex,
+        explicit: false,
       };
     }
     return {
@@ -129,6 +151,7 @@ setTransport(async (body) => {
       confidence: 0,
       evidence: "",
       sourceIndex: null,
+      explicit: false,
     };
   }));
   return {

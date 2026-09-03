@@ -11,6 +11,7 @@ import {
 } from "./helpers.ts";
 
 const TRANSIENT = "REFINE-TRANSIENT-PAGE-MARKER";
+const PRIVATE_SENTENCE = "private-zebra-741 needs a quiet courtyard";
 
 describe("continuous refinement over the API", () => {
   let server: TestServer;
@@ -63,6 +64,17 @@ describe("continuous refinement over the API", () => {
         JSON.stringify({ kind: "text", text: "free wifi" }),
       ],
     );
+    await room.pool.query(
+      `INSERT INTO requirements
+         (id, room_id, owner_id, visibility, hardness, delegation, payload, active)
+       VALUES ($1, $2, $3, 'application-private', 'hard', '{}', $4, true)`,
+      [
+        `need_private_refine_${room.roomId}`,
+        room.roomId,
+        room.participantIds.org,
+        JSON.stringify({ kind: "text", text: PRIVATE_SENTENCE }),
+      ],
+    );
     realtime = await openRealtime(server.baseUrl, room.tokens.org);
   });
 
@@ -80,6 +92,7 @@ describe("continuous refinement over the API", () => {
     expect(initial.refine).toMatchObject({ active: true, queued: 3, checkedToday: 0 });
 
     const key = questionKey("free wifi");
+    const privateKey = questionKey(PRIVATE_SENTENCE);
     await waitFor(async () => {
       const rows = (await room.pool.query(
         "SELECT inferred FROM enrichments WHERE osm_ref LIKE $1",
@@ -98,6 +111,7 @@ describe("continuous refinement over the API", () => {
       serialized: string;
     }>;
     expect(rows.filter((row) => row.inferred[key]?.lean === "yes")).toHaveLength(2);
+    expect(rows.filter((row) => row.inferred[privateKey]?.lean === "yes")).toHaveLength(3);
     for (const row of rows.filter((candidate) => !candidate.osm_ref.endsWith("/gamma"))) {
       expect(row.inferred[key]).toMatchObject({
         lean: "yes",
@@ -107,6 +121,14 @@ describe("continuous refinement over the API", () => {
     expect(rows.find((row) => row.osm_ref.endsWith("/gamma"))?.inferred[key])
       .toMatchObject({ omitted: true });
     for (const row of rows) expect(row.serialized).not.toContain(TRANSIENT);
+    // The fixture logs every request whose tools include web_search. The
+    // application-private sentence may appear in the plain matrix call, but
+    // never in a search query or tool-enabled prompt.
+    const searchBodies = server.logs().split("\n").filter((line) =>
+      line.includes("web-search-request")
+    ).join("\n");
+    expect(searchBodies).not.toContain(PRIVATE_SENTENCE);
+    expect(searchBodies).toContain("free wifi");
 
     await waitFor(async () => (await context()).refine.queued === 0, 8_000);
     expect((await context()).refine).toMatchObject({ queued: 0, checkedToday: 3 });
@@ -116,7 +138,7 @@ describe("continuous refinement over the API", () => {
       reason?: { kind?: string; label?: string };
     }).filter((frame) => frame.type === "lookups" && Boolean(frame.pending?.length));
     expect(lookupFrames.some((frame) => frame.reason?.kind === "refine")).toBe(true);
-    expect(lookupFrames.some((frame) => frame.reason?.label === "free wifi")).toBe(true);
+    expect(JSON.stringify(lookupFrames)).not.toContain(PRIVATE_SENTENCE);
 
     realtime.close();
     await waitFor(async () => !(await context()).refine.active, 2_000);

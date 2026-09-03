@@ -307,20 +307,18 @@ supervised guess about a real page, not a quotation the server checked. Split
 holds the snippet text and checks the span against words the server read.
 Neither mode can create a verified fact.
 
-`REFINE_QUERY_SHAPING=plain|shaped` selects the query. Both are capped at 400
-characters. `plain` is the place name, the city and the criterion labels.
-`shaped` adds the tagged street address (falling back to the area label), the
-place's untranslated category, and for a German area a small German lexicon
-beside the English labels (`barrierefrei`, `WLAN`, `Hunde erlaubt`,
-`Außenbereich` / `Terrasse`, `vegetarisch`, `vegan`, `glutenfrei`, `halal`,
-`laktosefrei`, `Lieferung`, `Mitnahme`). Free-text questions keep the person's
-own words in both and are never machine-translated.
+Every outbound search query is capped at 400 characters and contains only the
+place name, city, and words from shared active needs. Tagged addresses,
+categories, inactive vocabulary, and application-private sentences never enter
+a search query. An application-private criterion may be evaluated in the plain
+matrix call over place-site text or snippets already returned for a shared
+need. That matrix call has no tools, so its contents do not become search terms
+or reach a search index. If a place has no unresolved shared criterion, it does
+not cause a search. Combined mode excludes application-private criteria from
+the entire tool-enabled call. Agent-private content never enters refinement.
 
-`plain` is the default because it measured better. Over three live
-twelve-place Berlin runs the plain query returned 14 validated claims and the
-shaped query 11, losing in every run; the extra words narrow the search away
-from the pages that answer. `shaped` stays reachable so the comparison can be
-rerun on another area or another language.
+`REFINE_QUERY_SHAPING=plain|shaped` remains accepted for deployment
+compatibility, but privacy gives both settings the same shared-only query.
 
 With nothing left to refine the loop backs off to `REFINE_IDLE_TICK_MS`
 (thirty times the working cadence) so an idle room is not reloaded every
