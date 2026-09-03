@@ -82,6 +82,13 @@ type MockContext = {
     readyState: "contributing" | "ready";
     arrived: boolean;
     present: boolean;
+    origin?: {
+      lat: number;
+      lng: number;
+      label: string;
+      source: "fixture" | "device" | "stated";
+      updatedAt: string;
+    };
   }>;
   proposals: Array<Record<string, unknown>>;
   agreement?: { proposalId: string; candidateId: string; status: "staged" | "committed"; committedAtRevision?: number };
@@ -121,7 +128,21 @@ const identity = {
   roomId: "room_demo",
 };
 const participants = [
-  { participantId: "p_org", displayName: "Alex", role: "organizer" as const, readyState: "contributing" as const, arrived: true, present: true },
+  {
+    participantId: "p_org",
+    displayName: "Alex",
+    role: "organizer" as const,
+    readyState: "contributing" as const,
+    arrived: true,
+    present: true,
+    origin: {
+      lat: 52.5298,
+      lng: 13.4014,
+      label: "Rosenthaler Platz",
+      source: "fixture" as const,
+      updatedAt: "2026-09-03T00:00:00.000Z",
+    },
+  },
   { participantId: "p_sarah", displayName: "Sarah", role: "member" as const, readyState: "contributing" as const, arrived: true, present: true },
   { participantId: "p_joe", displayName: "Joe", role: "member" as const, readyState: "contributing" as const, arrived: true, present: true },
 ];
@@ -1140,7 +1161,9 @@ test("deliberation draws unsure and proposed pins and exposes direct stance acti
 });
 
 test("arrival appears only for a committed agreement and offers mode and navigation handoff", async ({ page }) => {
+  const audit: string[] = [];
   const state: MockState = {
+    audit,
     context: fixture({
       revision: 44,
       phase: "arrival",
@@ -1197,6 +1220,9 @@ test("arrival appears only for a committed agreement and offers mode and navigat
   await expect(page.getByTestId("navigate-link")).toHaveAttribute(
     "href",
     "https://www.google.com/maps/dir/?api=1&destination=52.52,13.39",
+  );
+  await expect.poll(() => audit.join("\n")).toContain(
+    '"from":{"lat":52.5298,"lng":13.4014}',
   );
   await expect(page.getByTestId("pin-place_24")).toHaveAttribute("data-state", "settled");
   await expect(page.getByTestId("pin-place_24")).toContainText("· settled");
@@ -2595,4 +2621,83 @@ test("the refinement line and the fact rows are still under reduced motion", asy
   );
   expect(settle).toBe("0ms");
   await context.close();
+});
+
+test("the private you mark renders, its roster control drags it without re-centering", async ({ browser }) => {
+  const browserContext = await browser.newContext({ viewport: { width: 1180, height: 900 } });
+  const page = await browserContext.newPage();
+  const audit: string[] = [];
+  const ctx = fixture({ matching: 4, revision: 70 });
+  ctx.participants = structuredClone(participants);
+  ctx.participants[0].origin = {
+    lat: 52.5298,
+    lng: 13.4014,
+    label: "Rosenthaler Platz",
+    source: "fixture",
+    updatedAt: "2026-09-03T00:00:00.000Z",
+  };
+  const state: MockState = {
+    audit,
+    context: ctx,
+    outstanding: [],
+    command(request, current) {
+      if (request.type === "SetOrigin") {
+        const input = request.input as {
+          position: { lat: number; lng: number };
+          source: "stated";
+        };
+        const me = current.context.participants.find((person) => person.participantId === "p_org")!;
+        me.origin = {
+          ...input.position,
+          label: "chosen point",
+          source: input.source,
+          updatedAt: "2026-09-03T00:01:00.000Z",
+        };
+        current.context.revision += 1;
+      }
+      return {
+        ok: true,
+        revision: current.context.revision,
+        effect: "Starting point updated.",
+        outstanding: current.outstanding,
+      };
+    },
+  };
+  await mockApi(page, state);
+  await page.goto(`${BASE}/#invite=deadbeef`);
+
+  await expect.poll(() => audit.join("\n")).toContain("Rosenthaler Platz");
+  await page.getByTestId("avatars").click();
+  await expect(page.getByTestId("origin-label")).toHaveText("Starting from Rosenthaler Platz");
+  await expect(page.getByTestId("you-mark")).toBeVisible();
+  await page.getByTestId("set-origin").click();
+  await page.getByTestId("avatars").click();
+
+  const before = await page.evaluate(() => window.__spokesMapStats?.().center);
+  const youMark = page.getByTestId("you-mark");
+  await expect(youMark).toHaveAttribute("tabindex", "0");
+  const box = await youMark.boundingBox();
+  if (!box) throw new Error("you mark has no drag target");
+  const beforeMark = await youMark.evaluate((element) => element.parentElement?.style.transform);
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await youMark.dispatchEvent("mousedown", {
+    button: 0,
+    clientX: box.x + box.width / 2,
+    clientY: box.y + box.height / 2,
+  });
+  await page.mouse.move(box.x + box.width / 2 + 35, box.y + box.height / 2 + 18, { steps: 5 });
+  await page.evaluate(
+    ({ x, y }) => window.dispatchEvent(new MouseEvent("mouseup", { clientX: x, clientY: y })),
+    { x: box.x + box.width / 2 + 35, y: box.y + box.height / 2 + 18 },
+  );
+  await expect.poll(() => youMark.evaluate((element) => element.parentElement?.style.transform)).not.toBe(beforeMark);
+
+  await expect.poll(() => audit.some((line) => line.includes('"type":"SetOrigin"'))).toBe(true);
+  await expect(page.getByTestId("origin-announcement")).toContainText(
+    /Starting point updated\. \d+ still work/,
+  );
+  const after = await page.evaluate(() => window.__spokesMapStats?.().center);
+  expect(after?.[0]).toBeCloseTo(before?.[0] ?? 0, 5);
+  expect(after?.[1]).toBeCloseTo(before?.[1] ?? 0, 5);
+  await browserContext.close();
 });

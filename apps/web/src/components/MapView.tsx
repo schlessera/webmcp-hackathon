@@ -10,6 +10,7 @@ import type {
   CandidateSummary,
   CommandEnvelope,
   ExplorePlace,
+  ParticipantOrigin,
   ParticipantSummary,
   SpatialContext,
 } from "../spatial-types.ts";
@@ -230,6 +231,10 @@ interface Props {
   isOrganizer: boolean;
   explore: ReadonlyMap<string, ExplorePlace>;
   exploreTruncated: boolean;
+  /** The viewer's own application-private starting point. */
+  origin?: ParticipantOrigin;
+  originEditing: boolean;
+  onSetOrigin(position: { lat: number; lng: number }): Promise<boolean>;
   run(type: string, input: Record<string, unknown>): Promise<CommandEnvelope>;
   onSelect(candidateId: string | null): void;
 }
@@ -340,6 +345,9 @@ export function MapView({
   isOrganizer,
   explore,
   exploreTruncated,
+  origin,
+  originEditing,
+  onSetOrigin,
   run,
   onSelect,
 }: Props) {
@@ -438,6 +446,79 @@ export function MapView({
   const [selectedExploreRef, setSelectedExploreRef] = useState<string | null>(null);
   const [exploreAnnouncement, setExploreAnnouncement] = useState("");
   const [addingExplore, setAddingExplore] = useState(false);
+  const [originDraft, setOriginDraft] = useState<{ lat: number; lng: number } | null>(
+    origin ? { lat: origin.lat, lng: origin.lng } : null,
+  );
+  useEffect(() => {
+    setOriginDraft(origin ? { lat: origin.lat, lng: origin.lng } : null);
+  }, [origin?.lat, origin?.lng, origin?.updatedAt]);
+  const displayedOrigin = originDraft ?? origin ?? null;
+
+  const nudgeOrigin = (key: string) => {
+    if (!originEditing || !displayedOrigin) return;
+    const latStep = 10 / 111_320;
+    const lngStep = 10 / (111_320 * Math.cos((displayedOrigin.lat * Math.PI) / 180));
+    const next = {
+      lat: displayedOrigin.lat + (key === "ArrowUp" ? latStep : key === "ArrowDown" ? -latStep : 0),
+      lng: displayedOrigin.lng + (key === "ArrowRight" ? lngStep : key === "ArrowLeft" ? -lngStep : 0),
+    };
+    setOriginDraft(next);
+    void onSetOrigin(next);
+  };
+  const originAtPointer = useCallback((clientX: number, clientY: number) => {
+    const map = mapRef.current?.getMap();
+    if (!map) return null;
+    const bounds = map.getContainer().getBoundingClientRect();
+    const point = map.unproject([clientX - bounds.left, clientY - bounds.top]);
+    return { lat: point.lat, lng: point.lng };
+  }, []);
+  const originMarkerRef = useRef<HTMLDivElement | null>(null);
+  const originDragCleanupRef = useRef<() => void>(() => undefined);
+  const originEditingRef = useRef(originEditing);
+  const onSetOriginRef = useRef(onSetOrigin);
+  originEditingRef.current = originEditing;
+  onSetOriginRef.current = onSetOrigin;
+  const beginOriginDrag = useCallback((event: MouseEvent) => {
+    if (!originEditingRef.current) return;
+    event.preventDefault();
+    event.stopPropagation();
+    originDragCleanupRef.current();
+    let moved = false;
+    const move = (moveEvent: MouseEvent) => {
+      const position = originAtPointer(moveEvent.clientX, moveEvent.clientY);
+      if (!position) return;
+      moved = true;
+      setOriginDraft(position);
+    };
+    const cleanup = () => {
+      window.removeEventListener("mousemove", move, true);
+      window.removeEventListener("mouseup", end as EventListener, true);
+      window.removeEventListener("pointerup", end as EventListener, true);
+    };
+    const end = (upEvent: MouseEvent | PointerEvent) => {
+      cleanup();
+      originDragCleanupRef.current = () => undefined;
+      const position = originAtPointer(upEvent.clientX, upEvent.clientY);
+      if (!moved || !position) return;
+      setOriginDraft(position);
+      void onSetOriginRef.current(position);
+    };
+    window.addEventListener("mousemove", move, true);
+    window.addEventListener("mouseup", end as EventListener, true);
+    window.addEventListener("pointerup", end as EventListener, true);
+    originDragCleanupRef.current = cleanup;
+  }, [originAtPointer]);
+  const attachOriginMarker = useCallback((marker: HTMLDivElement | null) => {
+    const previous = originMarkerRef.current;
+    if (previous) {
+      previous.removeEventListener("mousedown", beginOriginDrag);
+    }
+    if (!marker) originDragCleanupRef.current();
+    originMarkerRef.current = marker;
+    if (marker) {
+      marker.addEventListener("mousedown", beginOriginDrag);
+    }
+  }, [beginOriginDrag]);
   const exploreActionRef = useRef<HTMLButtonElement>(null);
   const focusExploreAction = useRef(false);
   const ownScopeCenter = useRef<string | null>(null);
@@ -1802,6 +1883,38 @@ export function MapView({
             />
           )}
         </Source>
+        {displayedOrigin && (
+          <Marker
+            longitude={displayedOrigin.lng}
+            latitude={displayedOrigin.lat}
+            anchor="center"
+            style={{ zIndex: 15 }}
+          >
+            <div
+              ref={attachOriginMarker}
+              className="origin-marker"
+              data-testid="you-mark"
+              data-editing={originEditing || undefined}
+              role="button"
+              tabIndex={originEditing ? 0 : -1}
+              aria-label={
+                originEditing
+                  ? "Your starting point. Drag it or use the arrow keys to move it."
+                  : `Your starting point${origin?.label ? `, ${origin.label}` : ""}.`
+              }
+              onClick={(event) => event.stopPropagation()}
+              onKeyDown={(event) => {
+                if (event.key.startsWith("Arrow") && originEditing) {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  nudgeOrigin(event.key);
+                }
+              }}
+            >
+              <span className="mark" data-mark="you" aria-hidden="true" />
+            </div>
+          </Marker>
+        )}
         {domCandidates.map((c) => {
           const state = stateOf(c);
           const viewers = viewersOf.get(c.candidateId) ?? [];

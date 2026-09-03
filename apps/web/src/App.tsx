@@ -161,6 +161,9 @@ export function App() {
   // of. The line leaves on its own the moment the socket is back.
   const [offlineSince, setOfflineSince] = useState<Date | null>(null);
   const [errorLine, setErrorLine] = useState<string | null>(null);
+  const [originEditing, setOriginEditing] = useState(false);
+  const [originAnnouncement, setOriginAnnouncement] = useState("");
+  const pendingOrigin = useRef<{ before: number; revision: number } | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(
     () => new URLSearchParams(window.location.search).has("shim"),
   );
@@ -597,6 +600,17 @@ export function App() {
   // the map and scope-dependent chrome simply stay off in that case.
   const context = rawContext?.scope?.area?.center ? rawContext : null;
 
+  useEffect(() => {
+    const pending = pendingOrigin.current;
+    if (!pending || !rawContext || rawContext.revision < pending.revision) return;
+    const delta = rawContext.matching - pending.before;
+    const signed = delta > 0 ? `, +${delta}` : delta < 0 ? `, −${Math.abs(delta)}` : "";
+    setOriginAnnouncement(
+      `Starting point updated. ${rawContext.matching} ${stillWorkVerb(rawContext.matching)}${signed}.`,
+    );
+    pendingOrigin.current = null;
+  }, [rawContext]);
+
   const candidateName = useCallback(
     (candidateId: string) =>
       context?.candidates.find((c) => c.candidateId === candidateId)?.name ??
@@ -748,6 +762,25 @@ export function App() {
       active: !need.active,
     });
 
+  const setOwnOrigin = async (
+    position: { lat: number; lng: number },
+    source: "device" | "stated",
+    label?: string,
+  ): Promise<boolean> => {
+    pendingOrigin.current = { before: context?.matching ?? 0, revision: Number.POSITIVE_INFINITY };
+    const result = await run("SetOrigin", {
+      position,
+      source,
+      ...(label ? { label } : {}),
+    });
+    if (!result.ok || result.revision === undefined) {
+      pendingOrigin.current = null;
+      return false;
+    }
+    pendingOrigin.current = { before: context?.matching ?? 0, revision: result.revision };
+    return true;
+  };
+
   return (
     <div className="app">
       {offlineSince && !staleBanner && (
@@ -766,6 +799,10 @@ export function App() {
         title={settled && committedId ? candidateName(committedId) : null}
         subtitle={subtitle}
         participants={participants}
+        meId={id.participantId}
+        originEditing={originEditing}
+        onOriginEditingChange={setOriginEditing}
+        onSetOrigin={setOwnOrigin}
         onOpenDrawer={() => setDrawerOpen(true)}
       />
 
@@ -791,6 +828,9 @@ export function App() {
               explore={spatialState.explore}
               exploreTruncated={spatialState.exploreTruncated}
               run={run}
+              origin={me?.origin}
+              originEditing={originEditing}
+              onSetOrigin={(position) => setOwnOrigin(position, "stated")}
               onSelect={(cid) => spatial.select(cid)}
             />
           ) : (
@@ -886,6 +926,7 @@ export function App() {
                 context?.candidates.find((c) => c.candidateId === committedId)?.walkMin
               }
               run={run}
+              from={me?.origin ? { lat: me.origin.lat, lng: me.origin.lng } : undefined}
             />
           ) : (
             <Composer
@@ -924,6 +965,10 @@ export function App() {
           <button onClick={() => setErrorLine(null)}>Dismiss</button>
         </div>
       )}
+
+      <div className="sr-only" data-testid="origin-announcement" aria-live="polite" aria-atomic="true">
+        {originAnnouncement}
+      </div>
 
       {drawerOpen && (
         <Drawer

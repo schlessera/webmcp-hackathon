@@ -29,6 +29,7 @@ const NEGOTIATION_TOOLS: Array<[string, string]> = [
   ["respond_to_proposal", "mutation"],
   ["resolve_private_request", "mutation"],
   ["set_ready_state", "mutation"],
+  ["set_origin", "mutation"],
   ["confirm_agreement", "stages"],
 ];
 
@@ -512,7 +513,7 @@ export function Landing({ onStart }: Props) {
           <div className="ld-wire-grid">
             <div>
               <p className="ld-read-ink">
-                Nineteen tools are registered imperatively on{" "}
+                Twenty tools are registered imperatively on{" "}
                 <code>document.modelContext</code> at page load, from the
                 top-level document, as one static surface. ChatGPT&rsquo;s
                 in-app browser binds tools at page level and may not observe a
@@ -540,7 +541,7 @@ export function Landing({ onStart }: Props) {
               </p>
             </div>
             <div className="ld-tools">
-              <h3 className="ld-wire-sub">negotiation/v1 · 9</h3>
+              <h3 className="ld-wire-sub">negotiation/v1 · 10</h3>
               <ul className="ld-tool-list">
                 {NEGOTIATION_TOOLS.map(([name, kind]) => (
                   <li key={name}>

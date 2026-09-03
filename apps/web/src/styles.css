@@ -1745,6 +1745,33 @@ body { overflow: hidden; }
   border: 2.5px solid var(--spoke-act);
   width: 12px; height: 12px;
 }
+.mark[data-mark="you"] {
+  position: relative;
+  width: 18px;
+  height: 18px;
+  background: var(--spoke-surface);
+  border: 2px solid var(--spoke-scope);
+}
+.mark[data-mark="you"]::after {
+  content: "";
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  left: 50%;
+  top: 50%;
+  translate: -50% -50%;
+  border-radius: 50%;
+  background: var(--spoke-scope);
+}
+.origin-marker {
+  width: var(--spoke-tap-min);
+  height: var(--spoke-tap-min);
+  display: grid;
+  place-items: center;
+  cursor: default;
+}
+.origin-marker[tabindex="0"] { cursor: move; }
+.origin-marker[data-editing] { touch-action: none; }
 
 /* ── Ledger rows (Does it fit · Where everyone stands) ─────────────────── */
 .ledger { border-top: var(--spoke-border) solid var(--spoke-line-quiet); }
@@ -2552,7 +2579,7 @@ html, body, #root { height: 100%; overflow: hidden; }
   right: 0;
   top: calc(100% + 4px);
   z-index: 30;
-  min-width: 200px;
+  min-width: 280px;
   border: var(--spoke-border) solid var(--spoke-line);
   border-radius: var(--spoke-radius-card);
   background: var(--spoke-surface);
@@ -2584,6 +2611,28 @@ html, body, #root { height: 100%; overflow: hidden; }
   white-space: nowrap;
 }
 .roster-here { position: static; border: none; width: 7px; height: 7px; }
+.roster-person + .roster-person { border-top: 1px solid var(--spoke-line-ghost); }
+.origin-controls {
+  padding: 0 0 8px 35px;
+  font-size: var(--spoke-size-meta);
+  color: var(--spoke-ink-soft);
+}
+.origin-label { padding: 0 0 4px; }
+.origin-actions { display: flex; flex-wrap: wrap; gap: 4px 10px; }
+.origin-action {
+  min-height: var(--spoke-tap-min);
+  margin-block: -4px;
+  border: none;
+  background: none;
+  padding: 8px 0;
+  color: var(--spoke-scope-text);
+  font: inherit;
+  font-weight: var(--spoke-weight-strong);
+  cursor: pointer;
+}
+.origin-action[aria-pressed="true"] { text-decoration: underline; }
+.origin-help,
+.origin-error { padding-top: 5px; line-height: 1.35; }
 
 /* ── Drawer: folding groups (W13) ────────────────────────────────────── */
 details.drawer-section > summary {

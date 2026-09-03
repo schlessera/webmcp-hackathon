@@ -8,6 +8,14 @@ export type Eligibility = "eligible" | "likely" | "uncertain" | "unlikely" | "ex
 
 export type Visibility = "shared" | "application-private" | "agent-private";
 
+export interface ParticipantOrigin {
+  lat: number;
+  lng: number;
+  label: string;
+  source: "fixture" | "device" | "stated";
+  updatedAt: string;
+}
+
 export interface ParticipantSummary {
   participantId: string;
   displayName: string;
@@ -17,6 +25,8 @@ export interface ParticipantSummary {
   arrived: boolean;
   /** Looking right now (open realtime socket). */
   present: boolean;
+  /** The viewer's own application-private origin; absent on every peer row. */
+  origin?: ParticipantOrigin;
 }
 
 export interface CandidateSummary {
@@ -29,7 +39,7 @@ export interface CandidateSummary {
   eligibility: Eligibility;
   /** Redacted explanation, composed per viewer. */
   why: string;
-  /** Minutes on foot from the current scope centre. */
+  /** Minutes on foot from the viewer's origin, or the scope centre fallback. */
   walkMin: number;
   /** null when the place has no price band on record. */
   priceLevel: number | null;

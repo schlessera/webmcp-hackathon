@@ -232,6 +232,7 @@ const MUTATION_COMMANDS: Record<string, string> = {
   respond_to_proposal: "RespondToProposal",
   resolve_private_request: "ResolvePrivateRequest",
   set_ready_state: "SetReadyState",
+  set_origin: "SetOrigin",
   confirm_agreement: "ConfirmAgreement",
   set_search_scope: "SetSearchScope",
   add_candidates: "AddCandidates",

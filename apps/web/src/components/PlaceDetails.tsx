@@ -534,7 +534,7 @@ export function PlaceDetails({
         : eurBand(candidate.priceLevel);
   const meta = [
     candidate.category.replace(/_/g, " "),
-    candidate.walkMin > 0 ? `${candidate.walkMin} min away` : null,
+    candidate.walkMin > 0 ? `${candidate.walkMin} min from you` : null,
     priceText,
   ]
     .filter(Boolean)

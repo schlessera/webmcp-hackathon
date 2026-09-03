@@ -13,6 +13,7 @@ interface Props {
   destinationName: string;
   arrival: { mode?: string; pickupNote?: string } | undefined;
   walkMin: number | undefined;
+  from?: { lat: number; lng: number };
   run(type: string, input: Record<string, unknown>): Promise<CommandEnvelope>;
 }
 
@@ -22,14 +23,14 @@ const MODES = [
   { value: "car", label: "Drive" },
 ] as const;
 
-export function ArrivalBar({ destinationName, arrival, walkMin, run }: Props) {
+export function ArrivalBar({ destinationName, arrival, walkMin, from, run }: Props) {
   const [links, setLinks] = useState<NavigationLinks | null>(null);
   const mode = arrival?.mode ?? "walk";
 
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      const result = (await spatialNavigationRaw({})) as NavigationLinks & {
+      const result = (await spatialNavigationRaw({ ...(from ? { from } : {}) })) as NavigationLinks & {
         ok?: boolean;
       };
       if (!cancelled && result.ok !== false && result.links) setLinks(result);
@@ -37,7 +38,7 @@ export function ArrivalBar({ destinationName, arrival, walkMin, run }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [destinationName]);
+  }, [destinationName, from?.lat, from?.lng]);
 
   return (
     <div className="arrival-bar" data-testid="arrival-banner">

@@ -21,6 +21,14 @@ interface Props {
   title: string | null;
   subtitle: HeaderSubtitle;
   participants: ParticipantSummary[];
+  meId: string;
+  originEditing: boolean;
+  onOriginEditingChange(enabled: boolean): void;
+  onSetOrigin(
+    position: { lat: number; lng: number },
+    source: "device" | "stated",
+    label?: string,
+  ): Promise<boolean>;
   onOpenDrawer(): void;
 }
 
@@ -29,13 +37,49 @@ function presenceWord(p: ParticipantSummary): string {
   return p.present ? "here now" : p.arrived ? "arrived" : "not arrived yet";
 }
 
-export function Header({ title, subtitle, participants, onOpenDrawer }: Props) {
+export function Header({
+  title,
+  subtitle,
+  participants,
+  meId,
+  originEditing,
+  onOriginEditingChange,
+  onSetOrigin,
+  onOpenDrawer,
+}: Props) {
   /* The avatar row opens a roster card on tap (W12): names and presence are
      reachable on touch, not only on hover. A disclosure, not navigation —
      it closes on Escape, on an outside tap, or on the row again. */
   const [rosterOpen, setRosterOpen] = useState(false);
   const rosterRef = useRef<HTMLDivElement>(null);
   const avatarsRef = useRef<HTMLButtonElement>(null);
+  const [locating, setLocating] = useState(false);
+  const [locationError, setLocationError] = useState("");
+  const geolocationAvailable =
+    typeof navigator !== "undefined" && "geolocation" in navigator;
+
+  const useDeviceLocation = () => {
+    if (!geolocationAvailable || locating) return;
+    setLocating(true);
+    setLocationError("");
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        void onSetOrigin(
+          { lat: position.coords.latitude, lng: position.coords.longitude },
+          "device",
+          "your location",
+        ).then((ok) => {
+          setLocating(false);
+          if (ok) onOriginEditingChange(false);
+        });
+      },
+      () => {
+        setLocating(false);
+        setLocationError("Your location was not available.");
+      },
+      { enableHighAccuracy: true, maximumAge: 60_000, timeout: 10_000 },
+    );
+  };
   useEffect(() => {
     if (!rosterOpen) return;
     const onKey = (e: KeyboardEvent) => {
@@ -112,7 +156,8 @@ export function Header({ title, subtitle, participants, onOpenDrawer }: Props) {
         {rosterOpen && (
           <div className="roster-card" role="dialog" aria-label="Who is in the room" data-testid="roster-card">
             {participants.map((p, i) => (
-              <div className="roster-row" key={p.participantId} data-testid={`roster-${p.participantId}`}>
+              <div className="roster-person" key={p.participantId}>
+              <div className="roster-row" data-testid={`roster-${p.participantId}`}>
                 <span
                   className="avatar"
                   style={{ background: p.arrived ? personColor(i) : undefined }}
@@ -129,6 +174,42 @@ export function Header({ title, subtitle, participants, onOpenDrawer }: Props) {
                   {p.present && <i className="avatar-here roster-here" aria-hidden="true" />}
                   {presenceWord(p)}
                 </span>
+              </div>
+              {p.participantId === meId && (
+                <div className="origin-controls">
+                  {p.origin && (
+                    <div className="origin-label" data-testid="origin-label">
+                      Starting from {p.origin.label}
+                    </div>
+                  )}
+                  <div className="origin-actions">
+                    <button
+                      type="button"
+                      className="origin-action"
+                      aria-pressed={originEditing}
+                      data-testid="set-origin"
+                      onClick={() => onOriginEditingChange(!originEditing)}
+                    >
+                      {originEditing ? "Finish setting where you start" : "Set where you start"}
+                    </button>
+                    {geolocationAvailable && (
+                      <button
+                        type="button"
+                        className="origin-action"
+                        disabled={locating}
+                        data-testid="use-location"
+                        onClick={useDeviceLocation}
+                      >
+                        {locating ? "Getting your location" : "Use my location"}
+                      </button>
+                    )}
+                  </div>
+                  {originEditing && (
+                    <div className="origin-help">Drag your mark on the map, or use its arrow keys.</div>
+                  )}
+                  {locationError && <div className="origin-error" role="status">{locationError}</div>}
+                </div>
+              )}
               </div>
             ))}
           </div>
