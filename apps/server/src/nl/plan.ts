@@ -241,8 +241,11 @@ function titleFor(concepts: Concept[], stepClass: StepClass): string {
   const time = concepts.find((concept) => concept.role === "time");
   const subject = concepts.find((concept) => concept.role === "subject");
   const kind = concepts.find((concept) => concept.role === "kind" && concept.polarity === "include");
+  // A pre-parsed time phrase keeps its connective ("for dinner", "zum
+  // Mittagessen"); a title wants the noun.
+  const timeWords = time?.phrase?.trim().replace(/^(?:open|offen|geöffnet|for|at|on|zum|zur|zu|um|am)\s+/i, "").trim();
   const candidate =
-    time?.phrase?.trim() ||
+    timeWords ||
     subject?.gist.trim() ||
     subject?.surface.trim() ||
     kind?.values.join(" or ").replace(/_/g, " ").trim() ||

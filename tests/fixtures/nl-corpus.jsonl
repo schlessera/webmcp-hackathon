@@ -103,7 +103,7 @@
 {"id":"other-003","lang":"de","text":"hallo zusammen","context":"default","expect":{"intent":"unclear","needs":[],"clarify":null},"preparse":"none","tags":["other"]}
 {"id":"other-004","lang":"de","text":"blabla xyz","context":"default","expect":{"intent":"unclear","needs":[],"clarify":null},"preparse":"none","tags":["other"]}
 {"id":"plan-001","lang":"en","text":"let's meet somewhere close to Sarah's subway station and have lunch","context":"default","expect":{"placeClass":"food","needs":["scope","time"]},"preparse":"partial","tags":["plan","referent"]}
-{"id":"plan-002","lang":"de","text":"lass uns in der Nähe von Sarahs U-Bahnhof zu Mittag essen","context":"default","expect":{"placeClass":"food","needs":["scope"]},"preparse":"partial","tags":["plan","referent"]}
+{"id":"plan-002","lang":"de","text":"lass uns in der Nähe von Sarahs U-Bahnhof zu Mittag essen","context":"default","expect":{"placeClass":"food","needs":["scope","time"]},"preparse":"partial","tags":["plan","referent"]}
 {"id":"plan-003","lang":"en","text":"go for a walk with the dogs","context":"default","expect":{"placeClass":"park","needs":["attribute"]},"preparse":"none","tags":["plan","attribute"]}
 {"id":"plan-004","lang":"de","text":"mit den Hunden spazieren gehen","context":"default","expect":{"placeClass":"park","needs":["attribute"]},"preparse":"none","tags":["plan","attribute"]}
 {"id":"plan-005","lang":"en","text":"let's meet for dinner and then go watch the new MCU movie at the cinema","context":"default","expect":{"placeClass":"food","needs":["time"]},"preparse":"none","tags":["plan","time"]}
