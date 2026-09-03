@@ -24,6 +24,15 @@ function cleanDomains(domains: string[] | undefined): string[] {
   }))].slice(0, 100);
 }
 
+function safeHttpUrl(value: string): string | null {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" || url.protocol === "http:" ? value : null;
+  } catch {
+    return null;
+  }
+}
+
 export const openAiSearchProvider: SearchProvider = {
   async search(query, opts = {}) {
     const domains = cleanDomains(opts.domains);
@@ -48,15 +57,17 @@ export const openAiSearchProvider: SearchProvider = {
     const text = reply.text ?? "";
     const found = new Map<string, SearchResult>();
     for (const citation of reply.citations ?? []) {
+      const url = safeHttpUrl(citation.url);
+      if (!url) continue;
       if (!Number.isInteger(citation.start) || !Number.isInteger(citation.end)) continue;
       const start = citation.start!;
       const end = citation.end!;
       if (start < 0 || end <= start || end > text.length) continue;
       const snippet = text.slice(start, end).replace(/\s+/g, " ").trim();
       if (!snippet) continue;
-      found.set(citation.url, {
-        url: citation.url,
-        title: citation.title?.trim() || citation.url,
+      found.set(url, {
+        url,
+        title: citation.title?.trim() || url,
         snippet,
       });
     }
@@ -97,13 +108,15 @@ export const tavilySearchProvider: SearchProvider = {
       };
       return (body.results ?? []).flatMap((result) => {
         if (typeof result.url !== "string" || typeof result.content !== "string") return [];
-        const snippet = result.content.replace(/\s+/g, " ").trim();
+        const url = safeHttpUrl(result.url);
+        if (!url) return [];
+        const snippet = result.content.replace(/\s+/g, " ").trim().slice(0, 2_000);
         if (!snippet) return [];
         return [{
-          url: result.url,
+          url,
           title: typeof result.title === "string" && result.title.trim()
             ? result.title.trim()
-            : result.url,
+            : url,
           snippet,
         }];
       });
