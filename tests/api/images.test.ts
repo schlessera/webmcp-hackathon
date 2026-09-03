@@ -112,7 +112,7 @@ describe("place images API", () => {
     const first = await inspect();
     expect(first.body.candidates[0].images).toEqual([
       expect.objectContaining({
-        url: `/api/places/${encodeURIComponent(warmOsmRef)}/images/0`,
+        url: `/api/places/${warmOsmRef}/images/0`,
         source: "web:93.184.216.34",
       }),
     ]);
