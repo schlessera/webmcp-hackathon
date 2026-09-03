@@ -1,6 +1,6 @@
 {
   "toolContractVersion": "3",
-  "sha256": "f403b19450ccbc9aad64eec74a51526d68dc05a8296d3e489c7a6e6f5515e182",
+  "sha256": "84ac915f82674772605715a2aff46fa328332da2076fec34c82d8f56806be8d9",
   "manifest": {
     "capabilityManifest": {
       "agreement": {
@@ -1388,6 +1388,9 @@
                           "key": {
                             "type": "string"
                           },
+                          "label": {
+                            "type": "string"
+                          },
                           "note": {
                             "type": "string"
                           },
@@ -2395,6 +2398,9 @@
                           "type": "boolean"
                         }
                       ]
+                    },
+                    "criterionId": {
+                      "type": "string"
                     },
                     "hardness": {
                       "anyOf": [
