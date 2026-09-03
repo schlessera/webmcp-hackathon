@@ -22,7 +22,8 @@ import {
 import { computeFacetsBundle, labelForRequirement } from "./facets.ts";
 import { IMPASSE_TEXT } from "./impasse.ts";
 import { presentIn } from "./presence.ts";
-import { loadSnapshot, type DataSource } from "./places.ts";
+import { fillPlan, loadSnapshot, type DataSource } from "./places.ts";
+import { startPoolFill } from "./pool-fill.ts";
 import { loadAttestations } from "./attestations.ts";
 import {
   enrichmentView,
@@ -255,8 +256,25 @@ export async function spatialContext(
 
     const source = room.data_source as DataSource | null;
     const poolSize = inputs.candidates.length;
-    const explorable =
-      typeof room.area_id === "string" && loadSnapshot(room.area_id) !== null;
+    const area = typeof room.area_id === "string" ? areaById(room.area_id) : undefined;
+    const snapshot = area ? loadSnapshot(area.id) : null;
+    const explorable = snapshot !== null;
+    let filling = false;
+    let poolTarget = poolSize;
+    if (area && snapshot && scope?.area.kind === "circle") {
+      const plan = fillPlan(
+        area,
+        snapshot,
+        scope.area.center,
+        scope.area.radiusM,
+        inputs.candidates.flatMap((candidate) => candidate.osm_ref ? [candidate.osm_ref] : []),
+      );
+      poolTarget = Math.min(plan.total, POOL_CAP);
+      filling = poolSize < POOL_CAP && plan.batches.length > 0;
+      // A read is also the restart recovery point: persisted candidates and
+      // scope are enough to derive and resume whatever work is missing.
+      if (filling) startPoolFill(actor.roomId);
+    }
     return {
       ok: true as const,
       revision: room.revision as number,
@@ -275,7 +293,7 @@ export async function spatialContext(
             },
           }
         : {}),
-      pool: { size: poolSize, cap: POOL_CAP, explorable },
+      pool: { size: poolSize, cap: POOL_CAP, explorable, filling, target: poolTarget },
       feasibility: feasibilityOf(rows),
       total: bundle.total,
       matching: bundle.matching,
@@ -284,22 +302,25 @@ export async function spatialContext(
       activeNeeds: bundle.activeNeeds,
       privateEffects: bundle.privateEffects,
       participants,
-      candidates: rows.map((r) => ({
-        candidateId: r.candidateId,
-        ...(r.ref ? { ref: r.ref } : {}),
-        name: r.name,
-        location: r.location,
-        category: r.category,
-        eligibility: r.eligibility,
-        ...(r.confidence !== undefined ? { confidence: r.confidence } : {}),
-        // Per-viewer redaction: private contributions collapse to fixed
-        // tokens for everyone but their owner.
-        why: whyFor(r, actor.id),
-        walkMin: r.walkMin,
-        // null passes through: a phantom 0 would put mass at the bottom of
-        // every price reading.
-        priceLevel: r.priceLevel,
-      })),
+      candidates: rows.map((r) => {
+        const why = whyFor(r, actor.id);
+        return {
+          candidateId: r.candidateId,
+          ...(r.ref ? { ref: r.ref } : {}),
+          name: r.name,
+          location: r.location,
+          category: r.category,
+          eligibility: r.eligibility,
+          ...(r.confidence !== undefined ? { confidence: r.confidence } : {}),
+          // Per-viewer redaction: private contributions collapse to fixed
+          // tokens for everyone but their owner. Eligible rows omit it.
+          ...(why !== undefined ? { why } : {}),
+          walkMin: r.walkMin,
+          // null passes through: a phantom 0 would put mass at the bottom of
+          // every price reading.
+          priceLevel: r.priceLevel,
+        };
+      }),
       proposals: proposalViews,
       ...(agreement ? { agreement } : {}),
       ...(arrival ? { arrival } : {}),
@@ -443,6 +464,7 @@ export async function inspectCandidates(
           peerPrivate.push(verdict);
           continue;
         }
+        const why = whyFor(classified, actor.id);
         rows.push({
           requirementId: requirement.id,
           label: labelForRequirement(
@@ -452,7 +474,7 @@ export async function inspectCandidates(
           ),
           verdict,
           ...(classified.confidence !== undefined ? { confidence: classified.confidence } : {}),
-          why: whyFor(classified, actor.id),
+          ...(why !== undefined ? { why } : {}),
         });
       }
       if (peerPrivate.length > 0) {

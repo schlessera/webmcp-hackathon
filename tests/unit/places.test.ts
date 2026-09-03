@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   AREAS,
   BOOLEAN_ATTRS,
+  POOL_CAP,
   POOL_PER_RING,
   areaById,
   dossierFromTags,
@@ -12,8 +13,10 @@ import {
   candidatesForRefs,
   candidatesFor,
   explorePlaces,
+  fillPlan,
   loadSnapshot,
-  poolFor,
+  POOL_SEED_SIZE,
+  seedFor,
   topUp,
 } from "../../apps/server/src/places.ts";
 import { haversineMeters } from "../../apps/server/src/eligibility.ts";
@@ -78,54 +81,58 @@ describe.each(AREAS.map((a) => [a.id, a] as const))("snapshot %s", (_id, area) =
     );
   });
 
-  it("spreads N deterministic places across every ring out to the widening ceiling", () => {
-    const pool = poolFor(area, snapshot, area.center);
-    const again = poolFor(area, snapshot, area.center);
-    expect(pool.map((v) => v.ref)).toEqual(again.map((v) => v.ref));
-    expect(pool.length).toBe(3 * POOL_PER_RING);
-    const { narrow, wide, max } = area.radii;
-    const inner = pool.slice(0, POOL_PER_RING);
-    const middle = pool.slice(POOL_PER_RING, 2 * POOL_PER_RING);
-    const outer = pool.slice(2 * POOL_PER_RING);
-    for (const v of inner) expect(v.distance).toBeLessThanOrEqual(narrow);
-    for (const v of middle) {
-      expect(v.distance).toBeGreaterThan(narrow);
-      expect(v.distance).toBeLessThanOrEqual(wide);
+  it("seeds 60 deterministic places spread across the narrow scope circle", () => {
+    const seed = seedFor(area, area.center, area.radii.narrow);
+    const again = seedFor(area, area.center, area.radii.narrow);
+    expect(seed.map((venue) => venue.ref)).toEqual(again.map((venue) => venue.ref));
+    expect(seed).toHaveLength(POOL_SEED_SIZE);
+    expect(seed.every((venue) => venue.distance <= area.radii.narrow)).toBe(true);
+    expect(Math.max(...seed.map((venue) => venue.distance))).toBeGreaterThan(
+      area.radii.narrow * 0.9,
+    );
+    const quadrants = new Set(
+      seed.map(
+        (venue) =>
+          `${venue.location.lat >= area.center.lat ? 1 : 0}${
+            venue.location.lng >= area.center.lng ? 1 : 0
+          }`,
+      ),
+    );
+    expect(quadrants.size).toBe(4);
+    const cells = new Set(
+      seed.map((venue) => {
+        const x =
+          (venue.location.lng - area.center.lng) *
+          111_320 *
+          Math.cos((area.center.lat * Math.PI) / 180);
+        const y = (venue.location.lat - area.center.lat) * 111_320;
+        return `${Math.floor(x / 100)},${Math.floor(y / 100)}`;
+      }),
+    );
+    expect(cells.size).toBeGreaterThanOrEqual(55);
+    expect(new Set(seed.map((venue) => venue.ref)).size).toBe(seed.length);
+  });
+
+  it("plans every missing scope venue deterministically in nearest-first batches", () => {
+    const baseline = fillPlan(area, snapshot, area.center, area.radii.narrow, [], 7);
+    const baselineRefs = baseline.batches.flat().map((venue) => venue.ref);
+    const existing = new Set([baselineRefs[0], baselineRefs[5], baselineRefs[12]]);
+    const first = fillPlan(area, snapshot, area.center, area.radii.narrow, existing, 7);
+    const again = fillPlan(area, snapshot, area.center, area.radii.narrow, existing, 7);
+    expect(first).toEqual(again);
+    expect(first.total).toBe(baseline.total);
+    expect(first.batches.every((batch) => batch.length > 0 && batch.length <= 7)).toBe(true);
+    const flattened = first.batches.flat();
+    expect(flattened).toHaveLength(baseline.total - existing.size);
+    expect(flattened.every((venue) => !existing.has(venue.ref))).toBe(true);
+    for (let index = 1; index < flattened.length; index += 1) {
+      const previous = flattened[index - 1];
+      const current = flattened[index];
+      expect(
+        previous.distance < current.distance ||
+          (previous.distance === current.distance && previous.ref < current.ref),
+      ).toBe(true);
     }
-    for (const v of outer) {
-      expect(v.distance).toBeGreaterThan(wide);
-      expect(v.distance).toBeLessThanOrEqual(max);
-    }
-    // The old nearest-40 rule collapsed the inner ring into roughly 300 m.
-    // Every ring now reaches its outer edge and covers all four quadrants,
-    // with almost every choice coming from a distinct 100 m grid cell.
-    const bounds = [narrow, wide, max];
-    for (const [index, selected] of [inner, middle, outer].entries()) {
-      expect(Math.max(...selected.map((venue) => venue.distance))).toBeGreaterThan(
-        bounds[index] * 0.9,
-      );
-      const quadrants = new Set(
-        selected.map(
-          (venue) =>
-            `${venue.location.lat >= area.center.lat ? 1 : 0}${
-              venue.location.lng >= area.center.lng ? 1 : 0
-            }`,
-        ),
-      );
-      expect(quadrants.size).toBe(4);
-      const cells = new Set(
-        selected.map((venue) => {
-          const x =
-            (venue.location.lng - area.center.lng) *
-            111_320 *
-            Math.cos((area.center.lat * Math.PI) / 180);
-          const y = (venue.location.lat - area.center.lat) * 111_320;
-          return `${Math.floor(x / 100)},${Math.floor(y / 100)}`;
-        }),
-      );
-      expect(cells.size).toBeGreaterThanOrEqual(35);
-    }
-    expect(new Set(pool.map((v) => v.ref)).size).toBe(pool.length);
   });
 
   it("queries the snapshot by bbox with a deterministic cap", () => {
@@ -150,12 +157,11 @@ describe.each(AREAS.map((a) => [a.id, a] as const))("snapshot %s", (_id, area) =
   });
 
   it("tops up from the spread rule without returning refs already in the room", () => {
-    const existing = new Set(poolFor(area, snapshot, area.center).map((venue) => venue.ref));
+    const existing = new Set(seedFor(area, area.center, area.radii.narrow).map((venue) => venue.ref));
     const shifted = { lat: area.center.lat + 0.008, lng: area.center.lng + 0.008 };
     const first = topUp("room_test", area, snapshot, shifted, area.radii.narrow, existing);
     const again = topUp("room_test", area, snapshot, shifted, area.radii.narrow, existing);
     expect(first.length).toBeGreaterThan(0);
-    expect(first.length).toBeLessThanOrEqual(POOL_PER_RING);
     expect(first.map((seed) => seed.osmRef)).toEqual(again.map((seed) => seed.osmRef));
     for (const seed of first) {
       expect(existing.has(seed.osmRef!)).toBe(false);
@@ -180,7 +186,7 @@ describe.each(AREAS.map((a) => [a.id, a] as const))("snapshot %s", (_id, area) =
       kind: "osm-snapshot",
       areaId: area.id,
       label: area.label,
-      poolSize: 3 * POOL_PER_RING,
+      poolSize: POOL_SEED_SIZE,
       extractTimestamp: snapshot.manifest.extract.timestamp,
     });
     expect(set.dataSource.focusVenues).toBe(snapshot.manifest.coverage.focus.venues);
@@ -200,6 +206,9 @@ describe.each(AREAS.map((a) => [a.id, a] as const))("snapshot %s", (_id, area) =
 });
 
 describe("area summaries", () => {
+  it("uses the expanded additive room cap", () => {
+    expect(POOL_CAP).toBe(2500);
+  });
   it("lists both areas as available snapshots with measured coverage", () => {
     const areas = areaSummaries();
     expect(areas.map((a) => a.id)).toEqual(["berlin-mitte", "sf-soma"]);

@@ -320,6 +320,18 @@ describe("eligibility against the Berlin Mitte dataset", () => {
     expect(whyFor(by.time_unknown, "p_org")).toBe("is it open Fri 12:00–14:00?");
   });
 
+  it("omits an eligible why with nothing to cite and caps every reason at 60 characters", () => {
+    const eligible = classifyAll([candidates[0]], [], [], null)[0];
+    expect(whyFor(eligible, "p_org")).toBeUndefined();
+    const uncertain = classifyAll(
+      [candidates[0]],
+      [req({ kind: "text", text: "a".repeat(100) } as never)],
+      [],
+      null,
+    )[0];
+    expect(whyFor(uncertain, "p_org")).toHaveLength(60);
+  });
+
   it("reads likely, unlikely, unknown, and attested evidence for a question criterion", () => {
     const text = "somewhere the kids can run";
     const key = questionKey(text);

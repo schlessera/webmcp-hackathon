@@ -54,6 +54,82 @@ type MarkerState =
   | "proposed"
   | "return";
 
+type GlStatus = "works" | "unsure" | "out" | "act" | "likely" | "unlikely" | "return";
+
+const MARK_DASH_IMAGE = "spokes-mark-dash";
+const MARK_BUSY_IMAGE = "spokes-mark-busy";
+const DOM_MARKER_CAP = 60;
+const MARK_SOURCE_MAX_ZOOM = 12;
+
+declare global {
+  interface Window {
+    __spokesMapStats?: () => {
+      candidates: number;
+      domMarkers: number;
+      glFeatures: number;
+      center: [number, number];
+      zoom: number;
+      busyAnimating: boolean;
+      settleDuration: number;
+      transitionDuration: number;
+      selected: string | null;
+      glOnly: { candidateId: string; point: [number, number] } | null;
+    };
+  }
+}
+
+function glStatusOf(state: MarkerState): GlStatus {
+  if (state === "staged" || state === "vetoed" || state === "proposed") return "act";
+  if (state === "selected" || state === "settled") return "works";
+  return state;
+}
+
+function sortKeyOf(state: MarkerState): number {
+  switch (glStatusOf(state)) {
+    case "out": return 0;
+    case "unlikely": return 1;
+    case "unsure": return 2;
+    case "likely": return 3;
+    case "return": return 4;
+    case "act": return 5;
+    case "works": return 6;
+  }
+}
+
+function durationMs(value: string): number {
+  const trimmed = value.trim();
+  const amount = Number.parseFloat(trimmed);
+  if (!Number.isFinite(amount)) return 0;
+  return trimmed.endsWith("ms") ? amount : trimmed.endsWith("s") ? amount * 1000 : amount;
+}
+
+/** A monochrome alpha mask; MapLibre recolours it through SDF icon paint. */
+function ringImage(
+  canvas: HTMLCanvasElement,
+  size: number,
+  lineWidth: number,
+  dash: number[],
+  angle = 0,
+): ImageData {
+  if (canvas.width !== size) canvas.width = size;
+  if (canvas.height !== size) canvas.height = size;
+  const drawing = canvas.getContext("2d");
+  if (!drawing) return new ImageData(size, size);
+  drawing.clearRect(0, 0, size, size);
+  drawing.save();
+  drawing.translate(size / 2, size / 2);
+  drawing.rotate(angle);
+  drawing.strokeStyle = MAP_THEME.marks.surface;
+  drawing.lineWidth = lineWidth;
+  drawing.lineCap = "round";
+  drawing.setLineDash(dash);
+  drawing.beginPath();
+  drawing.arc(0, 0, (size - lineWidth) / 2 - 1, 0, Math.PI * 2);
+  drawing.stroke();
+  drawing.restore();
+  return drawing.getImageData(0, 0, size, size);
+}
+
 const STATE_LABEL: Record<MarkerState, string> = {
   works: "still works",
   likely: "likely works",
@@ -129,6 +205,10 @@ function circlePolygon(center: { lat: number; lng: number }, radiusM: number) {
  */
 const NAME_CAP = 18;
 const NAME_FLOOR = 6;
+/* The distance from the card edge to its dot centre. CSS receives this as a
+   custom property, so placement maths, positioning and transform origins all
+   use the same anchor. State-specific padding keeps every dot on this value. */
+const STICKER_ANCHOR_PX = 14;
 /* The collision box is the drawn card plus the height its ±3° tilt adds, so
    two accepted names can sit shoulder to shoulder but never on top of each
    other. Widths are estimated rather than measured: measuring would need the
@@ -221,6 +301,23 @@ export function MapView({
   /** True once the basemap has loaded and the first fit has run — the moment
    * marker positions stop moving on their own. The e2e specs wait on it. */
   const [loaded, setLoaded] = useState(false);
+  const [motion, setMotion] = useState({ reduced: false, settleMs: 420, busyMs: 1600 });
+  const busyAnimating = useRef(false);
+  const busyFrame = useRef<number | null>(null);
+  useEffect(() => {
+    const preference = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const readMotion = () => {
+      const root = getComputedStyle(document.documentElement);
+      setMotion({
+        reduced: preference.matches,
+        settleMs: durationMs(root.getPropertyValue("--spoke-dur-settle")),
+        busyMs: durationMs(root.getPropertyValue("--spoke-dur-busy")),
+      });
+    };
+    readMotion();
+    preference.addEventListener("change", readMotion);
+    return () => preference.removeEventListener("change", readMotion);
+  }, []);
   // The basemap style, patched once (map-style.ts) so the console stays
   // quiet in production; the URL itself is the fallback.
   const [tileStyle, setTileStyle] = useState<TileStyle | null>(null);
@@ -259,45 +356,6 @@ export function MapView({
     },
     [],
   );
-
-  /* Places that share a spot — the same coordinate, or a few metres apart
-     (a food hall, two counters in one station) — fan out by a fixed few
-     pixels so each dot keeps its own pixels (§13). Grouping is by distance
-     on the ground, not on screen, so a dot never moves with the zoom (§8);
-     the grouping order is by ref so two tabs draw the same fan. */
-  const collisionOffsets = useMemo(() => {
-    const keyOf = (c: CandidateSummary) => c.ref ?? c.candidateId;
-    const sorted = [...candidates].sort((a, b) => keyOf(a).localeCompare(keyOf(b)));
-    const groups: CandidateSummary[][] = [];
-    for (const candidate of sorted) {
-      const group = groups.find(
-        (g) => metresBetween(g[0].location, candidate.location) <= COLLOCATED_METRES,
-      );
-      if (group) group.push(candidate);
-      else groups.push([candidate]);
-    }
-    const offsets = new globalThis.Map<string, [number, number]>();
-    for (const group of groups) {
-      if (group.length === 1) {
-        offsets.set(group[0].candidateId, [0, 0]);
-        continue;
-      }
-      group.sort(
-        (a, b) =>
-          stableHash(a.ref ?? a.candidateId) - stableHash(b.ref ?? b.candidateId) ||
-          (a.ref ?? a.candidateId).localeCompare(b.ref ?? b.candidateId),
-      );
-      const start = ((stableHash(group[0].ref ?? group[0].candidateId) % 360) * Math.PI) / 180;
-      group.forEach((candidate, index) => {
-        const angle = start + (index / group.length) * 2 * Math.PI;
-        offsets.set(candidate.candidateId, [
-          Math.cos(angle) * COLLOCATED_OFFSET,
-          Math.sin(angle) * COLLOCATED_OFFSET,
-        ]);
-      });
-    }
-    return offsets;
-  }, [candidates]);
 
   const ring = useMemo(
     () => circlePolygon(center, scope.area.radiusM),
@@ -430,6 +488,20 @@ export function MapView({
     return map;
   }, [proposals]);
 
+  /* Only open and staged proposals remain on the table. An open proposal may
+     carry a standing veto and still qualify; a terminal veto or withdrawal
+     keeps its marker vocabulary but falls back to ordinary eligibility for
+     whether it may carry a name. */
+  const proposalOnTable = useMemo(() => {
+    const ids = new Set<string>();
+    for (const proposal of proposals) {
+      if (proposal.status === "open" || proposal.status === "staged") {
+        ids.add(proposal.candidateId);
+      }
+    }
+    return ids;
+  }, [proposals]);
+
   /* Peers with this place open, in roster order, never the viewer. */
   const viewersOf = useMemo(() => {
     const map = new globalThis.Map<string, Array<{ p: ParticipantSummary; index: number }>>();
@@ -463,56 +535,165 @@ export function MapView({
     return set;
   }, [candidates]);
 
-  const stateOf = (c: CandidateSummary): MarkerState => {
-    if (c.candidateId === selectedId) return "selected";
-    if (c.candidateId === committedId) return "settled";
-    const proposal = proposalByCandidate.get(c.candidateId);
-    if (proposal === "staged") return "staged";
-    if (proposal === "vetoed") return "vetoed";
-    if (proposal === "open") return "proposed";
-    if (preview && previewEligible) {
-      if (previewEligible.has(c.candidateId)) {
-        return liveEligible.has(c.candidateId) ? "works" : "return";
+  const markerStates = useMemo(() => {
+    const states = new globalThis.Map<string, MarkerState>();
+    const previewById = new globalThis.Map(
+      (preview?.candidates ?? []).map((candidate) => [candidate.candidateId, candidate]),
+    );
+    for (const candidate of candidates) {
+      let state: MarkerState;
+      if (candidate.candidateId === selectedId) state = "selected";
+      else if (candidate.candidateId === committedId) state = "settled";
+      else {
+        const proposal = proposalByCandidate.get(candidate.candidateId);
+        if (proposal === "staged") state = "staged";
+        else if (proposal === "vetoed") state = "vetoed";
+        else if (proposal === "open") state = "proposed";
+        else if (preview && previewEligible) {
+          if (previewEligible.has(candidate.candidateId)) {
+            state = liveEligible.has(candidate.candidateId) ? "works" : "return";
+          } else {
+            const eligibility = previewById.get(candidate.candidateId)?.eligibility;
+            state =
+              eligibility === "uncertain"
+                ? "unsure"
+                : eligibility === "likely"
+                  ? "likely"
+                  : eligibility === "unlikely"
+                    ? "unlikely"
+                    : "out";
+          }
+        } else {
+          state =
+            candidate.eligibility === "eligible"
+              ? "works"
+              : candidate.eligibility === "likely"
+                ? "likely"
+                : candidate.eligibility === "uncertain"
+                  ? "unsure"
+                  : candidate.eligibility === "unlikely"
+                    ? "unlikely"
+                    : "out";
+        }
       }
-      const shadow = preview.candidates.find((p) => p.candidateId === c.candidateId);
-      return shadow?.eligibility === "uncertain"
-        ? "unsure"
-        : shadow?.eligibility === "likely"
-          ? "likely"
-          : shadow?.eligibility === "unlikely"
-            ? "unlikely"
-            : "out";
+      states.set(candidate.candidateId, state);
     }
-    if (c.eligibility === "eligible") return "works";
-    if (c.eligibility === "likely") return "likely";
-    if (c.eligibility === "uncertain") return "unsure";
-    if (c.eligibility === "unlikely") return "unlikely";
-    return "out";
-  };
+    return states;
+  }, [candidates, selectedId, committedId, proposalByCandidate, preview, previewEligible, liveEligible]);
+
+  const stateOf = (candidate: CandidateSummary): MarkerState =>
+    markerStates.get(candidate.candidateId) ?? "out";
+
+  const domCandidates = useMemo(() => {
+    const priority = (candidate: CandidateSummary) => {
+      if (candidate.candidateId === selectedId || candidate.candidateId === committedId) return 0;
+      if (proposalByCandidate.has(candidate.candidateId)) return 1;
+      if (viewersOf.has(candidate.candidateId)) return 2;
+      return 3;
+    };
+    const stateRank: Record<MarkerState, number> = {
+      selected: 0,
+      settled: 0,
+      staged: 0,
+      vetoed: 0,
+      proposed: 0,
+      return: 1,
+      works: 2,
+      likely: 3,
+      unsure: 4,
+      unlikely: 5,
+      out: 6,
+    };
+    return [...candidates]
+      .sort(
+        (a, b) =>
+          priority(a) - priority(b) ||
+          stateRank[stateOf(a)] - stateRank[stateOf(b)] ||
+          a.walkMin - b.walkMin ||
+          (a.ref ?? a.candidateId).localeCompare(b.ref ?? b.candidateId),
+      )
+      .slice(0, DOM_MARKER_CAP);
+  }, [candidates, selectedId, committedId, proposalByCandidate, viewersOf, markerStates]);
+  const domCandidateIds = useMemo(
+    () => new Set(domCandidates.map((candidate) => candidate.candidateId)),
+    [domCandidates],
+  );
+
+  /* Places that share a spot — the same coordinate, or a few metres apart
+     (a food hall, two counters in one station) — fan out by a fixed few
+     pixels so each DOM dot keeps its own pixels (§13). The GL pool remains
+     anchored to geography; this collision pass is bounded to sixty. */
+  const collisionOffsets = useMemo(() => {
+    const keyOf = (candidate: CandidateSummary) => candidate.ref ?? candidate.candidateId;
+    const sorted = [...domCandidates].sort((a, b) => keyOf(a).localeCompare(keyOf(b)));
+    const groups: CandidateSummary[][] = [];
+    for (const candidate of sorted) {
+      const group = groups.find(
+        (members) => metresBetween(members[0].location, candidate.location) <= COLLOCATED_METRES,
+      );
+      if (group) group.push(candidate);
+      else groups.push([candidate]);
+    }
+    const offsets = new globalThis.Map<string, [number, number]>();
+    for (const group of groups) {
+      if (group.length === 1) {
+        offsets.set(group[0].candidateId, [0, 0]);
+        continue;
+      }
+      group.sort(
+        (a, b) =>
+          stableHash(a.ref ?? a.candidateId) - stableHash(b.ref ?? b.candidateId) ||
+          (a.ref ?? a.candidateId).localeCompare(b.ref ?? b.candidateId),
+      );
+      const start = ((stableHash(group[0].ref ?? group[0].candidateId) % 360) * Math.PI) / 180;
+      group.forEach((candidate, index) => {
+        const angle = start + (index / group.length) * 2 * Math.PI;
+        offsets.set(candidate.candidateId, [
+          Math.cos(angle) * COLLOCATED_OFFSET,
+          Math.sin(angle) * COLLOCATED_OFFSET,
+        ]);
+      });
+    }
+    return offsets;
+  }, [domCandidates]);
 
   const named = useMemo(() => {
     const map = mapRef.current;
     const placements = new globalThis.Map<string, "left" | "right">();
-    // A place someone acted on always keeps its name, wherever it sits; a
-    // place someone is looking at comes next.
-    const priority = (c: CandidateSummary) => {
-      if (c.candidateId === selectedId || c.candidateId === committedId) return 0;
-      if (proposalByCandidate.has(c.candidateId)) return 1;
-      if (viewersOf.has(c.candidateId)) return 2;
-      return 3;
+    const previewById = new globalThis.Map(
+      (preview?.candidates ?? []).map((candidate) => [candidate.candidateId, candidate]),
+    );
+    /* Name cards are for valid options only. Places actively on the table
+       share tier zero, then confirmed eligibility, likely evidence, and only
+       then uncertainty. Terminal proposals fall through to their eligibility. */
+    const tierOf = (candidate: CandidateSummary): number | null => {
+      if (distanceMeters(center, candidate.location) > scope.area.radiusM + 1) return null;
+      if (
+        candidate.candidateId === selectedId ||
+        candidate.candidateId === committedId ||
+        proposalOnTable.has(candidate.candidateId) ||
+        viewersOf.has(candidate.candidateId)
+      ) {
+        return 0;
+      }
+      const eligibility = previewById.get(candidate.candidateId)?.eligibility ?? candidate.eligibility;
+      if (eligibility === "eligible") return 1;
+      if (eligibility === "likely") return 2;
+      if (eligibility === "uncertain") return 3;
+      return null;
     };
-    const candidatesByPriority = candidates
-      .filter((c) => stateOf(c) !== "out")
+    const candidatesByTier = domCandidates
+      .filter((candidate) => tierOf(candidate) !== null)
       .sort(
         (a, b) =>
-          priority(a) - priority(b) ||
+          tierOf(a)! - tierOf(b)! ||
           a.walkMin - b.walkMin ||
           (a.ref ?? a.candidateId).localeCompare(b.ref ?? b.candidateId),
       );
 
     if (!map) {
-      for (const c of candidatesByPriority.slice(0, NAME_CAP)) {
-        placements.set(c.candidateId, "right");
+      for (const c of candidatesByTier.slice(0, NAME_CAP)) {
+        placements.set(c.candidateId, "left");
       }
       return placements;
     }
@@ -520,7 +701,7 @@ export function MapView({
     // Every place's dot, so a card is refused where it would bury a
     // neighbour's dot — a buried dot is an unreachable place (§13).
     const dots: Array<{ id: string; x: number; y: number }> = [];
-    for (const c of candidates) {
+    for (const c of domCandidates) {
       try {
         const p = map.project([c.location.lng, c.location.lat]);
         const offset = collisionOffsets.get(c.candidateId) ?? [0, 0];
@@ -534,8 +715,8 @@ export function MapView({
     // instead of spending every name on the nearest dense block.
     const points = new globalThis.Map(dots.map((dot) => [dot.id, dot]));
     const ordered: CandidateSummary[] = [];
-    for (let rank = 0; rank <= 3; rank += 1) {
-      const remaining = candidatesByPriority.filter((candidate) => priority(candidate) === rank);
+    for (let tier = 0; tier <= 3; tier += 1) {
+      const remaining = candidatesByTier.filter((candidate) => tierOf(candidate) === tier);
       while (remaining.length > 0) {
         let bestIndex = 0;
         let bestDistance = -1;
@@ -568,9 +749,12 @@ export function MapView({
       const point = own;
       const w = stickerWidth(c.name, true) * STICKER_SLACK;
       const preferred: Array<"left" | "right"> =
-        point.x + w - 13 > width ? ["left", "right"] : ["right", "left"];
+        point.x + w - STICKER_ANCHOR_PX > width ? ["right", "left"] : ["left", "right"];
       for (const side of preferred) {
-        const left = side === "right" ? point.x - 13 : point.x + 13 - w;
+        const left =
+          side === "left"
+            ? point.x - STICKER_ANCHOR_PX
+            : point.x + STICKER_ANCHOR_PX - w;
         if (left < 4 || left + w > width - 4) continue;
         const collides = placed.some(
           (p) =>
@@ -581,7 +765,13 @@ export function MapView({
         if (collides) continue;
         const buries =
           protectDots &&
-          priority(c) > 1 &&
+          // A place someone selected, settled or put on the table may bury a
+          // neighbour's dot; merely looking at one does not earn that.
+          !(
+            c.candidateId === selectedId ||
+            c.candidateId === committedId ||
+            proposalOnTable.has(c.candidateId)
+          ) &&
           dots.some(
             (d) =>
               d.id !== c.candidateId &&
@@ -620,23 +810,257 @@ export function MapView({
         const point = points.get(candidate.candidateId);
         if (!point || point.y < STICKER_H / 2 || point.y > height - STICKER_H / 2) continue;
         const w = stickerWidth(candidate.name, true) * STICKER_SLACK;
-        const side = point.x + w - 13 <= width - 4 ? "right" : "left";
-        const left = side === "right" ? point.x - 13 : point.x + 13 - w;
+        const side =
+          point.x + w - STICKER_ANCHOR_PX <= width - 4 ? "left" : "right";
+        const left =
+          side === "left"
+            ? point.x - STICKER_ANCHOR_PX
+            : point.x + STICKER_ANCHOR_PX - w;
         if (left >= 4 && left + w <= width - 4) placements.set(candidate.candidateId, side);
       }
     }
     return placements;
   }, [
-    candidates,
+    domCandidates,
     viewportWidth,
     selectedId,
     committedId,
-    proposalByCandidate,
+    proposalOnTable,
     viewersOf,
+    markerStates,
     preview,
+    center,
+    scope.area.radiusM,
     viewTick,
     collisionOffsets,
   ]);
+
+  /* Draw order and the dashed filter are layout facts baked into the source,
+     because neither `circle-sort-key` nor a layer filter can read feature
+     state. They are therefore keyed on the *committed* reading of a place —
+     its eligibility, and whether anyone has put it on the table — never on
+     selection or on a hold preview, so the press-and-hold gesture stays a
+     pure feature-state sweep with no re-tiling (CLAUDE.md §7). */
+  const bakedStateOf = (candidate: CandidateSummary): MarkerState => {
+    if (candidate.candidateId === committedId) return "settled";
+    const proposal = proposalByCandidate.get(candidate.candidateId);
+    if (proposal === "staged") return "staged";
+    if (proposal === "vetoed") return "vetoed";
+    if (proposal === "open") return "proposed";
+    return candidate.eligibility === "eligible"
+      ? "works"
+      : candidate.eligibility === "likely"
+        ? "likely"
+        : candidate.eligibility === "uncertain"
+          ? "unsure"
+          : candidate.eligibility === "unlikely"
+            ? "unlikely"
+            : "out";
+  };
+  const marksDataKey = useMemo(
+    () =>
+      candidates
+        .map((candidate) =>
+          `${candidate.candidateId}:${sortKeyOf(bakedStateOf(candidate))}:${candidate.eligibility}`,
+        )
+        .sort()
+        .join("\n"),
+    [candidates, committedId, proposalByCandidate],
+  );
+  const marksGeoJson = useMemo(
+    () => ({
+      type: "FeatureCollection" as const,
+      features: candidates.map((candidate) => {
+        const state = bakedStateOf(candidate);
+        return {
+          type: "Feature" as const,
+          properties: {
+            candidateId: candidate.candidateId,
+            name: candidate.name,
+            sortKey: sortKeyOf(state),
+            // Every place that is not already clear may become the dashed
+            // return ghost during a hold preview. Baking that potential keeps
+            // the gesture free of a source swap; paint opacity picks the
+            // dashes that are actually live.
+            dashed: candidate.eligibility !== "eligible",
+          },
+          geometry: {
+            type: "Point" as const,
+            coordinates: [
+              Number(candidate.location.lng.toFixed(6)),
+              Number(candidate.location.lat.toFixed(6)),
+            ],
+          },
+        };
+      }),
+    }),
+    [marksDataKey],
+  );
+
+  const previousMarkState = useRef(new globalThis.Map<string, string>());
+  const previousMarksDataKey = useRef("");
+  useEffect(() => {
+    if (!loaded) return;
+    const map = mapRef.current?.getMap();
+    if (!map?.getSource("marks")) return;
+    const sourceChanged = previousMarksDataKey.current !== marksDataKey;
+    const next = new globalThis.Map<string, string>();
+    const apply = (all: boolean) => {
+      for (const candidate of candidates) {
+        const state = stateOf(candidate);
+        const featureState = {
+          status: glStatusOf(state),
+          selected: state === "selected" || state === "settled",
+          busy: busy.has(candidate.candidateId),
+          hidden: domCandidateIds.has(candidate.candidateId),
+        };
+        const serialised = JSON.stringify(featureState);
+        next.set(candidate.candidateId, serialised);
+        if (!all && previousMarkState.current.get(candidate.candidateId) === serialised) continue;
+        map.setFeatureState(
+          { source: "marks", id: candidate.candidateId },
+          featureState,
+        );
+      }
+    };
+    apply(sourceChanged);
+    previousMarkState.current = next;
+    previousMarksDataKey.current = marksDataKey;
+    const reapplyAll = () => apply(true);
+    map.once("idle", reapplyAll);
+    return () => {
+      map.off("idle", reapplyAll);
+    };
+  }, [loaded, marksDataKey, candidates, markerStates, busy, domCandidateIds]);
+
+  useEffect(() => {
+    if (!loaded) return;
+    const map = mapRef.current?.getMap();
+    if (!map) return;
+    const dashCanvas = document.createElement("canvas");
+    const busyCanvas = document.createElement("canvas");
+    const resolveImage = (id: string) => {
+      if (map.hasImage(id)) return;
+      if (id === MARK_DASH_IMAGE) {
+        map.addImage(id, ringImage(dashCanvas, 36, 3, [6, 5]), { sdf: true, pixelRatio: 2 });
+      } else if (id === MARK_BUSY_IMAGE) {
+        map.addImage(id, ringImage(busyCanvas, 56, 3, [7, 6]), { sdf: true, pixelRatio: 2 });
+      }
+    };
+    map.setMissingStyleImageResolver(resolveImage);
+    // Register through the same resolver now as well: the child layers may
+    // already have asked for their images in the map's load turn.
+    resolveImage(MARK_DASH_IMAGE);
+    resolveImage(MARK_BUSY_IMAGE);
+    return () => {
+      map.setMissingStyleImageResolver(null);
+    };
+  }, [loaded]);
+
+  useEffect(() => {
+    if (!loaded) return;
+    const map = mapRef.current?.getMap();
+    if (!map) return;
+    const canvas = document.createElement("canvas");
+    const cancel = () => {
+      if (busyFrame.current !== null) cancelAnimationFrame(busyFrame.current);
+      busyFrame.current = null;
+      busyAnimating.current = false;
+    };
+    cancel();
+    if (busy.size === 0) return cancel;
+    if (motion.reduced || motion.busyMs <= 0) {
+      if (map.hasImage(MARK_BUSY_IMAGE)) {
+        map.updateImage(MARK_BUSY_IMAGE, ringImage(canvas, 56, 3, [7, 6], 0));
+      }
+      return cancel;
+    }
+    busyAnimating.current = true;
+    const draw = (now: number) => {
+      if (map.hasImage(MARK_BUSY_IMAGE)) {
+        const angle = ((now % motion.busyMs) / motion.busyMs) * Math.PI * 2;
+        map.updateImage(MARK_BUSY_IMAGE, ringImage(canvas, 56, 3, [7, 6], angle));
+      }
+      busyFrame.current = requestAnimationFrame(draw);
+    };
+    busyFrame.current = requestAnimationFrame(draw);
+    return cancel;
+  }, [loaded, busy, motion.reduced, motion.busyMs]);
+
+  useEffect(() => {
+    const stats = () => {
+      const map = mapRef.current?.getMap();
+      const mapCenter = map?.getCenter();
+      const glOnlyCandidate = candidates.find(
+        (candidate) => !domCandidateIds.has(candidate.candidateId),
+      );
+      const glOnlyPoint = map && glOnlyCandidate
+        ? map.project([glOnlyCandidate.location.lng, glOnlyCandidate.location.lat])
+        : null;
+      const transition = map?.getLayer("mark-dots")
+        ? map.getPaintProperty("mark-dots", "circle-radius-transition") as { duration?: number }
+        : undefined;
+      return {
+        candidates: candidates.length,
+        domMarkers: domCandidates.length,
+        glFeatures: marksGeoJson.features.length,
+        center: [mapCenter?.lng ?? center.lng, mapCenter?.lat ?? center.lat] as [number, number],
+        zoom: map?.getZoom() ?? 14,
+        busyAnimating: busyAnimating.current,
+        settleDuration: motion.settleMs,
+        transitionDuration: transition?.duration ?? 0,
+        selected: selectedId,
+        glOnly: glOnlyCandidate && glOnlyPoint
+          ? {
+              candidateId: glOnlyCandidate.candidateId,
+              point: [glOnlyPoint.x, glOnlyPoint.y] as [number, number],
+            }
+          : null,
+      };
+    };
+    window.__spokesMapStats = stats;
+    return () => {
+      if (window.__spokesMapStats === stats) delete window.__spokesMapStats;
+    };
+  }, [
+    candidates,
+    domCandidates.length,
+    domCandidateIds,
+    marksGeoJson,
+    center.lat,
+    center.lng,
+    motion.settleMs,
+    selectedId,
+  ]);
+
+  const keyboardCandidates = useMemo(
+    () =>
+      candidates
+        .filter((candidate) => distanceMeters(center, candidate.location) <= scope.area.radiusM + 1)
+        .sort(
+          (a, b) =>
+            a.name.localeCompare(b.name) ||
+            a.candidateId.localeCompare(b.candidateId),
+        ),
+    [candidates, center.lat, center.lng, scope.area.radiusM],
+  );
+  const [rovingCandidateId, setRovingCandidateId] = useState<string | null>(null);
+  const keyboardCandidateRefs = useRef(new globalThis.Map<string, HTMLButtonElement>());
+  useEffect(() => {
+    if (
+      rovingCandidateId &&
+      keyboardCandidates.some((candidate) => candidate.candidateId === rovingCandidateId)
+    ) return;
+    setRovingCandidateId(keyboardCandidates[0]?.candidateId ?? null);
+  }, [keyboardCandidates, rovingCandidateId]);
+
+  const moveKeyboardCandidate = (currentId: string, direction: number) => {
+    const index = keyboardCandidates.findIndex((candidate) => candidate.candidateId === currentId);
+    if (index < 0 || keyboardCandidates.length === 0) return;
+    const next = keyboardCandidates[(index + direction + keyboardCandidates.length) % keyboardCandidates.length];
+    setRovingCandidateId(next.candidateId);
+    keyboardCandidateRefs.current.get(next.candidateId)?.focus();
+  };
 
   const explorePlaces = useMemo(() => {
     const refs = new Set(candidates.flatMap((candidate) => candidate.ref ? [candidate.ref] : []));
@@ -808,7 +1232,7 @@ export function MapView({
   /* The busy line: a lookup a need or the pool started, never a single
      place someone opened (the panel says that). */
   const busyCount = busy.size;
-  const busyLine =
+  const lookupLine =
     busyCount > 0 && busyReason?.kind !== "place"
       ? busyReason?.kind === "need" && busyReason.label
         ? `checking ${busyCount} for ${busyReason.label}`
@@ -816,6 +1240,13 @@ export function MapView({
       : pendingCount > 0
         ? "checking…"
         : null;
+  /* One progress slot only. Whole-area fill wins while it is true because
+     its absolute target explains why the denominator is still moving; the
+     lookup line resumes in the same slot as soon as the fill completes. */
+  const fillLine = context.pool?.filling
+    ? `adding places · ${context.pool.size} of ${context.pool.target}`
+    : null;
+  const busyLine = fillLine ?? lookupLine;
   const settled = committedId !== null;
   const preNeed = statedNeeds.length === 0 && context.privateEffects.length === 0;
 
@@ -853,7 +1284,7 @@ export function MapView({
       data-scope-radius={Math.round(scope.area.radiusM)}
       data-preview={preview ? "true" : undefined}
       data-loaded={loaded ? "true" : undefined}
-      aria-busy={busyCount > 0 || pendingCount > 0 || undefined}
+      aria-busy={busyCount > 0 || pendingCount > 0 || context.pool?.filling || undefined}
       data-explore-count={explorePlaces.length}
     >
       {tileStyle && (
@@ -870,6 +1301,39 @@ export function MapView({
         onMoveEnd={viewportSettled}
         onClick={(event) => {
           const map = mapRef.current;
+          const box: [[number, number], [number, number]] = [
+            [event.point.x - TAP_REACH, event.point.y - TAP_REACH],
+            [event.point.x + TAP_REACH, event.point.y + TAP_REACH],
+          ];
+          const candidateFeatures = map?.queryRenderedFeatures(box, {
+            layers: ["mark-dots", "mark-dashes"],
+          }) ?? [];
+          const seenCandidateIds = new Set<string>();
+          let candidateId: string | null = null;
+          let candidateDistance = Number.POSITIVE_INFINITY;
+          for (const feature of candidateFeatures) {
+            const id =
+              typeof feature.id === "string" || typeof feature.id === "number"
+                ? String(feature.id)
+                : feature.properties?.candidateId;
+            if (typeof id !== "string" || seenCandidateIds.has(id)) continue;
+            seenCandidateIds.add(id);
+            if (feature.geometry.type !== "Point") continue;
+            const [lng, lat] = feature.geometry.coordinates as [number, number];
+            const point = map?.project([lng, lat]);
+            if (!point) continue;
+            const distance = (point.x - event.point.x) ** 2 + (point.y - event.point.y) ** 2;
+            if (distance <= TAP_REACH * TAP_REACH && distance < candidateDistance) {
+              candidateDistance = distance;
+              candidateId = id;
+            }
+          }
+          if (candidateId) {
+            setSelectedExploreRef(null);
+            onSelect(candidateId);
+            return;
+          }
+
           const features = map?.queryRenderedFeatures(
             [
               [event.point.x - TAP_REACH, event.point.y - TAP_REACH],
@@ -879,17 +1343,23 @@ export function MapView({
           ) ?? [];
           let ref: string | null = null;
           let nearest = Number.POSITIVE_INFINITY;
+          const seenRefs = new Set<string>();
           const available = new Set(explorePlaces.map((place) => place.ref));
           for (const feature of features) {
             const candidateRef = feature.properties?.ref;
-            if (typeof candidateRef !== "string" || !available.has(candidateRef)) continue;
+            if (
+              typeof candidateRef !== "string" ||
+              seenRefs.has(candidateRef) ||
+              !available.has(candidateRef)
+            ) continue;
+            seenRefs.add(candidateRef);
             const geometry = feature.geometry;
             if (geometry.type !== "Point") continue;
             const [lng, lat] = geometry.coordinates as [number, number];
             const point = map?.project([lng, lat]);
             if (!point) continue;
             const distance = (point.x - event.point.x) ** 2 + (point.y - event.point.y) ** 2;
-            if (distance < nearest) {
+            if (distance <= TAP_REACH * TAP_REACH && distance < nearest) {
               nearest = distance;
               ref = candidateRef;
             }
@@ -964,7 +1434,124 @@ export function MapView({
             />
           </Source>
         )}
-        {candidates.map((c) => {
+        <Source
+          id="marks"
+          type="geojson"
+          data={marksGeoJson}
+          promoteId="candidateId"
+          maxzoom={MARK_SOURCE_MAX_ZOOM}
+        >
+          <Layer
+            id="mark-dots"
+            type="circle"
+            layout={{ "circle-sort-key": ["get", "sortKey"] }}
+            paint={{
+              "circle-radius": [
+                "match", ["feature-state", "status"],
+                "out", 4,
+                "unsure", 8,
+                "unlikely", 6,
+                "likely", 5.5,
+                "return", 5.5,
+                7.5,
+              ],
+              "circle-color": [
+                "match", ["feature-state", "status"],
+                "out", MAP_THEME.marks.out,
+                "unsure", MAP_THEME.marks.surface,
+                "unlikely", MAP_THEME.marks.surface,
+                "act", MAP_THEME.marks.act,
+                MAP_THEME.marks.works,
+              ],
+              "circle-opacity": [
+                "case",
+                ["boolean", ["feature-state", "hidden"], false], 0,
+                ["==", ["feature-state", "status"], "out"], MAP_THEME.marks.outOpacity,
+                1,
+              ],
+              "circle-stroke-color": [
+                "match", ["feature-state", "status"],
+                "unsure", MAP_THEME.marks.unsure,
+                "act", MAP_THEME.marks.surface,
+                "works", MAP_THEME.marks.surface,
+                MAP_THEME.marks.surface,
+              ],
+              "circle-stroke-width": [
+                "match", ["feature-state", "status"],
+                "unsure", 2.5,
+                "act", 2.5,
+                "works", 2.5,
+                0,
+              ],
+              "circle-color-transition": { duration: motion.settleMs },
+              "circle-radius-transition": { duration: motion.settleMs },
+              "circle-stroke-color-transition": { duration: motion.settleMs },
+              "circle-stroke-width-transition": { duration: motion.settleMs },
+              "circle-opacity-transition": { duration: motion.settleMs },
+            }}
+          />
+          <Layer
+            id="mark-dashes"
+            type="symbol"
+            filter={["==", ["get", "dashed"], true]}
+            layout={{
+              "icon-image": MARK_DASH_IMAGE,
+              "icon-allow-overlap": true,
+              "icon-ignore-placement": true,
+              "symbol-sort-key": ["get", "sortKey"],
+            }}
+            paint={{
+              "icon-color": [
+                "match", ["feature-state", "status"],
+                "unlikely", MAP_THEME.marks.unsure,
+                MAP_THEME.marks.works,
+              ],
+              "icon-opacity": [
+                "case",
+                ["boolean", ["feature-state", "hidden"], false], 0,
+                ["any",
+                  ["==", ["feature-state", "status"], "likely"],
+                  ["==", ["feature-state", "status"], "unlikely"],
+                  ["==", ["feature-state", "status"], "return"],
+                ],
+                1,
+                0,
+              ],
+            }}
+          />
+          {/* MapLibre forbids feature-state in layer filters. Busy therefore
+              uses the equivalent paint gate below, avoiding a source swap
+              every time a lookup starts or ends. */}
+          <Layer
+            id="mark-busy"
+            type="symbol"
+            layout={{
+              "icon-image": MARK_BUSY_IMAGE,
+              "icon-allow-overlap": true,
+              "icon-ignore-placement": true,
+            }}
+            paint={{
+              "icon-color": [
+                "match", ["feature-state", "status"],
+                "out", MAP_THEME.marks.out,
+                "unsure", MAP_THEME.marks.unsure,
+                "unlikely", MAP_THEME.marks.unsure,
+                "act", MAP_THEME.marks.act,
+                MAP_THEME.marks.works,
+              ],
+              "icon-opacity": [
+                "case",
+                ["all",
+                  ["boolean", ["feature-state", "busy"], false],
+                  ["!", ["boolean", ["feature-state", "hidden"], false]],
+                ],
+                1,
+                0,
+              ],
+            }}
+          />
+        </Source>
+        {domCandidates.map((c) => {
           const state = stateOf(c);
           const onTable = state === "proposed" || state === "staged" || state === "vetoed";
           const viewers = viewersOf.get(c.candidateId) ?? [];
@@ -1040,8 +1627,11 @@ export function MapView({
                 )}
                 <div
                   className="marker-sticker"
-                  data-side={named.get(c.candidateId) ?? "right"}
-                  style={{ "--tilt": `${tiltFor(c.candidateId)}deg` } as CSSProperties}
+                  data-side={named.get(c.candidateId) ?? "left"}
+                  style={{
+                    "--tilt": `${tiltFor(c.candidateId)}deg`,
+                    "--sticker-anchor-x": `${STICKER_ANCHOR_PX}px`,
+                  } as CSSProperties}
                 >
                   {/* Behind the card: the badges sit under the sticker box in
                       the stacking order and clear its right edge by half. */}
@@ -1133,6 +1723,51 @@ export function MapView({
       </Map>
       )}
 
+      <ul className="sr-only candidate-keyboard-list" aria-label="Places on the map">
+        {keyboardCandidates.map((candidate) => {
+          const state = stateOf(candidate);
+          return (
+            <li key={candidate.candidateId}>
+              <button
+                ref={(element) => {
+                  if (element) keyboardCandidateRefs.current.set(candidate.candidateId, element);
+                  else keyboardCandidateRefs.current.delete(candidate.candidateId);
+                }}
+                type="button"
+                tabIndex={rovingCandidateId === candidate.candidateId ? 0 : -1}
+                data-testid={`keyboard-place-${candidate.candidateId}`}
+                onFocus={() => setRovingCandidateId(candidate.candidateId)}
+                onClick={() => onSelect(candidate.candidateId)}
+                onKeyDown={(event) => {
+                  if (event.key === "ArrowDown" || event.key === "ArrowRight") {
+                    event.preventDefault();
+                    moveKeyboardCandidate(candidate.candidateId, 1);
+                  } else if (event.key === "ArrowUp" || event.key === "ArrowLeft") {
+                    event.preventDefault();
+                    moveKeyboardCandidate(candidate.candidateId, -1);
+                  } else if (event.key === "Home" && keyboardCandidates[0]) {
+                    event.preventDefault();
+                    const first = keyboardCandidates[0].candidateId;
+                    setRovingCandidateId(first);
+                    keyboardCandidateRefs.current.get(first)?.focus();
+                  } else if (event.key === "End" && keyboardCandidates.at(-1)) {
+                    event.preventDefault();
+                    const last = keyboardCandidates.at(-1)!.candidateId;
+                    setRovingCandidateId(last);
+                    keyboardCandidateRefs.current.get(last)?.focus();
+                  } else if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    onSelect(candidate.candidateId);
+                  }
+                }}
+              >
+                {candidate.name} — {STATE_LABEL[state]}
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+
       {/* MapLibre circle layers are not focusable. One compact native control
           gives keyboard and screen-reader users the same visible set without
           turning hundreds of snapshot points into DOM markers. */}
@@ -1200,7 +1835,10 @@ export function MapView({
           </>
         )}
         {busyLine && countState !== "settled" && (
-          <div className="count-busy" data-testid="count-busy">
+          <div
+            className="count-busy"
+            data-testid={fillLine ? "count-fill" : "count-busy"}
+          >
             <i className="busy-ring line-busy" aria-hidden="true" />
             <span>{busyLine}</span>
           </div>

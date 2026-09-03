@@ -51,6 +51,22 @@ describe("new event projections", () => {
     expect(peer.actorId).toBeUndefined();
   });
 
+  it("projects background pool batches uniformly without an actor", () => {
+    const event = ev({
+      type: "candidates_added",
+      actorId: null,
+      payload: { source: "pool", count: 50 },
+    });
+    for (const viewer of ["p_org", "p_sarah"]) {
+      expect(projectEvent(event, viewer)).toEqual({
+        revision: 7,
+        type: "candidates_added",
+        level: "existence",
+        text: "50 more places on the map.",
+      });
+    }
+  });
+
   it("names the actor only at full level, never on existence/aggregate or council rows", () => {
     const shared = projectEvent(
       ev({ type: "proposal_created", payload: { actorName: "Alex", candidateName: "X" } }),

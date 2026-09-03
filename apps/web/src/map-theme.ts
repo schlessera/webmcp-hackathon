@@ -10,6 +10,9 @@
  * |---------------------------|-------------------|
  * | #334136                   | --spoke-ink       |
  * | #2c6b52                   | --spoke-works     |
+ * | #b05f2c                   | --spoke-unsure    |
+ * | #3d5a80                   | --spoke-act       |
+ * | #fffdf7                   | --spoke-surface   |
  * | #7d6396                   | --spoke-scope     |
  * | #e9e5da                   | --spoke-surface-sunk (map plate) |
  * | #a8a291                   | --spoke-out       |
@@ -28,6 +31,21 @@ export const MAP_THEME = {
   plate: "#e9e5da",
   /** Cheap snapshot places beneath the room's DOM stickers. */
   exploreDot: { color: "#a8a291", opacity: 0.55, stroke: "rgba(51, 65, 54, 0.55)" },
+  /** Candidate marks: each literal is the exact value of its paired token. */
+  marks: {
+    /** --spoke-works. */
+    works: "#2c6b52",
+    /** --spoke-unsure. */
+    unsure: "#b05f2c",
+    /** --spoke-act. */
+    act: "#3d5a80",
+    /** --spoke-out, composited by the layer at --spoke-out-opacity. */
+    out: "#a8a291",
+    /** --spoke-surface, also used as the opaque SDF canvas mask. */
+    surface: "#fffdf7",
+    /** --spoke-out-opacity. */
+    outOpacity: 0.6,
+  },
 } as const;
 
 export const TILE_STYLE = "https://tiles.openfreemap.org/styles/positron";

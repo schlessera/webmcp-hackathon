@@ -161,10 +161,10 @@ const PRIVATE_PENDING = "a private condition not yet checked";
  * fixed token, independent of how many private constraints touch the
  * candidate or whose they are.
  */
-export function whyFor(row: CandidateEligibility, viewerId: string): string {
+export function whyFor(row: CandidateEligibility, viewerId: string): string | undefined {
   if (row.eligibility === "excluded") {
     const r = row.exclusion!;
-    if (r.shared || r.ownerId === viewerId) return r.text;
+    if (r.shared || r.ownerId === viewerId) return r.text.slice(0, 60);
     return PRIVATE_EXCLUDED;
   }
   if (row.eligibility === "uncertain") {
@@ -176,7 +176,7 @@ export function whyFor(row: CandidateEligibility, viewerId: string): string {
     );
     const parts = [...new Set(visible)];
     if (hasHiddenPrivate) parts.push(PRIVATE_PENDING);
-    return parts.join("; ").slice(0, 120);
+    return parts.join("; ").slice(0, 60);
   }
   if (row.eligibility === "likely" || row.eligibility === "unlikely") {
     const visible = (row.likelyReasons ?? [])
@@ -187,13 +187,16 @@ export function whyFor(row: CandidateEligibility, viewerId: string): string {
     );
     const parts = [...new Set(visible)];
     if (hasHiddenPrivate) parts.push(PRIVATE_PENDING);
-    return parts.join("; ").slice(0, 120);
+    return parts.join("; ").slice(0, 60);
   }
+  // A clear place says what actually cleared it when the room knows —
+  // "serves Italian" earns its bytes. The old generic filler did not, and
+  // an omitted `why` reads the same way with none of the payload.
   const satisfied = (row.satisfiedReasons ?? [])
     .filter((r) => r.shared || r.ownerId === viewerId)
     .map((r) => r.text);
-  if (satisfied.length > 0) return [...new Set(satisfied)].join("; ").slice(0, 120);
-  return "clears every need on record";
+  if (satisfied.length === 0) return undefined;
+  return [...new Set(satisfied)].join("; ").slice(0, 60);
 }
 
 /**

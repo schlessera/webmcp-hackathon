@@ -368,31 +368,32 @@ body { overflow: hidden; }
 .marker[data-named="true"]:not([data-state="out"]) .marker-dot { opacity: 0; }
 
 .marker-sticker {
+  --sticker-anchor-x: 14px;
+  --oriented-tilt: var(--tilt, 0deg);
   position: absolute;
   left: 50%; top: 50%;
-  transform: translate(-13px, -50%) rotate(var(--tilt, 0deg)) scale(1);
-  transform-origin: 13px 50%;
+  transform: translate(calc(-1 * var(--sticker-anchor-x)), -50%);
   opacity: 1;
-  transition:
-    transform var(--spoke-dur-settle) var(--spoke-ease),
-    opacity var(--spoke-dur-settle) var(--spoke-ease);
+  transition: opacity var(--spoke-dur-settle) var(--spoke-ease);
 }
-.marker-sticker[data-side="left"] {
-  transform: translate(calc(-100% + 13px), -50%) rotate(var(--tilt, 0deg)) scale(1);
-  transform-origin: calc(100% - 13px) 50%;
+.marker-sticker[data-side="right"] {
+  --oriented-tilt: calc(-1 * var(--tilt, 0deg));
+  transform: translate(calc(-100% + var(--sticker-anchor-x)), -50%);
 }
 .marker[data-state="out"] .marker-sticker,
 .marker[data-named="false"] .marker-sticker {
-  transform: translate(-13px, -50%) rotate(var(--tilt, 0deg)) scale(0.3);
   opacity: 0;
   pointer-events: none;
 }
-.marker[data-state="out"] .marker-sticker[data-side="left"],
-.marker[data-named="false"] .marker-sticker[data-side="left"] {
-  transform: translate(calc(-100% + 13px), -50%) rotate(var(--tilt, 0deg)) scale(0.3);
-}
+/* Leaving the named set: the card shrinks back onto its dot over the settle
+   while the dot itself stays exactly where it is (§8). */
+.marker[data-state="out"] .sticker-box,
+.marker[data-named="false"] .sticker-box { scale: 0.3; }
 
 .sticker-box {
+  --sticker-pad-block: 5px;
+  --sticker-dot-pad: 7px;
+  --sticker-far-pad: 9px;
   display: flex;
   align-items: center;
   gap: 7px;
@@ -400,8 +401,24 @@ body { overflow: hidden; }
   border: var(--spoke-border) solid var(--spoke-line);
   border-radius: var(--spoke-radius-sticker);
   box-shadow: var(--spoke-shadow-drop);
-  padding: 5px 9px 5px 7px;
+  padding:
+    var(--sticker-pad-block) var(--sticker-far-pad)
+    var(--sticker-pad-block) var(--sticker-dot-pad);
   white-space: nowrap;
+  /* Tilt and the settle scale ride the individual transform properties, so
+     `spoke-pop`'s own `transform` composes with them instead of overwriting
+     them (§9 trap). The origin is the dot, so a card that shrinks away
+     collapses onto its POI and never drags the anchor with it. */
+  rotate: var(--oriented-tilt);
+  scale: 1;
+  transform-origin: var(--sticker-anchor-x) 50%;
+  transition: scale var(--spoke-dur-settle) var(--spoke-ease);
+}
+.marker-sticker[data-side="right"] .sticker-box {
+  flex-direction: row-reverse;
+  padding-right: var(--sticker-dot-pad);
+  padding-left: var(--sticker-far-pad);
+  transform-origin: calc(100% - var(--sticker-anchor-x)) 50%;
 }
 
 .sticker-dot {
@@ -442,10 +459,12 @@ body { overflow: hidden; }
 
 /* selected — filled works, cream, idle breath */
 .marker[data-state="selected"] .sticker-box {
+  --sticker-pad-block: 7px;
+  --sticker-dot-pad: 6.5px;
+  --sticker-far-pad: 11px;
   background: var(--spoke-works);
   border-color: var(--spoke-works);
   box-shadow: var(--spoke-shadow-pop);
-  padding: 7px 11px 7px 8px;
   animation: spoke-pop var(--spoke-dur-pop) ease-in-out infinite;
 }
 .marker[data-state="selected"] .sticker-dot {
@@ -464,10 +483,12 @@ body { overflow: hidden; }
 
 /* proposed — filled act, cream, "· proposed". Authorship, never visibility. */
 .marker[data-state="proposed"] .sticker-box {
+  --sticker-pad-block: 6px;
+  --sticker-dot-pad: 7px;
+  --sticker-far-pad: 10px;
   background: var(--spoke-act);
   border-color: var(--spoke-act);
   box-shadow: var(--spoke-shadow-pop);
-  padding: 6px 10px 6px 8px;
   animation: spoke-pop var(--spoke-dur-pop) ease-in-out infinite;
 }
 .marker[data-state="proposed"] .sticker-dot {
@@ -490,10 +511,12 @@ body { overflow: hidden; }
   opacity: 1;
 }
 .marker[data-state="settled"] .sticker-box {
+  --sticker-pad-block: 7px;
+  --sticker-dot-pad: 6.5px;
+  --sticker-far-pad: 11px;
   background: var(--spoke-works);
   border-color: var(--spoke-works);
   box-shadow: var(--spoke-shadow-pop);
-  padding: 7px 11px 7px 8px;
   animation: spoke-pop var(--spoke-dur-pop) ease-in-out infinite;
 }
 .marker[data-state="settled"] .sticker-dot {
@@ -520,10 +543,12 @@ body { overflow: hidden; }
   opacity: 1;
 }
 .marker[data-state="staged"] .sticker-box {
+  --sticker-pad-block: 6px;
+  --sticker-dot-pad: 7px;
+  --sticker-far-pad: 10px;
   background: var(--spoke-act);
   border-color: var(--spoke-act);
   box-shadow: var(--spoke-shadow-pop);
-  padding: 6px 10px 6px 8px;
 }
 .marker[data-state="staged"] .sticker-dot { background: var(--spoke-surface); border: none; }
 .marker[data-state="staged"] .sticker-name {
@@ -592,6 +617,10 @@ body { overflow: hidden; }
   z-index: 0;
   pointer-events: none;
   transition: opacity var(--spoke-dur-settle) var(--spoke-ease);
+}
+.marker-sticker[data-side="right"] .sticker-viewers {
+  right: 12px;
+  left: auto;
 }
 .sticker-viewers .viewer-badge + .viewer-badge { margin-left: -7px; }
 .marker .sticker-box { position: relative; z-index: 1; }
@@ -2265,9 +2294,14 @@ body { overflow: hidden; }
 }
 .sticker-box { position: relative; }
 .sticker-busy {
-  left: 14px; top: 50%;
+  left: var(--sticker-anchor-x); top: 50%;
   width: 21px; height: 21px;
   margin: -10.5px 0 0 -10.5px;
+}
+.marker-sticker[data-side="right"] .sticker-busy {
+  right: var(--sticker-anchor-x);
+  left: auto;
+  margin-right: -10.5px;
 }
 .marker[data-busy="true"] .marker-busy { opacity: 1; }
 .marker[data-busy="true"][data-named="true"]:not([data-state="out"]) .marker-busy { opacity: 0; }

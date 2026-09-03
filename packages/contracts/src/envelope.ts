@@ -174,8 +174,9 @@ export interface CandidateSummary {
   /** For likely / unlikely: the product of the confidences of the likely
    * facts the classification rests on (§8.2). Absent otherwise. */
   confidence?: number;
-  /** Redacted: cites evidence status and shared requirements only. */
-  why: string;
+  /** Redacted, ≤60 characters: cites evidence status and shared requirements
+   * only. Omitted when eligibility is `eligible`. */
+  why?: string;
   /** Minutes on foot from the CURRENT scope centre, recomputed per read. */
   walkMin: number;
   /** null when the place has no price band on record — never coerced to 0. */
@@ -320,9 +321,18 @@ export interface AreaView {
  * data behind it can offer more (a city snapshot: yes; a curated fixture: no).
  */
 export interface PoolView {
+  /** Candidate rows currently in this additive room pool. */
   size: number;
+  /** Hard ceiling for candidate rows in one room. */
   cap: number;
+  /** Whether the area's snapshot can supply viewport exploration rows. */
   explorable: boolean;
+  /** True while snapshot venues remain to be added from the current circle
+   * and the room has not reached `cap`. */
+  filling: boolean;
+  /** Snapshot venues inside the current circle, clamped to `cap`; the whole-
+   * area fill's convergence count for an otherwise unmodified room. */
+  target: number;
 }
 
 /**
@@ -454,7 +464,7 @@ export interface CandidateNeedVerdict {
   private?: true;
   verdict: "yes" | "likely" | "unlikely" | "no" | "unknown";
   confidence?: number;
-  /** Reader-facing, ≤120 chars, never wire vocabulary. */
+  /** Reader-facing, ≤60 chars, never wire vocabulary. */
   why?: string;
 }
 

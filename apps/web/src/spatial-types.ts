@@ -115,6 +115,8 @@ export interface PoolView {
   size: number;
   cap: number;
   explorable: boolean;
+  filling: boolean;
+  target: number;
 }
 
 export interface ExplorePlace {
@@ -224,6 +226,8 @@ export interface PoolView {
   size: number;
   cap: number;
   explorable: boolean;
+  filling: boolean;
+  target: number;
 }
 
 export interface NavigationLinks {

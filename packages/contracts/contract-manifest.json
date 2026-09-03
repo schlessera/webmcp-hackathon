@@ -1,6 +1,6 @@
 {
   "toolContractVersion": "3",
-  "sha256": "7dc885fa74fb881566331b8344901bb006a5fa22ec781c6e4d9c598f15c45758",
+  "sha256": "4da053c911206bd32979c7c1c9463a727afbd5f665730a1e15ca859fec4e2647",
   "manifest": {
     "capabilityManifest": {
       "agreement": {
@@ -2716,8 +2716,7 @@
                     "location",
                     "name",
                     "priceLevel",
-                    "walkMin",
-                    "why"
+                    "walkMin"
                   ],
                   "type": "object"
                 },
@@ -3003,14 +3002,29 @@
                       }
                     ]
                   },
+                  "filling": {
+                    "anyOf": [
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "type": "boolean"
+                      }
+                    ]
+                  },
                   "size": {
+                    "type": "number"
+                  },
+                  "target": {
                     "type": "number"
                   }
                 },
                 "required": [
                   "cap",
                   "explorable",
-                  "size"
+                  "filling",
+                  "size",
+                  "target"
                 ],
                 "type": "object"
               },

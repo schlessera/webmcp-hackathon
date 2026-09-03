@@ -95,6 +95,28 @@ proposed → would come back → works / unsure / out.
 Stickers sit at −3° to +3°. Vary the angle between neighbours; never align
 two adjacent stickers to the same rotation.
 
+Name cards are reserved for places that remain valid options or actively on
+the table. Offer slots in four tiers: selected, settled, staged, proposed and
+being viewed first; then eligible places (including a "would come back"
+preview); then likely places; and only then unsure places if slots remain.
+Unlikely, ruled-out and out-of-scope places never receive a name card — their
+dot remains in place. An open proposal with a standing veto is still on the
+table and keeps its card. A proposal whose status is vetoed or withdrawn has
+left the table and falls back to the place's eligibility tier. When a place
+leaves the valid set, its card collapses onto its own dot over the settle
+duration — the scale runs about the anchor, so the dot never moves (§8).
+
+Every card has two mirrored orientations, recorded as `data-side` for the
+side carrying the dot: `left` puts the dot left of the name and extends the
+card right; `right` puts the dot right of the name and extends the card left.
+The dot centre is the invariant anchor and lands exactly on the place's map
+position in either orientation; tilt mirrors around that anchor. Prefer the
+inward-facing orientation near a band edge, otherwise use the greedy
+placement pass to avoid cards and neighbouring dots. Re-evaluate orientation
+only on `moveend` and viewport resize, never during a drag. A card must remain
+inside both sides of the map band; if neither orientation fits, draw the dot
+only.
+
 > **Implementation trap.** Position on an outer wrapper, animate on an inner
 > element. An `animation` that sets `transform` will silently overwrite a
 > positioning `translate` and the sticker will jump to the anchor point.

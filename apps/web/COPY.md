@@ -103,6 +103,8 @@ Work the room is doing is stated as what it is doing, never as a bare
 
 - A need just said: `checking 12 places…` on the row; `checking 12 for
   step-free access` in the count block. Zero places to check: `checking…`.
+- The whole area still arriving: `adding places · 120 of 343` in the count
+  block, absolute both sides. Not "loading", and never a percentage.
 - A place being looked up: `looking it up…` in the panel; a ring on the map.
 - The agent: `reading what you said…` then `updating 40 places…`. Never
   "thinking", never "processing".
