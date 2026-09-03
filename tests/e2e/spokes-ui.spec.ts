@@ -3516,3 +3516,60 @@ test("a ruled-out or unlikely place that wins a leftover name slot is drawn mute
   expect(drawn.works.name).not.toBe(drawn.out.name);
   await browserContext.close();
 });
+
+test("a busy place beyond the DOM marker cap still gets a marker and a card", async ({ browser }) => {
+  const browserContext = await browser.newContext({
+    viewport: { width: 1600, height: 1000 },
+    reducedMotion: "reduce",
+  });
+  const page = await browserContext.newPage();
+  // Sixty-five unknown places fill the sixty DOM markers on their own. They
+  // ring the edge of the area, leaving the middle clear so the place under
+  // test is refused a card by rank alone, never by a collision. The ruled-out
+  // place is the very last one either budget would consider.
+  const crowd = Array.from({ length: 65 }, (_, index) => {
+    const angle = index * 2.399963229728653;
+    const distance = 450 + (index % 13) * 25;
+    const place = candidateAtMeters(
+      `crowd-${String(index).padStart(2, "0")}`,
+      Math.cos(angle) * distance,
+      Math.sin(angle) * distance,
+      "uncertain",
+    );
+    place.name = `C${index}`;
+    place.walkMin = 2;
+    return place;
+  });
+  const late = candidateAtMeters("late-lookup", 0, 0, "excluded");
+  late.name = "Late";
+  late.walkMin = 99;
+  const context = rankContext([...crowd, late]);
+  const state: MockState = { context, outstanding: [] };
+  await mockApi(page, state);
+  const socket = await scriptedSocket(page, 20);
+  await page.goto(`${BASE}/#invite=deadbeef`);
+  await socket.welcomed;
+  await expect(page.getByTestId("map-region")).toHaveAttribute("data-loaded", "true", {
+    timeout: 20_000,
+  });
+  await expect(page.locator('[data-testid^="pin-"]')).toHaveCount(60);
+  await expect(page.getByTestId("pin-late-lookup")).toHaveCount(0);
+
+  // The room starts looking it up: a lookup in flight outranks the seventy
+  // unknowns, so it takes a marker and the card the lookup ring hangs off.
+  socket.send({
+    type: "lookups",
+    pending: ["late-lookup"],
+    reason: { kind: "need", label: "outdoor seating" },
+  });
+  const pin = page.getByTestId("pin-late-lookup");
+  await expect(pin).toHaveCount(1);
+  await expect(pin).toHaveAttribute("data-busy", "true");
+  await expect(pin).toHaveAttribute("data-named", "true");
+  await expect(page.locator('[data-testid^="pin-"]')).toHaveCount(60);
+
+  // Drained: it goes back to being the last place in the room.
+  socket.send({ type: "lookups", pending: [] });
+  await expect(page.getByTestId("pin-late-lookup")).toHaveCount(0);
+  await browserContext.close();
+});

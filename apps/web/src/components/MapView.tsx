@@ -311,6 +311,8 @@ const RANK_BUSY = 5;
 const RANK_UNKNOWN = 6;
 const RANK_UNLIKELY = 7;
 const RANK_NO = 8;
+/* Outside the scope: never named, and last in line for a DOM marker. */
+const RANK_OUT_OF_SCOPE = 9;
 /* The distance from the card edge to its dot centre. CSS receives this as a
    custom property, so placement maths, positioning and transform origins all
    use the same anchor. State-specific padding keeps every dot on this value. */
@@ -927,36 +929,80 @@ export function MapView({
   const stateOf = (candidate: CandidateSummary): MarkerState =>
     markerStates.get(candidate.candidateId) ?? "out";
 
-  const domCandidates = useMemo(() => {
-    const priority = (candidate: CandidateSummary) => {
-      if (candidate.candidateId === selectedId || candidate.candidateId === committedId) return 0;
-      if (proposalByCandidate.has(candidate.candidateId)) return 1;
-      if (viewersOf.has(candidate.candidateId)) return 2;
-      return 3;
-    };
-    const stateRank: Record<MarkerState, number> = {
-      selected: 0,
-      settled: 0,
-      staged: 0,
-      vetoed: 0,
-      proposed: 0,
-      return: 1,
-      works: 2,
-      likely: 3,
-      unsure: 4,
-      unlikely: 5,
-      out: 6,
-    };
-    return [...candidates]
-      .sort(
-        (a, b) =>
-          priority(a) - priority(b) ||
-          stateRank[stateOf(a)] - stateRank[stateOf(b)] ||
-          a.walkMin - b.walkMin ||
-          (a.ref ?? a.candidateId).localeCompare(b.ref ?? b.candidateId),
-      )
-      .slice(0, DOM_MARKER_CAP);
-  }, [candidates, selectedId, committedId, proposalByCandidate, viewersOf, markerStates]);
+  /* The busy set ticks with every pipeline frame. Key everything that ranks
+     on its *content*, so two identical states never reshuffle the markers or
+     the names. */
+  const lookupKey = useMemo(
+    () => [...new Set([...busy, ...Object.keys(stages)])].sort().join(","),
+    [busy, stages],
+  );
+  const previewById = useMemo(
+    () =>
+      new globalThis.Map(
+        (preview?.candidates ?? []).map((candidate) => [candidate.candidateId, candidate]),
+      ),
+    [preview],
+  );
+
+  /* One order for both budgets: which sixty places get a DOM marker, and
+     which of those get a name card. A place this viewer has open, or that a
+     peer is looking at, sorts first — the card is what the panel and the
+     presence badge hang off. Then the decision states, then the evidence. An
+     open proposal carrying a standing veto is still on the table; a
+     terminally vetoed or withdrawn one falls through to its eligibility.
+     `null` means out of scope: drawn where it is, never named. */
+  const rankOf = useCallback(
+    (candidate: CandidateSummary): number | null => {
+      if (distanceMeters(center, candidate.location) > scope.area.radiusM + 1) return null;
+      const id = candidate.candidateId;
+      if (id === selectedId || viewersOf.has(id)) return RANK_OPEN;
+      if (id === committedId || proposalByCandidate.get(id) === "staged") return RANK_ACCEPTED;
+      if (proposalOnTable.has(id)) return RANK_PROPOSED;
+      const eligibility = previewById.get(id)?.eligibility ?? candidate.eligibility;
+      const byEvidence =
+        eligibility === "eligible"
+          ? RANK_YES
+          : eligibility === "likely"
+            ? RANK_LIKELY
+            : eligibility === "uncertain"
+              ? RANK_UNKNOWN
+              : eligibility === "unlikely"
+                ? RANK_UNLIKELY
+                : RANK_NO;
+      /* A lookup in flight outranks the evidence it has not returned yet, and
+         never demotes a place that already clears every need: busy is a
+         floor, not a demotion. */
+      const lookingUp = lookupKey === "" ? [] : lookupKey.split(",");
+      return Math.min(byEvidence, lookingUp.includes(id) ? RANK_BUSY : RANK_NO);
+    },
+    [
+      center,
+      scope.area.radiusM,
+      selectedId,
+      committedId,
+      viewersOf,
+      proposalByCandidate,
+      proposalOnTable,
+      previewById,
+      lookupKey,
+    ],
+  );
+
+  /* Sixty DOM markers, chosen by the same order that hands out names: a busy
+     or proposed place in a crowded room must never be left GL-only, because
+     GL cannot carry a card. Out-of-scope places come last but still come. */
+  const domCandidates = useMemo(
+    () =>
+      [...candidates]
+        .sort(
+          (a, b) =>
+            (rankOf(a) ?? RANK_OUT_OF_SCOPE) - (rankOf(b) ?? RANK_OUT_OF_SCOPE) ||
+            a.walkMin - b.walkMin ||
+            (a.ref ?? a.candidateId).localeCompare(b.ref ?? b.candidateId),
+        )
+        .slice(0, DOM_MARKER_CAP),
+    [candidates, rankOf],
+  );
   const domCandidateIds = useMemo(
     () => new Set(domCandidates.map((candidate) => candidate.candidateId)),
     [domCandidates],
@@ -1000,47 +1046,10 @@ export function MapView({
     return offsets;
   }, [domCandidates]);
 
-  /* The busy set ticks with every pipeline frame. Key the placement pass on
-     its *content* so two identical states never reshuffle the names. */
-  const lookupKey = useMemo(
-    () => [...new Set([...busy, ...Object.keys(stages)])].sort().join(","),
-    [busy, stages],
-  );
-
   const named = useMemo(() => {
     const map = mapRef.current;
-    const lookingUp = new Set(lookupKey === "" ? [] : lookupKey.split(","));
     const placements = new globalThis.Map<string, "left" | "right">();
-    const previewById = new globalThis.Map(
-      (preview?.candidates ?? []).map((candidate) => [candidate.candidateId, candidate]),
-    );
-    /* A place this viewer has open, or that a peer is looking at, sorts first:
-       the card is what the panel and the presence badge hang off. Then the
-       decision states, then the evidence. An open proposal carrying a
-       standing veto is still on the table and keeps its card; a terminally
-       vetoed or withdrawn one falls through to its eligibility. */
-    const tierOf = (candidate: CandidateSummary): number | null => {
-      if (distanceMeters(center, candidate.location) > scope.area.radiusM + 1) return null;
-      const id = candidate.candidateId;
-      if (id === selectedId || viewersOf.has(id)) return RANK_OPEN;
-      if (id === committedId || proposalByCandidate.get(id) === "staged") return RANK_ACCEPTED;
-      if (proposalOnTable.has(id)) return RANK_PROPOSED;
-      const eligibility = previewById.get(id)?.eligibility ?? candidate.eligibility;
-      const byEvidence =
-        eligibility === "eligible"
-          ? RANK_YES
-          : eligibility === "likely"
-            ? RANK_LIKELY
-            : eligibility === "uncertain"
-              ? RANK_UNKNOWN
-              : eligibility === "unlikely"
-                ? RANK_UNLIKELY
-                : RANK_NO;
-      /* A lookup in flight outranks the evidence it has not returned yet, and
-         never demotes a place that already clears every need: busy is a
-         floor, not a demotion. */
-      return Math.min(byEvidence, lookingUp.has(id) ? RANK_BUSY : RANK_NO);
-    };
+    const tierOf = rankOf;
     const candidatesByTier = domCandidates
       .filter((candidate) => tierOf(candidate) !== null)
       .sort(
@@ -1181,17 +1190,12 @@ export function MapView({
     return placements;
   }, [
     domCandidates,
+    rankOf,
     viewportWidth,
     selectedId,
     committedId,
     proposalOnTable,
-    proposalByCandidate,
-    lookupKey,
-    viewersOf,
     markerStates,
-    preview,
-    center,
-    scope.area.radiusM,
     viewTick,
     collisionOffsets,
   ]);
