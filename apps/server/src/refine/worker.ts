@@ -89,8 +89,11 @@ export const REFINE_SEARCH_CONCURRENCY = 4;
 class AsyncLimiter {
   private active = 0;
   private readonly waiting: Array<() => void> = [];
+  private readonly limit: number;
 
-  constructor(private readonly limit: number) {}
+  constructor(limit: number) {
+    this.limit = limit;
+  }
 
   async use<T>(work: () => Promise<T>): Promise<T> {
     if (this.active >= this.limit) {
