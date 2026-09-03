@@ -1,0 +1,21 @@
+{
+  "buildPath": "comp",
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "design-system-radius",
+        "value": "8px",
+        "createdAt": "2026-09-03T21:12:57.621Z",
+        "reason": "detector reads the offset inside calc(var(--spoke-radius-frame) - 8px) as a radius; it is a concentric inner-radius derivation from a token, landing.css:268"
+      },
+      {
+        "rule": "design-system-radius",
+        "value": "4px",
+        "createdAt": "2026-09-03T21:12:57.655Z",
+        "reason": "same calc-offset false positive: calc(var(--spoke-radius-block) + 4px) is concentric with its inner image, landing.css:572"
+      }
+    ]
+  }
+}

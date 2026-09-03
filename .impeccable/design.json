@@ -1,0 +1,170 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-03T00:00:00Z",
+  "title": "Design System: Spokes",
+  "extensions": {
+    "colorMeta": {
+      "notebook-cream": { "role": "neutral", "displayName": "Notebook Cream", "canonical": "oklch(98.0% 0.014 84.6)", "tonalRamp": ["oklch(15% 0.011 84.6)","oklch(26% 0.012 84.6)","oklch(37% 0.014 84.6)","oklch(48% 0.014 84.6)","oklch(59% 0.014 84.6)","oklch(70% 0.014 84.6)","oklch(82% 0.013 84.6)","oklch(95% 0.011 84.6)"] },
+      "page-surface": { "role": "neutral", "displayName": "Page Surface", "canonical": "oklch(99.4% 0.008 91.5)", "tonalRamp": ["oklch(15% 0.006 91.5)","oklch(26% 0.007 91.5)","oklch(37% 0.008 91.5)","oklch(48% 0.008 91.5)","oklch(59% 0.008 91.5)","oklch(70% 0.008 91.5)","oklch(82% 0.007 91.5)","oklch(95% 0.006 91.5)"] },
+      "sunk-plate": { "role": "neutral", "displayName": "Sunk Plate", "canonical": "oklch(92.2% 0.015 90.2)", "tonalRamp": ["oklch(15% 0.012 90.2)","oklch(26% 0.013 90.2)","oklch(37% 0.015 90.2)","oklch(48% 0.015 90.2)","oklch(59% 0.015 90.2)","oklch(70% 0.015 90.2)","oklch(82% 0.014 90.2)","oklch(95% 0.012 90.2)"] },
+      "surveyors-ink": { "role": "neutral", "displayName": "Surveyor's Ink", "canonical": "oklch(35.9% 0.026 151.3)", "tonalRamp": ["oklch(15% 0.020 151.3)","oklch(26% 0.023 151.3)","oklch(37% 0.025 151.3)","oklch(48% 0.026 151.3)","oklch(59% 0.026 151.3)","oklch(70% 0.025 151.3)","oklch(82% 0.023 151.3)","oklch(95% 0.020 151.3)"] },
+      "ink-soft": { "role": "neutral", "displayName": "Ink Soft", "canonical": "oklch(48.4% 0.016 135.0)", "tonalRamp": ["oklch(15% 0.012 135.0)","oklch(26% 0.014 135.0)","oklch(37% 0.015 135.0)","oklch(48% 0.016 135.0)","oklch(59% 0.016 135.0)","oklch(70% 0.015 135.0)","oklch(82% 0.014 135.0)","oklch(95% 0.012 135.0)"] },
+      "ink-ghost": { "role": "neutral", "displayName": "Ink Ghost", "canonical": "oklch(63.0% 0.030 93.2)", "tonalRamp": ["oklch(15% 0.023 93.2)","oklch(26% 0.026 93.2)","oklch(37% 0.028 93.2)","oklch(48% 0.030 93.2)","oklch(59% 0.030 93.2)","oklch(70% 0.029 93.2)","oklch(82% 0.027 93.2)","oklch(95% 0.023 93.2)"] },
+      "confirmed-green": { "role": "primary", "displayName": "Confirmed Green", "canonical": "oklch(47.9% 0.077 164.6)", "tonalRamp": ["oklch(15% 0.059 164.6)","oklch(26% 0.067 164.6)","oklch(37% 0.073 164.6)","oklch(48% 0.077 164.6)","oklch(59% 0.077 164.6)","oklch(70% 0.075 164.6)","oklch(82% 0.069 164.6)","oklch(95% 0.059 164.6)"] },
+      "unverified-amber": { "role": "secondary", "displayName": "Unverified Amber", "canonical": "oklch(57.1% 0.123 50.1)", "tonalRamp": ["oklch(15% 0.094 50.1)","oklch(26% 0.108 50.1)","oklch(37% 0.117 50.1)","oklch(48% 0.122 50.1)","oklch(59% 0.123 50.1)","oklch(70% 0.119 50.1)","oklch(82% 0.110 50.1)","oklch(95% 0.094 50.1)"] },
+      "held-back-violet": { "role": "secondary", "displayName": "Held-Back Violet", "canonical": "oklch(54.5% 0.083 307.2)", "tonalRamp": ["oklch(15% 0.063 307.2)","oklch(26% 0.073 307.2)","oklch(37% 0.079 307.2)","oklch(48% 0.082 307.2)","oklch(59% 0.083 307.2)","oklch(70% 0.080 307.2)","oklch(82% 0.074 307.2)","oklch(95% 0.063 307.2)"] },
+      "moved-blue": { "role": "secondary", "displayName": "Moved Blue", "canonical": "oklch(46.2% 0.071 255.5)", "tonalRamp": ["oklch(15% 0.054 255.5)","oklch(26% 0.062 255.5)","oklch(37% 0.068 255.5)","oklch(48% 0.071 255.5)","oklch(59% 0.071 255.5)","oklch(70% 0.069 255.5)","oklch(82% 0.064 255.5)","oklch(95% 0.054 255.5)"] },
+      "ruled-out-grey": { "role": "neutral", "displayName": "Ruled-Out Grey", "canonical": "oklch(71.2% 0.025 90.8)", "tonalRamp": ["oklch(15% 0.019 90.8)","oklch(26% 0.022 90.8)","oklch(37% 0.024 90.8)","oklch(48% 0.025 90.8)","oklch(59% 0.025 90.8)","oklch(70% 0.024 90.8)","oklch(82% 0.022 90.8)","oklch(95% 0.019 90.8)"] },
+      "person-cobalt": { "role": "tertiary", "displayName": "Person Cobalt", "canonical": "oklch(43.1% 0.158 261.2)", "tonalRamp": ["oklch(15% 0.121 261.2)","oklch(26% 0.138 261.2)","oklch(37% 0.151 261.2)","oklch(48% 0.157 261.2)","oklch(59% 0.158 261.2)","oklch(70% 0.153 261.2)","oklch(82% 0.141 261.2)","oklch(95% 0.121 261.2)"] },
+      "person-magenta": { "role": "tertiary", "displayName": "Person Magenta", "canonical": "oklch(47.9% 0.178 352.3)", "tonalRamp": ["oklch(15% 0.135 352.3)","oklch(26% 0.155 352.3)","oklch(37% 0.169 352.3)","oklch(48% 0.176 352.3)","oklch(59% 0.177 352.3)","oklch(70% 0.172 352.3)","oklch(82% 0.158 352.3)","oklch(95% 0.135 352.3)"] },
+      "person-teal-ink": { "role": "tertiary", "displayName": "Person Teal-Ink", "canonical": "oklch(45.9% 0.078 203.2)", "tonalRamp": ["oklch(15% 0.060 203.2)","oklch(26% 0.068 203.2)","oklch(37% 0.074 203.2)","oklch(48% 0.078 203.2)","oklch(59% 0.078 203.2)","oklch(70% 0.075 203.2)","oklch(82% 0.070 203.2)","oklch(95% 0.060 203.2)"] },
+      "person-ochre": { "role": "tertiary", "displayName": "Person Ochre", "canonical": "oklch(46.1% 0.092 78.2)", "tonalRamp": ["oklch(15% 0.070 78.2)","oklch(26% 0.080 78.2)","oklch(37% 0.087 78.2)","oklch(48% 0.091 78.2)","oklch(59% 0.091 78.2)","oklch(70% 0.088 78.2)","oklch(82% 0.082 78.2)","oklch(95% 0.070 78.2)"] },
+      "person-plum": { "role": "tertiary", "displayName": "Person Plum", "canonical": "oklch(41.7% 0.142 319.2)", "tonalRamp": ["oklch(15% 0.108 319.2)","oklch(26% 0.125 319.2)","oklch(37% 0.135 319.2)","oklch(48% 0.141 319.2)","oklch(59% 0.142 319.2)","oklch(70% 0.138 319.2)","oklch(82% 0.127 319.2)","oklch(95% 0.108 319.2)"] }
+    },
+    "typographyMeta": {
+      "hero": { "displayName": "Hero", "purpose": "Landing page only. Never appears inside a room." },
+      "count": { "displayName": "Count", "purpose": "The big number in the count block; the most-read element in the product." },
+      "title": { "displayName": "Title", "purpose": "Room title (single line, ellipsis) and panel headings." },
+      "place": { "displayName": "Place", "purpose": "Sticker and place names; the word on the Add button." },
+      "body": { "displayName": "Body", "purpose": "Brief rows, composer input, panel prose. Semibold because the ground is warm and dense." },
+      "detail": { "displayName": "Detail", "purpose": "Card explanations and pill labels." },
+      "label": { "displayName": "Label", "purpose": "Subtitles, chip labels, uppercase section heads like WHAT MATTERS." },
+      "numeral": { "displayName": "Numeral", "purpose": "Mono, tabular. Count subline, row deltas, badge numerals, every line in the { } drawer." }
+    },
+    "shadows": [
+      { "name": "drop", "value": "2px 2px 0 rgba(51, 65, 54, .30)", "purpose": "Resting elements: brief rows, stickers, pills, viewing badges." },
+      { "name": "lift", "value": "2px 3px 0 rgba(51, 65, 54, .30)", "purpose": "Composer bar, scope menu, calmer count block states." },
+      { "name": "pop", "value": "3px 4px 0 rgba(51, 65, 54, .30)", "purpose": "Count block and the selected sticker. The loudest thing on the map." },
+      { "name": "semantic-drop", "value": "2px 2px 0 var(--spoke-works | --spoke-unsure | --spoke-scope)", "purpose": "A row whose border is semantic promotes its shadow to the same colour. Never colour one without the other." }
+    ],
+    "motion": [
+      { "name": "ease", "value": "cubic-bezier(.22, .61, .36, 1)", "purpose": "The only easing curve in the system." },
+      { "name": "settle", "value": "420ms", "purpose": "A place enters or leaves the candidate set. Leavers fade in place, returners grow from their dot. Never a re-layout." },
+      { "name": "pop", "value": "3200ms", "purpose": "The selected sticker's idle breath (scale 1 to 1.035)." },
+      { "name": "breathe", "value": "3200ms", "purpose": "A place that would come back if a need were relaxed (opacity .72 to 1)." },
+      { "name": "busy", "value": "3200ms", "purpose": "A dashed ring turning around whatever is being looked up. Rotation only, on an inner element." },
+      { "name": "reduced-motion", "value": "0ms", "purpose": "prefers-reduced-motion zeroes all four. Busy then stands as a still dashed ring beside its text, never nothing." }
+    ],
+    "breakpoints": [
+      { "name": "embedded", "value": "330px" },
+      { "name": "landing-md", "value": "720px" },
+      { "name": "landing-lg", "value": "960px" },
+      { "name": "desktop", "value": "980px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Composer Bar",
+      "kind": "input",
+      "refersTo": "button-primary",
+      "description": "The single input surface of the room: scope chosen before speaking, then the word Add. The bar owns the border, radius and shadow; the field owns nothing.",
+      "html": "<div class=\"ds-composer\"><span class=\"ds-scope-chip\">Shared<i class=\"ds-caret\"></i></span><input class=\"ds-composer-input\" placeholder=\"What matters to you?\" /><button class=\"ds-add\">Add</button></div>",
+      "css": ".ds-composer { display: flex; align-items: stretch; border: 1.5px solid var(--spoke-works, #2c6b52); border-radius: 13px; background: var(--spoke-surface, #fffdf7); box-shadow: 2px 3px 0 rgba(51,65,54,.30); overflow: hidden; font-family: system-ui, sans-serif; } .ds-scope-chip { display: flex; align-items: center; gap: 5px; margin: 0 9px 0 10px; align-self: center; border: 1.5px solid var(--spoke-works, #2c6b52); border-radius: 7px; background: var(--spoke-works-tint, #dfeee6); color: var(--spoke-works-text, #1e5540); padding: 4px 8px; font-weight: 700; font-size: 10.5px; cursor: pointer; } .ds-caret { width: 0; height: 0; border-left: 3.5px solid transparent; border-right: 3.5px solid transparent; border-top: 4.5px solid currentColor; } .ds-composer-input { flex: 1; min-width: 0; border: none; background: none; font: 600 13px system-ui, sans-serif; color: var(--spoke-ink, #334136); padding: 14px 0; min-height: 44px; } .ds-composer-input:focus { outline: none; } .ds-composer-input::placeholder { color: var(--spoke-ink-ghost, #8f8975); } .ds-add { flex: none; border: none; border-left: 1.5px solid var(--spoke-works, #2c6b52); background: var(--spoke-works, #2c6b52); color: var(--spoke-surface, #fffdf7); font-family: 'Bricolage Grotesque', system-ui, sans-serif; font-weight: 700; font-size: 12.5px; padding: 0 15px; cursor: pointer; } .ds-add:disabled { opacity: .55; cursor: default; } .ds-add:focus-visible { outline: 2px solid var(--spoke-ink, #334136); outline-offset: -4px; }"
+    },
+    {
+      "name": "Scope Chip — private",
+      "kind": "chip",
+      "refersTo": "scope-chip-private",
+      "description": "The same chip after the speaker picks Private or Agent only. Violet is visibility; it never becomes green just because the need is active.",
+      "html": "<span class=\"ds-scope-private\">Private<i class=\"ds-caret2\"></i></span>",
+      "css": ".ds-scope-private { display: inline-flex; align-items: center; gap: 5px; border: 1.5px solid var(--spoke-scope, #7d6396); border-radius: 7px; background: var(--spoke-scope-tint, #ece5f2); color: var(--spoke-scope-text, #57436b); padding: 4px 8px; font: 700 10.5px system-ui, sans-serif; cursor: pointer; position: relative; } .ds-scope-private::before { content: \"\"; position: absolute; left: -4px; right: -4px; top: 50%; height: 44px; transform: translateY(-50%); } .ds-caret2 { width: 0; height: 0; border-left: 3.5px solid transparent; border-right: 3.5px solid transparent; border-top: 4.5px solid currentColor; }"
+    },
+    {
+      "name": "Need Row",
+      "kind": "custom",
+      "refersTo": "need-row",
+      "description": "One stated need in the brief. Tap toggles; press and hold previews the set without it. Variants differ in border colour, border style, shadow colour and trailing mark, so they separate in greyscale.",
+      "html": "<button class=\"ds-need\" aria-pressed=\"true\"><span class=\"ds-toggle\" data-on=\"true\"><i></i></span><span class=\"ds-need-label\">Dogs can be off-leash</span><span class=\"ds-need-delta\">&minus;19</span></button>",
+      "css": ".ds-need { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; width: 100%; background: var(--spoke-surface, #fffdf7); border: 1.5px solid rgba(51,65,54,.55); border-radius: 13px; box-shadow: 2px 2px 0 rgba(51,65,54,.30); padding: 8px 10px; min-height: 44px; text-align: left; cursor: pointer; font-family: system-ui, sans-serif; } .ds-need[data-variant=\"applied\"] { border-color: var(--spoke-works, #2c6b52); box-shadow: 2px 2px 0 var(--spoke-works, #2c6b52); } .ds-need[data-variant=\"unsure\"] { border-color: var(--spoke-unsure, #b05f2c); box-shadow: 2px 2px 0 var(--spoke-unsure, #b05f2c); } .ds-need[data-variant=\"private\"] { border-color: var(--spoke-scope, #7d6396); box-shadow: 2px 2px 0 var(--spoke-scope, #7d6396); background: var(--spoke-scope-tint, #ece5f2); } .ds-need[data-variant=\"peer-private\"] { border-style: dashed; box-shadow: none; background: transparent; cursor: default; } .ds-toggle { flex: none; width: 36px; height: 21px; border-radius: 999px; background: var(--spoke-works, #2c6b52); position: relative; } .ds-toggle i { position: absolute; top: 2.5px; left: 17px; width: 16px; height: 16px; border-radius: 50%; background: var(--spoke-surface, #fffdf7); } .ds-need-label { flex: 1; font: 600 13px system-ui, sans-serif; color: var(--spoke-ink, #334136); } .ds-need-delta { font: 600 10px 'IBM Plex Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums; color: var(--spoke-ink-soft, #5b6158); } .ds-need:focus-visible { outline: 2px solid var(--spoke-ink, #334136); outline-offset: 2px; }"
+    },
+    {
+      "name": "Suggestion Pill",
+      "kind": "chip",
+      "refersTo": "pill",
+      "description": "An optional facet the server returned for the current candidate set, ordered by count descending. Round, so it never reads as a stated need. ~24px tall with the tap target extended to 44px by a pseudo-element.",
+      "html": "<button class=\"ds-pill\">Step-free access<span class=\"ds-pill-count\">12</span></button>",
+      "css": ".ds-pill { display: inline-flex; align-items: center; gap: 6px; border: 1.5px solid rgba(51,65,54,.55); border-radius: 999px; background: var(--spoke-surface, #fffdf7); box-shadow: 2px 2px 0 rgba(51,65,54,.30); padding: 5px 12px; font: 700 11.5px system-ui, sans-serif; color: var(--spoke-ink, #334136); cursor: pointer; position: relative; } .ds-pill::before { content: \"\"; position: absolute; left: 0; right: 0; top: 50%; height: 44px; transform: translateY(-50%); } .ds-pill-count { font: 700 10px 'IBM Plex Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums; color: var(--spoke-ink-soft, #5b6158); } .ds-pill:hover { border-color: var(--spoke-works, #2c6b52); } .ds-pill:focus-visible { outline: 2px solid var(--spoke-ink, #334136); outline-offset: 2px; }"
+    },
+    {
+      "name": "Count Block",
+      "kind": "custom",
+      "refersTo": "count-block",
+      "description": "Top-left of the map, rotated -2 degrees, no pointer events. Confirmed plus likely in the big number; the subline breaks it down. Turns Unverified Amber at impasse.",
+      "html": "<div class=\"ds-count\"><div class=\"ds-count-head\"><span class=\"ds-count-number\">6</span><span class=\"ds-count-label\">still<br />work</span></div><div class=\"ds-count-sub\">of 34 &middot; 4 of them likely &middot; 3 unsure</div></div>",
+      "css": ".ds-count { display: inline-block; padding: 8px 13px; border-radius: 14px; box-shadow: 3px 4px 0 rgba(51,65,54,.30); transform: rotate(-2deg); background: var(--spoke-works, #2c6b52); color: var(--spoke-surface, #fffdf7); border: 1.5px solid var(--spoke-works, #2c6b52); } .ds-count[data-state=\"impasse\"] { background: var(--spoke-unsure, #b05f2c); border-color: var(--spoke-unsure, #b05f2c); } .ds-count-head { display: flex; align-items: flex-end; gap: 7px; } .ds-count-number { font-family: 'Bricolage Grotesque', system-ui, sans-serif; font-weight: 800; font-size: 30px; line-height: .85; letter-spacing: -.04em; font-variant-numeric: tabular-nums; } .ds-count-label { font: 700 11px system-ui, sans-serif; line-height: 1.25; padding-bottom: 2px; } .ds-count-sub { font: 600 10px 'IBM Plex Mono', ui-monospace, monospace; line-height: 1.3; opacity: .85; margin-top: 4px; font-variant-numeric: tabular-nums; }"
+    },
+    {
+      "name": "Map Sticker",
+      "kind": "card",
+      "refersTo": "sticker",
+      "description": "A place that survives the active needs. The dot states the verdict, the card states the name. Ruled-out places lose the card entirely and become an 8px grey dot.",
+      "html": "<div class=\"ds-sticker\"><span class=\"ds-sticker-dot\"></span><span class=\"ds-sticker-name\">Prinzessinnengarten</span><span class=\"ds-sticker-chip\">12 min</span></div>",
+      "css": ".ds-sticker { display: inline-flex; align-items: center; gap: 7px; background: var(--spoke-surface, #fffdf7); border: 1.5px solid rgba(51,65,54,.55); border-radius: 12px; box-shadow: 2px 2px 0 rgba(51,65,54,.30); padding: 5px 9px 5px 7px; white-space: nowrap; rotate: -2deg; } .ds-sticker-dot { width: 11px; height: 11px; border-radius: 50%; flex: none; background: var(--spoke-works, #2c6b52); border: 1.5px solid rgba(51,65,54,.55); } .ds-sticker[data-state=\"unsure\"] .ds-sticker-dot { background: var(--spoke-surface, #fffdf7); border: 2.5px solid var(--spoke-unsure, #b05f2c); } .ds-sticker[data-state=\"selected\"] { background: var(--spoke-works, #2c6b52); box-shadow: 3px 4px 0 rgba(51,65,54,.30); } .ds-sticker[data-state=\"selected\"] .ds-sticker-name { color: var(--spoke-surface, #fffdf7); } .ds-sticker-name { font-family: 'Bricolage Grotesque', system-ui, sans-serif; font-weight: 700; font-size: 12.5px; line-height: 1.3; color: var(--spoke-ink, #334136); } .ds-sticker-chip { font: 600 9.5px system-ui, sans-serif; border-radius: 5px; padding: 1px 5px; background: var(--spoke-works-tint, #dfeee6); color: var(--spoke-works-text, #1e5540); }"
+    },
+    {
+      "name": "Scope Badge",
+      "kind": "chip",
+      "refersTo": "badge-scope",
+      "description": "Solid violet with cream text when the boundary is hard (agent only); the tinted variants carry the softer states. Sits beside, never instead of, an act mark when both meanings coincide.",
+      "html": "<span class=\"ds-badge\" data-kind=\"scope\">agent only</span> <span class=\"ds-badge\" data-kind=\"unsure\">3 unknown</span> <span class=\"ds-badge\" data-kind=\"act\">acting now</span>",
+      "css": ".ds-badge { display: inline-block; font: 700 10px system-ui, sans-serif; border-radius: 6px; padding: 2px 6px; white-space: nowrap; } .ds-badge[data-kind=\"scope\"] { background: var(--spoke-scope, #7d6396); color: var(--spoke-surface, #fffdf7); } .ds-badge[data-kind=\"unsure\"] { background: var(--spoke-unsure-tint, #f7e3d6); color: var(--spoke-unsure-text, #8a3f12); } .ds-badge[data-kind=\"act\"] { background: var(--spoke-act-tint, #e1e7f0); color: var(--spoke-act-text, #2b4159); } .ds-badge[data-kind=\"works\"] { background: var(--spoke-works-tint, #dfeee6); color: var(--spoke-works-text, #1e5540); }"
+    },
+    {
+      "name": "Consent Card",
+      "kind": "card",
+      "refersTo": "need-row",
+      "description": "Rung 2 of the authority ladder: an agent staged something beyond its grant. All three rungs are Moved Blue because in every case an agent moved. It cannot be dismissed by tapping outside.",
+      "html": "<div class=\"ds-consent\"><p class=\"ds-consent-body\">Widen from 900 m to 1.4 km &mdash; beyond the 1.2 km you delegated. Your agent staged it; only this gesture applies it.</p><div class=\"ds-consent-actions\"><button class=\"ds-consent-primary\">Confirm</button><button class=\"ds-consent-ghost\">Cancel the grant</button></div></div>",
+      "css": ".ds-consent { border: 1.5px solid var(--spoke-act, #3d5a80); border-radius: 13px; background: var(--spoke-act-tint, #e1e7f0); box-shadow: 2px 2px 0 var(--spoke-act, #3d5a80); padding: 10px 12px; font-family: system-ui, sans-serif; max-width: 320px; } .ds-consent-body { margin: 0 0 9px; font: 500 11.5px system-ui, sans-serif; line-height: 1.5; color: var(--spoke-act-text, #2b4159); } .ds-consent-actions { display: flex; gap: 7px; } .ds-consent-primary { border: 1.5px solid var(--spoke-act, #3d5a80); border-radius: 9px; background: var(--spoke-act, #3d5a80); color: var(--spoke-surface, #fffdf7); font-family: 'Bricolage Grotesque', system-ui, sans-serif; font-weight: 700; font-size: 12.5px; padding: 9px 14px; min-height: 44px; cursor: pointer; } .ds-consent-ghost { border: 1.5px solid rgba(51,65,54,.35); border-radius: 9px; background: transparent; color: var(--spoke-ink-soft, #5b6158); font: 700 11px system-ui, sans-serif; padding: 9px 12px; min-height: 44px; cursor: pointer; } .ds-consent-primary:focus-visible, .ds-consent-ghost:focus-visible { outline: 2px solid var(--spoke-ink, #334136); outline-offset: 2px; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Field Notebook",
+    "overview": "Spokes is drawn the way a surveyor marks a working page: solid for what is known, dashed for what is guessed, hollow for what is unverified, and deliberately small and grey for what has been ruled out. Every visual property carries a fact. A border style is a claim about certainty. A dot's size is a claim about relevance. A colour is a claim about meaning, and there are exactly four meanings. Nothing in the system is decorative, because a decoration in a notebook is a mark somebody has to interpret.\n\nThe temperament is quiet and evidential. The interface recedes so the evidence reads: warm cream paper, ink-green text, flat spot colour, hard offset shadows with zero blur, and one 1.5px rule doing all the structural work. Nothing glows, floats, or gradients. Depth is a printed offset, not a light source. When the candidate set changes, places settle in place over 420ms; the page never re-lays-out under the reader, because spatial memory is what the product is protecting.\n\nThe system is built to be read in a narrow column beside a live conversation. Spokes is a WebMCP surface: it runs inside ChatGPT's in-app browser as the interactive visualization layer next to the transcript, driven by agent tool calls and direct touch alike. That means it must stay legible at ~330px, must never render a chat pane of its own, and must never look like a widget embedded in someone else's product. It reads as the map the conversation is about.",
+    "keyCharacteristics": [
+      "Four semantic inks, one meaning each, never borrowed for emphasis.",
+      "Solid / dashed / hollow is an epistemic vocabulary, not a style choice.",
+      "Hard 2px offset shadows, zero blur, on a warm cream ground.",
+      "One 1.5px rule; a full-strength coloured border always means something.",
+      "Absolute counts in a display face, breakdowns in mono.",
+      "Slight rotation (-2 degrees, -4/3 degrees) so elements read as placed, not rendered.",
+      "Survives greyscale: fill, border style and size differ per state."
+    ],
+    "rules": [
+      { "name": "The Four Meanings Rule", "body": "Confirmed Green, Unverified Amber, Held-Back Violet and Moved Blue own one meaning each. A component may not borrow another's colour for emphasis. When two meanings genuinely coincide, draw both marks — a violet agent-only badge beside a blue acting-now chip.", "section": "colors" },
+      { "name": "The No-Raw-Hex Rule", "body": "Every colour comes from apps/web/src/tokens.css. If the value you need is not there, the design is missing a decision — ask, don't invent. The only literals outside that file are the documented GL paint pairs in src/map-theme.ts and the favicon data URI.", "section": "colors" },
+      { "name": "The Composited Contrast Rule", "body": "These surfaces stack translucent layers, so a new tint is checked against what it actually composites over — never against the token beneath it in the file. Body text holds 4.5:1 or better, composited.", "section": "colors" },
+      { "name": "The Two Voices Rule", "body": "Display names and counts; system sans explains. A heading in the body face is a mistake, and an explanation in the display face is a louder mistake.", "section": "typography" },
+      { "name": "The Tabular Rule", "body": "Any numeral that changes while the reader is looking at it is tabular-nums in mono or the display face. Counts must not jitter as the set settles.", "section": "typography" },
+      { "name": "The Never Re-Centre Rule", "body": "A change to the candidate set never re-fits bounds, re-centres, or re-lays-out the map. Places settle where they are. Only an explicit user action — search, show me, opening a place — or the explore layer following a panned viewport may move the view.", "section": "layout" },
+      { "name": "The One Scroller Rule", "body": "Only the brief scrolls. Header, map and composer are fixed. No nav bar, no tab bar, no hamburger: the room is the whole app.", "section": "layout" },
+      { "name": "The Bottom-Left Rule", "body": "The delta chip sits bottom-left at z-index 5, because bottom-right belongs to map attribution. Attribution stays 7px with a 9px line-height and never grows; it is a legal requirement, not a UI element.", "section": "layout" },
+      { "name": "The Zero-Blur Rule", "body": "Never use a blur greater than 0 for structure. If something needs to feel closer, it takes a longer offset, not a softer edge.", "section": "elevation" },
+      { "name": "The Coloured Shadow Rule", "body": "A shadow in a semantic colour always means the row's border is that colour too. Never colour one without the other.", "section": "elevation" },
+      { "name": "The Marks-Not-Glyphs Rule", "body": "No check, cross or bullet characters anywhere in chrome. A state is drawn with the map's dot vocabulary so the same shape means the same thing on the map and off it.", "section": "shapes" },
+      { "name": "The Meaningful Outline Rule", "body": "The semantic border is the only full-strength line in the design; neutral rows use the tinted line. That is what makes an outline mean something.", "section": "shapes" }
+    ],
+    "dos": [
+      "Do take every colour, radius, shadow and size from tokens.css, and ask when the value you need is missing.",
+      "Do draw certainty with border style: solid known, dashed guessed, hollow unverified, small grey ruled out.",
+      "Do promote a row's shadow to its semantic colour whenever its border is semantic, and leave both neutral otherwise.",
+      "Do extend tap targets past the drawn box with padding or ::before to reach 44px.",
+      "Do keep counts absolute and deltas signed — -19, +3, 34 to 15 — with the total on the second line.",
+      "Do let every control come from server data (FACETS.md), ordered by count descending.",
+      "Do check new tints against their composited background, not the token underneath.",
+      "Do design for ~330px first: the room runs inside ChatGPT's in-app browser beside a live transcript."
+    ],
+    "donts": [
+      "Don't borrow one semantic colour for another's emphasis. Show both marks when two meanings coincide.",
+      "Don't use a blur greater than 0 for structure, or a gradient, glass, glow or sparkle anywhere.",
+      "Don't write a domain word, chip, icon, category or heading into chrome — the app is domain-agnostic permanently.",
+      "Don't render unknown as a red or negative state, and never silently drop a place for lacking a value.",
+      "Don't re-centre, re-fit or re-lay-out the map because the set changed.",
+      "Don't let anything protocol-shaped out of the { } drawer.",
+      "Don't use check, cross or bullet glyphs in chrome; use the map's dot vocabulary.",
+      "Don't add a fifth animation, a nav bar, a bottom sheet, or a chat pane — the transcript already exists in the host client.",
+      "Don't grow the map attribution above 7px, or move the delta chip to the bottom-right.",
+      "Don't drift toward SaaS dashboard chrome, consumer-maps chrome, or AI product chrome (gradient mesh, sparkles, purple-blue accents)."
+    ]
+  }
+}
