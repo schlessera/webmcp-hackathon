@@ -7,6 +7,9 @@ import {
   refinementActive,
   refinementBudgetSleepForTest,
   refinementLookupReason,
+  refinementTickDelay,
+  REFINE_IDLE_TICK_MS,
+  REFINE_TICK_MS,
   resetRefinement,
   startRefinement,
   noteRefinementPresence,
@@ -95,6 +98,12 @@ describe("continuous refinement queue", () => {
     delete process.env.INFER;
     delete process.env.ENRICH_NETWORK;
     vi.useRealTimers();
+  });
+
+  it("backs off when there is nothing left to refine", () => {
+    expect(refinementTickDelay(1)).toBe(REFINE_TICK_MS);
+    expect(refinementTickDelay(0)).toBe(REFINE_IDLE_TICK_MS);
+    expect(REFINE_IDLE_TICK_MS).toBeGreaterThan(REFINE_TICK_MS);
   });
 
   it("keeps 12 places in one batch and searches once per place for all criteria", async () => {

@@ -42,6 +42,12 @@ export const REFINE_IDLE_STOP_MS = positiveInt(
   10 * 60_000,
 );
 export const REFINE_TICK_MS = Number(process.env.REFINE_TICK_MS ?? 1_000);
+/** With nothing to refine the loop must not reload every candidate in the
+ * room once a second. A need commit wakes it immediately, so a long idle
+ * gap costs no responsiveness. */
+export const REFINE_IDLE_TICK_MS = Number(
+  process.env.REFINE_IDLE_TICK_MS ?? 30 * REFINE_TICK_MS,
+);
 export const REFINE_MODEL_CALLS_PER_HOUR = positiveInt(
   process.env.REFINE_MODEL_CALLS_PER_HOUR,
   60,
@@ -217,6 +223,13 @@ export function buildRefinementQueue(
     a.tier - b.tier || a.candidate.walk_min - b.candidate.walk_min ||
     a.candidate.id.localeCompare(b.candidate.id)
   );
+}
+
+/** How long the loop waits before its next tick. An empty queue must not
+ * reload every candidate in the room once a second; a need commit wakes the
+ * loop immediately, so the long gap costs no responsiveness. */
+export function refinementTickDelay(queueLength: number): number {
+  return queueLength === 0 ? REFINE_IDLE_TICK_MS : REFINE_TICK_MS;
 }
 
 function criteriaSignature(inputs: EligibilityInputs): string {
@@ -465,7 +478,7 @@ export async function runRefinementTick(roomId: string, now = Date.now()): Promi
   }
   const queue = buildRefinementQueue(inputs, state, roomId, now);
   state.queued = queue.length;
-  if (queue.length === 0) return REFINE_TICK_MS;
+  if (queue.length === 0) return refinementTickDelay(0);
 
   const searchLeft = searchBudget.remaining(roomId, now);
   const batch = queue.slice(0, Math.min(REFINE_BATCH_SIZE, Math.max(1, searchLeft)));
@@ -586,7 +599,9 @@ export async function runRefinementTick(roomId: string, now = Date.now()): Promi
         : []
     );
     await publishInferenceChanges(pool, roomId, changed, "inference");
-    return REFINE_TICK_MS;
+    // A tick that did work always re-ticks at the working cadence: finishing
+    // a tier can open the next one, and only an empty queue may back off.
+    return refinementTickDelay(1);
   } finally {
     endProgress();
   }

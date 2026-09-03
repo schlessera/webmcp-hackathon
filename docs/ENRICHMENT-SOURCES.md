@@ -242,6 +242,12 @@ site material leaves criteria unanswered, one search covers all of those
 criteria together. A site URL makes that search domain-scoped; otherwise it
 uses the open web. Cited snippets go through one more batch matrix evaluation.
 
+With nothing left to refine the loop backs off to `REFINE_IDLE_TICK_MS`
+(thirty times the working cadence) so an idle room is not reloaded every
+second; a need commit wakes it at once. A batch matrix call is a long prompt on
+a background path, so it waits `MATRIX_TIMEOUT_MS`, 45 seconds by default,
+rather than the interactive twenty.
+
 The per-room budgets refill continuously: `REFINE_MODEL_CALLS_PER_HOUR`
 defaults to 60 model calls and `REFINE_SEARCHES_PER_HOUR` defaults to 40
 searches. `REFINE=0` disables the loop. `ENRICH_NETWORK=0` disables all of its
