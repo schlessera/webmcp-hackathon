@@ -57,6 +57,9 @@
 .ld-top[data-ink] .ld-brand { color: var(--spoke-surface); }
 .ld-top[data-ink] .ld-link { color: var(--ld-ink-soft); }
 .ld-top[data-ink] .ld-link:hover { color: var(--spoke-works-pop); }
+/* Seat colour set on the PARENT so it reads the real --spoke-ink before the
+   glyph redefines --spoke-ink to surface (SPOKES-BRAND.md, value rule). */
+.ld-top[data-ink] { --wordmark-seat: var(--spoke-ink); }
 .ld-top[data-ink] .wordmark-glyph { --spoke-ink: var(--spoke-surface); }
 .ld-top[data-ink] .btn[data-tone="works"] { border-color: var(--spoke-works-pop); background: var(--spoke-works-pop); color: var(--spoke-ink); box-shadow: 2px 2px 0 var(--ld-ink-line); }
 .ld-link {

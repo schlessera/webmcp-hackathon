@@ -64,6 +64,8 @@ Absent participants use `--spoke-person-idle`.
 
 Person identity uses its own five-hue family: cobalt, magenta, teal-ink,
 ochre-brown and plum (`--spoke-person-1..5`). None is a semantic or grey hue.
+The same five colour the ends of the wordmark glyph; the mark and wordmark
+are specified in `SPOKES-BRAND.md`.
 Against the composited fallback map ground (`--spoke-surface-sunk` under the
 18% works colour wash), the five contrast ratios are 6.67:1, 5.85:1, 5.56:1,
 5.77:1 and 7.42:1 respectively.
