@@ -48,6 +48,7 @@ import { say } from "./nl/say.ts";
 import { runAgent } from "./nl/agent.ts";
 import { heldFor, hold, release, screenPending } from "./nl/holder.ts";
 import { consumeLookupToken, LOOKUP_RATE_LIMIT_ERROR } from "./lookup-budget.ts";
+import { resumePoolFills } from "./pool-fill.ts";
 
 /**
  * One Node process serves the production UI, API, and WebSocket endpoint.
@@ -714,6 +715,9 @@ if (config.dev && process.env.SERVE_STATIC !== "1") {
 await app.ready();
 attachWebSocket(app.server);
 await app.listen({ port: config.port, host: config.host });
+void resumePoolFills().catch((error) => {
+  app.log.error({ error: String(error) }, "pool fill recovery failed");
+});
 app.log.info(
   { buildId: config.buildId, toolContractVersion: TOOL_CONTRACT_VERSION },
   `listening on ${config.host}:${config.port}`,

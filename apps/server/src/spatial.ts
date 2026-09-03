@@ -23,8 +23,13 @@ import {
 import { computeFacetsBundle, labelForRequirement } from "./facets.ts";
 import { IMPASSE_TEXT } from "./impasse.ts";
 import { presentIn } from "./presence.ts";
-import { fillPlan, loadSnapshot, type DataSource } from "./places.ts";
-import { startPoolFill } from "./pool-fill.ts";
+import { loadSnapshot, type DataSource } from "./places.ts";
+import {
+  cachedPoolPlan,
+  poolFillActive,
+  poolTarget as targetForPool,
+  startPoolFill,
+} from "./pool-fill.ts";
 import { loadAttestations } from "./attestations.ts";
 import {
   enrichmentView,
@@ -143,7 +148,7 @@ export async function spatialContext(
       inputs.timezone,
     );
     const scope = inputs.scope;
-    const bundle = computeFacetsBundle(inputs, actor.id, excludeId);
+    const bundle = computeFacetsBundle(inputs, actor.id, excludeId, rows);
     const present = presentIn(actor.roomId);
     const participants = (participantRows.rows as Array<{
       id: string;
@@ -264,15 +269,20 @@ export async function spatialContext(
     let filling = false;
     let poolTarget = poolSize;
     if (area && snapshot && scope?.area.kind === "circle") {
-      const plan = fillPlan(
+      const plan = cachedPoolPlan(
+        actor.roomId,
+        scope.scopeId,
         area,
         snapshot,
         scope.area.center,
         scope.area.radiusM,
-        inputs.candidates.flatMap((candidate) => candidate.osm_ref ? [candidate.osm_ref] : []),
       );
-      poolTarget = Math.min(plan.total, POOL_CAP);
-      filling = poolSize < POOL_CAP && plan.batches.length > 0;
+      const existingRefs = new Set(inputs.candidates.flatMap((candidate) =>
+        candidate.osm_ref ? [candidate.osm_ref] : []
+      ));
+      poolTarget = targetForPool(poolSize, plan.total);
+      filling = poolFillActive(actor.roomId) ||
+        (poolSize < POOL_CAP && plan.venues.some((venue) => !existingRefs.has(venue.ref)));
       // A read is also the restart recovery point: persisted candidates and
       // scope are enough to derive and resume whatever work is missing.
       if (filling) startPoolFill(actor.roomId);

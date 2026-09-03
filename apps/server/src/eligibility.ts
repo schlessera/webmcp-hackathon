@@ -390,10 +390,10 @@ export function classifyAll(
   scope: ScopeState | null,
   timezone = "UTC",
 ): CandidateEligibility[] {
-  return candidates.map((c) => classify(c, requirements, verdicts, scope, timezone));
+  return candidates.map((c) => classifyCandidate(c, requirements, verdicts, scope, timezone));
 }
 
-function classify(
+export function classifyCandidate(
   candidate: CandidateRow,
   requirements: RequirementRow[],
   verdicts: VerdictRow[],

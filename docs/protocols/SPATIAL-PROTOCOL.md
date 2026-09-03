@@ -190,13 +190,14 @@ recomputes missing refs for the new circle. Existing candidates are never
 removed, jobs resume from persisted candidate refs after a restart, and every
 write is bounded by `POOL_CAP`.
 
-Each background batch emits exactly one shared `candidates_added` event with
-`actor_id = null` and the additive payload discriminator
-`{ "source": "pool", "count": N }`. It projects at existence level for every
-viewer as "N more places on the map." The uniform discriminator/count shape
-allows consecutive pool rows to be collapsed without changing participant-
-driven `AddCandidates` projections. It is followed by a `facts` realtime frame
-with `reason: "pool"` and the inserted candidate IDs.
+Interim batches emit only a presentation-only `facts` realtime frame with
+`reason: "pool"` and the inserted candidate IDs. It carries no room revision.
+When the fill run completes, the server emits one shared `candidates_added`
+event with `actor_id = null` and payload `{ "source": "pool", "count": N }`
+for the whole run. It projects at existence level for every viewer as "N more
+places on the map." The fill plan is cached in memory per room and `scopeId`;
+a changed scope replaces it. Snapshot planning and candidate-ref reads happen
+without the room write lock. Only the final headroom check and insert hold it.
 
 The spatial context's `pool` object has additive fields `filling` and `target`:
 `filling` is true while the current circle still has missing snapshot venues
