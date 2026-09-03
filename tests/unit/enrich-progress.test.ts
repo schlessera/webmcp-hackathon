@@ -3,6 +3,7 @@ import {
   beginLookups,
   currentLookups,
   LOOKUP_COALESCE_MS,
+  LOOKUP_DEADLINE_MS,
   onLookupProgress,
   resetProgress,
 } from "../../apps/server/src/enrich/progress.ts";
@@ -77,5 +78,26 @@ describe("lookup progress", () => {
     });
     endNeed();
     endOtherNeed();
+  });
+
+  it("expires a wedged batch and publishes the empty clearing frame", () => {
+    vi.useFakeTimers();
+    const frames: unknown[] = [];
+    const off = onLookupProgress((_roomId, message) => frames.push(message));
+    try {
+      const end = beginLookups("room_wedged", ["a"], { kind: "place" });
+      vi.advanceTimersByTime(LOOKUP_COALESCE_MS);
+      expect(frames).toEqual([
+        { type: "lookups", pending: ["a"], reason: { kind: "place" } },
+      ]);
+      vi.advanceTimersByTime(LOOKUP_DEADLINE_MS - LOOKUP_COALESCE_MS);
+      expect(currentLookups("room_wedged")).toEqual({ type: "lookups", pending: [] });
+      vi.advanceTimersByTime(LOOKUP_COALESCE_MS);
+      expect(frames.at(-1)).toEqual({ type: "lookups", pending: [] });
+      end();
+      expect(currentLookups("room_wedged")).toEqual({ type: "lookups", pending: [] });
+    } finally {
+      off();
+    }
   });
 });

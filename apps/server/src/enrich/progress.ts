@@ -9,11 +9,14 @@ type FactsListener = (roomId: string, message: FactsMessage) => void;
 
 interface RoomProgress {
   counts: Map<string, number>;
-  batches: Map<symbol, { ids: string[]; reason?: LookupReason }>;
+  batches: Map<symbol, { ids: string[]; reason?: LookupReason; deadlineAt: number }>;
   timer?: ReturnType<typeof setTimeout>;
+  watchdog?: ReturnType<typeof setTimeout>;
+  watchdogAt?: number;
 }
 
 export const LOOKUP_COALESCE_MS = 250;
+export const LOOKUP_DEADLINE_MS = 5 * 60_000;
 const rooms = new Map<string, RoomProgress>();
 const progressListeners = new Set<ProgressListener>();
 const factsListeners = new Set<FactsListener>();
@@ -43,8 +46,48 @@ export function currentLookups(roomId: string): LookupsMessage {
   };
 }
 
+function removeBatch(room: RoomProgress, batchId: symbol): void {
+  const batch = room.batches.get(batchId);
+  if (!batch) return;
+  room.batches.delete(batchId);
+  for (const id of batch.ids) {
+    const count = room.counts.get(id) ?? 0;
+    if (count <= 1) room.counts.delete(id);
+    else room.counts.set(id, count - 1);
+  }
+}
+
+function sweepExpired(room: RoomProgress, now: number): void {
+  for (const [batchId, batch] of room.batches) {
+    if (batch.deadlineAt <= now) removeBatch(room, batchId);
+  }
+}
+
+function armWatchdog(roomId: string, room: RoomProgress, now: number): void {
+  const deadlineAt = Math.min(
+    ...[...room.batches.values()].map((batch) => batch.deadlineAt),
+  );
+  if (!Number.isFinite(deadlineAt)) {
+    if (room.watchdog) clearTimeout(room.watchdog);
+    room.watchdog = undefined;
+    room.watchdogAt = undefined;
+    return;
+  }
+  if (room.watchdog && room.watchdogAt === deadlineAt) return;
+  if (room.watchdog) clearTimeout(room.watchdog);
+  room.watchdogAt = deadlineAt;
+  room.watchdog = setTimeout(() => {
+    room.watchdog = undefined;
+    room.watchdogAt = undefined;
+    schedule(roomId);
+  }, Math.max(0, deadlineAt - now));
+}
+
 function schedule(roomId: string): void {
   const room = state(roomId);
+  const now = Date.now();
+  sweepExpired(room, now);
+  armWatchdog(roomId, room, now);
   if (room.timer) return;
   room.timer = setTimeout(() => {
     room.timer = undefined;
@@ -64,7 +107,11 @@ export function beginLookups(
   const ids = [...new Set(candidateIds)];
   const room = state(roomId);
   const batchId = Symbol("lookup-batch");
-  room.batches.set(batchId, { ids, reason });
+  room.batches.set(batchId, {
+    ids,
+    reason,
+    deadlineAt: Date.now() + LOOKUP_DEADLINE_MS,
+  });
   for (const id of ids) room.counts.set(id, (room.counts.get(id) ?? 0) + 1);
   schedule(roomId);
   let ended = false;
@@ -73,14 +120,8 @@ export function beginLookups(
     ended = true;
     const active = rooms.get(roomId);
     if (!active) return;
-    const batch = active.batches.get(batchId);
-    if (!batch) return;
-    active.batches.delete(batchId);
-    for (const id of batch.ids) {
-      const count = active.counts.get(id) ?? 0;
-      if (count <= 1) active.counts.delete(id);
-      else active.counts.set(id, count - 1);
-    }
+    if (!active.batches.has(batchId)) return;
+    removeBatch(active, batchId);
     schedule(roomId);
   };
 }
@@ -105,6 +146,9 @@ export function onFacts(listener: FactsListener): () => void {
 
 /** Test-only reset for module-local room state and timers. */
 export function resetProgress(): void {
-  for (const room of rooms.values()) if (room.timer) clearTimeout(room.timer);
+  for (const room of rooms.values()) {
+    if (room.timer) clearTimeout(room.timer);
+    if (room.watchdog) clearTimeout(room.watchdog);
+  }
   rooms.clear();
 }

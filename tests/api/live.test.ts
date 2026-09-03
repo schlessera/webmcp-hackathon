@@ -505,10 +505,10 @@ describe("need-triggered lookup and realtime facts", () => {
       expect(fetched.some((url) => url.includes(beta))).toBe(false);
       expect(fetched.some((url) => url.includes(gamma))).toBe(false);
       expect(Number((await room.pool.query("SELECT map_revision FROM candidates WHERE id = $1", [alpha])).rows[0].map_revision)).toBe(initialMapRevision + 1);
-      expect(realtime.frames().some((raw) => {
+      expect(await waitFor(() => realtime.frames().some((raw) => {
         const frame = JSON.parse(raw) as { type: string; pending?: string[] };
         return frame.type === "lookups" && frame.pending?.length === 0;
-      })).toBe(true);
+      }))).toBe(true);
 
       const factsBefore = realtime.frames().filter((raw) => JSON.parse(raw).type === "facts").length;
       const requirementId = String((await room.pool.query(
