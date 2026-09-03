@@ -13,7 +13,8 @@
 // demand, spatial context gained `pool`, dossiers gained address / phone /
 // per-need verdicts / a note per attribute, and the realtime channel gained
 // the presentation-only `lookups` and `facts` frames. Additive on the wire;
-// bumped because the tool catalog changed.
+// bumped because the tool catalog changed. The lookup tool's read-only hint
+// was later removed within v3 because it performs cache writes and paid I/O.
 export const TOOL_CONTRACT_VERSION = "3";
 
 export const PROTOCOL_VERSIONS = {

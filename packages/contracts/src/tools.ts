@@ -254,7 +254,7 @@ const spatialTools: ToolDefinition[] = [
       "Returns what is known right away; more lands on the page as it " +
       "arrives. Optionally name the attribute keys that matter.",
     inputSchema: LOOK_UP_PLACES_INPUT,
-    annotations: { readOnlyHint: true },
+    annotations: {},
   },
   {
     name: "propose_destination",

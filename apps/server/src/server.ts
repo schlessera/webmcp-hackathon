@@ -50,6 +50,34 @@ const app = Fastify({
   disableRequestLogging: true,
 });
 
+interface LookupBucket {
+  tokens: number;
+  updatedAt: number;
+}
+
+const LOOKUP_BUCKET_SIZE = 6;
+const LOOKUP_BUCKET_WINDOW_MS = 60_000;
+const lookupBuckets = new Map<string, LookupBucket>();
+
+function consumeLookupToken(participantId: string, now = Date.now()): boolean {
+  const bucket = lookupBuckets.get(participantId) ?? {
+    tokens: LOOKUP_BUCKET_SIZE,
+    updatedAt: now,
+  };
+  bucket.tokens = Math.min(
+    LOOKUP_BUCKET_SIZE,
+    bucket.tokens + ((now - bucket.updatedAt) * LOOKUP_BUCKET_SIZE) / LOOKUP_BUCKET_WINDOW_MS,
+  );
+  bucket.updatedAt = now;
+  if (bucket.tokens < 1) {
+    lookupBuckets.set(participantId, bucket);
+    return false;
+  }
+  bucket.tokens -= 1;
+  lookupBuckets.set(participantId, bucket);
+  return true;
+}
+
 app.addHook("onSend", async (_req, reply, payload) => {
   if (config.originTrialToken) {
     reply.header("Origin-Trial", config.originTrialToken);
@@ -249,7 +277,7 @@ app.post("/api/spatial/inspect", async (req) => {
   return result;
 });
 
-app.post("/api/spatial/lookup", async (req) => {
+app.post("/api/spatial/lookup", async (req, reply) => {
   const actor = await bearer(req);
   if (!actor) return notAuthenticated;
   const body = (req.body ?? {}) as { candidateIds?: string[]; keys?: string[] };
@@ -260,6 +288,15 @@ app.post("/api/spatial/lookup", async (req) => {
     return invalidInput(
       "candidateIds must be 1-3 candidate ID strings and keys, when present, 1-6 attribute keys.",
       "Pass candidateIds from get_spatial_context and optional facet keys.",
+    );
+  }
+  if (!consumeLookupToken(actor.id)) {
+    reply.header("retry-after", "10");
+    return reply.code(429).send(
+      invalidInput(
+        "Place lookup rate limit exceeded (6 per minute).",
+        "Wait before asking to look up more places, then retry.",
+      ),
     );
   }
   const result = await lookUpPlaces(actor, body.candidateIds!, keys);

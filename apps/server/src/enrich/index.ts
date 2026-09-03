@@ -66,6 +66,7 @@ export function setEnrichFetch(f: FetchLike | null): void {
 }
 
 const inFlight = new Map<string, Promise<Enrichment>>();
+const lookupNowInFlight = new Map<string, Promise<string[]>>();
 
 interface Row {
   osm_ref: string;
@@ -308,18 +309,50 @@ export function lookupNow(
   options: LookupNowOptions = {},
 ): Promise<string[]> {
   if (process.env.ENRICH_NETWORK === "0" || targets.length === 0) return Promise.resolve([]);
-  const tracked = targets.filter(
-    (target) => target.osmRef && (target.website || target.wikidata || inferenceEnabled()),
-  );
+  const tracked = [
+    ...new Map(
+      targets
+        .filter(
+          (target) => target.osmRef && (target.website || target.wikidata || inferenceEnabled()),
+        )
+        .map((target) => [target.candidateId, target]),
+    ).values(),
+  ];
   if (tracked.length === 0) return Promise.resolve([]);
-  // Begin before the first await so a read issued immediately after this call
-  // can truthfully return lookupPending=true.
-  const endProgress = beginLookups(
-    roomId,
-    tracked.map((target) => target.candidateId),
-    options.reason,
+  const keys = [...new Set(options.keys ?? [...INFERABLE_KEYS])]
+    .filter((key) => (INFERABLE_KEYS as readonly string[]).includes(key))
+    .sort();
+  const keyFor = (target: RoomLookupTarget) =>
+    JSON.stringify([roomId, target.candidateId, keys]);
+  const existingJobs: Promise<string[]>[] = [];
+  const fresh: RoomLookupTarget[] = [];
+  for (const target of tracked) {
+    const existing = lookupNowInFlight.get(keyFor(target));
+    if (existing) existingJobs.push(existing);
+    else fresh.push(target);
+  }
+  if (fresh.length > 0) {
+    // Begin before the first await so a read issued immediately after this call
+    // can truthfully return lookupPending=true.
+    const endProgress = beginLookups(
+      roomId,
+      fresh.map((target) => target.candidateId),
+      options.reason,
+    );
+    const freshKeys = fresh.map(keyFor);
+    const job = runLookupNow(pool, roomId, fresh, { ...options, keys }).finally(() => {
+      endProgress();
+      for (const key of freshKeys) {
+        if (lookupNowInFlight.get(key) === job) lookupNowInFlight.delete(key);
+      }
+    });
+    for (const key of freshKeys) lookupNowInFlight.set(key, job);
+    existingJobs.push(job);
+  }
+  const wanted = new Set(tracked.map((target) => target.candidateId));
+  return Promise.all([...new Set(existingJobs)]).then((results) =>
+    [...new Set(results.flat())].filter((candidateId) => wanted.has(candidateId)),
   );
-  return runLookupNow(pool, roomId, tracked, options).finally(endProgress);
 }
 
 async function runLookupNow(

@@ -112,6 +112,11 @@ describe("character budgets (Chrome guidance)", () => {
     expect(tool.annotations.untrustedContentHint).toBe(true);
   });
 
+  it("does not claim look_up_places is read-only", () => {
+    const tool = TOOLS.find((t) => t.name === "look_up_places")!;
+    expect(tool.annotations.readOnlyHint).toBeUndefined();
+  });
+
   it("conduct string stays short enough to ride in a tool result", () => {
     expect(CAPABILITY_MANIFEST.conduct.length).toBeLessThanOrEqual(400);
   });

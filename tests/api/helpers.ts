@@ -309,6 +309,7 @@ export async function openRealtime(
 
 export interface RawResult<T> {
   body: T;
+  status: number;
   /** The exact serialized network payload, for redaction assertions. */
   raw: string;
 }
@@ -329,5 +330,5 @@ export async function apiPost<T = Record<string, unknown>>(
     body: JSON.stringify(body),
   });
   const raw = await response.text();
-  return { body: JSON.parse(raw) as T, raw };
+  return { body: JSON.parse(raw) as T, raw, status: response.status };
 }

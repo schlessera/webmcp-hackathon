@@ -2,7 +2,8 @@ import { createServer, type Server } from "node:http";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { attachWebSocket } from "../../apps/server/src/ws.ts";
 import { submitCommand } from "../../apps/server/src/engine.ts";
-import { setEnrichFetch } from "../../apps/server/src/enrich/index.ts";
+import { lookupNow, setEnrichFetch } from "../../apps/server/src/enrich/index.ts";
+import { setTransport } from "../../apps/server/src/nl/openai.ts";
 import {
   apiPost,
   createTestRoom,
@@ -29,6 +30,7 @@ afterAll(async () => {
 
 afterEach(() => {
   setEnrichFetch(null);
+  setTransport(null);
   vi.unstubAllEnvs();
 });
 
@@ -128,9 +130,71 @@ describe("look_up_places route and dossier privacy", () => {
       { private: true, verdict: "no" },
     ]);
   });
+
+  it("limits each participant to a six-token lookup bucket per minute", async () => {
+    const candidateId = `place_a_${room.roomId.slice("room_test_".length)}`;
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      const allowed = await apiPost<{ ok: boolean }>(
+        server.baseUrl,
+        "/api/spatial/lookup",
+        room.tokens.joe,
+        { candidateIds: [candidateId] },
+      );
+      expect(allowed.status).toBe(200);
+      expect(allowed.body.ok).toBe(true);
+    }
+    const limited = await apiPost<{
+      ok: boolean;
+      error: { code: string; message: string; recovery: string };
+    }>(server.baseUrl, "/api/spatial/lookup", room.tokens.joe, {
+      candidateIds: [candidateId],
+    });
+    expect(limited.status).toBe(429);
+    expect(limited.body).toEqual({
+      ok: false,
+      error: {
+        code: "invalid_input",
+        message: "Place lookup rate limit exceeded (6 per minute).",
+        recovery: "Wait before asking to look up more places, then retry.",
+      },
+    });
+  });
 });
 
 describe("need-triggered lookup and realtime facts", () => {
+  it("deduplicates concurrent lookup work by room, candidate and key set", async () => {
+    vi.stubEnv("ENRICH_NETWORK", "1");
+    vi.stubEnv("INFER", "1");
+    vi.stubEnv("OPENAI_API_KEY", "test");
+    const candidateId = `place_a_${room.roomId.slice("room_test_".length)}`;
+    const osmRef = `node/dedupe-${room.roomId}`;
+    await room.pool.query(
+      `UPDATE candidates SET osm_ref = $2, extras = '{}'::jsonb,
+         attributes = '[{"key":"delivery","status":"unknown","source":"osm:delivery","confidence":0}]'::jsonb
+       WHERE id = $1`,
+      [candidateId, osmRef],
+    );
+    let modelCalls = 0;
+    setTransport(async () => {
+      modelCalls += 1;
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      return {
+        output: [
+          {
+            type: "message",
+            content: [{ type: "output_text", text: JSON.stringify({ claims: [] }) }],
+          },
+        ],
+      };
+    });
+    const target = { candidateId, osmRef };
+    await Promise.all([
+      lookupNow(room.pool, room.roomId, [target], { keys: ["delivery"] }),
+      lookupNow(room.pool, room.roomId, [target], { keys: ["delivery"] }),
+    ]);
+    expect(modelCalls).toBe(1);
+  });
+
   it("never broadcasts an application-private need label with lookup progress", async () => {
     const networkServer = await startServer({
       entrypoint: "tests/api/fixtures/live-network-server.ts",
