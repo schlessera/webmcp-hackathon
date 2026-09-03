@@ -9,5 +9,6 @@ export * from "./realtime.ts";
 export * from "./areas.ts";
 export * from "./status.ts";
 export * from "./dossier.ts";
+export * from "./hours.ts";
 export * from "./criteria.ts";
 export * from "./cuisine.ts";

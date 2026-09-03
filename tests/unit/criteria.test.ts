@@ -29,6 +29,26 @@ describe("criterionFor", () => {
     expect(criterionFor({ kind: "exclusion", key: "cuisine", values: ["italian"], lifetime: "durable" })).toEqual(criterion);
   });
 
+  it("gives a time window a stable key criterion and a composed label", () => {
+    const payload = {
+      kind: "time" as const,
+      window: {
+        start: "2026-09-02T12:00:00+02:00",
+        end: "2026-09-02T14:00:00+02:00",
+      },
+      phrase: "open tomorrow for lunch",
+    };
+    expect(criterionFor(payload, {
+      timezone: "Europe/Berlin",
+      now: new Date("2026-09-01T10:00:00+02:00"),
+    })).toEqual({
+      id: "open:2026-09-02T12:00:00+02:00-2026-09-02T14:00:00+02:00",
+      kind: "key",
+      key: "open:2026-09-02T12:00:00+02:00-2026-09-02T14:00:00+02:00",
+      label: "open tomorrow 12:00–14:00 (Wed)",
+    });
+  });
+
   it("does not create lookup work for budget or scope predicates", () => {
     expect(criterionFor({ kind: "budget", perPersonMax: { amount: 20, currency: "EUR" } })).toBeNull();
     expect(criterionFor({ kind: "scope", dimension: "walk_min", max: 10 })).toBeNull();

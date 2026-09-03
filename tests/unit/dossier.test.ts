@@ -37,16 +37,38 @@ describe("booleanAttr", () => {
 });
 
 describe("parseOpeningHours", () => {
-  it("handles the common subset", () => {
+  it("keeps a single weekday range and the 24/7 shorthand", () => {
     expect(parseOpeningHours("24/7")).toHaveLength(7);
-    expect(parseOpeningHours("Mo-Fr 08:00-18:00; Sa 10:00-14:00")).toEqual([
-      { day: "mon", open: "08:00", close: "18:00" },
-      { day: "tue", open: "08:00", close: "18:00" },
-      { day: "wed", open: "08:00", close: "18:00" },
-      { day: "thu", open: "08:00", close: "18:00" },
-      { day: "fri", open: "08:00", close: "18:00" },
-      { day: "sat", open: "10:00", close: "14:00" },
+    expect(parseOpeningHours("Mo-Fr 11:00-23:00")).toHaveLength(5);
+  });
+
+  it("splits midnight-crossing ranges onto the following weekdays", () => {
+    expect(parseOpeningHours("Sa,Su 12:00-02:00")).toEqual([
+      { day: "mon", open: "00:00", close: "02:00" },
+      { day: "sat", open: "12:00", close: "23:59" },
+      { day: "sun", open: "00:00", close: "02:00" },
+      { day: "sun", open: "12:00", close: "23:59" },
     ]);
+  });
+
+  it("applies closed overrides and retains every range added for a day", () => {
+    expect(parseOpeningHours("Mo-Fr 08:00-18:00; Tu off")?.map((row) => row.day))
+      .toEqual(["mon", "wed", "thu", "fri"]);
+    expect(parseOpeningHours("Mo-Fr 11:00-14:00,18:00-23:00")?.filter((row) => row.day === "mon"))
+      .toEqual([
+        { day: "mon", open: "11:00", close: "14:00" },
+        { day: "mon", open: "18:00", close: "23:00" },
+      ]);
+  });
+
+  it("does not treat public-holiday selectors as weekdays", () => {
+    expect(parseOpeningHours("PH 10:00-12:00")).toBeNull();
+    expect(parseOpeningHours("Mo 09:00-17:00; PH closed")).toEqual([
+      { day: "mon", open: "09:00", close: "17:00" },
+    ]);
+  });
+
+  it("retains dayless and open-ended rules from the existing subset", () => {
     expect(parseOpeningHours("12:00-23:00")).toHaveLength(7);
     expect(parseOpeningHours("Sa-Su 18:00+")).toEqual([
       { day: "sat", open: "18:00", close: "23:59" },

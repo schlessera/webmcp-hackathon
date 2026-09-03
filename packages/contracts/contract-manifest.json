@@ -1,6 +1,6 @@
 {
   "toolContractVersion": "3",
-  "sha256": "84ac915f82674772605715a2aff46fa328332da2076fec34c82d8f56806be8d9",
+  "sha256": "31e0ab37b783b14e08a73185362ff37dd693abdb122d524738ae3ca001c76e73",
   "manifest": {
     "capabilityManifest": {
       "agreement": {
@@ -877,6 +877,45 @@
                 "additionalProperties": false,
                 "properties": {
                   "kind": {
+                    "const": "time",
+                    "type": "string"
+                  },
+                  "phrase": {
+                    "maxLength": 200,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "window": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "end": {
+                        "format": "date-time",
+                        "maxLength": 40,
+                        "type": "string"
+                      },
+                      "start": {
+                        "format": "date-time",
+                        "maxLength": 40,
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "start",
+                      "end"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "window"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "kind": {
                     "const": "text",
                     "type": "string"
                   },
@@ -1604,6 +1643,19 @@
                         "type": "object"
                       },
                       "type": "array"
+                    },
+                    "openNow": {
+                      "anyOf": [
+                        {
+                          "type": "null"
+                        },
+                        {
+                          "type": "boolean"
+                        },
+                        {
+                          "type": "boolean"
+                        }
+                      ]
                     },
                     "phone": {
                       "type": "string"
@@ -4495,6 +4547,45 @@
                   "required": [
                     "kind",
                     "perPersonMax"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "kind": {
+                      "const": "time",
+                      "type": "string"
+                    },
+                    "phrase": {
+                      "maxLength": 200,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "window": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "end": {
+                          "format": "date-time",
+                          "maxLength": 40,
+                          "type": "string"
+                        },
+                        "start": {
+                          "format": "date-time",
+                          "maxLength": 40,
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "start",
+                        "end"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "window"
                   ],
                   "type": "object"
                 },

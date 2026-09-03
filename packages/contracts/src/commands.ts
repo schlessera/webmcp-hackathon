@@ -76,6 +76,20 @@ export const RequirementPayload = Type.Union([
     },
     { additionalProperties: false },
   ),
+  Type.Object(
+    {
+      kind: Type.Literal("time"),
+      window: Type.Object(
+        {
+          start: Type.String({ format: "date-time", maxLength: 40 }),
+          end: Type.String({ format: "date-time", maxLength: 40 }),
+        },
+        { additionalProperties: false },
+      ),
+      phrase: Type.Optional(Type.String({ minLength: 1, maxLength: 200 })),
+    },
+    { additionalProperties: false },
+  ),
   /**
    * Free text the app cannot verify against any dossier field. Accepted so a
    * person can state a need in their own words instead of being pushed into a
