@@ -216,9 +216,9 @@ export async function adjudicateLikelyForRoom(
         `${cell.osmRef}\u0000${cell.criterionId}\u0000${cell.evidenceHash}`
       )) inFlight.add(key);
       const run = async (): Promise<void> => {
-        if (options.signal?.aborted) return;
         const started = Date.now();
         try {
+          if (options.signal?.aborted) return;
           const result = await adjudicateCells(
             admitted,
             options.mode === "on_demand" ? "interactive" : "background",

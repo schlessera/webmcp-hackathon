@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createHash } from "node:crypto";
+import { createServer as createHttpServer, type ServerResponse } from "node:http";
 import {
   apiPost,
   createTestRoom,
@@ -35,8 +36,10 @@ describe("pipeline over HTTP, WebSocket, and PostgreSQL", () => {
   let focusFastId: string;
   let sharedSlowId: string;
   let sharedFastId: string;
+  let focusGate: Awaited<ReturnType<typeof createFocusGate>>;
 
   beforeAll(async () => {
+    focusGate = await createFocusGate();
     server = await startServer({
       entrypoint: "tests/api/fixtures/refine-server.ts",
       env: {
@@ -48,6 +51,8 @@ describe("pipeline over HTTP, WebSocket, and PostgreSQL", () => {
         REFINE_IDLE_STOP_MS: "200",
         OPENAI_API_KEY: "scripted",
         PARALLEL_API_KEY: "scripted",
+        POOL_INTERACTIVE: "1",
+        SLOW_FOCUS_GATE_URL: focusGate.url,
       },
     });
     room = await createTestRoom(server.baseUrl);
@@ -130,7 +135,7 @@ describe("pipeline over HTTP, WebSocket, and PostgreSQL", () => {
         REFINE_TICK_MS: "250",
         REFINE_PLAN_WATCHDOG_MS: "500",
         REFINE_IDLE_STOP_MS: "200",
-        PIPELINE_TIMEOUT_FETCH_SITE_MS: "2500",
+        PIPELINE_TIMEOUT_FETCH_SITE_MS: "150",
         OPENAI_API_KEY: "scripted",
         PARALLEL_API_KEY: "scripted",
       },
@@ -216,6 +221,7 @@ describe("pipeline over HTTP, WebSocket, and PostgreSQL", () => {
     hangRealtime?.close();
     focusRealtime?.close();
     sharedFocusRealtime?.close();
+    focusGate?.release();
     await room?.pool.query("DELETE FROM enrichments WHERE osm_ref LIKE $1", [
       `pipeline/${room.roomId}/%`,
     ]);
@@ -232,6 +238,7 @@ describe("pipeline over HTTP, WebSocket, and PostgreSQL", () => {
     await sharedFocusRoom?.cleanup();
     await hangServer?.stop();
     await server?.stop();
+    await focusGate?.close();
   });
 
   it("drains a room with two needs and emits pipeline frames", async () => {
@@ -254,6 +261,7 @@ describe("pipeline over HTTP, WebSocket, and PostgreSQL", () => {
     expect(pipelineFrames().some((frame) =>
       frame.outstanding.process + frame.inFlight.process > 0
     )).toBe(true);
+    expect(pipelineFrames().some((frame) => frame.done > 0)).toBe(true);
     expect(server.logs().split("\n").filter((line) =>
       line.includes('"msg":"pipeline loop started"') &&
       line.includes(`"roomId":"${room.roomId}"`)
@@ -274,7 +282,7 @@ describe("pipeline over HTTP, WebSocket, and PostgreSQL", () => {
     const timeoutLine = hangServer.logs().split("\n").find((line) =>
       line.includes('"msg":"pipeline timeout"') && line.includes(roomMarker)
     );
-    expect(timeoutLine).toContain('"timeoutMs":2500');
+    expect(timeoutLine).toContain('"timeoutMs":150');
   });
 
   it("keeps vision and decode out of the sweep and enqueues both when a place opens", async () => {
@@ -284,11 +292,13 @@ describe("pipeline over HTTP, WebSocket, and PostgreSQL", () => {
       server.baseUrl,
       "/api/spatial/inspect",
       room.tokens.org,
-      { candidateIds: [candidateId] },
+      { candidateIds: [candidateId], intent: "open" },
     );
     expect(response.body.ok).toBe(true);
     await waitFor(() => countLog("pipeline-enqueue process.decode") > 0, 8_000, () => server.logs());
     await waitFor(() => countLog("pipeline-enqueue process.vision") > 0, 8_000, () => server.logs());
+    await waitFor(() => terminalFrame(realtime.frames(), candidateId, "complete"), 8_000, () =>
+      realtime.frames().join("|"));
   });
 
   it("returns cached inspect_candidates content immediately and streams the open fast track", async () => {
@@ -298,7 +308,7 @@ describe("pipeline over HTTP, WebSocket, and PostgreSQL", () => {
       server.baseUrl,
       "/api/spatial/inspect",
       room.tokens.org,
-      { candidateIds: [candidateId], intent: "open" },
+      { candidateIds: [candidateId], intent: "open", force: true },
     );
     const elapsedMs = performance.now() - started;
     expect(response.body.ok).toBe(true);
@@ -311,6 +321,7 @@ describe("pipeline over HTTP, WebSocket, and PostgreSQL", () => {
   });
 
   it("supersedes a slow open so the next place completes first", async () => {
+    focusGate.reset();
     const nonce = Date.now();
     await focusRoom.pool.query(
       `UPDATE candidates
@@ -332,7 +343,7 @@ describe("pipeline over HTTP, WebSocket, and PostgreSQL", () => {
       candidateIds: [focusSlowId],
       intent: "open",
     });
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    await focusGate.waitForWaiter();
     await apiPost(server.baseUrl, "/api/spatial/inspect", focusRoom.tokens.org, {
       candidateIds: [focusFastId],
       intent: "open",
@@ -342,18 +353,29 @@ describe("pipeline over HTTP, WebSocket, and PostgreSQL", () => {
       focusFastId,
       "complete",
     ), 4_000, () => `slow=${focusSlowId} fast=${focusFastId} ${focusRealtime.frames().slice(frameStart).join("|")}`);
-    expect(terminalFrame(focusRealtime.frames().slice(frameStart), focusSlowId)).toBe(false);
+    focusGate.release();
+    expect(terminalFrame(
+      focusRealtime.frames().slice(frameStart),
+      focusSlowId,
+      "complete",
+    )).toBe(false);
     await waitFor(() => terminalFrame(
       focusRealtime.frames().slice(frameStart),
       focusSlowId,
       "aborted",
     ), 4_000, () => focusRealtime.frames().slice(frameStart).join("|"));
-    expect(server.logs()).toContain(
-      `"msg":"interactive focus demoted","roomId":"${focusRoom.roomId}","candidateId":"${focusSlowId}"`,
+    const abandoned = server.logs().split("\n").find((line) =>
+      line.includes(`"msg":"interactive focus abandoned"`) &&
+      line.includes(`"roomId":"${focusRoom.roomId}"`) &&
+      line.includes(`"candidateId":"${focusSlowId}"`)
     );
+    // The only slow item owns the pool slot by this point. Its abort, rather
+    // than a queued drop, is what lets the fast open finish with the gate shut.
+    expect(abandoned).toContain('"dropped":0');
   });
 
   it("keeps a shared place plan alive when its first participant moves on", async () => {
+    focusGate.reset();
     const nonce = Date.now();
     await sharedFocusRoom.pool.query(
       `UPDATE candidates
@@ -371,25 +393,25 @@ describe("pipeline over HTTP, WebSocket, and PostgreSQL", () => {
       ],
     );
     const frameStart = sharedFocusRealtime.frames().length;
-    await Promise.all([
-      apiPost(server.baseUrl, "/api/spatial/inspect", sharedFocusRoom.tokens.org, {
-        candidateIds: [sharedSlowId], intent: "open",
-      }),
-      apiPost(server.baseUrl, "/api/spatial/inspect", sharedFocusRoom.tokens.sarah, {
-        candidateIds: [sharedFastId], intent: "open",
-      }),
-    ]);
+    await apiPost(server.baseUrl, "/api/spatial/inspect", sharedFocusRoom.tokens.sarah, {
+      candidateIds: [sharedFastId], intent: "open", force: true,
+    });
     await waitFor(() => terminalFrame(
       sharedFocusRealtime.frames().slice(frameStart),
       sharedFastId,
       "complete",
     ), 2_000, () => sharedFocusRealtime.frames().slice(frameStart).join("|"));
+    await apiPost(server.baseUrl, "/api/spatial/inspect", sharedFocusRoom.tokens.org, {
+      candidateIds: [sharedSlowId], intent: "open", force: true,
+    });
+    await focusGate.waitForWaiter();
     await apiPost(server.baseUrl, "/api/spatial/inspect", sharedFocusRoom.tokens.sarah, {
       candidateIds: [sharedSlowId], intent: "open",
     });
     await apiPost(server.baseUrl, "/api/spatial/inspect", sharedFocusRoom.tokens.org, {
       candidateIds: [sharedFastId], intent: "open",
     });
+    focusGate.release();
     await waitFor(() => terminalFrame(
       sharedFocusRealtime.frames().slice(frameStart),
       sharedSlowId,
@@ -404,7 +426,7 @@ describe("pipeline over HTTP, WebSocket, and PostgreSQL", () => {
 
   it("publishes an immediate terminal frame inside the floor and facts-driven reads run none", async () => {
     const planMarker = `\"candidateId\":\"${openCandidateId}\"`;
-    const modelMarker = `scripted-matrix-call candidates=${openCandidateId}`;
+    const modelMarker = `scripted-matrix-call candidates=${openCandidateId} serviceTier=default`;
     const plans = countLog(planMarker);
     const modelCalls = countLog(modelMarker);
     const firstOpen = await apiPost<{ ok: boolean }>(
@@ -437,8 +459,9 @@ describe("pipeline over HTTP, WebSocket, and PostgreSQL", () => {
       };
       return frame.type === "facts" && frame.candidateIds?.includes(openCandidateId) &&
         frame.done === true && frame.completionReason === "floor" &&
-        (frame as { reason?: string }).reason === "floor";
+        (frame as { reason?: string }).reason === "interactive";
     })).toBe(true);
+    expect(countLog(modelMarker), server.logs()).toBe(callsAfterFirst);
 
     const factsRead = await apiPost<{ ok: boolean }>(
       server.baseUrl,
@@ -449,6 +472,7 @@ describe("pipeline over HTTP, WebSocket, and PostgreSQL", () => {
     expect(factsRead.body.ok).toBe(true);
     await new Promise((resolve) => setTimeout(resolve, 300));
     expect(countLog(planMarker), server.logs()).toBe(plans + 1);
+    expect(countLog(modelMarker), server.logs()).toBe(callsAfterFirst);
 
     const freeWifiCriterion = `q:${createHash("sha1").update("free wifi").digest("hex")}`;
     await openRoom.pool.query(
@@ -603,4 +627,49 @@ async function waitFor(
     }
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
+}
+
+async function createFocusGate(): Promise<{
+  url: string;
+  reset(): void;
+  release(): void;
+  waitForWaiter(): Promise<void>;
+  close(): Promise<void>;
+}> {
+  const waiting = new Set<ServerResponse>();
+  const waiterReady = new Set<() => void>();
+  let released = false;
+  const gate = createHttpServer((_request, response) => {
+    if (released) {
+      response.writeHead(204).end();
+      return;
+    }
+    waiting.add(response);
+    response.once("close", () => waiting.delete(response));
+    for (const resolve of waiterReady) resolve();
+    waiterReady.clear();
+  });
+  await new Promise<void>((resolve, reject) => {
+    gate.once("error", reject);
+    gate.listen(0, "127.0.0.1", resolve);
+  });
+  const address = gate.address();
+  if (!address || typeof address === "string") throw new Error("focus gate did not bind");
+  return {
+    url: `http://127.0.0.1:${address.port}`,
+    reset() {
+      released = false;
+    },
+    release() {
+      released = true;
+      for (const response of [...waiting]) response.writeHead(204).end();
+    },
+    waitForWaiter() {
+      if (waiting.size > 0) return Promise.resolve();
+      return new Promise<void>((resolve) => waiterReady.add(resolve));
+    },
+    close: () => new Promise((resolve, reject) => {
+      gate.close((error) => error ? reject(error) : resolve());
+    }),
+  };
 }

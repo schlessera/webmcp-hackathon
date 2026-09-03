@@ -78,19 +78,19 @@ interface InteractiveFocus {
 }
 const interactiveInFlight = new Map<string, InteractivePlan>();
 const interactiveFocus = new Map<string, InteractiveFocus>();
+const interactivePlanGenerations = new Map<string, number>();
 
-function demoteInteractive(focus: InteractiveFocus): void {
-  const ranking = new Map(
-    pipelineScheduler.queue.roomItems(focus.roomId)
-      .filter((item) => item.intent === "interactive" && item.candidateId === focus.candidateId)
-      .map((item) => [item.dedupeKey, 2 as const]),
+function abandonInteractive(focus: InteractiveFocus): void {
+  const dropped = pipelineScheduler.dropQueued(
+    focus.roomId,
+    (item) => item.intent === "interactive" && item.candidateId === focus.candidateId,
   );
-  const changed = pipelineScheduler.reprioritise(focus.roomId, ranking);
+  focus.controller.abort(new DOMException("interactive focus moved", "AbortError"));
   console.info(JSON.stringify({
-    msg: "interactive focus demoted",
+    msg: "interactive focus abandoned",
     roomId: focus.roomId,
     candidateId: focus.candidateId,
-    queued: changed.length,
+    dropped: dropped.length,
   }));
 }
 
@@ -102,8 +102,7 @@ function releaseFocus(participantId: string, roomId?: string): void {
     (focus) => focus.controller === previous.controller,
   );
   if (shared) return;
-  previous.controller.abort(new DOMException("interactive focus moved", "AbortError"));
-  demoteInteractive(previous);
+  abandonInteractive(previous);
 }
 
 function focusController(
@@ -118,7 +117,10 @@ function focusController(
   ) return previous.controller;
   releaseFocus(participantId);
   const key = prefetchKey(roomId, candidateId);
-  const controller = interactiveInFlight.get(key)?.controller ??
+  const inFlight = interactiveInFlight.get(key);
+  const controller = (inFlight && !inFlight.controller.signal.aborted
+    ? inFlight.controller
+    : undefined) ??
     [...interactiveFocus.values()].find(
       (focus) => focus.roomId === roomId && focus.candidateId === candidateId &&
         !focus.controller.signal.aborted,
@@ -151,15 +153,13 @@ function publishInteractive(
     completionReason?: NonNullable<FactsMessage["completionReason"]>;
   },
 ): void {
-  const reason = detail.done && detail.completionReason && detail.completionReason !== "complete"
-    ? detail.completionReason
-    : "interactive";
   publishFacts(roomId, {
     type: "facts",
     candidateIds: [candidateId],
-    reason,
+    reason: "interactive",
     ...detail,
   });
+  if (detail.done) pipelineScheduler.frames.complete(roomId, candidateId);
 }
 
 function runInteractiveTarget(
@@ -169,7 +169,8 @@ function runInteractiveTarget(
 ): Promise<void> {
   const key = prefetchKey(roomId, target.candidateId);
   const existing = interactiveInFlight.get(key);
-  if (existing) return existing.promise;
+  if (existing && !existing.controller.signal.aborted) return existing.promise;
+  if (existing) interactiveInFlight.delete(key);
   const controller = options.controller ?? (options.participantId
     ? focusController(options.participantId, roomId, target.candidateId)
     : new AbortController());
@@ -177,13 +178,16 @@ function runInteractiveTarget(
     publishInteractive(roomId, target.candidateId, { done: true, completionReason: "aborted" });
     return Promise.resolve();
   }
+  const needsEpoch = refinementNeedsEpoch(roomId);
   if (!prefetchManager.admitInteractiveOpen(key, {
     force: options.force,
-    needsEpoch: refinementNeedsEpoch(roomId),
+    needsEpoch,
   })) {
     publishInteractive(roomId, target.candidateId, { done: true, completionReason: "floor" });
     return Promise.resolve();
   }
+  const generation = (interactivePlanGenerations.get(key) ?? 0) + 1;
+  interactivePlanGenerations.set(key, generation);
   publishInteractive(roomId, target.candidateId, { stage: "queued" });
   const budget = new InteractiveBudget(() => wakeRefinement(roomId));
   const before = responseMetrics();
@@ -191,7 +195,7 @@ function runInteractiveTarget(
   const changed = new Set<string>();
   let currentStage: InteractiveStage = "queued";
   let stageStarted = Date.now();
-  let budgetRefused = false;
+  let hourlyBudgetRefused = false;
   let failed = false;
   const beginStage = (stage: InteractiveStage) => {
     if (stage === currentStage) return;
@@ -225,11 +229,10 @@ function runInteractiveTarget(
       budget,
       consumeModelCall: (candidateRoomId, now) => {
         const admitted = consumeInteractiveModelCall(candidateRoomId, now);
-        if (!admitted) budgetRefused = true;
+        if (!admitted) hourlyBudgetRefused = true;
         return admitted;
       },
       deferExcess: () => {
-        budgetRefused = true;
         wakeRefinement(roomId);
       },
     }).catch((error) => {
@@ -248,10 +251,14 @@ function runInteractiveTarget(
       pageCache,
       signal: controller.signal,
       consumeModelCall: (candidateRoomId, now) => {
-        const admitted = budget.take("model") && consumeInteractiveModelCall(candidateRoomId, now);
-        if (!admitted) budgetRefused = true;
-        if (!admitted) wakeRefinement(candidateRoomId);
-        return admitted;
+        if (!budget.take("model")) {
+          wakeRefinement(candidateRoomId);
+          return false;
+        }
+        const withinHourlyBucket = consumeInteractiveModelCall(candidateRoomId, now);
+        if (!withinHourlyBucket) hourlyBudgetRefused = true;
+        if (!withinHourlyBucket) wakeRefinement(candidateRoomId);
+        return withinHourlyBucket;
       },
     }).catch((error) => {
       if (controller.signal.aborted) throw error;
@@ -281,7 +288,7 @@ function runInteractiveTarget(
         changed: [],
       };
     });
-    budgetRefused ||= search.budgetRefused;
+    hourlyBudgetRefused ||= search.budgetRefused;
     if (search.searched) {
       paidSearches = search.paidSearch ? 1 : 0;
     }
@@ -305,17 +312,26 @@ function runInteractiveTarget(
         : (inputTokens * rates.input + outputTokens * rates.output) / 1_000_000);
     const roundedCostUsd = Number(costUsd.toFixed(6));
     const usage = budget.snapshot();
+    const completionReason: NonNullable<FactsMessage["completionReason"]> = controller.signal.aborted
+      ? "aborted"
+      : hourlyBudgetRefused
+        ? "budget"
+        : failed
+          ? "error"
+          : "complete";
+    if (interactivePlanGenerations.get(key) === generation) {
+      interactivePlanGenerations.delete(key);
+      if (completionReason === "complete") {
+        prefetchManager.completeInteractiveOpen(key, { needsEpoch });
+      } else {
+        prefetchManager.clearInteractiveOpen(key);
+      }
+    }
     publishInteractive(roomId, target.candidateId, {
       done: true,
       steps,
       costUsd: roundedCostUsd,
-      completionReason: controller.signal.aborted
-        ? "aborted"
-        : budgetRefused
-          ? "budget"
-          : failed
-            ? "error"
-            : "complete",
+      completionReason,
     });
     console.info(JSON.stringify({
       msg: "interactive open cost",
@@ -337,16 +353,25 @@ function runInteractiveTarget(
 export async function openCandidate(
   roomId: string,
   candidateId: string,
-  options: { force?: boolean; participantId?: string } = {},
+  options: {
+    force?: boolean;
+    participantId?: string;
+    candidate?: {
+      osm_ref: string | null;
+      name: string;
+      location: { lat: number; lng: number };
+      extras: Record<string, unknown> | null;
+    };
+  } = {},
 ): Promise<void> {
+  const row = options.candidate ?? (await pool.query(
+      "SELECT id, osm_ref, name, location, extras FROM candidates WHERE room_id = $1 AND id = $2",
+      [roomId, candidateId],
+    )).rows[0];
+  if (!row) return;
   const controller = options.participantId
     ? focusController(options.participantId, roomId, candidateId)
     : undefined;
-  const row = (await pool.query(
-    "SELECT id, osm_ref, name, location, extras FROM candidates WHERE room_id = $1 AND id = $2",
-    [roomId, candidateId],
-  )).rows[0];
-  if (!row) return;
   const target = lookupTargetOf(row as {
     osm_ref: string | null;
     name: string;
@@ -758,8 +783,10 @@ export async function inspectCandidates(
       },
     };
   }
-  const targets = lookupRows
-    .map((row) => {
+  const lookupById = new Map(lookupRows.map((row) => [row.id as string, row]));
+  const targets = candidateIds
+    .map((candidateId) => {
+      const row = lookupById.get(candidateId)!;
       const target = lookupTargetOf(
         row as { osm_ref: string | null; name: string; location: { lat: number; lng: number }; extras: Record<string, unknown> | null },
       );
@@ -771,11 +798,13 @@ export async function inspectCandidates(
     if (options.intent === "open") {
       // Cache is returned immediately. Each place then owns an independent
       // bounded plan, so inspecting three candidates cannot pool their budgets.
-      for (const target of targets) {
-        const controller = focusController(actor.id, actor.roomId, target.candidateId);
+      for (const [index, target] of targets.entries()) {
+        const controller = index === 0
+          ? focusController(actor.id, actor.roomId, target.candidateId)
+          : new AbortController();
         void runInteractiveTarget(actor.roomId, target, {
           force: options.force,
-          participantId: actor.id,
+          ...(index === 0 ? { participantId: actor.id } : {}),
           controller,
         });
       }

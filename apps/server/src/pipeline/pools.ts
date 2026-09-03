@@ -101,11 +101,11 @@ export type PipelinePools = Record<PoolName, PipelinePool>;
 export const RESERVED_PRIORITY_ZERO: Readonly<Record<PoolName, number>> = {
   interactive: 0,
   proxy: 0,
-  direct: 2,
-  search: 1,
-  "llm-matrix": 1,
-  vision: 1,
-  "image-decode": 1,
+  direct: 0,
+  search: 0,
+  "llm-matrix": 0,
+  vision: 0,
+  "image-decode": 0,
 };
 
 export function createPipelinePools(

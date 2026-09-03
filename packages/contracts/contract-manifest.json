@@ -1,6 +1,6 @@
 {
   "toolContractVersion": "3",
-  "sha256": "8621d67a4cc9cc3bf6c8309bba226fbb778dc2c1faa5acd7c10b66cfc562328a",
+  "sha256": "f67868d63d00c1c78402e160c972ca0c0519c03c9d2498422103878fbe837fef",
   "manifest": {
     "capabilityManifest": {
       "agreement": {
@@ -3164,15 +3164,15 @@
                     "type": "string"
                   },
                   {
+                    "const": "complete",
+                    "type": "string"
+                  },
+                  {
                     "const": "floor",
                     "type": "string"
                   },
                   {
                     "const": "aborted",
-                    "type": "string"
-                  },
-                  {
-                    "const": "complete",
                     "type": "string"
                   }
                 ]
@@ -3193,14 +3193,6 @@
               "reason": {
                 "anyOf": [
                   {
-                    "const": "budget",
-                    "type": "string"
-                  },
-                  {
-                    "const": "error",
-                    "type": "string"
-                  },
-                  {
                     "const": "confirmation",
                     "type": "string"
                   },
@@ -3218,14 +3210,6 @@
                   },
                   {
                     "const": "interactive",
-                    "type": "string"
-                  },
-                  {
-                    "const": "floor",
-                    "type": "string"
-                  },
-                  {
-                    "const": "aborted",
                     "type": "string"
                   }
                 ]

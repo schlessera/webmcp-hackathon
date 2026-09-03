@@ -42,7 +42,8 @@ export class PipelineFrames {
   }
 
   update(item: PipelineItem, stage: PipelineStage | null, reason?: FrameReason): void {
-    const room = this.state(item.roomId);
+    const room = this.rooms.get(item.roomId) ?? (stage === null ? undefined : this.state(item.roomId));
+    if (!room) return;
     if (stage === null) room.entries.delete(item.dedupeKey);
     else {
       room.stalled.delete(item.candidateId);
@@ -56,6 +57,21 @@ export class PipelineFrames {
     const room = this.state(item.roomId);
     room.stalled.add(item.candidateId);
     this.schedule(item.roomId, room.quiet);
+  }
+
+  /** A terminal interactive plan supersedes any remembered deadline stall. */
+  complete(roomId: string, candidateId: string): void {
+    const room = this.rooms.get(roomId);
+    if (!room || !room.stalled.delete(candidateId)) return;
+    this.schedule(roomId, room.quiet);
+  }
+
+  /** A new volume/needs epoch makes stalls from the prior plan irrelevant. */
+  resetEpoch(roomId: string): void {
+    const room = this.rooms.get(roomId);
+    if (!room || room.stalled.size === 0) return;
+    room.stalled.clear();
+    this.schedule(roomId, room.quiet);
   }
 
   changed(roomId: string): void {
@@ -118,7 +134,10 @@ export class PipelineFrames {
   private schedule(roomId: string, immediate: boolean): void {
     const room = this.state(roomId);
     if (room.timer) return;
-    if (immediate) this.emit(roomId, room);
+    if (immediate) {
+      this.emit(roomId, room);
+      if (!this.rooms.has(roomId)) return;
+    }
     room.timer = setTimeout(() => {
       room.timer = undefined;
       this.emit(roomId, room);
@@ -155,6 +174,10 @@ export class PipelineFrames {
       for (const listener of this.lookupsListeners) listener(roomId, lookups);
     }
     room.quiet = lookups.pending.length === 0;
+    if (
+      room.entries.size === 0 && room.sentStages.size === 0 && room.stalled.size === 0 &&
+      !room.timer
+    ) this.rooms.delete(roomId);
   }
 
   private safeReason(reason?: FrameReason): FrameReason | undefined {

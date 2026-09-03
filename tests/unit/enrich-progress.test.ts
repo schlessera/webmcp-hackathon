@@ -6,6 +6,7 @@ import {
   LOOKUP_DEADLINE_MS,
   onLookupProgress,
   resetProgress,
+  resolveLookupReason,
 } from "../../apps/server/src/enrich/progress.ts";
 
 const stages = (candidateIds: string[]) =>
@@ -121,6 +122,13 @@ describe("lookup progress", () => {
       kind: "refine",
       label: "step-free access",
     });
+  });
+
+  it("keeps a refinement reason when another pending producer is unlabelled", () => {
+    expect(resolveLookupReason([
+      undefined,
+      { kind: "refine", label: "step-free access" },
+    ])).toEqual({ kind: "refine", label: "step-free access" });
   });
 
   it("drops a label rather than letting one need speak for two", () => {

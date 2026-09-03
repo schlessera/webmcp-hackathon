@@ -918,7 +918,12 @@ export async function searchInteractiveCandidate(
     wakeRefinement(roomId);
     return empty;
   }
-  if (!budget.take("search") || !interactiveSearchBudget.consume(roomId, 1, Date.now())) {
+  if (!budget.take("search")) {
+    wakeRefinement(roomId);
+    return empty;
+  }
+  if (signal?.aborted) return empty;
+  if (!interactiveSearchBudget.consume(roomId, 1, Date.now())) {
     wakeRefinement(roomId);
     return { ...empty, budgetRefused: true };
   }
@@ -942,12 +947,17 @@ export async function searchInteractiveCandidate(
     signal,
     pipeline: { roomId, needsEpoch: stateFor(roomId).cursorEpoch, priority: 0, intent: "interactive" },
   });
-  if (signal?.aborted) return empty;
   const paidSearch = Boolean(process.env.PARALLEL_API_KEY && found && !found.cacheHit);
+  if (signal?.aborted) return { ...empty, searched: true, paidSearch };
   if (!found || found.results.length === 0) {
     return { ...empty, searched: true, paidSearch };
   }
-  if (!budget.take("model") || !interactiveModelBudget.consume(roomId, 1, Date.now())) {
+  if (!budget.take("model")) {
+    wakeRefinement(roomId);
+    return { ...empty, searched: true, paidSearch };
+  }
+  if (signal?.aborted) return { ...empty, searched: true, paidSearch };
+  if (!interactiveModelBudget.consume(roomId, 1, Date.now())) {
     wakeRefinement(roomId);
     return { ...empty, searched: true, paidSearch, budgetRefused: true };
   }

@@ -80,7 +80,11 @@ function positiveTimeout(value: string | undefined, fallback: number): number {
 }
 
 export function poolForKind(item: PipelineItem, route?: OutboundRoute): PoolName {
-  if (item.intent === "interactive") return "interactive";
+  if (
+    item.intent === "interactive" &&
+    (item.kind === "fetch.site" || item.kind === "process.judge" ||
+      item.kind === "fetch.search" || item.kind === "process.adjudicate")
+  ) return "interactive";
   if (item.kind === "fetch.search") return "search";
   if (item.kind === "fetch.site" || item.kind === "fetch.asset") return route ?? "direct";
   if (item.kind === "process.vision") return "vision";
@@ -188,12 +192,18 @@ export class PipelineScheduler {
         first = await withSignal(dispatch(route, 0, signal), signal);
       } catch (error) {
         if (planned.intent !== "interactive" || route !== "direct" || !blockShapedError(error)) throw error;
-        const retried = await withSignal(dispatch("proxy", 1, signal), signal);
+        const retried = await this.pools.proxy.submit(
+          () => withSignal(dispatch("proxy", 1, signal), signal),
+          planned.priority,
+        );
         this.routeCompletions[retried.actualRoute] += 1;
         return retried.value;
       }
       if (planned.intent === "interactive" && route === "direct" && blockShaped(first)) {
-        const retried = await withSignal(dispatch("proxy", 1, signal), signal);
+        const retried = await this.pools.proxy.submit(
+          () => withSignal(dispatch("proxy", 1, signal), signal),
+          planned.priority,
+        );
         this.routeCompletions[retried.actualRoute] += 1;
         return retried.value;
       }
@@ -324,6 +334,7 @@ export class PipelineScheduler {
     }
     if (epochChanged) {
       this.volume.reset(roomId);
+      this.frames.resetEpoch(roomId);
       for (const item of this.queue.roomItems(roomId)) this.volume.enqueue(item);
       for (const item of this.inFlight.values()) {
         if (item.roomId !== roomId) continue;

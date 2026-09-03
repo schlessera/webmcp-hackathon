@@ -127,8 +127,7 @@ describe("refinement pipeline", () => {
     expect(finished).toHaveLength(7);
     await vi.advanceTimersByTimeAsync(1);
     await expect(job).resolves.toHaveLength(8);
-    // One of the four slots is reserved for a priority-zero search.
-    expect(pipelineScheduler.pools.search.maxInFlight).toBe(3);
+    expect(pipelineScheduler.pools.search.maxInFlight).toBe(4);
   });
 
   it("never contributes a private need to a pipeline search query", async () => {
@@ -268,6 +267,10 @@ describe("refinement pipeline", () => {
     }));
     await refreshAssetsThroughPipeline({ ...base, intent: "interactive" });
     expect(kinds).toEqual(["fetch.asset", "process.decode", "process.vision"]);
+    expect(scheduler.pools.interactive.maxInFlight).toBe(0);
+    expect(scheduler.pools.direct.maxInFlight).toBe(1);
+    expect(scheduler.pools["image-decode"].maxInFlight).toBe(1);
+    expect(scheduler.pools.vision.maxInFlight).toBe(1);
   });
 
   it("continuously refills an eight-slot pool when short tasks settle", async () => {
@@ -409,6 +412,11 @@ describe("refinement pipeline", () => {
     expect(scheduler.pools.direct.inFlight).toBe(0);
     expect(scheduler.volume.snapshot("room-a").inFlight.fetch).toBe(0);
     expect(scheduler.frames.currentPipeline("room-a").stalled).toEqual(["never"]);
+    scheduler.frames.complete("room-a", "never");
+    expect(scheduler.frames.currentPipeline("room-a").stalled).toEqual([]);
+    scheduler.frames.stall(item("never"));
+    scheduler.frames.resetEpoch("room-a");
+    expect(scheduler.frames.currentPipeline("room-a").stalled).toEqual([]);
     await expect(plan).resolves.toBe(REFINE_TICK_MS);
   });
 
@@ -452,7 +460,28 @@ describe("refinement pipeline", () => {
     ]);
   });
 
-  it("isolates every interactive kind from bulk pools and honours its limit", async () => {
+  it("takes a proxy slot for an interactive direct retry", async () => {
+    const scheduler = new PipelineScheduler({
+      pools: testPools({ interactive: 1, direct: 1, proxy: 1, search: 1, "llm-matrix": 1, vision: 1, "image-decode": 1 }),
+      routeFor: () => "direct",
+      hostGateOpen: () => true,
+    });
+    const retry = controlled<void>();
+    const attempts: number[] = [];
+    const job = scheduler.enqueue(item("retry", { intent: "interactive", priority: 0 }), async (route, attempt) => {
+      attempts.push(attempt);
+      if (attempt === 0) return { value: 0, actualRoute: route ?? "direct", status: 403 };
+      await retry.promise;
+      return { value: 1, actualRoute: "proxy" };
+    });
+    await vi.waitFor(() => expect(attempts).toEqual([0, 1]));
+    expect(scheduler.pools.proxy.inFlight).toBe(1);
+    retry.resolve();
+    await expect(job).resolves.toBe(1);
+    expect(scheduler.pools.proxy.inFlight).toBe(0);
+  });
+
+  it("isolates latency-critical interactive kinds from bulk pools and honours its limit", async () => {
     const pools = testPools({
       interactive: 3,
       direct: 1,
@@ -545,6 +574,13 @@ describe("refinement pipeline", () => {
     await Promise.all(background);
   });
 
+  it("does not reserve dead priority-zero capacity in non-interactive pools", () => {
+    const pools = createPipelinePools();
+    for (const name of ["proxy", "direct", "search", "llm-matrix", "vision", "image-decode"] as const) {
+      expect(pools[name].reserved).toBe(0);
+    }
+  });
+
   it("flushes only a priority-zero place immediately and retains collected background cells", async () => {
     vi.useFakeTimers();
     const dispatched: string[][] = [];
@@ -579,11 +615,12 @@ describe("refinement pipeline", () => {
     expect(budget.take("search")).toBe(false);
     expect(budget.take("model")).toBe(true);
     expect(budget.take("model")).toBe(true);
+    expect(budget.take("model")).toBe(true);
     expect(budget.take("model")).toBe(false);
     expect(budget.take("vision")).toBe(true);
     expect(budget.take("vision")).toBe(false);
     expect(budget.snapshot()).toEqual({
-      used: { fetch: 1, search: 1, model: 2, vision: 1 },
+      used: { fetch: 1, search: 1, model: 3, vision: 1 },
       deferred: { fetch: 1, search: 1, model: 1, vision: 1 },
     });
     expect(returnedToBackground).toEqual(["fetch", "search", "model", "vision"]);
@@ -628,13 +665,15 @@ describe("refinement pipeline", () => {
     manager.reset();
   });
 
-  it("admits one interactive open per needs epoch with a sixty-second floor", () => {
+  it("records only completed interactive opens and admits a new needs epoch immediately", () => {
     const manager = new PrefetchManager();
     expect(manager.admitInteractiveOpen("room\0place", { now: 1_000, needsEpoch: 1 })).toBe(true);
+    expect(manager.admitInteractiveOpen("room\0place", { now: 1_001, needsEpoch: 1 })).toBe(true);
+    manager.completeInteractiveOpen("room\0place", { now: 1_000, needsEpoch: 1 });
     expect(manager.admitInteractiveOpen("room\0place", {
       now: 1_000 + INTERACTIVE_OPEN_FLOOR_MS - 1,
       needsEpoch: 2,
-    })).toBe(false);
+    })).toBe(true);
     expect(manager.admitInteractiveOpen("room\0place", {
       now: 1_000 + INTERACTIVE_OPEN_FLOOR_MS,
       needsEpoch: 1,
@@ -643,6 +682,10 @@ describe("refinement pipeline", () => {
       now: 1_000 + INTERACTIVE_OPEN_FLOOR_MS,
       needsEpoch: 2,
     })).toBe(true);
+    manager.completeInteractiveOpen("room\0place", {
+      now: 1_000 + INTERACTIVE_OPEN_FLOOR_MS,
+      needsEpoch: 2,
+    });
     expect(manager.admitInteractiveOpen("room\0place", {
       now: 1_000 + 2 * INTERACTIVE_OPEN_FLOOR_MS,
       needsEpoch: 2,

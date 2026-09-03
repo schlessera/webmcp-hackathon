@@ -38,6 +38,8 @@ export interface PipelineAssetContext {
   intent: "interactive" | "background";
   needsEpoch?: number;
   imageWork?: { commonsApiCalls?: number };
+  /** The focused open that owns this materialisation. */
+  signal?: AbortSignal;
   /** Called only when decoded images are ready for the single vision batch. */
   consumeVision?: () => boolean;
   fetchForRoute: (route: OutboundRoute, purpose: OutboundPurpose) => FetchLike;
@@ -55,12 +57,23 @@ function assetHash(candidate: ImageCandidate): string {
   return createHash("sha1").update(candidate.url).digest("hex");
 }
 
+function withAbort<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return promise;
+  if (signal.aborted) return Promise.reject(signal.reason);
+  return new Promise<T>((resolve, reject) => {
+    const aborted = () => reject(signal.reason);
+    signal.addEventListener("abort", aborted, { once: true });
+    void promise.then(resolve, reject).finally(() => signal.removeEventListener("abort", aborted));
+  });
+}
+
 /** On-demand asset materialisation with one scheduler item per real stage. */
 export function refreshAssetsThroughPipeline(context: PipelineAssetContext): Promise<number> {
   if (context.intent !== "interactive") return Promise.resolve(0);
   const scheduler = context.scheduler ?? pipelineScheduler;
   const needsEpoch = context.needsEpoch ?? 0;
   const prepare = async (candidate: ImageCandidate): Promise<ProcessedImage> => {
+    if (context.signal?.aborted) throw context.signal.reason;
     const purpose = assetPurpose(candidate.url);
     const host = new URL(candidate.url).hostname.toLowerCase();
     const evidenceHash = assetHash(candidate);
@@ -81,13 +94,16 @@ export function refreshAssetsThroughPipeline(context: PipelineAssetContext): Pro
     const downloaded = await scheduler.enqueue(
       { ...fetchBase, dedupeKey: pipelineDedupeKey(fetchBase) },
       async (route, _attempt, signal) => {
+        const dispatchSignal = context.signal && signal
+          ? AbortSignal.any([context.signal, signal])
+          : context.signal ?? signal;
         const fetcher = context.fetchForRoute(route ?? "direct", purpose);
         return {
           value: await fetchPlaceImageBytes(candidate, (url, init = {}) => fetcher(url, {
             ...init,
-            signal: signal && init.signal
-              ? AbortSignal.any([signal, init.signal])
-              : signal ?? init.signal,
+            signal: dispatchSignal && init.signal
+              ? AbortSignal.any([dispatchSignal, init.signal])
+              : dispatchSignal ?? init.signal,
           })),
           actualRoute: route ?? "direct",
         };
@@ -102,8 +118,8 @@ export function refreshAssetsThroughPipeline(context: PipelineAssetContext): Pro
     };
     const decoded = await scheduler.enqueue(
       { ...decodeBase, dedupeKey: pipelineDedupeKey(decodeBase) },
-      async () => ({
-        value: await resizePlaceImage(
+      async (_route, _attempt, signal) => ({
+        value: await withAbort(resizePlaceImage(
           downloaded.bytes,
           candidate.imagePolicy
             ? {
@@ -111,7 +127,7 @@ export function refreshAssetsThroughPipeline(context: PipelineAssetContext): Pro
                 height: candidate.imagePolicy.minimumHeight,
               }
             : undefined,
-        ),
+        ), context.signal && signal ? AbortSignal.any([context.signal, signal]) : context.signal ?? signal),
         actualRoute: "direct",
       }),
       { reason: { kind: "place" }, present: true },
@@ -122,6 +138,7 @@ export function refreshAssetsThroughPipeline(context: PipelineAssetContext): Pro
     placeName: string,
     images: Array<{ bytes: Uint8Array }>,
   ): Promise<ClassifiedImageBatch> => {
+    if (context.signal?.aborted) throw context.signal.reason;
     if (context.consumeVision && !context.consumeVision()) {
       return classifyPlaceImages(placeName, [], context.intent);
     }
@@ -142,8 +159,11 @@ export function refreshAssetsThroughPipeline(context: PipelineAssetContext): Pro
     };
     return scheduler.enqueue(
       { ...base, dedupeKey: pipelineDedupeKey(base) },
-      async () => ({
-        value: await classifyPlaceImages(placeName, images, context.intent),
+      async (_route, _attempt, signal) => ({
+        value: await withAbort(
+          classifyPlaceImages(placeName, images, context.intent),
+          context.signal && signal ? AbortSignal.any([context.signal, signal]) : context.signal ?? signal,
+        ),
         actualRoute: "direct",
       }),
       { reason: { kind: "place" }, present: true },

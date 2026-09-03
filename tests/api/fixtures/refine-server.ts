@@ -16,7 +16,7 @@ pipelineScheduler.onEnqueue((item) => {
   console.info(`pipeline-enqueue ${item.kind} ${item.candidateId} priority=${item.priority}`);
 });
 
-setEnrichFetch(async (url) => {
+setEnrichFetch(async (url, init) => {
   const parsedUrl = new URL(url);
   console.info(`scripted-site-fetch ${parsedUrl.hostname}`);
   if (parsedUrl.hostname === "hang-forever.example") {
@@ -24,7 +24,9 @@ setEnrichFetch(async (url) => {
   }
   if (url.endsWith("/robots.txt")) return new Response("", { status: 200 });
   if (parsedUrl.hostname === "slow-focus.example") {
-    await new Promise((resolve) => setTimeout(resolve, 1_500));
+    const gateUrl = process.env.SLOW_FOCUS_GATE_URL;
+    if (!gateUrl) throw new Error("SLOW_FOCUS_GATE_URL is required for slow-focus.example");
+    await fetch(gateUrl, { signal: init?.signal });
   }
   if (url.includes("/venue-") && url.endsWith(".png")) {
     return new Response(SCRIPTED_IMAGE, {
@@ -134,7 +136,7 @@ setTransport(async (body) => {
     criteria: Array<{ id: string; kind: string; text?: string }>;
   };
   console.info(
-    `scripted-matrix-call candidates=${matrix.places.map((place) => place.candidateId).join(",")} cells=${matrix.places.length * matrix.criteria.length}`,
+    `scripted-matrix-call candidates=${matrix.places.map((place) => place.candidateId).join(",")} serviceTier=${String(body.service_tier ?? "default")} cells=${matrix.places.length * matrix.criteria.length}`,
   );
   if (
     matrix.criteria.some((criterion) => criterion.kind === "key") &&

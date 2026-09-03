@@ -151,11 +151,7 @@ export interface FactsMessage {
     | "inference"
     | "pool"
     | "confirmation"
-    | "interactive"
-    | "floor"
-    | "budget"
-    | "aborted"
-    | "error";
+    | "interactive";
   /**
    * The open fast track (reason "interactive", one candidate): which step
    * just landed — the place's site, the needs judgement, the photos, a web

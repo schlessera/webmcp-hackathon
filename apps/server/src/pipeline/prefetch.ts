@@ -60,10 +60,9 @@ export class PrefetchManager {
   }
 
   /**
-   * Admit one plan per room/place/need epoch, never more often than the floor.
+   * Admit one completed plan per room/place/need epoch. The in-flight plan map
+   * collapses races; this map applies only after a plan records completion.
    * `force` is the explicit person's "Look again" escape hatch.
-   * The timestamp is taken on admission so two requests racing before either
-   * has reached its first await still collapse to one plan.
    */
   admitInteractiveOpen(
     key: string,
@@ -74,11 +73,28 @@ export class PrefetchManager {
     const needsEpoch = options.needsEpoch ?? 0;
     const previous = this.interactiveOpened.get(key);
     if (!options.force && previous) {
+      // A new need set is always admissible, even inside the time floor.
+      if (previous.needsEpoch !== needsEpoch) return true;
+      // Within one epoch the completed plan remains authoritative. Retain the
+      // explicit floor branch because callers present this refusal as `floor`.
       if (now - previous.at < INTERACTIVE_OPEN_FLOOR_MS) return false;
-      if (previous.needsEpoch === needsEpoch) return false;
+      return false;
     }
-    this.interactiveOpened.set(key, { needsEpoch, at: now });
     return true;
+  }
+
+  completeInteractiveOpen(
+    key: string,
+    options: { now?: number; needsEpoch?: number } = {},
+  ): void {
+    this.interactiveOpened.set(key, {
+      needsEpoch: options.needsEpoch ?? 0,
+      at: options.now ?? Date.now(),
+    });
+  }
+
+  clearInteractiveOpen(key: string): void {
+    this.interactiveOpened.delete(key);
   }
 
   cancel(key: string): void {

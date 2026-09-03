@@ -23,6 +23,21 @@ const rooms = new Map<string, RoomProgress>();
 const progressListeners = new Set<ProgressListener>();
 const factsListeners = new Set<FactsListener>();
 
+/** Resolve overlapping presentation reasons without letting background work
+ * erase an active refinement label. Mixed refinement labels stay private by
+ * collapsing to the bare kind. */
+export function resolveLookupReason(
+  all: Array<LookupReason | undefined>,
+): LookupReason | undefined {
+  const refining = all.filter((candidate): candidate is LookupReason => candidate?.kind === "refine");
+  const reasons = refining.length > 0 ? refining : all;
+  const reason = reasons[0];
+  const reasonKey = reason ? JSON.stringify(reason) : undefined;
+  const agrees = reasons.every((candidate) => JSON.stringify(candidate) === reasonKey);
+  if (reason && !agrees && refining.length > 0) return { kind: "refine" };
+  return reason && (agrees || refining.length > 0) ? reason : undefined;
+}
+
 function state(roomId: string): RoomProgress {
   let room = rooms.get(roomId);
   if (!room) {
@@ -44,23 +59,12 @@ export function currentLookups(roomId: string): LookupsMessage {
   const room = rooms.get(roomId);
   const pending = room ? [...room.counts.keys()].sort() : [];
   const all = room ? [...room.batches.values()].map((batch) => batch.reason) : [];
-  const refining = all.filter((candidate) => candidate?.kind === "refine");
-  const reasons = refining.length > 0 ? refining : all;
-  const reason = reasons[0];
-  const reasonKey = reason ? JSON.stringify(reason) : undefined;
-  const agrees = reasons.every((candidate) => JSON.stringify(candidate) === reasonKey);
-  // Mixed refinement labels collapse to the bare kind rather than picking one
-  // batch's need to speak for the rest.
-  const resolved = reason && !agrees && refining.length > 0
-    ? { kind: "refine" as const }
-    : reason;
+  const resolved = resolveLookupReason(all);
   return {
     type: "lookups",
     pending,
     stages: pending.map((candidateId) => ({ candidateId, stage: "queued" as const })),
-    ...(pending.length && resolved && (agrees || refining.length > 0)
-      ? { reason: resolved }
-      : {}),
+    ...(pending.length && resolved ? { reason: resolved } : {}),
   };
 }
 

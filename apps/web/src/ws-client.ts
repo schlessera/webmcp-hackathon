@@ -272,12 +272,9 @@ export function connectRealtime(
       } else if (message.type === "facts") {
         const ids = Array.isArray(message.candidateIds) ? message.candidateIds : [];
         diagnostics.log(`facts: ${ids.length} changed (${message.reason})`);
-        const terminalInteractive = message.done === true &&
-          (message.reason === "floor" || message.reason === "budget" ||
-            message.reason === "aborted" || message.reason === "error");
         const isStage = (v: unknown): v is InteractiveStage =>
           v === "queued" || v === "site" || v === "needs" || v === "photos" || v === "web";
-        callbacks.onFacts(ids, terminalInteractive ? "interactive" : message.reason, {
+        callbacks.onFacts(ids, message.reason, {
           stage: isStage(message.stage) ? message.stage : null,
           done: message.done === true,
           steps: Array.isArray(message.steps)

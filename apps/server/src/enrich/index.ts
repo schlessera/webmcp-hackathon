@@ -1001,14 +1001,10 @@ async function scheduledLookup(
   return pipelineScheduler.enqueue(
     { ...base, dedupeKey: pipelineDedupeKey(base) },
     async (route, _attempt, deadlineSignal): Promise<DispatchResult<LookupPass>> => {
-      // A superseded open abandons queued/future legs, but a site read that
-      // already owns the interactive slot is allowed to finish into cache.
       if (signal?.aborted) throw new DOMException("prefetch cancelled", "AbortError");
-      const dispatchSignal = intent === "interactive" && priority === 0
-        ? deadlineSignal
-        : signal && deadlineSignal
-          ? AbortSignal.any([signal, deadlineSignal])
-          : signal ?? deadlineSignal;
+      const dispatchSignal = signal && deadlineSignal
+        ? AbortSignal.any([signal, deadlineSignal])
+        : signal ?? deadlineSignal;
       return {
         value: await lookup(
           db,
@@ -1035,6 +1031,7 @@ async function refreshPipelineImages(
   passCandidates: ImageCandidate[],
   budget?: InteractiveBudget,
   allowWebsiteCandidateFetch = true,
+  signal?: AbortSignal,
 ): Promise<void> {
   if (!(await imageRefreshDue(db, target.osmRef, INTERACTIVE_STALE_MS))) return;
   const passTarget: LookupTarget = {
@@ -1074,6 +1071,7 @@ async function refreshPipelineImages(
     placeName: target.placeName ?? row.name,
     candidates,
     intent: "interactive",
+    signal,
     imageWork,
     ...(budget ? { consumeVision: () => budget.take("vision") } : {}),
     fetchForRoute: (route, purpose) => pipelineImageFetch(passTarget, route, purpose),
@@ -1909,6 +1907,7 @@ async function runLookupNow(
         evaluation.imageCandidates ?? [],
         options.budget,
         !options.siteOnly,
+        options.signal,
       );
       evaluation.current = (await loadCached(pool, [evaluation.row.osm_ref!])).get(evaluation.row.osm_ref!);
       if (options.publishInteractiveStages) {

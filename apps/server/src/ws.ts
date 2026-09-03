@@ -15,7 +15,12 @@ import { onCommit, type CommitNotification } from "./commit-notifications.ts";
 import { pendingConfirmations, reissueConfirmation } from "./confirmation.ts";
 import { projectEvent } from "./projection.ts";
 import { markClosed, markOpen, presentIn, setViewing, viewingIn } from "./presence.ts";
-import { currentLookups as currentProgressLookups, onFacts, onLookupProgress } from "./enrich/progress.ts";
+import {
+  currentLookups as currentProgressLookups,
+  onFacts,
+  onLookupProgress,
+  resolveLookupReason,
+} from "./enrich/progress.ts";
 import { pipelineScheduler } from "./pipeline/scheduler.ts";
 import { clearInteractiveFocus, openCandidate, previewCandidate } from "./spatial.ts";
 import { prefetchKey, prefetchManager } from "./pipeline/prefetch.ts";
@@ -28,11 +33,11 @@ interface Connection {
   /** Per-socket identity for viewing state (two tabs, two places). */
   socketId: string;
   previewedCandidateId?: string;
+  viewingSequence: number;
 }
 let nextSocketId = 0;
 
 const connections = new Set<Connection>();
-const lastMergedLookups = new Map<string, string>();
 
 const PING_INTERVAL_MS = Number(process.env.WS_PING_INTERVAL_MS ?? 30_000);
 const PONG_TIMEOUT_MS = Number(process.env.WS_PONG_TIMEOUT_MS ?? 45_000);
@@ -89,6 +94,7 @@ const broadcastQueue = new RoomBroadcastQueue<QueuedBroadcast>(deliverQueued);
 
 export function attachWebSocket(server: Server): void {
   const wss = new WebSocketServer({ server, path: "/ws" });
+  const lastMergedLookups = new Map<string, string>();
 
   wss.on("connection", (socket) => {
     attachSocketErrorHandler(socket);
@@ -133,10 +139,11 @@ export function attachWebSocket(server: Server): void {
         // The one post-auth message: which place this page has open. Presence
         // only — it changes no room state and is never persisted.
         if (connection && isViewingMessage(message)) {
+          const viewingSequence = ++connection.viewingSequence;
           const candidateId = message.candidateId;
           if (candidateId !== null) {
             const candidate = await pool.query(
-              "SELECT 1 FROM candidates WHERE room_id = $1 AND id = $2",
+              "SELECT id, osm_ref, name, location, extras FROM candidates WHERE room_id = $1 AND id = $2",
               [connection.roomId, candidateId],
             );
             if (candidate.rowCount !== 1) {
@@ -147,15 +154,18 @@ export function attachWebSocket(server: Server): void {
               });
               return;
             }
+            if (viewingSequence !== connection.viewingSequence) return;
+            void openCandidate(connection.roomId, candidateId, {
+              participantId: connection.participantId,
+              candidate: candidate.rows[0],
+            }).catch(() => undefined);
           }
+          if (viewingSequence !== connection.viewingSequence) return;
           if (setViewing(connection.roomId, connection.participantId, connection.socketId, candidateId)) {
             await broadcastPresence(connection.roomId);
           }
-          if (candidateId !== null) {
-            void openCandidate(connection.roomId, candidateId, {
-              participantId: connection.participantId,
-            }).catch(() => undefined);
-          } else {
+          if (viewingSequence !== connection.viewingSequence) return;
+          if (candidateId === null) {
             clearInteractiveFocus(connection.participantId, connection.roomId);
           }
           return;
@@ -243,6 +253,7 @@ export function attachWebSocket(server: Server): void {
           participantId: participant.id,
           roomId: participant.roomId,
           socketId: `s${++nextSocketId}`,
+          viewingSequence: 0,
         };
         connections.add(connection);
         const becamePresent = markOpen(participant.roomId, participant.id);
@@ -285,8 +296,8 @@ export function attachWebSocket(server: Server): void {
         }
         // Presentation state follows presence on every authentication. An
         // empty frame is meaningful: it clears rings left by a dropped socket.
-        send(socket, mergedLookups(participant.roomId));
         send(socket, pipelineScheduler.frames.currentPipeline(participant.roomId));
+        send(socket, mergedLookups(participant.roomId));
       })().catch((err) => {
         // Unauthenticated input must never take the server down.
         console.error("ws message handling failed:", err);
@@ -334,7 +345,8 @@ export function attachWebSocket(server: Server): void {
     const message = mergedLookups(roomId);
     const encoded = JSON.stringify(message);
     if (lastMergedLookups.get(roomId) === encoded) return;
-    lastMergedLookups.set(roomId, encoded);
+    if (message.pending.length === 0) lastMergedLookups.delete(roomId);
+    else lastMergedLookups.set(roomId, encoded);
     enqueueRoomMessage(roomId, message);
   };
   onLookupProgress(enqueueMergedLookups);
@@ -362,9 +374,9 @@ function mergedLookups(roomId: string): LookupsMessage {
   }
   const rows = [...stages].sort(([a], [b]) => a.localeCompare(b))
     .map(([candidateId, stage]) => ({ candidateId, stage }));
-  const reasons = sources.filter((source) => source.pending.length > 0).map((source) => source.reason);
-  const encoded = new Set(reasons.map((reason) => JSON.stringify(reason)));
-  const reason = encoded.size === 1 ? reasons[0] : undefined;
+  const reason = resolveLookupReason(
+    sources.filter((source) => source.pending.length > 0).map((source) => source.reason),
+  );
   return {
     type: "lookups",
     pending: rows.map((row) => row.candidateId),

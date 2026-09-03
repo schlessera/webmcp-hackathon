@@ -10,7 +10,7 @@ export interface InteractiveUsage {
 export const INTERACTIVE_LIMITS: Readonly<InteractiveUsage> = {
   fetch: 1,
   search: 1,
-  model: 2,
+  model: 3,
   vision: 1,
 };
 
