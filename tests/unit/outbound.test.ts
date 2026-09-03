@@ -2,7 +2,6 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   circuitStateForTests,
   classifyOutboundFailure,
-  isDirectControlHost,
   outboundDiagnostics,
   outboundProviderCounts,
   outboundFetch,
@@ -194,6 +193,7 @@ describe("per-host routing state", () => {
     });
     await expect(request()).rejects.toThrow();
     await expect(request()).rejects.toThrow();
+    await expect(request()).rejects.toThrow();
     expect(circuitStateForTests("example.org").open).toBe(true);
     const direct = await request();
     expect(await direct.text()).toBe("direct");
@@ -232,6 +232,7 @@ describe("per-host routing state", () => {
     });
     await expect(request()).rejects.toThrow();
     await expect(request()).rejects.toThrow();
+    await expect(request()).rejects.toThrow();
     expect(circuitStateForTests("example.org").open).toBe(true);
     const limited = await request();
     await limited.text();
@@ -241,14 +242,19 @@ describe("per-host routing state", () => {
     expect(routes.at(-1)).toBe("example.org:proxy");
   });
 
-  it("uses a deterministic ten-percent host control group", () => {
-    expect(isDirectControlHost("example.com")).toBe(true);
-    expect(isDirectControlHost("example.org")).toBe(false);
-    expect(isDirectControlHost("EXAMPLE.COM")).toBe(true);
-    const controls = Array.from({ length: 1_000 }, (_, index) =>
-      isDirectControlHost(`venue-${index}.example.org`)
-    ).filter(Boolean).length;
-    expect(controls).toBeGreaterThanOrEqual(75);
-    expect(controls).toBeLessThanOrEqual(125);
+  it("reuses one proxy session per target host so the tunnel is not rebuilt", async () => {
+    const sessions: string[] = [];
+    setOutboundTransportForTests(async (_url, _init, context) => {
+      if (context.session) sessions.push(context.session);
+      return new Response("ok", { status: 200 });
+    });
+    const read = (url: string) =>
+      outboundFetch(url, { purpose: "venue-site", country: "DE", maxBytes: 100, timeoutMs: 2_000 });
+    await read("https://example.org/a");
+    await read("https://example.org/b");
+    await read("https://www.iana.org/a");
+    expect(sessions).toHaveLength(3);
+    expect(sessions[0]).toBe(sessions[1]);
+    expect(sessions[2]).not.toBe(sessions[0]);
   });
 });

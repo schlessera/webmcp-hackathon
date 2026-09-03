@@ -793,9 +793,12 @@ async function lookup(
 ): Promise<LookupPass> {
   signal?.throwIfAborted();
   const interactive = intent === "interactive";
+  // No session is minted here on purpose: a per-pass session pins a fresh exit
+  // IP and rebuilds the tunnel for every place. Left undefined, the outbound
+  // client keys the session by target host, so passes over the same host reuse
+  // one connection.
   const passTarget: LookupTarget = {
     ...target,
-    session: target.session ?? randomUUID().replace(/-/g, "").slice(0, 16),
     ...(scheduledRoute ? { direct: scheduledRoute === "direct" } : interactive ? { direct: true } : {}),
   };
   const initial = (await loadCached(db, [target.osmRef])).get(target.osmRef);
@@ -1041,11 +1044,7 @@ async function refreshPipelineImages(
   signal?: AbortSignal,
 ): Promise<void> {
   if (!(await imageRefreshDue(db, target.osmRef, INTERACTIVE_STALE_MS))) return;
-  const passTarget: LookupTarget = {
-    ...target,
-    session: target.session ?? randomUUID().replace(/-/g, "").slice(0, 16),
-    direct: true,
-  };
+  const passTarget: LookupTarget = { ...target, direct: true };
   const imageWork = { commonsApiCalls: 0 };
   const routedWikiFetch = wikiFetch();
   const countedWikiFetch: FetchLike = (url, init) => {

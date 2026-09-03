@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { isIP } from "node:net";
 import { lookup } from "node:dns/promises";
 import { Pool, ProxyAgent, fetch as undiciFetch } from "undici";
@@ -118,8 +118,29 @@ const RING_MS = 24 * 60 * 60_000;
 const BREAKER_WINDOW_MS = 10 * 60_000;
 const BREAKER_COOLDOWN_MS = 30 * 60_000;
 const PACING_MS = 250;
-const PROXY_ATTEMPTS = 3;
+/** Only a proxy-leg transport failure is retried, and a rotated exit rarely
+ * rescues a third attempt: at ~2s per proxy request a third try costs more
+ * slot time than it recovers. */
+const PROXY_ATTEMPTS = boundedEnv("PROXY_ATTEMPTS", 2, 1, 5);
+/** Concurrent requests per target host. Aggregators carry evidence for many
+ * places at once and are sized for that; a single venue site is not. */
+const HOST_CONCURRENCY = boundedEnv("OUTBOUND_HOST_CONCURRENCY", 2, 1, 16);
+const HOST_CONCURRENCY_OVERRIDES: Readonly<Record<string, number>> = {
+  "www.tripadvisor.com": 8,
+  "www.tripadvisor.de": 8,
+  "www.yelp.com": 8,
+  "www.yelp.de": 8,
+  "www.opentable.de": 8,
+  "www.thefork.de": 8,
+  "www.google.com": 8,
+  "maps.google.com": 8,
+};
 const CONNECT_TIMEOUT_MS = 3_000;
+
+function boundedEnv(name: string, fallback: number, min: number, max: number): number {
+  const parsed = Number(process.env[name]);
+  return Number.isInteger(parsed) ? Math.max(min, Math.min(max, parsed)) : fallback;
+}
 const TUNNEL = /^Proxy response \((\d+)\) !== 200 when HTTP Tunneling$/;
 const NON_PUBLIC_NAME = /(?:^|\.)(?:localhost|local|internal|home\.arpa)$/i;
 const METADATA_PURPOSES = new Set<OutboundPurpose>(["wikidata", "wikimedia", "commons"]);
@@ -173,8 +194,41 @@ class Semaphore {
 }
 
 const hostLimits = new Map<string, Semaphore>();
+const hostSessions = new Map<string, string>();
 const sessionNextAt = new Map<string, number>();
 const sessionPacing = new Map<string, Promise<void>>();
+
+/** Bounded so a long sweep over thousands of venue hosts cannot grow forever. */
+const MAX_TRACKED_HOSTS = 4_096;
+
+/**
+ * A PacketStream session pins one exit IP, so requests sharing a session share
+ * a tunnel: the CONNECT and the TLS handshake are paid once instead of on
+ * every fetch. Keying the session by target host is what makes that reuse
+ * reachable — a fresh session per request never reuses anything. Rotation on a
+ * proxy-leg failure still replaces the session, and now that replacement
+ * sticks for the host rather than being discarded with the request.
+ */
+function hostSession(host: string): string {
+  const existing = hostSessions.get(host);
+  if (existing) return existing;
+  const session = sessionFactory();
+  if (hostSessions.size >= MAX_TRACKED_HOSTS) {
+    const oldest = hostSessions.keys().next();
+    if (!oldest.done) hostSessions.delete(oldest.value);
+  }
+  hostSessions.set(host, session);
+  return session;
+}
+
+/** Concurrent-request ceiling for one target host. */
+function hostLimit(host: string): Semaphore {
+  const existing = hostLimits.get(host);
+  if (existing) return existing;
+  const limit = new Semaphore(HOST_CONCURRENCY_OVERRIDES[host] ?? HOST_CONCURRENCY);
+  hostLimits.set(host, limit);
+  return limit;
+}
 
 function oneTimeProxyOff(reason: "disabled" | "missing" | "invalid"): void {
   if (warnedProxyOff) return;
@@ -235,23 +289,13 @@ export function routeForPurpose(purpose: OutboundPurpose): OutboundRoute {
 export function routeFor(host: string, purpose: OutboundPurpose): OutboundRoute {
   const normalized = host.toLowerCase();
   if (routeForPurpose(purpose) === "direct") return "direct";
-  if (
-    !proxyEnabled() ||
-    isDirectControlHost(normalized) ||
-    (breakerUntil.get(normalized) ?? 0) > Date.now()
-  ) return "direct";
+  if (!proxyEnabled() || (breakerUntil.get(normalized) ?? 0) > Date.now()) return "direct";
   return "proxy";
 }
 
 /** Non-reserving host admission hint; the real semaphore remains authoritative. */
 export function hostGateOpen(host: string): boolean {
   return hostLimits.get(host.toLowerCase())?.open ?? true;
-}
-
-/** Stable across processes and releases: exactly buckets 0..9 of 0..99. */
-export function isDirectControlHost(host: string): boolean {
-  const digest = createHash("sha256").update(host.toLowerCase()).digest();
-  return digest.readUInt32BE(0) % 100 < 10;
 }
 
 function causes(error: unknown): Error[] {
@@ -508,7 +552,7 @@ function noteDirectRateLimit(host: string, status: number, now: number): void {
 
 function selectedRoute(host: string, options: OutboundOptions): OutboundRoute {
   if (options.direct || routeForPurpose(options.purpose) === "direct") return "direct";
-  if (!proxyEnabled() || isDirectControlHost(host) || (breakerUntil.get(host) ?? 0) > Date.now()) return "direct";
+  if (!proxyEnabled() || (breakerUntil.get(host) ?? 0) > Date.now()) return "direct";
   return "proxy";
 }
 
@@ -733,7 +777,7 @@ async function networkOutboundFetch(url: string | URL, options: OutboundOptions)
   if (!/^https?:$/.test(current.protocol)) throw new Error("not a fetchable URL");
   const originalHost = current.hostname.toLowerCase();
   const route = selectedRoute(originalHost, options);
-  const baseSession = options.session ?? sessionFactory();
+  const baseSession = options.session ?? hostSession(originalHost);
   let session = sessionRotations.get(baseSession) ?? baseSession;
   let method = options.method;
   let body = options.body;
@@ -741,11 +785,10 @@ async function networkOutboundFetch(url: string | URL, options: OutboundOptions)
   for (let redirects = 0; redirects <= MAX_REDIRECTS; redirects += 1) {
     await assertPublicTarget(current);
     const host = current.hostname.toLowerCase();
-    const hostRoute = route === "proxy" && !isDirectControlHost(host) && (breakerUntil.get(host) ?? 0) <= Date.now()
+    const hostRoute = route === "proxy" && (breakerUntil.get(host) ?? 0) <= Date.now()
       ? "proxy"
       : "direct";
-    const limit = hostLimits.get(host) ?? new Semaphore(2);
-    hostLimits.set(host, limit);
+    const limit = hostLimit(host);
     let response: Response | undefined;
     let lastError: unknown;
     const attempts = hostRoute === "proxy" ? PROXY_ATTEMPTS : 1;
@@ -770,6 +813,7 @@ async function networkOutboundFetch(url: string | URL, options: OutboundOptions)
         }
         session = sessionFactory();
         sessionRotations.set(baseSession, session);
+        hostSessions.set(originalHost, session);
         await new Promise((resolve) => setTimeout(resolve, Math.floor(Math.random() * Math.min(2_000, 200 * 2 ** attempt))));
       }
     }
@@ -939,6 +983,7 @@ export function resetOutboundStateForTests(): void {
   dnsCache.clear();
   sessionRotations.clear();
   hostLimits.clear();
+  hostSessions.clear();
   sessionNextAt.clear();
   sessionPacing.clear();
   lastProxySuccess = 0;
