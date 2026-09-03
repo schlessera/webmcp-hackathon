@@ -277,6 +277,7 @@ export const spatial = new SpatialStore();
 type CommandRunner = (
   type: string,
   input: Record<string, unknown>,
+  signal?: AbortSignal,
 ) => Promise<CommandEnvelope>;
 
 let runner: CommandRunner | null = null;
@@ -288,6 +289,7 @@ export function registerCommandRunner(fn: CommandRunner): void {
 export function runCommand(
   type: string,
   input: Record<string, unknown>,
+  signal?: AbortSignal,
 ): Promise<CommandEnvelope> {
   if (!runner) {
     return Promise.resolve({
@@ -299,5 +301,5 @@ export function runCommand(
       },
     });
   }
-  return runner(type, input);
+  return runner(type, input, signal);
 }

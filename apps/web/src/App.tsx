@@ -403,6 +403,7 @@ export function App() {
     async (
       type: string,
       input: Record<string, unknown>,
+      signal?: AbortSignal,
       retried = false,
     ): Promise<CommandEnvelope> => {
       const result = (await submitCommand(type, {
@@ -411,7 +412,7 @@ export function App() {
         // (spread after) wins — agents carry revision discipline themselves.
         baseRevision: revisionWatermarks.knownRoomRevision,
         ...input,
-      })) as CommandEnvelope;
+      }, signal)) as CommandEnvelope;
       // A gesture that lost the race to someone else's commit is retried once
       // against the caught-up room: the person's intent ("works for me") does
       // not go stale the way an agent's plan does, and asking them to click
@@ -424,7 +425,7 @@ export function App() {
         !("baseRevision" in input)
       ) {
         await catchUpRef.current?.();
-        return run(type, input, true);
+        return run(type, input, signal, true);
       }
       if (result.ok && result.revision !== undefined) {
         // R5: HTTP proves only the room head. projectedThroughRevision moves

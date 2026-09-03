@@ -22,6 +22,15 @@ const notAuthenticated = {
   },
 };
 
+const cancelled = {
+  ok: false as const,
+  error: {
+    code: "temporarily_unavailable" as const,
+    message: "Request cancelled before completion.",
+    recovery: "Retry when the operation is still needed.",
+  },
+};
+
 async function post(
   path: string,
   body: unknown,
@@ -33,6 +42,7 @@ async function post(
     diagnostics.log("command blocked: not_authenticated");
     return notAuthenticated;
   }
+  if (signal?.aborted) return cancelled;
   const correlationId = newCorrelationId();
   diagnostics.log(`-> ${path} [${correlationId}]`);
   try {
@@ -56,6 +66,10 @@ async function post(
     );
     return result;
   } catch (err) {
+    if (signal?.aborted || (err instanceof DOMException && err.name === "AbortError")) {
+      diagnostics.log(`<- ${path} [${correlationId}] cancelled`);
+      return cancelled;
+    }
     diagnostics.log(`<- ${path} [${correlationId}] network error`);
     return {
       ok: false,
@@ -97,8 +111,12 @@ export function syncSessionRaw(
   return post("/api/sync", input === undefined ? {} : input, signal);
 }
 
-export function submitCommand(type: string, input: unknown): Promise<unknown> {
-  return post("/api/commands", { type, input }, undefined, true);
+export function submitCommand(
+  type: string,
+  input: unknown,
+  signal?: AbortSignal,
+): Promise<unknown> {
+  return post("/api/commands", { type, input }, signal, true);
 }
 
 /**
