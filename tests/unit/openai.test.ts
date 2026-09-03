@@ -95,7 +95,7 @@ describe("LLM Responses transport", () => {
     expect(sent).toMatchObject({
       store: false,
       service_tier: "default",
-      reasoning: { effort: "low" },
+      reasoning: { effort: "high" },
       tools: [{
         type: "openrouter:web_search",
         parameters: {
@@ -143,7 +143,7 @@ describe("LLM Responses transport", () => {
       },
     });
     expect(sent).toMatchObject({
-      reasoning: { effort: "low" },
+      reasoning: { effort: "high" },
       provider: { require_parameters: true },
       store: false,
     });

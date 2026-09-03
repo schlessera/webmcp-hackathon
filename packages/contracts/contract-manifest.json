@@ -1,6 +1,6 @@
 {
   "toolContractVersion": "3",
-  "sha256": "3b9b6ee0dc3393fe241a69ff51900404f36a5d27a72a430b2d7bd535495f4cdc",
+  "sha256": "9d845e4193a6004f0c0f1dea6afdf5b544e3d74c87c7d95a27c8394bdcad9176",
   "manifest": {
     "capabilityManifest": {
       "agreement": {
@@ -3970,6 +3970,9 @@
                   "unlikely"
                 ],
                 "type": "object"
+              },
+              "goal": {
+                "type": "string"
               },
               "impasse": {
                 "additionalProperties": false,

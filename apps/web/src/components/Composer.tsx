@@ -53,18 +53,6 @@ const LABEL_TO_KEY = new Map<string, string>(
 
 type Payload = Record<string, unknown>;
 
-/** The offline command still obeys the offset-bearing wire shape. Its offset
- * is the browser's because the fallback has no room-timezone parser. */
-function isoWithLocalOffset(date: Date): string {
-  const offsetMinutes = -date.getTimezoneOffset();
-  const sign = offsetMinutes >= 0 ? "+" : "-";
-  const absolute = Math.abs(offsetMinutes);
-  const two = (value: number) => String(value).padStart(2, "0");
-  return `${date.getFullYear()}-${two(date.getMonth() + 1)}-${two(date.getDate())}`
-    + `T${two(date.getHours())}:${two(date.getMinutes())}:${two(date.getSeconds())}`
-    + `${sign}${two(Math.floor(absolute / 60))}:${two(absolute % 60)}`;
-}
-
 /**
  * Free text → a requirement payload, without an agent. Four protocol-level
  * attempts, then an honest fallback:
@@ -76,13 +64,21 @@ function isoWithLocalOffset(date: Date): string {
  *      place pending, because nothing about it has been checked.
  * There is no domain parsing beyond the labels the server itself supplied.
  */
-export function payloadFromText(text: string, facets: Facet[]): Payload {
+export function payloadFromText(
+  text: string,
+  facets: Facet[],
+  time: { now?: Date; timezone?: string } = {},
+): Payload {
   const parsed = preparse(text, { currency: roomCurrency(facets) });
+  const now = time.now ?? new Date();
+  const timezone = time.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone ?? "UTC";
   if (parsed.preparsedWhole) {
     const payload = parsed.concepts
       .map((concept) => mapPreparsedConcept(concept, {
         currency: roomCurrency(facets),
         transport: ["walk"],
+        now,
+        timezone,
       }))
       .find(Boolean);
     if (payload) return payload;
@@ -120,16 +116,6 @@ export function payloadFromText(text: string, facets: Facet[]): Payload {
     }
   }
 
-  if (t === "open now") {
-    const start = new Date();
-    const end = new Date(start.getTime() + 2 * 60 * 60 * 1000);
-    return {
-      kind: "time",
-      window: { start: isoWithLocalOffset(start), end: isoWithLocalOffset(end) },
-      phrase: text.trim(),
-    };
-  }
-
   return { kind: "text", text: text.trim().slice(0, 200) };
 }
 
@@ -160,12 +146,14 @@ function preparsedPayloads(
   text: string,
   facets: Facet[],
   hasOwnOrigin: boolean,
+  now: Date,
+  timezone: string,
 ): Array<{ payload: Payload; assumed?: string }> | null {
   const currency = roomCurrency(facets);
   const parsed = preparse(text, { currency });
   if (!parsed.preparsedWhole) return null;
   const payloads = parsed.concepts.flatMap((concept) => {
-    const payload = mapPreparsedConcept(concept, { currency, transport: ["walk"] });
+    const payload = mapPreparsedConcept(concept, { currency, transport: ["walk"], now, timezone });
     const assumed = offlineAssumption(concept, currency, hasOwnOrigin);
     return payload ? [{
       payload: payload as Payload,
@@ -251,11 +239,12 @@ interface Props {
   /** In-scope places, for "updating 40 places…". */
   placeCount: number;
   hasOwnOrigin: boolean;
+  timezone: string;
   disabled: boolean;
   run(type: string, input: Record<string, unknown>, signal?: AbortSignal): Promise<CommandEnvelope>;
 }
 
-export function Composer({ facets, activeNeeds, placeCount, hasOwnOrigin, disabled, run }: Props) {
+export function Composer({ facets, activeNeeds, placeCount, hasOwnOrigin, timezone, disabled, run }: Props) {
   const [scope, setScope] = useState<Visibility>("shared");
   const [scopeOpen, setScopeOpen] = useState(false);
   const [text, setText] = useState("");
@@ -502,13 +491,14 @@ export function Composer({ facets, activeNeeds, placeCount, hasOwnOrigin, disabl
   };
 
   const submitText = () => {
-    const offline = !agentOnly ? preparsedPayloads(text, facets, hasOwnOrigin) : null;
+    const now = new Date();
+    const offline = !agentOnly ? preparsedPayloads(text, facets, hasOwnOrigin, now, timezone) : null;
     if (offline) {
       for (const need of offline) submitPlain(need.payload, saidLabel(text), need.assumed);
       return;
     }
     if (nlAvailable) return void submitSentence(text);
-    submitPlain(agentOnly ? null : payloadFromText(text, facets), saidLabel(text));
+    submitPlain(agentOnly ? null : payloadFromText(text, facets, { now, timezone }), saidLabel(text));
   };
 
   const scopeLabel = SCOPES.find((s) => s.value === scope)!.label;

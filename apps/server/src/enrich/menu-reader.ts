@@ -151,7 +151,7 @@ export async function readMenu(
     instructions: INSTRUCTIONS,
     input: [{ role: "user", content: [{ type: "input_text", text: `Menu from ${source.url}` }, part] }],
     schema: { name: "menu_reading", schema: SCHEMA },
-    reasoning: "low",
+    reasoning: config.llmReasoningEffort,
     maxOutputTokens: 1_400,
     timeoutMs: 90_000,
   });

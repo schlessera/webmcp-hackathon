@@ -15,7 +15,7 @@ import type {
 } from "../apps/server/src/enrich/evaluate.ts";
 
 if (!process.env.OPENROUTER_API_KEY) throw new Error("OPENROUTER_API_KEY is required");
-const model = process.env.LLM_MODEL || "z-ai/glm-5.3-flash";
+const model = process.env.LLM_MODEL || "openai/gpt-5.6-luna";
 process.env.LLM_PROVIDER = "openrouter";
 process.env.LLM_MODEL = model;
 process.env.LLM_MODEL_ROUTE = process.env.LLM_MODEL_ROUTE || model;

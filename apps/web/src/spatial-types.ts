@@ -164,6 +164,8 @@ export interface SpatialContext {
   ok: true;
   revision: number;
   phase: string;
+  /** The room's goal, verbatim. Older servers may omit it. */
+  goal?: string;
   scope: SpatialScope;
   area?: AreaView;
   pool?: PoolView;

@@ -1,4 +1,4 @@
-# Spokes
+<h1><picture><source media="(prefers-color-scheme: dark)" srcset="docs/design/brand/spokes-mark-dark.svg"><img src="docs/design/brand/spokes-mark-light.svg" width="28" height="28" alt=""></picture> Spokes</h1>
 
 A shared map where a small group and their personal AI agents privately
 negotiate a meeting venue — state requirements (shared / application-private /

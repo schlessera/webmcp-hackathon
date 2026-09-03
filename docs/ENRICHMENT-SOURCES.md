@@ -250,7 +250,7 @@ record. The bytes are read once and dropped; only the claims are cached.
 Bounded to menus that are files (PDF, image) or image-only pages, at most
 one file per venue, 4 MB, off without the selected model provider's key or with
 `MENU_READER=0`. Model: `LLM_MODEL_VISION`, defaulting through `LLM_MODEL` to
-`z-ai/glm-5.3-flash`.
+`openai/gpt-5.6-luna`.
 
 Not folded in: text extraction from text-layer PDFs without the model,
 JavaScript-rendered navigation, RFC 9309 robots semantics (the parser
@@ -354,7 +354,7 @@ and fetch/expiry timestamps. Rows expire after at most 30 days and are re-fetche
 expired bytes are never served.
 
 Every non-curated (site) image is classified before storage by
-`config.llmVisionModel` (default `z-ai/glm-5.3-flash`). One strict-schema Responses call
+`config.llmVisionModel` (default `openai/gpt-5.6-luna`). One strict-schema Responses call
 carries all of a place's downloaded/resized candidates (up to eight) as WebP
 data URIs at `detail: low`; there is never one model call per image. Its one
 entry per input image is `{ kind, confidence }`, where `kind` is one of
@@ -730,8 +730,8 @@ window, page title, URL, captured Open Graph/schema publisher names, and the
 place name/category. Fresh page/proxy cache text is preferred when the current
 lookup has it; otherwise the stored window is used without refetching. The
 payload is tightened to roughly 1,500 input tokens by shrinking surrounding
-context only. The internal `reasoning: "none"` request maps to OpenRouter's
-lowest effort with reasoning text excluded, and the model timeout is fifteen seconds.
+context only. The request uses the deployment-wide `LLM_REASONING_EFFORT`
+(`high` by default), and the model timeout is fifteen seconds.
 
 | focused result | stored result |
 |---|---|

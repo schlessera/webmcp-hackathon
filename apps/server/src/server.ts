@@ -48,6 +48,7 @@ import { inspectCandidates, lookUpPlaces, prepareNavigation, spatialContext } fr
 import { attachWebSocket } from "./ws.ts";
 import { pool } from "./db.ts";
 import { say } from "./nl/say.ts";
+import { offlinePlan, planPreview } from "./nl/plan.ts";
 import { runAgent } from "./nl/agent.ts";
 import { heldFor, hold, release, screenPending } from "./nl/holder.ts";
 import { consumeLookupToken, LOOKUP_RATE_LIMIT_ERROR } from "./lookup-budget.ts";
@@ -152,12 +153,65 @@ const roomAttempts = new Map<string, { count: number; windowStart: number }>();
 const ROOM_LIMIT = 10;
 const ROOM_WINDOW_MS = 60 * 60_000;
 
-app.post("/api/rooms", async (req, reply) => {
+/** One bucket for both halves of opening a room: reading a goal costs a model
+ * call, and creating the room mints rows. True when the caller is over it. */
+function overRoomBudget(ip: string): boolean {
   const now = Date.now();
-  const entry = roomAttempts.get(req.ip);
+  const entry = roomAttempts.get(ip);
   if (!entry || now - entry.windowStart > ROOM_WINDOW_MS) {
-    roomAttempts.set(req.ip, { count: 1, windowStart: now });
-  } else if (++entry.count > ROOM_LIMIT) {
+    roomAttempts.set(ip, { count: 1, windowStart: now });
+    return false;
+  }
+  return ++entry.count > ROOM_LIMIT;
+}
+
+/**
+ * Read a goal into one step before any room exists (UNDERSTANDING-ARCH.md
+ * §10). Stateless: nothing is written, and the answer is what the room WOULD
+ * open with, for the organizer to accept or drop.
+ */
+app.post("/api/plans/preview", async (req, reply) => {
+  if (overRoomBudget(req.ip)) {
+    return reply.code(429).send({ error: "too many rooms opened from here; retry later" });
+  }
+  const body = (req.body ?? {}) as { areaId?: unknown; goal?: unknown };
+  const area = typeof body.areaId === "string" ? areaById(body.areaId) : undefined;
+  if (!area) return reply.code(400).send({ error: "areaId required" });
+  const goal = typeof body.goal === "string" ? body.goal.trim().replace(/\s+/g, " ") : "";
+  if (goal.length < 1 || goal.length > 300) {
+    return reply.code(400).send({ error: "goal must be 1-300 characters" });
+  }
+  if (!loadSnapshot(area.id)) {
+    return reply.code(503).send({ error: "No place data is available for this area right now." });
+  }
+  const started = Date.now();
+  try {
+    const preview = await planPreview(goal, area);
+    req.log.info(
+      {
+        correlationId: correlationId(req),
+        areaId: area.id,
+        placeClass: preview.steps[0]?.placeClass.key,
+        needs: preview.steps[0]?.needs.length ?? 0,
+        offline: preview.offline,
+        ms: Date.now() - started,
+        outcome: "ok",
+      },
+      "plan previewed",
+    );
+    return preview;
+  } catch (err) {
+    req.log.warn(
+      { correlationId: correlationId(req), areaId: area.id, err: String(err) },
+      "plan preview failed",
+    );
+    // A goal nobody could read still opens a room: the default step.
+    return { ...offlinePlan(goal, area.id), offline: true };
+  }
+});
+
+app.post("/api/rooms", async (req, reply) => {
+  if (overRoomBudget(req.ip)) {
     return reply.code(429).send({ error: "too many rooms opened from here; retry later" });
   }
   const body = (req.body ?? {}) as {
@@ -165,15 +219,20 @@ app.post("/api/rooms", async (req, reply) => {
     organizerName?: unknown;
     memberNames?: unknown;
     center?: unknown;
+    goal?: unknown;
+    step?: unknown;
   };
   if (typeof body.areaId !== "string") {
     return reply.code(400).send({ error: "areaId required" });
   }
+  const step = body.step as { placeClass?: unknown; needs?: unknown } | undefined;
   const created = await createRoom({
     areaId: body.areaId,
     organizerName: typeof body.organizerName === "string" ? body.organizerName : "",
     memberNames: Array.isArray(body.memberNames) ? (body.memberNames as string[]) : [],
     ...(body.center !== undefined ? { center: body.center as { lat: number; lng: number } } : {}),
+    ...(typeof body.goal === "string" ? { goal: body.goal } : {}),
+    ...(step && typeof step === "object" && !Array.isArray(step) ? { step } : {}),
   });
   if (!created.ok) {
     return reply.code(created.status).send({ error: created.error });
@@ -194,6 +253,8 @@ app.post("/api/rooms", async (req, reply) => {
     areaId: created.areaId,
     invites: created.invites,
     dataSource: created.dataSource,
+    goal: created.goal,
+    step: created.step,
   };
 });
 

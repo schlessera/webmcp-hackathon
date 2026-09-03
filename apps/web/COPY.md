@@ -227,6 +227,26 @@ the visible copy.
 - Sharing events say **“Sarah is showing where they are”** and **“Sarah stopped
   showing where they are.”**
 
+## Opening a goal-first room
+
+- The optional field asks **“What are you planning?”** and uses a concrete
+  example such as **“lunch near Sarah's station”**. The person's words remain
+  the room goal verbatim.
+- A non-empty goal is reviewed under **“From what you said”** before anything
+  is stored. Parsed needs are pending rows with **“Leave out”**; they do not
+  use works or unsure language before the room exists.
+- The review action is **“Review the room”**. The final action remains
+  **“Open the room”**; its busy line is **“Opening the room…”**.
+- The quiet selector label is **“Kind of place”**. Its option labels and
+  counts are server-authored.
+- When the review cannot be reached, say **“There is nothing else to add yet.
+  Choose the kind of place and keep going.”** The class selector and room
+  creation remain available; never expose a status code or endpoint name.
+- A clarification gives its server-authored choices and **“Or say it in your
+  words”** with **“Use this”**. A choice's needs join the pending rows; the
+  person can still leave any of them out.
+- The invites screen repeats the room goal above the per-person links.
+
 ## Distance referents
 
 - Scope needs name their measuring point: **“within 500 m of U

@@ -137,7 +137,7 @@ export async function classifyPlaceImages(
     instructions: INSTRUCTIONS,
     input: [{ role: "user", content }],
     schema: { name: "place_image_verdicts", schema: schemaFor(images.length) },
-    reasoning: "low",
+    reasoning: config.llmReasoningEffort,
     maxOutputTokens: 1_150,
     timeoutMs: 90_000,
   });

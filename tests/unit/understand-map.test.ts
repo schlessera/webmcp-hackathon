@@ -30,6 +30,7 @@ function concept(overrides: Partial<Concept> & Pick<Concept, "role" | "surface">
     attributeKey: overrides.attributeKey ?? null,
     values: overrides.values ?? [],
     window: overrides.window ?? null,
+    timeSpec: overrides.timeSpec ?? null,
     phrase: overrides.phrase ?? null,
     topic: overrides.topic ?? null,
     unresolved: overrides.unresolved ?? null,
@@ -130,14 +131,14 @@ describe("stage-B mapping table", () => {
   it("maps time, attributes, known kinds, and open qualities row by row", () => {
     const time = concept({
       role: "time", surface: "tomorrow for lunch", phrase: "tomorrow for lunch", gist: "tomorrow lunch",
-      window: { start: "2026-09-04T12:00:00+02:00", end: "2026-09-04T14:00:00+02:00" },
+      timeSpec: { day: { kind: "tomorrow" }, part: "lunch", clock: null },
     });
     const attribute = concept({ role: "attribute", surface: "step-free", attributeKey: "wheelchair-accessible", gist: "step-free access" });
     const kind = concept({ role: "kind", surface: "italian or spanish", values: ["italian", "spanish"], gist: "italian or spanish" });
     const quality = concept({ role: "quality", surface: "kid friendly", gist: "good for children" });
     const out = mapInterpretation(interpretation([time, attribute, kind, quality]), input("several needs"));
     expect(out.needs.map((need) => need.payload)).toEqual([
-      { kind: "time", window: time.window, phrase: time.phrase },
+      { kind: "time", window: { start: "2026-09-04T12:00:00+02:00", end: "2026-09-04T14:00:00+02:00" }, phrase: time.phrase },
       { kind: "attribute", key: "wheelchair-accessible", expect: "verified_true" },
       { kind: "inclusion", key: "cuisine", values: ["italian", "spanish"], lifetime: "session" },
       { kind: "text", text: "kid friendly" },

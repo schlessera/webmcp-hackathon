@@ -9,10 +9,12 @@ import type { ScopeState } from "./eligibility.ts";
 import {
   fillPlan,
   loadSnapshot,
+  roomPoolClasses,
   seedsForVenues,
   type AreaSnapshot,
   type LocatedVenue,
 } from "./places.ts";
+import type { PlaceClass } from "@webmcp-hackathon/contracts";
 
 function integerEnv(name: string, fallback: number, minimum: number): number {
   const parsed = Number(process.env[name]);
@@ -78,10 +80,19 @@ export function cachedPoolPlan(
   snapshot: AreaSnapshot,
   center: { lat: number; lng: number },
   radiusM: number,
+  classes: readonly PlaceClass[] = area.placeClasses,
 ): CachedPoolPlan {
   const existing = planCache.get(roomId);
   if (existing?.scopeId === scopeId) return existing;
-  const plan = fillPlan(area, snapshot, center, radiusM, [], Number.MAX_SAFE_INTEGER);
+  const plan = fillPlan(
+    area,
+    snapshot,
+    center,
+    radiusM,
+    [],
+    Number.MAX_SAFE_INTEGER,
+    classes,
+  );
   const cached = {
     scopeId,
     total: plan.total,
@@ -123,6 +134,9 @@ async function preparePlan(roomId: string, job: Job): Promise<boolean> {
     snapshot,
     circle.center,
     circle.radiusM,
+    // The room's step decides what may enter its pool; a room without one
+    // keeps the area's classes (places.ts roomPoolClasses).
+    roomPoolClasses(area, room.scope.category),
   );
   job.scopeId = plan.scopeId;
   job.pending = plan.venues.filter((venue) => !refs.has(venue.ref));

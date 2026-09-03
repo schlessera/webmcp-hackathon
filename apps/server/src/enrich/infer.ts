@@ -242,7 +242,7 @@ export async function inferAttributes(input: InferInput): Promise<InferredClaim[
       },
     ],
     schema: { name: "venue_attribute_inference", schema: INFERENCE_SCHEMA },
-    reasoning: "none",
+    reasoning: config.llmReasoningEffort,
     maxOutputTokens: 1_700,
     timeoutMs: 30_000,
   });
