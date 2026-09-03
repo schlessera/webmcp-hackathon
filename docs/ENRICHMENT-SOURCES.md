@@ -412,6 +412,52 @@ because the provider files branches as “Restaurant Hackescher Hof” and
 characters and cover half the longer one's words, so “sushi” never claims
 “Sushi Miyabi”.
 
+### How names are compared
+
+Names are compared on their **core** form: diacritics folded, `ß` expanded,
+punctuation dropped, then the words that say *where* or *what* a business is
+removed — city and legal forms (`berlin`, `mitte`, `gmbh`, `ltd`) and class
+words (`restaurant`, `cafe`, `bar`, `bistro`, `haus`, articles). A name made
+only of class words keeps them rather than collapsing to nothing.
+
+A shared website domain identifies a place on its own, without any name
+agreement, because it is the stronger signal: “Ryce” against “RYCE - Kitchen &
+Sushi Bar” scores 0.30 and would otherwise be lost. Domains that disagree still
+veto a pair the name had already accepted.
+
+Measured over a real 60-place Berlin Mitte pool against 958 listings, each step
+counted separately, with all 46 final matches hand-checked and **no false
+positives**:
+
+| rule | matched of 60 |
+|---|---|
+| name as normalized before, 0.72, 60 m, domain veto | 39 (65%) |
+| + drop city and legal words | 39 (65%) |
+| + drop class words (the core form) | 43 (72%) |
+| + a shared domain identifies on its own | **46 (77%)** |
+| widening the distance to 150 m | 46 (77%) — no gain |
+| raising the threshold to 0.85 | 45 (75%) — worse |
+
+Distance is not the constraint; name normalization is. The radius stays at
+60 metres because widening it buys nothing and a tight radius is the safer
+default. The 14 remaining misses break down as 12 name and 2 distance, which is
+what the batch log reports.
+
+### Why the item limit stays at the maximum
+
+Cost is charged per item **returned**, so a smaller `limit` looks like a saving.
+It is not: the provider does not order results by relevance to our pool, so
+truncation drops places at random. Measured on the same pool:
+
+| limit | items | cost | matched of 60 |
+|---|---|---|---|
+| 120 (twice the pool) | 516 | $0.246 | 26 |
+| 300 | 788 | $0.344 | 40 |
+| 1,000 | 958 | $0.405 | 46 |
+
+The category filter bounds this cost, and the per-room 24-hour budget bounds how
+often it is paid. The limit is not a cost lever worth pulling.
+
 ### Why the category filter exists
 
 Measured live against the Berlin demo centre at the 1 km radius floor, on the
@@ -455,6 +501,9 @@ and `resolveInference`, the same monotonic path used by every other inferred
 claim. `enrichments.listing` retains only the companion hours, rating and
 website fields for seven days. A durable per-room budget permits at most one
 request in 24 hours, with one immediate extra request when `scopeId` changes.
+Each batch logs counts only — pool size, matched, and unmatched split into
+`distance`, `name` and `domain` — so a drop in yield says which rule to look at.
+A listing that matched nothing is stored nowhere and named nowhere.
 `LISTINGS=0` disables the class. The price is **$0.012 per request plus
 $0.00036 per returned item**: 343 results cost about **$0.135** and the
 1,000-item maximum costs **$0.372**. The measured Berlin demo pool costs

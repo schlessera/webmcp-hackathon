@@ -60,6 +60,7 @@ import {
   LISTING_NOTE,
   LISTING_SOURCE,
   type ListingFacts,
+  type ListingMatchDiagnostics,
   type MatchedListing,
 } from "./listings.ts";
 import { applyGuesses } from "../guess.ts";
@@ -1279,6 +1280,9 @@ export interface RoomListingRefresh {
   websiteTargets: RoomLookupTarget[];
   costUsd: number;
   returnedItems: number;
+  /** Counts only, for the batch log and tests; never listing identities. */
+  diagnostics: ListingMatchDiagnostics;
+  matchedOsmRefs: string[];
 }
 
 function listingIdentity(facts: ListingFacts | null | undefined): string {
@@ -1364,11 +1368,17 @@ export async function refreshRoomListings(
   if (changedCandidateIds.length > 0) {
     await publishInferenceChanges(pool, roomId, changedCandidateIds, "lookup");
   }
+  // Counts only. A listing that matched nothing leaves no id, title or URL
+  // anywhere: it is not stored, and it is not named here.
   console.info(JSON.stringify({
     msg: "listing batch",
     roomId,
-    places: batch.matches.length,
+    pool: batch.matches.length + batch.diagnostics.unmatchedByReason.distance +
+      batch.diagnostics.unmatchedByReason.name + batch.diagnostics.unmatchedByReason.domain,
+    matched: batch.diagnostics.matched,
+    unmatched_by_reason: batch.diagnostics.unmatchedByReason,
     items: batch.returnedItems,
+    requests: batch.requests,
     costUsd: Number(batch.costUsd.toFixed(4)),
   }));
   return {
@@ -1386,6 +1396,8 @@ export async function refreshRoomListings(
     ),
     costUsd: batch.costUsd,
     returnedItems: batch.returnedItems,
+    diagnostics: batch.diagnostics,
+    matchedOsmRefs: batch.matches.map((match) => match.candidate.osmRef),
   };
 }
 
