@@ -20,12 +20,23 @@ echo "==> Sync secrets (.env is gitignored, copied separately)"
 # The host generates POSTGRES_PASSWORD on first deploy and the database volume
 # is initialised with it. Overwriting .env wholesale would strand that volume
 # behind an unrecoverable password, so carry any host-generated value across.
-KEEP=$(ssh "${SSH_OPTS[@]}" "$HOST" 'grep "^POSTGRES_PASSWORD=" /root/spokes/.env 2>/dev/null' || true)
+# Read the whole remote file once so an absent host .env (first deploy) is
+# distinguishable from one whose password line failed to come back.
+REMOTE_ENV=$(ssh "${SSH_OPTS[@]}" "$HOST" 'cat /root/spokes/.env 2>/dev/null' || true)
+KEEP=$(printf '%s\n' "$REMOTE_ENV" | grep '^POSTGRES_PASSWORD=' || true)
+if [ -n "$REMOTE_ENV" ] && [ -z "$KEEP" ] && ! grep -q '^POSTGRES_PASSWORD=' .env; then
+  echo "FAIL: the host has an .env but no POSTGRES_PASSWORD, and neither does the local one." >&2
+  echo "      Bootstrapping would mint a fresh password the existing db volume cannot accept." >&2
+  exit 1
+fi
+ssh "${SSH_OPTS[@]}" "$HOST" 'test -f /root/spokes/.env && cp -a /root/spokes/.env /root/spokes/.env.bak || true'
 scp "${SSH_OPTS[@]}" .env "$HOST":/root/spokes/.env
 if [ -n "$KEEP" ] && ! grep -q '^POSTGRES_PASSWORD=' .env; then
-  ssh "${SSH_OPTS[@]}" "$HOST" "printf '%s\n' '$KEEP' >> /root/spokes/.env"
+  # Piped, not interpolated into the remote command line: the value never
+  # reaches a remote shell as a quoted word, and never reaches `ps`.
+  printf '%s\n' "$KEEP" | ssh "${SSH_OPTS[@]}" "$HOST" 'cat >> /root/spokes/.env'
 fi
-ssh "${SSH_OPTS[@]}" "$HOST" 'chmod 600 /root/spokes/.env'
+ssh "${SSH_OPTS[@]}" "$HOST" 'chmod 600 /root/spokes/.env; chmod 600 /root/spokes/.env.bak 2>/dev/null || true'
 
 echo "==> Record the commit for BUILD_ID"
 git rev-parse --short HEAD | ssh "${SSH_OPTS[@]}" "$HOST" 'cat > /root/spokes/.commit'

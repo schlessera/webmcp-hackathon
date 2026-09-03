@@ -50,5 +50,25 @@ docker compose -f compose.coolify.yaml -f compose.prod.yaml up -d --build
 echo "==> Status"
 docker compose -f compose.coolify.yaml -f compose.prod.yaml ps
 
+# A build that fails leaves the previous containers running, so `ps` alone can
+# look healthy while the new bundle never shipped. Assert the served build id.
+echo "==> Verify the served build"
+WANT=$(cat .commit 2>/dev/null || echo manual)
+for _ in $(seq 1 40); do
+  META=$(docker compose -f compose.coolify.yaml -f compose.prod.yaml exec -T app \
+    wget -qO- http://127.0.0.1:4173/api/meta 2>/dev/null || true)
+  case "$META" in *'"buildId":"'"$WANT"'"'*) break ;; esac
+  sleep 3
+done
+echo "$META"
+case "$META" in
+  *'"buildId":"'"$WANT"'"'*) echo "ok: app serves $WANT" ;;
+  *) echo "FAIL: app is not serving $WANT (see above)"; exit 1 ;;
+esac
+
+echo "==> Verify the public origin"
+curl -fsS --max-time 20 "https://${APP_DOMAIN}/api/meta" && echo || {
+  echo "FAIL: https://${APP_DOMAIN}/api/meta did not answer"; exit 1; }
+
 echo "==> Invite links (secret-bearing)"
 docker compose -f compose.coolify.yaml -f compose.prod.yaml logs seed | tail -30
