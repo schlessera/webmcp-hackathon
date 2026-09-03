@@ -113,7 +113,7 @@ creation. The invites screen repeats the goal above the invite links.
 
 | State | Drawn as |
 |---|---|
-| Ruled out | 8px dot, `--spoke-out` at `--spoke-out-opacity`, **no border, no label** |
+| Ruled out | 8px dot, `--spoke-out` at `--spoke-out-opacity`, **no border, no label** — unless it wins one of the last name slots, when it takes the muted card below |
 | Works | sticker: `--spoke-surface`, 1.5px `--spoke-line`, `--spoke-shadow-drop`, 11px `--spoke-works` dot, name, optional travel-time chip |
 | Unsure | as works, but hollow dot (2.5px `--spoke-unsure` ring on surface), name in `--spoke-ink-soft`, `?` badge in unsure tint |
 | Selected | filled `--spoke-works`, cream text, `--spoke-shadow-pop`, `spoke-pop` idle animation |
@@ -130,15 +130,30 @@ proposed → would come back → works / unsure / out.
 Stickers sit at −3° to +3°. Vary the angle between neighbours; never align
 two adjacent stickers to the same rotation.
 
-Name cards are reserved for places that remain valid options or actively on
-the table. Offer slots in four tiers: selected, settled, staged, proposed and
-being viewed first; then eligible places (including a "would come back"
-preview); then likely places; and only then unsure places if slots remain.
-Unlikely, ruled-out and out-of-scope places never receive a name card — their
-dot remains in place. An open proposal with a standing veto is still on the
-table and keeps its card. A proposal whose status is vetoed or withdrawn has
-left the table and falls back to the place's eligibility tier. When a place
-leaves the valid set, its card collapses onto its own dot over the settle
+Name slots go out in rank order (amended 2026-09-03):
+
+1. open — this viewer has the place open, or a peer is looking at it (the
+   card is what the panel and the presence badge hang off);
+2. accepted — settled, or staged awaiting consent;
+3. on the table — an open proposal, including one carrying a standing veto;
+4. confirmed places, including a "would come back" preview;
+5. likely places;
+6. any place with a lookup in flight — being looked up is a *floor*, never a
+   demotion, so a busy confirmed place keeps rank 4 and a busy unknown,
+   unlikely or ruled-out one rises to here;
+7. not yet known;
+8. unlikely;
+9. ruled out.
+
+Out-of-scope places are still refused a card outright. Everything in scope is
+nameable, but with 18 slots the last two ranks only take one when the live
+options have not, so the visible effect is small. A card on an unlikely or
+ruled-out place is drawn muted — quiet or ghost rule, no drop shadow, name in
+`--spoke-ink-soft`, the state's own dot — readable without ever reading as an
+option. A ruled-out place that wins no slot keeps its bare 8px dot, and the
+leaver fade is unchanged. A proposal whose status is vetoed or withdrawn has
+left the table and falls back to the place's eligibility rank. When a place
+leaves the named set, its card collapses onto its own dot over the settle
 duration — the scale runs about the anchor, so the dot never moves (§8).
 
 Every card has two mirrored orientations, recorded as `data-side` for the
@@ -238,8 +253,15 @@ Top-left, 14px inset, rotated −2°, `--spoke-radius-block`, `--spoke-shadow-li
 ```
 6            ← 30px display, 800
 still work   ← 11px, two lines
-of 34 · 3 unsure   ← 10px mono
+of 34 · 4 of them likely · 3 unsure   ← 10px mono
 ```
+
+The big number is confirmed plus likely: a guess with a reason is an option
+the room can act on. The subline breaks that number down ("4 of them likely"),
+and unsure and unlikely stay counted apart from it. The wire keeps
+`matching` eligible-only (SPATIAL-PROTOCOL §8.2); the sum is a display
+decision, made in the client. The delta chip stays on the eligible-only
+base, so its `+3` and `−19` are about confirmed gain and loss.
 
 - Normal: `--spoke-works` fill, cream text.
 - Impasse (0): `--spoke-unsure` fill.

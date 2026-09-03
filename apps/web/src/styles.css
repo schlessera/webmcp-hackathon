@@ -387,8 +387,11 @@ body { overflow: hidden; }
   border: 2.5px solid var(--spoke-unsure);
   opacity: 1;
 }
-/* Whichever form is not in play fades out over the same 420ms settle. */
-.marker[data-named="true"]:not([data-state="out"]) .marker-dot { opacity: 0; }
+/* Whichever form is not in play fades out over the same 420ms settle. A
+   ruled-out place normally has no card because it wins no name slot; when it
+   does win one (ranks 7-8, only once the live options are named) the card is
+   drawn muted rather than hidden. */
+.marker[data-named="true"] .marker-dot { opacity: 0; }
 
 .marker-sticker {
   --sticker-anchor-x: 14px;
@@ -403,14 +406,12 @@ body { overflow: hidden; }
   --oriented-tilt: calc(-1 * var(--tilt, 0deg));
   transform: translate(calc(-100% + var(--sticker-anchor-x)), -50%);
 }
-.marker[data-state="out"] .marker-sticker,
 .marker[data-named="false"] .marker-sticker {
   opacity: 0;
   pointer-events: none;
 }
 /* Leaving the named set: the card shrinks back onto its dot over the settle
    while the dot itself stays exactly where it is (§8). */
-.marker[data-state="out"] .sticker-box,
 .marker[data-named="false"] .sticker-box { scale: 0.3; }
 
 .sticker-box {
@@ -640,7 +641,6 @@ body { overflow: hidden; }
 }
 .sticker-viewers .viewer-badge + .viewer-badge { margin-left: -7px; }
 .marker .sticker-box { position: relative; z-index: 1; }
-.marker[data-state="out"] .sticker-viewers,
 .marker[data-named="false"] .sticker-viewers { opacity: 0; }
 
 .dot-viewers {
@@ -654,7 +654,6 @@ body { overflow: hidden; }
   transition: opacity var(--spoke-dur-settle) var(--spoke-ease);
 }
 .dot-viewers .viewer-badge + .viewer-badge { margin-left: -7px; }
-.marker[data-state="out"] .dot-viewers,
 .marker[data-named="false"] .dot-viewers { opacity: 1; }
 .marker .marker-dot { z-index: 1; }
 
@@ -825,24 +824,6 @@ body { overflow: hidden; }
   color: var(--spoke-surface);
 }
 .explore-card-actions button:disabled { opacity: var(--spoke-out-opacity); }
-
-.explore-truncated-cue {
-  position: absolute;
-  top: 12px;
-  right: 12px;
-  z-index: 5;
-  max-width: min(190px, 48%);
-  padding: 5px 9px;
-  border: var(--spoke-border) solid var(--spoke-line);
-  border-radius: var(--spoke-radius-chip);
-  background: var(--spoke-surface);
-  box-shadow: var(--spoke-shadow-drop);
-  color: var(--spoke-ink);
-  font-size: var(--spoke-size-meta);
-  font-weight: var(--spoke-weight-strong);
-  line-height: 1.25;
-  pointer-events: none;
-}
 
 /* Explicit viewport actions. The outer button supplies a 44px target while
    the inner chip keeps the compact visual requested by the map spec. */
@@ -1374,6 +1355,15 @@ body { overflow: hidden; }
   flex-wrap: nowrap;
   gap: 6px;
   overflow-x: auto;
+  /* `overflow-y: visible` cannot survive a scrolling overflow-x, so the row
+     scrolls in both axes. The 44px tap extension on .pill::before overflows
+     it by 10px and the drop shadow is clipped outright (a shadow is not part
+     of the scrollable overflow region). Pad the scrollport out to hold both
+     and pull the padding back, so nothing moves. */
+  padding-block: 10px;
+  margin-block: -10px;
+  padding-inline-end: 3px;
+  margin-inline-end: -3px;
   scrollbar-width: none;
 }
 .pill-row::-webkit-scrollbar { display: none; }
@@ -1394,7 +1384,7 @@ body { overflow: hidden; }
   cursor: pointer;
   position: relative;
 }
-/* ~28px tall: extend the target with a pseudo-element, don't grow the pill. */
+/* ~24px tall: extend the target with a pseudo-element, don't grow the pill. */
 .pill::before {
   content: "";
   position: absolute;
@@ -1411,7 +1401,9 @@ body { overflow: hidden; }
   font-variant-numeric: tabular-nums;
 }
 
-.composer-bar-wrap { position: relative; }
+/* The pill row's grown scrollport overlaps the flex gap below it; the bar
+   must win its own top edge back. */
+.composer-bar-wrap { position: relative; z-index: 1; }
 
 .composer-bar {
   display: flex;
@@ -2883,6 +2875,30 @@ body { overflow: hidden; }
   background: var(--spoke-unsure-tint);
   color: var(--spoke-unsure-text);
 }
+/* A card on an unlikely or ruled-out place (2026-09-03): the lowest two name
+   ranks may take a slot once every live option has one, so the card has to be
+   readable without ever reading as an option. Quiet rule, no shadow lift,
+   soft ink — 6.2:1 on the card's own surface — and the dot keeps each state's
+   own form, so the difference survives greyscale (§13). */
+.marker[data-state="unlikely"] .sticker-box {
+  border-style: dashed;
+  border-color: var(--spoke-line-quiet);
+  box-shadow: none;
+}
+.marker[data-state="out"] .sticker-box {
+  border-color: var(--spoke-line-ghost);
+  box-shadow: none;
+}
+.marker[data-state="out"] .sticker-dot {
+  width: 8px; height: 8px;
+  background: var(--spoke-out);
+  border: 0 solid transparent;
+}
+.marker[data-state="out"] .sticker-name { color: var(--spoke-ink-soft); }
+.marker[data-state="out"] .sticker-chip {
+  background: var(--spoke-surface-sunk);
+  color: var(--spoke-ink-soft);
+}
 
 .badge[data-kind="likely"] {
   border: 1.5px dashed var(--spoke-works);
@@ -2955,8 +2971,8 @@ body { overflow: hidden; }
   margin-right: -10.5px;
 }
 .marker[data-busy="true"] .marker-busy { opacity: 1; }
-.marker[data-busy="true"][data-named="true"]:not([data-state="out"]) .marker-busy { opacity: 0; }
-.marker[data-busy="true"][data-named="true"]:not([data-state="out"]) .sticker-busy { opacity: 1; }
+.marker[data-busy="true"][data-named="true"] .marker-busy { opacity: 0; }
+.marker[data-busy="true"][data-named="true"] .sticker-busy { opacity: 1; }
 /* The ring takes the state's colour, so a lookup on an unsure place reads
    unsure, and one on a ruled-out place stays colourless. */
 .marker[data-state="unsure"] .busy-ring,

@@ -196,7 +196,8 @@ interface NeedsProps {
   busyCount: number;
   /** The room holds no places at all. */
   noPlaces: boolean;
-  matching: number;
+  /** What the map's big number says: confirmed plus likely. */
+  works: number;
   onToggle(need: ActiveNeed): void;
   onHoldStart(need: ActiveNeed): void;
   onHoldEnd(): void;
@@ -213,7 +214,7 @@ export function NeedsSection({
   pendingNeeds,
   busyCount,
   noPlaces,
-  matching,
+  works,
   onToggle,
   onHoldStart,
   onHoldEnd,
@@ -259,7 +260,7 @@ export function NeedsSection({
         aria-live="polite"
         aria-busy={anyPending || undefined}
       >
-        {matching} still work
+        {works} still work
       </span>
 
       {noPlaces ? (

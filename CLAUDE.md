@@ -160,10 +160,14 @@ others, never first.
   hollow unsure ring, small grey out, scope dot, dashed ghost, hollow act. No
   ✓ ✗ ● characters in chrome. Map states: `selected → settled → staged →
   vetoed → proposed → return → works/likely/unsure/unlikely/out`.
-- **Graded evidence (2026-09-02).** Five statuses — yes / likely / unlikely /
-  no / unknown — each with a confidence (`packages/contracts/src/status.ts`,
-  SPATIAL-PROTOCOL §8.2). A guess is drawn **dashed** and counted apart
-  ("· 4 likely"); it never moves the big number and never rules a place out.
+- **Graded evidence (2026-09-02, amended 2026-09-03).** Five statuses — yes /
+  likely / unlikely / no / unknown — each with a confidence
+  (`packages/contracts/src/status.ts`, SPATIAL-PROTOCOL §8.2). A guess is
+  drawn **dashed**. It now *counts in the big number*, which the client reads
+  as `matching + likely`, and the subline breaks that down ("of 34 · 4 of them
+  likely · 3 unsure"). A guess still never rules a place out, never makes a
+  room feasible, and never moves a delta: `matching`, the impasse arithmetic
+  and the relaxation deltas stay eligible-only on the wire.
 - **Your agent in the page (2026-09-02).** `docs/NL-AGENT.md`. Fast tier
   routes a composer sentence into typed needs; smart tier acts through the
   tool surface and screens agent-private conditions held in memory. Replies

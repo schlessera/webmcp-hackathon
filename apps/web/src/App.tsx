@@ -629,10 +629,13 @@ export function App() {
   useEffect(() => {
     const pending = pendingOrigin.current;
     if (!pending || !rawContext || rawContext.revision < pending.revision) return;
-    const delta = rawContext.matching - pending.before;
+    /* Counted the way the map counts (CLAUDE.md "Graded evidence"):
+       confirmed plus likely. */
+    const worksNow = rawContext.matching + (rawContext.likely ?? 0);
+    const delta = worksNow - pending.before;
     const signed = delta > 0 ? `, +${delta}` : delta < 0 ? `, −${Math.abs(delta)}` : "";
     setOriginAnnouncement(
-      `Starting point updated. ${rawContext.matching} ${stillWorkVerb(rawContext.matching)}${signed}.`,
+      `Starting point updated. ${worksNow} ${stillWorkVerb(worksNow)}${signed}.`,
     );
     pendingOrigin.current = null;
   }, [rawContext]);
@@ -644,7 +647,8 @@ export function App() {
       label?: string,
       announce = true,
     ): Promise<boolean> => {
-      const before = spatial.state.context?.matching ?? 0;
+      const before =
+        (spatial.state.context?.matching ?? 0) + (spatial.state.context?.likely ?? 0);
       if (announce) {
         pendingOrigin.current = { before, revision: Number.POSITIVE_INFINITY };
       }
@@ -807,9 +811,16 @@ export function App() {
   const me = participants.find((p) => p.participantId === id.participantId);
   const activeNeeds = context?.activeNeeds ?? [];
   const settled = committedId !== null;
-  const impasse = context?.impasse?.active === true;
+  const impasseDeclared = context?.impasse?.active === true;
   const shown = spatialState.preview ?? context;
-  const matching = shown?.matching ?? 0;
+  /* The header, the brief's live count and the map's big number all say the
+     same thing: confirmed plus likely (user decision, 2026-09-03). The wire's
+     `matching` stays eligible-only. */
+  const works = (shown?.matching ?? 0) + (shown?.likely ?? 0);
+  /* A declared impasse is only *said* while nothing works. With guesses left
+     standing the room still has options, so the subtitle counts them and the
+     ways out below stay on the brief as offers rather than a verdict. */
+  const showImpasse = impasseDeclared && works === 0;
   const busySet = new Set(spatialState.busy);
   const pendingNeeds = spatialState.pendingNeeds;
 
@@ -836,7 +847,7 @@ export function App() {
   const unchecked = context?.feasibility?.uncertain ?? 0;
   const subtitle: HeaderSubtitle = settled
     ? { text: `agreed by all ${numberWord(people)}`, tone: "works" }
-    : impasse
+    : showImpasse
       ? unchecked > 0
         ? { text: `nothing confirmed yet · ${unchecked} still to check`, tone: "unsure" }
         : { text: `nothing works for all ${numberWord(people)}`, tone: "unsure" }
@@ -847,7 +858,7 @@ export function App() {
           : activeNeeds.length === 0
             ? { text: `${numberWord(here)} in the room`, tone: "quiet" }
             : {
-                text: `${numberWord(here)} in the room · ${matching} ${stillWorkVerb(matching)}`,
+                text: `${numberWord(here)} in the room · ${works} ${stillWorkVerb(works)}`,
                 tone: "quiet",
               };
 
@@ -911,7 +922,6 @@ export function App() {
               roomId={id.roomId}
               isOrganizer={isOrganizer}
               explore={spatialState.explore}
-              exploreTruncated={spatialState.exploreTruncated}
               run={run}
               origin={me?.origin}
               originEditing={originEditing}
@@ -966,7 +976,7 @@ export function App() {
               }}
             />
 
-            {context && impasse && (
+            {context && impasseDeclared && (
               <WaysOut
                 needs={activeNeeds}
                 participants={participants}
@@ -1004,7 +1014,7 @@ export function App() {
               pendingNeeds={pendingNeeds}
               busyCount={busySet.size}
               noPlaces={context !== null && context.candidates.length === 0}
-              matching={matching}
+              works={works}
               onToggle={toggleNeed}
               onHoldStart={(n) => spatial.startPreview(n.id)}
               onHoldEnd={() => spatial.endPreview()}

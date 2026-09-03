@@ -253,7 +253,6 @@ interface Props {
   roomId: string;
   isOrganizer: boolean;
   explore: ReadonlyMap<string, ExplorePlace>;
-  exploreTruncated: boolean;
   /** The viewer's own application-private starting point. */
   origin?: ParticipantOrigin;
   originEditing: boolean;
@@ -299,6 +298,21 @@ function circlePolygon(center: { lat: number; lng: number }, radiusM: number) {
  */
 const NAME_CAP = 18;
 const NAME_FLOOR = 6;
+/* Who gets a name, in order (user decision, 2026-09-03): a place someone has
+   open → accepted → on the table → confirmed → likely → being looked up →
+   not yet known → unlikely → ruled out. Every in-scope place is now
+   nameable; the lower ranks simply almost never win a slot. */
+const RANK_OPEN = 0;
+const RANK_ACCEPTED = 1;
+const RANK_PROPOSED = 2;
+const RANK_YES = 3;
+const RANK_LIKELY = 4;
+const RANK_BUSY = 5;
+const RANK_UNKNOWN = 6;
+const RANK_UNLIKELY = 7;
+const RANK_NO = 8;
+/* Outside the scope: never named, and last in line for a DOM marker. */
+const RANK_OUT_OF_SCOPE = 9;
 /* The distance from the card edge to its dot centre. CSS receives this as a
    custom property, so placement maths, positioning and transform origins all
    use the same anchor. State-specific padding keeps every dot on this value. */
@@ -374,7 +388,6 @@ export function MapView({
   roomId,
   isOrganizer,
   explore,
-  exploreTruncated,
   origin,
   originEditing,
   onSetOrigin,
@@ -916,36 +929,80 @@ export function MapView({
   const stateOf = (candidate: CandidateSummary): MarkerState =>
     markerStates.get(candidate.candidateId) ?? "out";
 
-  const domCandidates = useMemo(() => {
-    const priority = (candidate: CandidateSummary) => {
-      if (candidate.candidateId === selectedId || candidate.candidateId === committedId) return 0;
-      if (proposalByCandidate.has(candidate.candidateId)) return 1;
-      if (viewersOf.has(candidate.candidateId)) return 2;
-      return 3;
-    };
-    const stateRank: Record<MarkerState, number> = {
-      selected: 0,
-      settled: 0,
-      staged: 0,
-      vetoed: 0,
-      proposed: 0,
-      return: 1,
-      works: 2,
-      likely: 3,
-      unsure: 4,
-      unlikely: 5,
-      out: 6,
-    };
-    return [...candidates]
-      .sort(
-        (a, b) =>
-          priority(a) - priority(b) ||
-          stateRank[stateOf(a)] - stateRank[stateOf(b)] ||
-          a.walkMin - b.walkMin ||
-          (a.ref ?? a.candidateId).localeCompare(b.ref ?? b.candidateId),
-      )
-      .slice(0, DOM_MARKER_CAP);
-  }, [candidates, selectedId, committedId, proposalByCandidate, viewersOf, markerStates]);
+  /* The busy set ticks with every pipeline frame. Key everything that ranks
+     on its *content*, so two identical states never reshuffle the markers or
+     the names. */
+  const lookupKey = useMemo(
+    () => [...new Set([...busy, ...Object.keys(stages)])].sort().join(","),
+    [busy, stages],
+  );
+  const previewById = useMemo(
+    () =>
+      new globalThis.Map(
+        (preview?.candidates ?? []).map((candidate) => [candidate.candidateId, candidate]),
+      ),
+    [preview],
+  );
+
+  /* One order for both budgets: which sixty places get a DOM marker, and
+     which of those get a name card. A place this viewer has open, or that a
+     peer is looking at, sorts first — the card is what the panel and the
+     presence badge hang off. Then the decision states, then the evidence. An
+     open proposal carrying a standing veto is still on the table; a
+     terminally vetoed or withdrawn one falls through to its eligibility.
+     `null` means out of scope: drawn where it is, never named. */
+  const rankOf = useCallback(
+    (candidate: CandidateSummary): number | null => {
+      if (distanceMeters(center, candidate.location) > scope.area.radiusM + 1) return null;
+      const id = candidate.candidateId;
+      if (id === selectedId || viewersOf.has(id)) return RANK_OPEN;
+      if (id === committedId || proposalByCandidate.get(id) === "staged") return RANK_ACCEPTED;
+      if (proposalOnTable.has(id)) return RANK_PROPOSED;
+      const eligibility = previewById.get(id)?.eligibility ?? candidate.eligibility;
+      const byEvidence =
+        eligibility === "eligible"
+          ? RANK_YES
+          : eligibility === "likely"
+            ? RANK_LIKELY
+            : eligibility === "uncertain"
+              ? RANK_UNKNOWN
+              : eligibility === "unlikely"
+                ? RANK_UNLIKELY
+                : RANK_NO;
+      /* A lookup in flight outranks the evidence it has not returned yet, and
+         never demotes a place that already clears every need: busy is a
+         floor, not a demotion. */
+      const lookingUp = lookupKey === "" ? [] : lookupKey.split(",");
+      return Math.min(byEvidence, lookingUp.includes(id) ? RANK_BUSY : RANK_NO);
+    },
+    [
+      center,
+      scope.area.radiusM,
+      selectedId,
+      committedId,
+      viewersOf,
+      proposalByCandidate,
+      proposalOnTable,
+      previewById,
+      lookupKey,
+    ],
+  );
+
+  /* Sixty DOM markers, chosen by the same order that hands out names: a busy
+     or proposed place in a crowded room must never be left GL-only, because
+     GL cannot carry a card. Out-of-scope places come last but still come. */
+  const domCandidates = useMemo(
+    () =>
+      [...candidates]
+        .sort(
+          (a, b) =>
+            (rankOf(a) ?? RANK_OUT_OF_SCOPE) - (rankOf(b) ?? RANK_OUT_OF_SCOPE) ||
+            a.walkMin - b.walkMin ||
+            (a.ref ?? a.candidateId).localeCompare(b.ref ?? b.candidateId),
+        )
+        .slice(0, DOM_MARKER_CAP),
+    [candidates, rankOf],
+  );
   const domCandidateIds = useMemo(
     () => new Set(domCandidates.map((candidate) => candidate.candidateId)),
     [domCandidates],
@@ -992,28 +1049,7 @@ export function MapView({
   const named = useMemo(() => {
     const map = mapRef.current;
     const placements = new globalThis.Map<string, "left" | "right">();
-    const previewById = new globalThis.Map(
-      (preview?.candidates ?? []).map((candidate) => [candidate.candidateId, candidate]),
-    );
-    /* Name cards are for valid options only. Places actively on the table
-       share tier zero, then confirmed eligibility, likely evidence, and only
-       then uncertainty. Terminal proposals fall through to their eligibility. */
-    const tierOf = (candidate: CandidateSummary): number | null => {
-      if (distanceMeters(center, candidate.location) > scope.area.radiusM + 1) return null;
-      if (
-        candidate.candidateId === selectedId ||
-        candidate.candidateId === committedId ||
-        proposalOnTable.has(candidate.candidateId) ||
-        viewersOf.has(candidate.candidateId)
-      ) {
-        return 0;
-      }
-      const eligibility = previewById.get(candidate.candidateId)?.eligibility ?? candidate.eligibility;
-      if (eligibility === "eligible") return 1;
-      if (eligibility === "likely") return 2;
-      if (eligibility === "uncertain") return 3;
-      return null;
-    };
+    const tierOf = rankOf;
     const candidatesByTier = domCandidates
       .filter((candidate) => tierOf(candidate) !== null)
       .sort(
@@ -1047,7 +1083,7 @@ export function MapView({
     // instead of spending every name on the nearest dense block.
     const points = new globalThis.Map(dots.map((dot) => [dot.id, dot]));
     const ordered: CandidateSummary[] = [];
-    for (let tier = 0; tier <= 3; tier += 1) {
+    for (let tier = RANK_OPEN; tier <= RANK_NO; tier += 1) {
       const remaining = candidatesByTier.filter((candidate) => tierOf(candidate) === tier);
       while (remaining.length > 0) {
         let bestIndex = 0;
@@ -1154,15 +1190,12 @@ export function MapView({
     return placements;
   }, [
     domCandidates,
+    rankOf,
     viewportWidth,
     selectedId,
     committedId,
     proposalOnTable,
-    viewersOf,
     markerStates,
-    preview,
-    center,
-    scope.area.radiusM,
     viewTick,
     collisionOffsets,
   ]);
@@ -1657,11 +1690,14 @@ export function MapView({
   const matching = shown.matching;
   const total = shown.total;
   const unsure = shown.feasibility.uncertain;
-  /* Guesses are counted apart (§8.2): "4 likely" beside "3 unsure", never
-     folded into the big number. */
   const likely = shown.likely ?? 0;
   const unlikely = shown.feasibility.unlikely ?? 0;
-  const guessed = `${likely > 0 ? ` · ${likely} likely` : ""}${unsure > 0 ? ` · ${unsure} unsure` : ""}${
+  /* What the room is told still works: confirmed plus likely (user decision,
+     2026-09-03). `matching` keeps the wire's eligible-only meaning — a guess
+     still never rules a place out and never makes a room feasible. The
+     subline breaks the number down rather than adding to it. */
+  const works = matching + likely;
+  const guessed = `${likely > 0 ? ` · ${likely} of them likely` : ""}${unsure > 0 ? ` · ${unsure} unsure` : ""}${
     unlikely > 0 ? ` · ${unlikely} unlikely` : ""
   }`;
   const statedNeeds = context.activeNeeds.filter((n) => n.active);
@@ -1744,17 +1780,20 @@ export function MapView({
   }, [refineLine, pipelineLine]);
   const preNeed = statedNeeds.length === 0 && context.privateEffects.length === 0;
 
-  /* Zero eligible with unknowns outstanding is NOT an impasse (§4) unless the
+  /* Zero survivors with unknowns outstanding is NOT an impasse (§4) unless the
      council has actually declared one — then the room and the count block
-     must say the same thing, and the unknowns stay counted in the subline. */
-  const declared = context.impasse?.active === true && !preview;
+     must say the same thing, and the unknowns stay counted in the subline.
+     A declared impasse is only *shown* while nothing works: with guesses left
+     standing the room still has options, so the block keeps its works colour
+     and the recovery offers stay on the brief as offers. */
+  const showImpasse = context.impasse?.active === true && !preview && works === 0;
   const countState = settled
     ? "settled"
     : preNeed
       ? "pre"
-      : matching === 0 && (unsure === 0 || declared)
+      : works === 0 && (unsure === 0 || showImpasse)
         ? "impasse"
-        : matching === 0
+        : works === 0
           ? "pending"
           : "works";
 
@@ -2410,12 +2449,6 @@ export function MapView({
         {exploreAnnouncement}
       </div>
 
-      {exploreTruncated && (
-        <div className="explore-truncated-cue" data-testid="explore-truncated">
-          Zoom in to see every place here.
-        </div>
-      )}
-
       <div className="map-wash" aria-hidden="true" />
 
       <div className="count-block" data-state={countState} data-testid="count-block">
@@ -2439,11 +2472,11 @@ export function MapView({
         ) : (
           <>
             <div className="count-head">
-              <span className="count-number" data-testid="count-number">{matching}</span>
+              <span className="count-number" data-testid="count-number">{works}</span>
               <span className="count-label">
-                {stillWorkVerb(matching).split(" ")[0]}
+                {stillWorkVerb(works).split(" ")[0]}
                 <br />
-                {stillWorkVerb(matching).split(" ")[1]}
+                {stillWorkVerb(works).split(" ")[1]}
               </span>
             </div>
             <div className="count-sub">

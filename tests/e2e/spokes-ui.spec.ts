@@ -68,11 +68,15 @@ type MockContext = {
   feasibility: {
     state: "feasible" | "fragile" | "infeasible" | "uncertain";
     eligible: number;
+    likely?: number;
     uncertain: number;
+    unlikely?: number;
     excluded: number;
   };
   total: number;
   matching: number;
+  /** Places a guess says would work (§8.2). Absent in most fixtures. */
+  likely?: number;
   candidates: Candidate[];
   facets: Array<Record<string, unknown>>;
   activeNeeds: Need[];
@@ -1043,9 +1047,9 @@ test("panning reveals explorable places, bringing one in preserves the viewport,
   await expect
     .poll(async () => Number(await page.getByTestId("map-region").getAttribute("data-explore-count")))
     .toBeGreaterThan(0);
-  await expect(page.getByTestId("explore-truncated")).toHaveText(
-    "Zoom in to see every place here.",
-  );
+  // The endpoint still says it capped the read; the map says nothing about it
+  // (the zoom cue was removed on 2026-09-03).
+  await expect(page.getByTestId("explore-truncated")).toHaveCount(0);
   const pannedBefore = await stableMarkerTransforms(page, ["place_1", "place_24"]);
 
   // The GL layer also exposes its visible places through one native keyboard
@@ -1644,9 +1648,13 @@ test("mirrored name cards stay inside the band and keep every dot on its marker"
     "data-named",
     "true",
   );
+  /* A terminal veto has left the table, so it no longer takes a table slot —
+     with slots to spare it still gets one at the bottom rank (2026-09-03; the
+     scarcity case is asserted in the rank test below). Out of scope is the
+     one thing still refused a card outright. */
   await expect(page.getByTestId("pin-anchor-terminal-veto")).toHaveAttribute(
     "data-named",
-    "false",
+    "true",
   );
   await expect(page.getByTestId("pin-anchor-outside")).toHaveAttribute("data-named", "false");
 
@@ -1721,14 +1729,24 @@ test("name cards stack over bare dots and own taps across their drawn box", asyn
     dot.name = `Bare ${index}`;
     return dot;
   });
-  context.candidates = [card, ...dots];
+  /* Ruled-out places may take a leftover name slot (2026-09-03), so the bare
+     dots are only bare while the cap is spent on live options. Two dozen
+     well-spread confirmed places, away from the crowded row, do that. */
+  const filler = [-500, -300, -150, 150, 300, 500].flatMap((y, row) =>
+    [-600, -300, 0, 300].map((x, column) => {
+      const place = candidateAtMeters(`filler-${row}-${column}`, x, y, "eligible");
+      place.name = `F${row}${column}`;
+      return place;
+    }),
+  );
+  context.candidates = [card, ...dots, ...filler];
   context.total = context.candidates.length;
-  context.matching = 0;
+  context.matching = filler.length;
   context.feasibility = {
-    state: "infeasible",
-    eligible: 0,
+    state: "feasible",
+    eligible: filler.length,
     uncertain: 0,
-    excluded: context.candidates.length,
+    excluded: context.candidates.length - filler.length,
   };
   context.proposals = [
     {
@@ -1755,6 +1773,7 @@ test("name cards stack over bare dots and own taps across their drawn box", asyn
   await expect(page.locator('[data-testid^="pin-bare-dot-"][data-named="false"]')).toHaveCount(
     dots.length,
   );
+  await expect(page.locator('[data-testid^="pin-"][data-named="true"]')).toHaveCount(18);
   await page.mouse.move(1, 1);
 
   const stacking = await page.evaluate(() => {
@@ -1775,7 +1794,9 @@ test("name cards stack over bare dots and own taps across their drawn box", asyn
       everyPair: cards.every((cardRow) => dotsOnly.every((dotRow) => cardRow.z > dotRow.z)),
     };
   });
-  expect(stacking).toEqual({ cards: 1, dots: dots.length, everyPair: true });
+  expect(stacking.cards).toBe(18);
+  expect(stacking.dots).toBe(context.candidates.length - 18);
+  expect(stacking.everyPair).toBe(true);
 
   const overlap = await page.evaluate(() => {
     const cardBox = document.querySelector<HTMLElement>(
@@ -2000,13 +2021,11 @@ test("a need said is pending until the room settles it, and busy rings mark plac
   await expect(page.getByTestId("count-busy")).toHaveCount(0);
   await expect(row).not.toHaveAttribute("data-pending", "true");
   await expect(row).toContainText("−2");
-  await expect(
-    page.locator('[data-testid^="pin-"][data-state="out"][data-named="true"]'),
-  ).toHaveCount(0);
-  await expect(
-    page.locator('[data-testid^="pin-"][data-state="unlikely"][data-named="true"]'),
-  ).toHaveCount(0);
-  await expect(page.getByTestId("pin-place_3")).toHaveAttribute("data-named", "false");
+  // Ranks 8 and 9 (2026-09-03): an unlikely or ruled-out place may take a
+  // leftover name slot, so nothing here asserts that it cannot. In this dense
+  // block place_3 loses its card to a collision and its dot stays put; the
+  // muted card itself is asserted on a fixture with room to draw it.
+  await expect(page.getByTestId("pin-place_3")).toHaveAttribute("data-state", "unlikely");
   await expect(page.getByTestId("brief")).not.toHaveAttribute("aria-busy", "true");
   await expect(page.locator("#brief-preview-count")).not.toHaveAttribute("aria-busy", "true");
   await expect(page.getByTestId("map-region")).not.toHaveAttribute("aria-busy", "true");
@@ -2637,7 +2656,9 @@ test("Confirm in the place panel updates the row and the count", async ({ page }
   await page.goto(`${BASE}/?shim=webmcp#invite=deadbeef`);
   await closeDrawer(page);
   await expect(page.getByTestId("count-number")).toHaveText("1");
-  await page.getByTestId("pin-place_1").click({ force: true });
+  // Open it from the keyboard: a tap would land wherever the cards happen to
+  // lie, and this test is about the confirm flow, not hit testing.
+  await page.getByTestId("pin-place_1").press("Enter");
   await page.getByTestId("confirm-need-dogs").click();
   await expect(page.getByTestId("unconfirm-need-dogs")).toHaveText("undo");
   await expect(page.getByTestId("fit-ledger")).toContainText("confirmed by you · Sep 3");
@@ -3001,8 +3022,9 @@ test("dots show their pipeline stage: queued stands still, fetching and processi
   await expect
     .poll(() => page.evaluate(() => window.__spokesMapStats!().busyAnimating))
     .toBe(false);
-  // The place panel names the stage in reader words.
-  await page.getByTestId("pin-place_3").click();
+  // The place panel names the stage in reader words. Opened from the keyboard:
+  // a tap lands wherever the cards happen to lie.
+  await page.getByTestId("pin-place_3").press("Enter");
   const details = page.getByTestId("place-details");
   await expect(details).toBeVisible();
   await expect(details.getByTestId("details-lookup")).toHaveText("checking it against your needs…");
@@ -3061,18 +3083,17 @@ test("opening a place fills the panel step by step on the fast track, and hoveri
   await page.goto(`${BASE}/#invite=deadbeef`);
   await socket.welcomed;
 
-  // Hover: one debounced hint names the place; leaving clears it.
-  const pinBox = await page.getByTestId("pin-place_1").boundingBox();
-  if (!pinBox) throw new Error("pin-place_1 has no box");
-  await page.mouse.move(pinBox.x + pinBox.width / 2, pinBox.y + pinBox.height / 2, { steps: 4 });
+  // Pointing at a place, or reaching it with the keyboard, sends one debounced
+  // hint; leaving clears it. Focus rather than the pointer, because at this
+  // width a neighbouring card may lie over the dot.
+  await page.getByTestId("pin-place_1").focus();
   await expect.poll(() => socket.sent.filter((m) => m.type === "previewing").at(-1)?.candidateId ?? null).toBe("place_1");
-  await page.mouse.move(5, 5);
+  await page.getByTestId("pin-place_1").blur();
   await expect.poll(() => socket.sent.filter((m) => m.type === "previewing").at(-1)?.candidateId ?? null).toBe(null);
 
-  // Open: the cached row is there at once, and the read said why. (A card
-  // may overlap the dot at this width; the tap resolver decides, not the
-  // element under the pointer.)
-  await page.getByTestId("pin-place_1").click({ force: true });
+  // Open: the cached row is there at once, and the read said why. (A card may
+  // overlap the dot at this width, so open it from the keyboard.)
+  await page.getByTestId("pin-place_1").press("Enter");
   const details = page.getByTestId("place-details");
   await expect(details).toBeVisible();
   await expect(details).toContainText("outdoor seating");
@@ -3216,4 +3237,472 @@ test("touch never shows a hover card", async ({ browser }) => {
   await page.waitForTimeout(400);
   await expect(page.getByTestId("hover-card")).toHaveCount(0);
   await context.close();
+});
+
+test("the suggestion pills scroll sideways only, never up and down", async ({ browser }) => {
+  const browserContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const page = await browserContext.newPage();
+  const context = fixture({ revision: 22 });
+  // Long labels so the row certainly runs past the edge of a phone.
+  context.facets = [
+    { key: "outdoor-seating", label: "outdoor seating in the shade", type: "boolean", counts: { yes: 17, no: 2, unknown: 2 }, salience: 1 },
+    { key: "vegetarian-options", label: "vegetarian options on the menu", type: "boolean", counts: { yes: 15, no: 0, unknown: 6 }, salience: 0.9 },
+    { key: "wheelchair-accessible", label: "step-free access from the street", type: "boolean", counts: { yes: 9, no: 6, unknown: 6 }, salience: 0.8 },
+  ];
+  const state: MockState = { context, outstanding: [] };
+  await mockApi(page, state);
+  const socket = await scriptedSocket(page, 22);
+  await page.goto(`${BASE}/#invite=deadbeef`);
+  await socket.welcomed;
+  const row = page.getByTestId("facet-pills");
+  await expect(row).toBeVisible();
+
+  // The 44px tap extension and the drop shadow live inside the scrollport:
+  // nothing to scroll vertically, so no stray scrollbar and no clipped shadow.
+  const metrics = await row.evaluate((el) => ({
+    vertical: el.scrollHeight - el.clientHeight,
+    horizontal: el.scrollWidth - el.clientWidth,
+  }));
+  expect(metrics.vertical).toBe(0);
+  // Sideways still scrolls, and the fade cue follows the finger.
+  expect(metrics.horizontal).toBeGreaterThan(2);
+  await expect(row).toHaveAttribute("data-overflow", "right");
+  await row.evaluate((el) => {
+    el.scrollLeft = 9999;
+  });
+  await expect(row).toHaveAttribute("data-overflow", "left");
+  expect(await row.evaluate((el) => el.scrollLeft)).toBeGreaterThan(0);
+  await browserContext.close();
+});
+
+test("the big number counts likely places with the confirmed ones and the subline breaks it down", async ({ page }) => {
+  // The default eligible ids sit outside an 800m scope, so name the places
+  // this fixture wants counted.
+  const context = fixture({
+    eligibleIds: ["place_1", "place_2"],
+    uncertainIds: ["place_4", "place_5", "place_6"],
+    revision: 41,
+  });
+  // Three in-scope places the room only has a guess about.
+  const guessed = context.candidates
+    .filter(
+      (candidate) =>
+        candidate.eligibility === "excluded" &&
+        haversineMeters(center, candidate.location) <= context.scope.area.radiusM,
+    )
+    .slice(0, 3);
+  for (const candidate of guessed) {
+    candidate.eligibility = "likely";
+    candidate.why = "a word on the menu says so";
+  }
+  context.likely = guessed.length;
+  context.feasibility.likely = guessed.length;
+  context.feasibility.excluded -= guessed.length;
+  context.activeNeeds = [
+    {
+      id: "need-veg",
+      label: "vegetarian options",
+      ruledOut: 6,
+      wouldReturn: 3,
+      unknown: 2,
+      active: true,
+      visibility: "shared",
+      hardness: "hard",
+      ownerId: "p_org",
+    },
+  ];
+  await mockApi(page, { context, outstanding: [] });
+  const socket = await scriptedSocket(page, 41);
+  await page.goto(`${BASE}/#invite=deadbeef`);
+  await socket.welcomed;
+
+  // Two confirmed and three likely: the room is told five still work, and the
+  // subline says which part of the five is a guess.
+  await expect(page.getByTestId("count-number")).toHaveText("5");
+  await expect(page.getByTestId("count-block")).toHaveAttribute("data-state", "works");
+  await expect(page.getByTestId("count-block")).toContainText(
+    `of ${context.total} · 3 of them likely · 3 unsure`,
+  );
+  // The header and the brief's live region say the same number.
+  await expect(page.getByTestId("room-subtitle")).toContainText("5 still work");
+  await expect(page.locator("#brief-preview-count")).toHaveText("5 still work");
+});
+
+test("a room with only guesses left is not an impasse", async ({ page }) => {
+  const context = fixture({ eligibleIds: [], revision: 42 });
+  const guessed = context.candidates
+    .filter(
+      (candidate) => haversineMeters(center, candidate.location) <= context.scope.area.radiusM,
+    )
+    .slice(0, 2);
+  for (const candidate of guessed) candidate.eligibility = "likely";
+  context.likely = guessed.length;
+  context.feasibility.likely = guessed.length;
+  context.feasibility.excluded -= guessed.length;
+  context.activeNeeds = [
+    {
+      id: "need-veg",
+      label: "vegetarian options",
+      ruledOut: 19,
+      wouldReturn: 4,
+      unknown: 0,
+      active: true,
+      visibility: "shared",
+      hardness: "hard",
+      ownerId: "p_org",
+    },
+  ];
+  await mockApi(page, { context, outstanding: [] });
+  const socket = await scriptedSocket(page, 42);
+  await page.goto(`${BASE}/#invite=deadbeef`);
+  await socket.welcomed;
+
+  // Nothing is confirmed, but two places are likely: the block counts them
+  // and keeps its works colour rather than turning unsure.
+  await expect(page.getByTestId("count-number")).toHaveText("2");
+  await expect(page.getByTestId("count-block")).toHaveAttribute("data-state", "works");
+  await expect(page.getByTestId("count-block")).toContainText("2 of them likely");
+});
+
+/** A grid of in-scope places, far enough apart that every card can be drawn. */
+function rankGrid(names: Array<[string, Candidate["eligibility"]]>): Candidate[] {
+  const xs = [-700, -420, -140, 140, 420, 700];
+  const ys = [-360, -120, 120, 360];
+  return names.map(([name, eligibility], index) => {
+    const candidate = candidateAtMeters(
+      `rank-${name}`,
+      xs[index % xs.length],
+      ys[Math.floor(index / xs.length)],
+      eligibility,
+    );
+    candidate.name = name;
+    return candidate;
+  });
+}
+
+function rankContext(candidates: Candidate[]): MockContext {
+  const context = fixture({ radiusM: 800, matching: 0 });
+  context.candidates = candidates;
+  context.total = candidates.length;
+  context.matching = candidates.filter((c) => c.eligibility === "eligible").length;
+  context.feasibility = {
+    state: "feasible",
+    eligible: context.matching,
+    uncertain: candidates.filter((c) => c.eligibility === "uncertain").length,
+    excluded: candidates.filter((c) => c.eligibility === "excluded").length,
+  };
+  return context;
+}
+
+test("a lookup in flight lifts an unknown place above an equally unknown one", async ({ browser }) => {
+  const browserContext = await browser.newContext({
+    viewport: { width: 1600, height: 1000 },
+    reducedMotion: "reduce",
+  });
+  const page = await browserContext.newPage();
+  // Seventeen confirmed places leave exactly one name slot for the two
+  // unknowns to compete over.
+  const names: Array<[string, Candidate["eligibility"]]> = Array.from(
+    { length: 17 },
+    (_, i) => [`E${i}`, "eligible" as const],
+  );
+  names.push(["Busy", "uncertain"], ["Quiet", "uncertain"]);
+  const context = rankContext(rankGrid(names));
+  await mockApi(page, { context, outstanding: [] });
+  const socket = await scriptedSocket(page, 20);
+  await page.goto(`${BASE}/#invite=deadbeef`);
+  await socket.welcomed;
+  await expect(page.getByTestId("map-region")).toHaveAttribute("data-loaded", "true", {
+    timeout: 20_000,
+  });
+  await expect(page.getByTestId("pin-rank-Busy")).toHaveAttribute("data-named", "false");
+
+  socket.send({
+    type: "lookups",
+    pending: ["rank-Busy"],
+    reason: { kind: "need", label: "outdoor seating" },
+  });
+  await expect(page.getByTestId("pin-rank-Busy")).toHaveAttribute("data-busy", "true");
+  // Being looked up is worth a name; equal uncertainty without a lookup is not.
+  await expect(page.getByTestId("pin-rank-Busy")).toHaveAttribute("data-named", "true");
+  await expect(page.getByTestId("pin-rank-Quiet")).toHaveAttribute("data-named", "false");
+  await browserContext.close();
+});
+
+test("a lookup in flight never outranks a confirmed place", async ({ browser }) => {
+  const browserContext = await browser.newContext({
+    viewport: { width: 1600, height: 1000 },
+    reducedMotion: "reduce",
+  });
+  const page = await browserContext.newPage();
+  // Eighteen confirmed places take every slot: busy is a floor, not a promotion
+  // past places that already clear every need.
+  const names: Array<[string, Candidate["eligibility"]]> = Array.from(
+    { length: 18 },
+    (_, i) => [`E${i}`, "eligible" as const],
+  );
+  names.push(["Busy", "uncertain"]);
+  const context = rankContext(rankGrid(names));
+  await mockApi(page, { context, outstanding: [] });
+  const socket = await scriptedSocket(page, 20);
+  await page.goto(`${BASE}/#invite=deadbeef`);
+  await socket.welcomed;
+  await expect(page.getByTestId("map-region")).toHaveAttribute("data-loaded", "true", {
+    timeout: 20_000,
+  });
+  socket.send({ type: "lookups", pending: ["rank-Busy"], reason: { kind: "need", label: "outdoor seating" } });
+  await expect(page.getByTestId("pin-rank-Busy")).toHaveAttribute("data-busy", "true");
+  await expect(page.getByTestId("pin-rank-Busy")).toHaveAttribute("data-named", "false");
+  await expect
+    .poll(() => page.locator('[data-testid^="pin-rank-E"][data-named="true"]').count())
+    .toBe(18);
+  await browserContext.close();
+});
+
+test("decided places take name slots ahead of merely confirmed ones, veto and all", async ({ browser }) => {
+  const browserContext = await browser.newContext({
+    viewport: { width: 1600, height: 1000 },
+    reducedMotion: "reduce",
+  });
+  const page = await browserContext.newPage();
+  // Eighteen confirmed places would fill the cap on their own; the three
+  // places the room has actually moved on take slots from them, whatever
+  // their own evidence says.
+  const names: Array<[string, Candidate["eligibility"]]> = Array.from(
+    { length: 18 },
+    (_, i) => [`E${i}`, "eligible" as const],
+  );
+  names.push(
+    ["Agreed", "uncertain"],
+    ["Onthetable", "uncertain"],
+    ["Blocked", "uncertain"],
+    ["Withdrawn", "uncertain"],
+  );
+  const context = rankContext(rankGrid(names));
+  context.proposals = [
+    {
+      proposalId: "prop_agreed",
+      candidateId: "rank-Agreed",
+      status: "committed",
+      stances: participants.map((p) => ({ participantId: p.participantId, stance: "accept" })),
+      vetoStands: false,
+      ownStance: "accept",
+    },
+    {
+      proposalId: "prop_table",
+      candidateId: "rank-Onthetable",
+      status: "open",
+      stances: [{ participantId: "p_org", stance: "accept" }],
+      vetoStands: false,
+      ownStance: "accept",
+    },
+    {
+      proposalId: "prop_blocked",
+      candidateId: "rank-Blocked",
+      status: "open",
+      stances: [
+        { participantId: "p_org", stance: "veto" },
+        { participantId: "p_sarah", stance: "accept" },
+      ],
+      vetoStands: true,
+      ownStance: "veto",
+    },
+    {
+      proposalId: "prop_withdrawn",
+      candidateId: "rank-Withdrawn",
+      status: "vetoed",
+      stances: [{ participantId: "p_org", stance: "veto" }],
+      vetoStands: true,
+      ownStance: "veto",
+    },
+  ];
+  context.agreement = {
+    proposalId: "prop_agreed",
+    candidateId: "rank-Agreed",
+    status: "committed",
+    committedAtRevision: 20,
+  };
+  await mockApi(page, { context, outstanding: [] });
+  const socket = await scriptedSocket(page, 20);
+  await page.goto(`${BASE}/#invite=deadbeef`);
+  await socket.welcomed;
+  await expect(page.getByTestId("map-region")).toHaveAttribute("data-loaded", "true", {
+    timeout: 20_000,
+  });
+
+  await expect(page.getByTestId("pin-rank-Agreed")).toHaveAttribute("data-named", "true");
+  await expect(page.getByTestId("pin-rank-Onthetable")).toHaveAttribute("data-named", "true");
+  // An open proposal carrying a standing veto is still on the table: it draws
+  // as vetoed and keeps its card.
+  await expect(page.getByTestId("pin-rank-Blocked")).toHaveAttribute("data-state", "vetoed");
+  await expect(page.getByTestId("pin-rank-Blocked")).toHaveAttribute("data-named", "true");
+  // A terminally vetoed proposal has left the table and falls back to its own
+  // evidence, so it loses to every confirmed place while slots are scarce.
+  await expect(page.getByTestId("pin-rank-Withdrawn")).toHaveAttribute("data-named", "false");
+  // Three of the eighteen confirmed places yield their slots.
+  await expect
+    .poll(() => page.locator('[data-testid^="pin-rank-E"][data-named="true"]').count())
+    .toBe(15);
+  await browserContext.close();
+});
+
+test("a ruled-out or unlikely place that wins a leftover name slot is drawn muted", async ({ browser }) => {
+  const browserContext = await browser.newContext({
+    viewport: { width: 1600, height: 1000 },
+    reducedMotion: "reduce",
+  });
+  const page = await browserContext.newPage();
+  const context = rankContext(
+    rankGrid([
+      ["Works", "eligible"],
+      ["Guess", "likely"],
+      ["Unknown", "uncertain"],
+      ["Doubtful", "unlikely"],
+      ["Ruledout", "excluded"],
+    ]),
+  );
+  await mockApi(page, { context, outstanding: [] });
+  const socket = await scriptedSocket(page, 20);
+  await page.goto(`${BASE}/#invite=deadbeef`);
+  await socket.welcomed;
+  await expect(page.getByTestId("map-region")).toHaveAttribute("data-loaded", "true", {
+    timeout: 20_000,
+  });
+
+  // With slots to spare every in-scope place is named, the last two ranks
+  // included.
+  await expect(page.getByTestId("pin-rank-Doubtful")).toHaveAttribute("data-named", "true");
+  await expect(page.getByTestId("pin-rank-Ruledout")).toHaveAttribute("data-named", "true");
+
+  const drawn = await page.evaluate(() => {
+    const read = (id: string) => {
+      const marker = document.querySelector<HTMLElement>(`[data-testid="pin-rank-${id}"]`)!;
+      const box = marker.querySelector<HTMLElement>(".sticker-box")!;
+      const style = getComputedStyle(box);
+      return {
+        wrapperOpacity: getComputedStyle(
+          marker.querySelector<HTMLElement>(".marker-sticker")!,
+        ).opacity,
+        scale: style.scale,
+        shadow: style.boxShadow,
+        borderStyle: style.borderTopStyle,
+        name: getComputedStyle(marker.querySelector<HTMLElement>(".sticker-name")!).color,
+      };
+    };
+    return { works: read("Works"), doubtful: read("Doubtful"), out: read("Ruledout") };
+  });
+
+  // Drawn, not hidden, and not collapsed onto the dot.
+  for (const card of [drawn.doubtful, drawn.out]) {
+    expect(card.wrapperOpacity).toBe("1");
+    expect(["none", "1"]).toContain(card.scale);
+    // Quiet: no drop shadow, and soft ink rather than the works card's --spoke-ink.
+    expect(card.shadow).toBe("none");
+    expect(card.name).toBe("rgb(91, 97, 88)");
+  }
+  // A guess still reads as a guess: the unlikely card keeps its dashed edge,
+  // and neither is drawn like a place that works.
+  expect(drawn.doubtful.borderStyle).toBe("dashed");
+  expect(drawn.out.borderStyle).toBe("solid");
+  expect(drawn.works.shadow).not.toBe("none");
+  expect(drawn.works.name).not.toBe(drawn.out.name);
+  await browserContext.close();
+});
+
+test("a busy place beyond the DOM marker cap still gets a marker and a card", async ({ browser }) => {
+  const browserContext = await browser.newContext({
+    viewport: { width: 1600, height: 1000 },
+    reducedMotion: "reduce",
+  });
+  const page = await browserContext.newPage();
+  // Sixty-five unknown places fill the sixty DOM markers on their own. They
+  // ring the edge of the area, leaving the middle clear so the place under
+  // test is refused a card by rank alone, never by a collision. The ruled-out
+  // place is the very last one either budget would consider.
+  const crowd = Array.from({ length: 65 }, (_, index) => {
+    const angle = index * 2.399963229728653;
+    const distance = 450 + (index % 13) * 25;
+    const place = candidateAtMeters(
+      `crowd-${String(index).padStart(2, "0")}`,
+      Math.cos(angle) * distance,
+      Math.sin(angle) * distance,
+      "uncertain",
+    );
+    place.name = `C${index}`;
+    place.walkMin = 2;
+    return place;
+  });
+  const late = candidateAtMeters("late-lookup", 0, 0, "excluded");
+  late.name = "Late";
+  late.walkMin = 99;
+  const context = rankContext([...crowd, late]);
+  const state: MockState = { context, outstanding: [] };
+  await mockApi(page, state);
+  const socket = await scriptedSocket(page, 20);
+  await page.goto(`${BASE}/#invite=deadbeef`);
+  await socket.welcomed;
+  await expect(page.getByTestId("map-region")).toHaveAttribute("data-loaded", "true", {
+    timeout: 20_000,
+  });
+  await expect(page.locator('[data-testid^="pin-"]')).toHaveCount(60);
+  await expect(page.getByTestId("pin-late-lookup")).toHaveCount(0);
+
+  // The room starts looking it up: a lookup in flight outranks the seventy
+  // unknowns, so it takes a marker and the card the lookup ring hangs off.
+  socket.send({
+    type: "lookups",
+    pending: ["late-lookup"],
+    reason: { kind: "need", label: "outdoor seating" },
+  });
+  const pin = page.getByTestId("pin-late-lookup");
+  await expect(pin).toHaveCount(1);
+  await expect(pin).toHaveAttribute("data-busy", "true");
+  await expect(pin).toHaveAttribute("data-named", "true");
+  await expect(page.locator('[data-testid^="pin-"]')).toHaveCount(60);
+
+  // Drained: it goes back to being the last place in the room.
+  socket.send({ type: "lookups", pending: [] });
+  await expect(page.getByTestId("pin-late-lookup")).toHaveCount(0);
+  await browserContext.close();
+});
+
+test("a declared impasse with likely places left counts them and still offers the way out", async ({ page }) => {
+  const context = fixture({ eligibleIds: [], revision: 44, impasse: true });
+  const guessed = context.candidates
+    .filter(
+      (candidate) => haversineMeters(center, candidate.location) <= context.scope.area.radiusM,
+    )
+    .slice(0, 2);
+  for (const candidate of guessed) candidate.eligibility = "likely";
+  context.likely = guessed.length;
+  context.feasibility.likely = guessed.length;
+  context.feasibility.excluded -= guessed.length;
+  context.activeNeeds = [
+    {
+      id: "need-veg",
+      label: "vegetarian options",
+      ruledOut: 19,
+      wouldReturn: 4,
+      unknown: 0,
+      active: true,
+      visibility: "shared",
+      hardness: "hard",
+      ownerId: "p_org",
+    },
+  ];
+  await mockApi(page, { context, outstanding: [] });
+  const socket = await scriptedSocket(page, 44);
+  await page.goto(`${BASE}/#invite=deadbeef`);
+  await socket.welcomed;
+
+  // The council said impasse, but two guesses still stand: the room is told
+  // what it has rather than that it has nothing.
+  await expect(page.getByTestId("count-number")).toHaveText("2");
+  await expect(page.getByTestId("count-block")).toHaveAttribute("data-state", "works");
+  await expect(page.getByTestId("count-block")).toContainText("2 of them likely");
+  await expect(page.getByTestId("room-subtitle")).toContainText("2 still work");
+  await expect(page.getByTestId("room-subtitle")).not.toContainText(/nothing/i);
+  // The server's recovery offers stay on the brief, as offers.
+  await expect(page.getByTestId("ways-out")).toBeVisible();
+  await expect(page.getByTestId("way-out-need-veg")).toContainText("+4");
 });
