@@ -1855,7 +1855,7 @@ async function runLookupNow(
       type: "facts",
       candidateIds: actionable.map((row) => row.id),
       reason: "interactive",
-      stage: "site",
+      stage: "needs",
     });
   }
 
@@ -1881,7 +1881,7 @@ async function runLookupNow(
           type: "facts",
           candidateIds: [evaluation.row.id],
           reason: "interactive",
-          stage: "images",
+          stage: "photos",
         });
       }
     }
@@ -1904,7 +1904,7 @@ async function runLookupNow(
       roomId,
       changed,
       options.publishInteractiveStages ? "interactive" : inferenceChanged ? "inference" : "lookup",
-      options.publishInteractiveStages ? "site" : undefined,
+      options.publishInteractiveStages ? "needs" : undefined,
     );
   }
   const finalImageVersions = await loadImageVersions(
@@ -1925,7 +1925,7 @@ async function runLookupNow(
       type: "facts",
       candidateIds: imageOnly,
       reason: options.publishInteractiveStages ? "interactive" : "lookup",
-      ...(options.publishInteractiveStages ? { stage: "images" as const } : {}),
+      ...(options.publishInteractiveStages ? { stage: "photos" as const } : {}),
     });
   }
   return [...new Set([

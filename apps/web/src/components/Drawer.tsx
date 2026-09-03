@@ -3,7 +3,7 @@ import { PROTOCOL_VERSIONS, TOOL_CONTRACT_VERSION } from "@webmcp-hackathon/cont
 import { diagnostics, type DiagnosticsState } from "../diagnostics-store.ts";
 import type { SessionIdentity } from "../session.ts";
 import type { CommandEnvelope, SpatialContext } from "../spatial-types.ts";
-import type { LookupReason, PendingNeed, PipelineStage, PipelineView } from "../spatial-store.ts";
+import type { LookupReason, PendingNeed, PipelineStage, PipelineView, InteractivePlan } from "../spatial-store.ts";
 import { COPY } from "../ui/copy.ts";
 import { currentToken } from "../session.ts";
 
@@ -29,6 +29,7 @@ interface Props {
   busyReason: LookupReason | null;
   stages: Record<string, PipelineStage>;
   pipeline: PipelineView | null;
+  interactive: Record<string, InteractivePlan>;
   pendingNeeds: PendingNeed[];
   onClose(): void;
   run(type: string, input: Record<string, unknown>): Promise<CommandEnvelope>;
@@ -76,6 +77,7 @@ export function Drawer({
   busyReason,
   stages,
   pipeline,
+  interactive,
   pendingNeeds,
   onClose,
   run,
@@ -252,6 +254,20 @@ export function Drawer({
               ) : (
                 <span>no pipeline frame yet</span>
               )}
+              {(() => {
+                const plans = Object.values(interactive).sort((a, b) => b.startedAt - a.startedAt);
+                const last = plans[0];
+                if (!last) return null;
+                return (
+                  <span data-testid="diag-interactive">
+                    last open · {last.candidateId} · {last.done ? "done" : "running"} ·{" "}
+                    {last.steps.length
+                      ? last.steps.map((step) => `${step.stage}${step.ms !== undefined ? ` ${step.ms}ms` : ""}`).join(" → ")
+                      : "no steps yet"}
+                    {last.costUsd !== null ? ` · $${last.costUsd.toFixed(4)}` : ""}
+                  </span>
+                );
+              })()}
             </div>
           </Section>
           <Section title="Lookups">

@@ -22,6 +22,13 @@ export const DATAFORSEO_LIMIT = 1_000;
 export const LISTING_MATCH_DISTANCE_M = 60;
 /** The provider caps a request at 10 categories; a wider pool takes more. */
 export const DATAFORSEO_CATEGORIES_PER_REQUEST = 10;
+/**
+ * Headroom per category in a request. A batch asks for up to ten categories,
+ * so the sized limit reaches the provider maximum on a full batch and asks for
+ * proportionally less on a short one. Measured on the real Berlin pool the
+ * largest single batch returned 470 items, well inside this.
+ */
+export const DATAFORSEO_ITEMS_PER_CATEGORY = 100;
 export const DATAFORSEO_MAX_REQUESTS = 6;
 /** `location_coordinate` rejects a radius below one kilometre. */
 export const DATAFORSEO_MIN_RADIUS_KM = 1;
@@ -95,6 +102,18 @@ export const LISTING_CATEGORIES: Readonly<Record<PlaceClass, readonly string[]>>
  * means no class was recognized; the caller then sends no filter rather than
  * fetching nothing.
  */
+/**
+ * How many items to ask this batch for. Sized to what the batch could plausibly
+ * hold rather than to the pool, because cost is per item RETURNED and the
+ * provider does not rank by relevance to us — a limit below what the area
+ * contains drops places at random. Never above the provider maximum, and never
+ * below the pool size, so a small area still cannot starve a large pool.
+ */
+export function listingRequestLimit(poolSize: number, categoriesInBatch: number): number {
+  const sized = Math.max(poolSize, categoriesInBatch * DATAFORSEO_ITEMS_PER_CATEGORY);
+  return Math.max(1, Math.min(DATAFORSEO_LIMIT, sized));
+}
+
 export function listingCategoryBatches(classes: readonly string[]): string[][] {
   const known = new Set(PLACE_CLASSES as readonly string[]);
   const present = new Set(classes.filter((value) => known.has(value)));
@@ -138,6 +157,8 @@ export interface ListingCandidate {
   name: string;
   location: { lat: number; lng: number };
   website?: string;
+  /** The pool's own class, so a miss can say "we never asked for this". */
+  placeClass?: string;
 }
 
 interface ListingRating {
@@ -379,7 +400,7 @@ export function listingNameContains(left: string, right: string): boolean {
  * that identity signal must agree as well; a nearby similarly named venue on
  * another site is deliberately rejected.
  */
-export type ListingMissReason = "distance" | "name" | "domain";
+export type ListingMissReason = "distance" | "name" | "domain" | "category";
 
 export interface ListingMatchOutcome {
   distanceM: number;
@@ -596,8 +617,9 @@ export function matchListingsWithDiagnostics(
   candidates: ListingCandidate[],
   listings: DataForSeoListing[],
   observedAt = new Date().toISOString(),
+  requestedClasses?: ReadonlySet<string>,
 ): { matches: MatchedListing[]; diagnostics: ListingMatchDiagnostics } {
-  const RANK: Record<ListingMissReason, number> = { domain: 0, name: 1, distance: 2 };
+  const RANK: Record<ListingMissReason, number> = { domain: 0, name: 1, distance: 2, category: 3 };
   const nearestMiss = new Map<string, ListingMissReason>();
   const possible: Array<
     MatchedListing & { listingIndex: number; domainMatch: boolean }
@@ -639,10 +661,15 @@ export function matchListingsWithDiagnostics(
     usedListings.add(listingIndex);
     matches.push(match);
   }
-  const unmatchedByReason: Record<ListingMissReason, number> = { distance: 0, name: 0, domain: 0 };
+  const unmatchedByReason: Record<ListingMissReason, number> =
+    { distance: 0, name: 0, domain: 0, category: 0 };
   for (const candidate of candidates) {
     if (usedCandidates.has(candidate.candidateId)) continue;
-    unmatchedByReason[nearestMiss.get(candidate.candidateId) ?? "name"] += 1;
+    // A place whose class was never requested could not have been returned, so
+    // the fix is the category map, not the name or distance rule.
+    const unasked = requestedClasses !== undefined &&
+      !requestedClasses.has(candidate.placeClass ?? "");
+    unmatchedByReason[unasked ? "category" : nearestMiss.get(candidate.candidateId) ?? "name"] += 1;
   }
   return { matches, diagnostics: { matched: matches.length, unmatchedByReason } };
 }
@@ -761,6 +788,7 @@ export async function fetchRoomListings(
             name: row.name,
             location: { lat, lng },
             ...(row.website ? { website: row.website } : {}),
+            ...(row.category ? { placeClass: row.category } : {}),
           }]
         : [];
     });
@@ -777,7 +805,10 @@ export async function fetchRoomListings(
         requests: 0,
         costUsd: 0,
         matches: [],
-        diagnostics: { matched: 0, unmatchedByReason: { distance: 0, name: 0, domain: 0 } },
+        diagnostics: {
+          matched: 0,
+          unmatchedByReason: { distance: 0, name: 0, domain: 0, category: 0 },
+        },
       };
     }
     // The provider rejects a radius under a kilometre, so a tighter scope is
@@ -787,8 +818,20 @@ export async function fetchRoomListings(
       `${Number(room.center.lat).toFixed(7)},${Number(room.center.lng).toFixed(7)},${Number(radiusKm.toFixed(3))}`;
     // One request per category batch; an unrecognized pool sends no filter
     // rather than fetching nothing.
-    const batches = listingCategoryBatches(rows.map((row) => row.category ?? ""));
+    const poolClasses = rows.map((row) => row.category ?? "");
+    const batches = listingCategoryBatches(poolClasses);
     const requests = batches.length ? batches : [null];
+    // The classes the emitted batches actually cover. Built from the batch
+    // contents, not the map, so a class dropped by the per-request cap is
+    // reported as the gap it is rather than counted as asked for.
+    const asked = new Set(batches.flat());
+    const requestedClasses = new Set(
+      batches.length
+        ? poolClasses.filter((placeClass) =>
+            ((LISTING_CATEGORIES as Record<string, readonly string[] | undefined>)[placeClass] ?? [])
+              .some((name) => asked.has(name)))
+        : poolClasses,
+    );
     const items: DataForSeoListing[] = [];
     let costUsd = 0;
     for (const categories of requests) {
@@ -802,7 +845,7 @@ export async function fetchRoomListings(
           },
           body: JSON.stringify([{
             location_coordinate: coordinate,
-            limit: DATAFORSEO_LIMIT,
+            limit: listingRequestLimit(candidates.length, categories?.length ?? DATAFORSEO_CATEGORIES_PER_REQUEST),
             ...(categories ? { categories } : {}),
           }]),
         },
@@ -822,7 +865,8 @@ export async function fetchRoomListings(
         WHERE room_id = $1`,
       [roomId, items.length, costUsd],
     );
-    const { matches, diagnostics } = matchListingsWithDiagnostics(candidates, items, observedAt);
+    const { matches, diagnostics } =
+      matchListingsWithDiagnostics(candidates, items, observedAt, requestedClasses);
     return {
       roomId,
       scopeId: room.scope_id,

@@ -1,6 +1,8 @@
 import type {
   CandidateDossier,
+  FactsMessage,
   InspectCandidatesResponse,
+  InteractiveStage,
   PrepareNavigationResponse,
   SpatialContextResponse,
 } from "@webmcp-hackathon/contracts";
@@ -48,7 +50,7 @@ import {
   searchInteractiveCandidate,
   wakeRefinement,
 } from "./refine/worker.ts";
-import { loadImageCounts, loadPlaceImages } from "./enrich/images.ts";
+import { loadImageSummaries, loadPlaceImages } from "./enrich/images.ts";
 import {
   adjudicateLikelyForRoom,
 } from "./enrich/adjudication-runner.ts";
@@ -74,15 +76,18 @@ function tokenRates(): { input: number; output: number } {
 function publishInteractive(
   roomId: string,
   candidateId: string,
-  stage: "cache" | "site" | "images" | "adjudicate" | "search",
-  deadlineExceeded = false,
+  detail: {
+    stage?: InteractiveStage;
+    done?: boolean;
+    steps?: NonNullable<FactsMessage["steps"]>;
+    costUsd?: number;
+  },
 ): void {
   publishFacts(roomId, {
     type: "facts",
     candidateIds: [candidateId],
     reason: "interactive",
-    stage,
-    ...(deadlineExceeded ? { deadlineExceeded: true } : {}),
+    ...detail,
   });
 }
 
@@ -91,15 +96,22 @@ function runInteractiveTarget(roomId: string, target: RoomLookupTarget): Promise
   prefetchManager.opened(key);
   const existing = interactiveInFlight.get(key);
   if (existing) return existing;
-  publishInteractive(roomId, target.candidateId, "cache");
+  publishInteractive(roomId, target.candidateId, { stage: "site" });
   const budget = new InteractiveBudget(() => wakeRefinement(roomId));
   const before = responseMetrics();
-  let currentStage: "site" | "images" | "adjudicate" | "search" = "site";
+  const steps: NonNullable<FactsMessage["steps"]> = [];
+  let currentStage: InteractiveStage = "site";
+  let stageStarted = Date.now();
+  const beginStage = (stage: InteractiveStage) => {
+    if (stage === currentStage) return;
+    steps.push({ stage: currentStage, ms: Date.now() - stageStarted });
+    currentStage = stage;
+    stageStarted = Date.now();
+  };
+  const finishStage = () => {
+    steps.push({ stage: currentStage, ms: Date.now() - stageStarted });
+  };
   let paidSearches = 0;
-  const deadline = setTimeout(() => {
-    publishInteractive(roomId, target.candidateId, currentStage, true);
-  }, INSPECT_LOOKUP_WAIT_MS);
-  deadline.unref?.();
   const pageCache: AdjudicationPageCache = new Map();
   const job = (async () => {
     await lookupNow(pool, roomId, [target], {
@@ -115,19 +127,16 @@ function runInteractiveTarget(roomId: string, target: RoomLookupTarget): Promise
       publishInteractiveStages: true,
       onlyUnclassifiedImages: true,
       onInteractiveStage: (stage) => {
-        currentStage = stage;
+        beginStage(stage === "images" ? "photos" : "site");
       },
       maxCriteria: 5,
       budget,
       consumeModelCall: consumeRefinementModelCall,
       deferExcess: () => wakeRefinement(roomId),
     }).catch(() => []);
-    currentStage = "images";
-    // The image stage is part of lookupNow so its fresh page candidates and
+    // The photo stage is part of lookupNow so its fresh page candidates and
     // existing image cache stay on the established materialisation path.
-    publishInteractive(roomId, target.candidateId, "images");
-
-    currentStage = "adjudicate";
+    beginStage("needs");
     await adjudicateLikelyForRoom(pool, roomId, {
       mode: "on_demand",
       candidateIds: [target.candidateId],
@@ -138,17 +147,20 @@ function runInteractiveTarget(roomId: string, target: RoomLookupTarget): Promise
         return admitted;
       },
     }).catch(() => ({ calls: 0, cells: 0, changed: [] }));
-    publishInteractive(roomId, target.candidateId, "adjudicate");
+    publishInteractive(roomId, target.candidateId, { stage: "needs" });
 
-    currentStage = "search";
+    const webStarted = Date.now();
     const search = await searchInteractiveCandidate(roomId, target.candidateId, budget)
       .catch(() => ({ searched: false, paidSearch: false, modelCall: false, changed: [] }));
     if (search.searched) {
+      steps.push({ stage: currentStage, ms: webStarted - stageStarted });
+      currentStage = "web";
+      stageStarted = webStarted;
       paidSearches = search.paidSearch ? 1 : 0;
-      publishInteractive(roomId, target.candidateId, "search");
+      publishInteractive(roomId, target.candidateId, { stage: "web" });
     }
   })().finally(() => {
-    clearTimeout(deadline);
+    finishStage();
     interactiveInFlight.delete(key);
     const after = responseMetrics();
     const rates = tokenRates();
@@ -156,6 +168,12 @@ function runInteractiveTarget(roomId: string, target: RoomLookupTarget): Promise
     const outputTokens = after.outputTokens - before.outputTokens;
     const costUsd = paidSearches * 0.001 +
       (inputTokens * rates.input + outputTokens * rates.output) / 1_000_000;
+    const roundedCostUsd = Number(costUsd.toFixed(6));
+    publishInteractive(roomId, target.candidateId, {
+      done: true,
+      steps,
+      costUsd: roundedCostUsd,
+    });
     console.info(JSON.stringify({
       msg: "interactive open cost",
       roomId,
@@ -164,7 +182,7 @@ function runInteractiveTarget(roomId: string, target: RoomLookupTarget): Promise
       inputTokens,
       outputTokens,
       searches: paidSearches,
-      costUsd: Number(costUsd.toFixed(6)),
+      costUsd: roundedCostUsd,
       budget: budget.snapshot(),
     }));
   });
@@ -353,7 +371,7 @@ export async function spatialContext(
       disposition: string;
       visibility: string;
     }>;
-    const imageCounts = await loadImageCounts(
+    const imageSummaries = await loadImageSummaries(
       client,
       inputs.candidates.flatMap((candidate) =>
         candidate.osm_ref ? [candidate.osm_ref] : [],
@@ -516,6 +534,7 @@ export async function spatialContext(
       participants,
       candidates: rows.map((r) => {
         const why = whyFor(r, actor.id);
+        const imageSummary = r.ref ? imageSummaries.get(r.ref) : undefined;
         return {
           candidateId: r.candidateId,
           ...(r.ref ? { ref: r.ref } : {}),
@@ -531,7 +550,17 @@ export async function spatialContext(
           // null passes through: a phantom 0 would put mass at the bottom of
           // every price reading.
           priceLevel: r.priceLevel,
-          imageCount: r.ref ? (imageCounts.get(r.ref) ?? 0) : 0,
+          imageCount: imageSummary?.count ?? 0,
+          ...(r.ref && imageSummary?.first
+            ? {
+                image: {
+                  url: `/api/places/${r.ref}/images/0`,
+                  width: imageSummary.first.width,
+                  height: imageSummary.first.height,
+                  blurhash: imageSummary.first.blurhash,
+                },
+              }
+            : {}),
         };
       }),
       proposals: proposalViews,
@@ -780,6 +809,7 @@ export async function inspectCandidates(
                 url: `/api/places/${image.osmRef}/images/${image.idx}`,
                 width: image.width,
                 height: image.height,
+                ...(image.blurhash ? { blurhash: image.blurhash } : {}),
                 source: image.source,
                 ...(image.credit ? { credit: image.credit } : {}),
                 ...(image.license ? { license: image.license } : {}),

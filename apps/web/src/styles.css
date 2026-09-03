@@ -1655,6 +1655,70 @@ body { overflow: hidden; }
   object-fit: cover;
 }
 .details-photo-frame img:not([src]) { visibility: hidden; }
+/* The blurhash placeholder: painted as the frame's background from first
+   paint, so the image's arrival changes pixels, never layout. */
+.details-photo-frame[data-placeholder="true"],
+.details-photo-frame[style*="background-image"] {
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+.details-photo-band[data-count="1"] .details-photo-frame img {
+  transition: opacity var(--spoke-dur-settle) var(--spoke-ease);
+}
+/* Being looked up and no photo known yet: a fixed-height quiet line, never a
+   box that appears later and pushes the facts down. */
+.details-photo-looking {
+  display: flex;
+  align-items: center;
+  gap: var(--spoke-gap-group);
+  height: 28px;
+  padding: 0 var(--spoke-pad-screen);
+  border-bottom: var(--spoke-border) solid var(--spoke-line-quiet);
+  color: var(--spoke-ink-soft);
+  font-size: var(--spoke-size-micro);
+  font-weight: var(--spoke-weight-quiet);
+}
+
+/* Hover card (SPOKES-UI "Hover card"): the name and first image of the dot
+   under a fine pointer or keyboard focus. Position on the wrapper; nothing
+   animates but the opacity on the settle token. pointer-events: none is the
+   whole point — the cursor keeps moving between dots. */
+.map-hover-card {
+  position: absolute;
+  z-index: 6;
+  pointer-events: none;
+  background: var(--spoke-surface);
+  border: var(--spoke-border) solid var(--spoke-line);
+  border-radius: var(--spoke-radius-card);
+  box-shadow: var(--spoke-shadow-lift);
+  overflow: hidden;
+  opacity: 1;
+  transition: opacity var(--spoke-dur-settle) var(--spoke-ease);
+}
+.map-hover-photo {
+  width: 100%;
+  aspect-ratio: 3 / 2;
+  background: var(--spoke-ground);
+  background-size: cover;
+  background-position: center;
+}
+.map-hover-photo img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.map-hover-name {
+  padding: 6px 10px;
+  font-family: var(--spoke-font-display);
+  font-size: var(--spoke-size-body);
+  font-weight: var(--spoke-weight-strong);
+  color: var(--spoke-ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .details-photo-credit {
   display: flex;
   align-items: center;

@@ -53,6 +53,52 @@ const ReferentStep = {
       "Step whose chosen place this referent points at; omit for the current step (`s1` by default).",
   })),
 };
+/** What a scope need is measured from. Absent means `self` — the owner's
+ * origin, falling back to the scope centre. */
+export const ScopeReferent = Type.Union([
+  Type.Object(
+    { kind: Type.Literal("self"), ...ReferentStep },
+    { additionalProperties: false },
+  ),
+  Type.Object(
+    { kind: Type.Literal("scopeCenter"), ...ReferentStep },
+    { additionalProperties: false },
+  ),
+  Type.Object(
+    {
+      kind: Type.Literal("candidate"),
+      candidateId: Type.String({ minLength: 1, maxLength: 40 }),
+      ...ReferentStep,
+    },
+    { additionalProperties: false },
+  ),
+  Type.Object(
+    {
+      kind: Type.Literal("participant"),
+      participantId: Type.String({ minLength: 1, maxLength: 40 }),
+      ...ReferentStep,
+    },
+    { additionalProperties: false },
+  ),
+  Type.Object(
+    {
+      kind: Type.Literal("point"),
+      lat: Type.Number({ minimum: -90, maximum: 90 }),
+      lng: Type.Number({ minimum: -180, maximum: 180 }),
+      label: Type.Optional(Type.String({ minLength: 1, maxLength: 100 })),
+      ...ReferentStep,
+    },
+    { additionalProperties: false },
+  ),
+  Type.Object(
+    {
+      kind: Type.Literal("landmark"),
+      landmarkId: Type.String({ minLength: 1, maxLength: 100 }),
+      ...ReferentStep,
+    },
+    { additionalProperties: false },
+  ),
+]);
 export const RequirementPayload = Type.Union([
   Type.Object(
     {
@@ -70,50 +116,22 @@ export const RequirementPayload = Type.Union([
         Type.Literal("radius_m"),
       ]),
       max: Type.Number(),
-      referent: Type.Optional(Type.Union([
-        Type.Object(
-          { kind: Type.Literal("self"), ...ReferentStep },
-          { additionalProperties: false },
-        ),
-        Type.Object(
-          { kind: Type.Literal("scopeCenter"), ...ReferentStep },
-          { additionalProperties: false },
-        ),
-        Type.Object(
-          {
-            kind: Type.Literal("candidate"),
-            candidateId: Type.String({ minLength: 1, maxLength: 40 }),
-            ...ReferentStep,
-          },
-          { additionalProperties: false },
-        ),
-        Type.Object(
-          {
-            kind: Type.Literal("participant"),
-            participantId: Type.String({ minLength: 1, maxLength: 40 }),
-            ...ReferentStep,
-          },
-          { additionalProperties: false },
-        ),
-        Type.Object(
-          {
-            kind: Type.Literal("point"),
-            lat: Type.Number({ minimum: -90, maximum: 90 }),
-            lng: Type.Number({ minimum: -180, maximum: 180 }),
-            label: Type.Optional(Type.String({ minLength: 1, maxLength: 100 })),
-            ...ReferentStep,
-          },
-          { additionalProperties: false },
-        ),
-        Type.Object(
-          {
-            kind: Type.Literal("landmark"),
-            landmarkId: Type.String({ minLength: 1, maxLength: 100 }),
-            ...ReferentStep,
-          },
-          { additionalProperties: false },
-        ),
-      ])),
+      referent: Type.Optional(ScopeReferent),
+    },
+    { additionalProperties: false },
+  ),
+  Type.Object(
+    {
+      kind: Type.Literal("scope"),
+      dimension: Type.Literal("travel_min"),
+      max: Type.Number(),
+      mode: Type.Union([
+        Type.Literal("walk"),
+        Type.Literal("bike"),
+        Type.Literal("car"),
+        Type.Literal("transit"),
+      ]),
+      referent: Type.Optional(ScopeReferent),
     },
     { additionalProperties: false },
   ),
@@ -123,7 +141,7 @@ export const RequirementPayload = Type.Union([
       perPersonMax: Type.Object(
         {
           amount: Type.Number({ minimum: 0 }),
-          currency: Type.Literal("EUR"),
+          currency: Type.Union([Type.Literal("EUR"), Type.Literal("USD")]),
         },
         { additionalProperties: false },
       ),

@@ -162,6 +162,28 @@ describe("eligibility against the Berlin Mitte dataset", () => {
     expect(whyFor(fallback, "p_peer")).toBe("too far for one person");
   });
 
+  it("evaluates straight-line travel minutes per mode and leaves transit pending", () => {
+    const candidate: CandidateRow = {
+      ...candidates[0],
+      id: "c_modes",
+      location: { lat: 52.53, lng: 13.39 },
+      attributes: [],
+    };
+    const origin = { lat: 52.52, lng: 13.39 };
+    const classify = (mode: "walk" | "bike" | "car" | "transit") => classifyAll(
+      [candidate],
+      [req({ kind: "scope", dimension: "travel_min", max: 5, mode } as never, { owner_origin: origin })],
+      [],
+      null,
+    )[0];
+    expect(classify("walk").eligibility).toBe("excluded");
+    expect(classify("bike").eligibility).toBe("eligible");
+    expect(classify("car").eligibility).toBe("eligible");
+    const transit = classify("transit");
+    expect(transit.eligibility).toBe("uncertain");
+    expect(whyFor(transit, "p_org")).toBe("transit time not on record");
+  });
+
   it("budget maps price levels to EUR bands: band above cap excludes, missing level is uncertain", () => {
     const budget = [req({ kind: "budget", perPersonMax: { amount: 15, currency: "EUR" } })];
     const rows = classifyAll(
@@ -179,6 +201,18 @@ describe("eligibility against the Berlin Mitte dataset", () => {
     expect(pricey.eligibility).toBe("excluded");
     expect(whyFor(pricey, "p_peer")).toBe("estimated cost above the shared budget");
     expect(rows.find((r) => r.candidateId === "c_unknown")!.eligibility).toBe("uncertain");
+  });
+
+  it("keeps a mismatched budget currency pending instead of excluding", () => {
+    const row = classifyAll(
+      [{ ...candidates[0], id: "c_usd", price_level: 4, attributes: [] }],
+      [req({ kind: "budget", perPersonMax: { amount: 1, currency: "EUR" } })],
+      [],
+      null,
+      "America/Los_Angeles",
+    )[0];
+    expect(row.eligibility).toBe("uncertain");
+    expect(whyFor(row, "p_org")).toBe("budget currency does not match this area");
   });
 
   it("cuisine exclusion matches the cuisine attribute value, not just category", () => {

@@ -1,6 +1,16 @@
 import { createHash } from "node:crypto";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { apiPost, createTestRoom, startServer, type TestRoom, type TestServer } from "./helpers.ts";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import type { Participant } from "../../apps/server/src/auth.ts";
+import { runAgent } from "../../apps/server/src/nl/agent.ts";
+import { setTransport } from "../../apps/server/src/nl/openai.ts";
+import {
+  apiPost,
+  createTestRoom,
+  openRealtime,
+  startServer,
+  type TestRoom,
+  type TestServer,
+} from "./helpers.ts";
 
 let server: TestServer;
 let room: TestRoom;
@@ -69,6 +79,8 @@ beforeAll(async () => {
   );
 });
 
+afterEach(() => setTransport(null));
+
 afterAll(async () => {
   const refs = [osmRef, warmOsmRef, flagOsmRef, lowOsmRef];
   await room.pool.query("DELETE FROM place_images WHERE osm_ref = ANY($1)", [refs]);
@@ -85,18 +97,33 @@ afterAll(async () => {
 
 describe("place images API", () => {
   it("lists a local image in the dossier and serves authenticated WebP with a strong ETag", async () => {
+    const realtime = await openRealtime(server.baseUrl, room.tokens.org);
     const inspect = await apiPost<{
       ok: boolean;
-      candidates: Array<{ images?: Array<{ url: string; source: string }> }>;
+      candidates: Array<{ images?: Array<{
+        url: string;
+        width: number;
+        height: number;
+        blurhash?: string;
+        source: string;
+      }> }>;
     }>(server.baseUrl, "/api/spatial/inspect", room.tokens.org, { candidateIds: [candidateId] });
     expect(inspect.body.ok).toBe(true);
     expect(inspect.body.candidates[0].images).toEqual([
       expect.objectContaining({
         url: `/api/places/${osmRef}/images/0`,
+        width: 640,
+        height: 480,
+        blurhash: expect.any(String),
         source: "web:93.184.216.34",
       }),
     ]);
     expect(server.logs().match(/image-fixture model-call/g) ?? []).toHaveLength(1);
+    await expect.poll(() => realtime.frames().some((raw) => {
+      const frame = JSON.parse(raw) as { type?: string; candidateIds?: string[] };
+      return frame.type === "facts" && frame.candidateIds?.includes(candidateId);
+    })).toBe(true);
+    realtime.close();
 
     const stored = (
       await room.pool.query("SELECT website FROM enrichments WHERE osm_ref = $1", [osmRef])
@@ -104,9 +131,64 @@ describe("place images API", () => {
     expect(stored).not.toHaveProperty("imageCandidates");
 
     const context = await apiPost<{
-      candidates: Array<{ candidateId: string; imageCount?: number }>;
+      candidates: Array<{
+        candidateId: string;
+        imageCount?: number;
+        image?: { url: string; width: number; height: number; blurhash: string };
+      }>;
     }>(server.baseUrl, "/api/spatial/context", room.tokens.org, {});
-    expect(context.body.candidates.find((candidate) => candidate.candidateId === candidateId)?.imageCount).toBe(1);
+    const summary = context.body.candidates.find((candidate) => candidate.candidateId === candidateId);
+    expect(summary).toMatchObject({
+      imageCount: 1,
+      image: {
+        url: `/api/places/${osmRef}/images/0`,
+        width: 640,
+        height: 480,
+        blurhash: inspect.body.candidates[0].images![0].blurhash,
+      },
+    });
+    const noImage = context.body.candidates.find((candidate) =>
+      candidate.candidateId === warmCandidateId
+    );
+    expect(noImage).not.toHaveProperty("image");
+
+    const savedHash = inspect.body.candidates[0].images![0].blurhash!;
+    await room.pool.query("UPDATE place_images SET blurhash = NULL WHERE osm_ref = $1", [osmRef]);
+    const nullHashContext = await apiPost<{
+      candidates: Array<{ candidateId: string; imageCount?: number; image?: unknown }>;
+    }>(server.baseUrl, "/api/spatial/context", room.tokens.org, {});
+    const nullHashSummary = nullHashContext.body.candidates.find((candidate) =>
+      candidate.candidateId === candidateId
+    );
+    expect(nullHashSummary).toMatchObject({ imageCount: 1 });
+    expect(nullHashSummary).not.toHaveProperty("image");
+    await room.pool.query(
+      "UPDATE place_images SET blurhash = $2 WHERE osm_ref = $1",
+      [osmRef, savedHash],
+    );
+
+    let agentSnapshot = "";
+    setTransport(async (body) => {
+      agentSnapshot = String((body.input as Array<{ content?: unknown }>)[0]?.content ?? "");
+      return {
+        output: [{ type: "message", content: [{ type: "output_text", text: "One place has a photo." }] }],
+      };
+    });
+    const actor: Participant = {
+      id: room.participantIds.org,
+      roomId: room.roomId,
+      displayName: "Alex",
+      role: "organizer",
+      readyState: "contributing",
+    };
+    await runAgent(actor, "Which places have photos?", null);
+    const snapshot = JSON.parse(agentSnapshot.slice(agentSnapshot.indexOf("{") )) as {
+      places: Array<{ candidateId: string; imageCount: number; image?: unknown }>;
+    };
+    expect(snapshot.places.find((place) => place.candidateId === candidateId)).toMatchObject({
+      imageCount: 1,
+    });
+    expect(snapshot.places.every((place) => !("image" in place))).toBe(true);
 
     const url = `${server.baseUrl}${inspect.body.candidates[0].images![0].url}`;
     const response = await fetch(url, {

@@ -298,9 +298,10 @@ export async function nlSay(
   text: string,
   scope: string,
   turnIdempotencyKey?: string,
+  clarifyOf?: { said: string; question: string },
 ): Promise<unknown> {
   // X3: the whole routed/model/action loop is one side-effecting turn.
-  const body = { text, scope };
+  const body = { text, scope, ...(clarifyOf ? { clarifyOf } : {}) };
   const signature = stableJson({ path: "/api/nl/say", body });
   const key = turnIdempotencyKey ?? retryKeys.get(signature) ?? newIdempotencyKey();
   const result = await post("/api/nl/say", body, undefined, key);

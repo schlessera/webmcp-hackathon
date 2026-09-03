@@ -43,6 +43,8 @@ export interface SpatialState {
   /** What the person's agent last said, newest first. Dismissed by the
    * reader; nothing here is room state. */
   agentReplies: AgentReply[];
+  /** A clarify card can return the original words to the pinned composer. */
+  composerPrefill: { text: string; question?: string; nonce: number } | null;
   /** A sentence is with the agent right now. */
   agentBusy: boolean;
   /** What the agent is doing with it, for the composer's status line. */
@@ -75,7 +77,16 @@ export interface SpatialState {
   pendingNeeds: PendingNeed[];
   /** Bumped when a `facts` frame lands; carries the places it named so an
    * open panel knows whether it is one of them. */
-  facts: { ids: string[]; nonce: number };
+  facts: {
+    ids: string[];
+    nonce: number;
+    reason: string;
+    /** The open fast track's step that just landed, when the frame is one. */
+    stage: InteractiveStage | null;
+    done: boolean;
+  };
+  /** The last open fast-track plan per place, for the `{ }` drawer. */
+  interactive: Record<string, InteractivePlan>;
   /** A context refetch is in flight. */
   refetching: boolean;
   /** Bounded snapshot-place cache across recent viewport reads, by stable ref. */
@@ -90,6 +101,14 @@ export interface LookupReason {
 }
 
 export type PipelineStage = "queued" | "fetching" | "processing";
+export type InteractiveStage = "site" | "needs" | "photos" | "web";
+export interface InteractivePlan {
+  candidateId: string;
+  steps: Array<{ stage: InteractiveStage; at: number; ms?: number }>;
+  done: boolean;
+  costUsd: number | null;
+  startedAt: number;
+}
 
 export interface PipelineView {
   outstanding: { fetch: number; process: number };
@@ -114,6 +133,7 @@ export interface PendingNeed {
   /** The need's id once the context shows it. */
   needId: string | null;
   boundAt: number | null;
+  assumed?: string;
 }
 
 /** After the commit, how long the room may stay quiet before a pending need
@@ -129,11 +149,17 @@ export interface AgentReply {
   actions: Array<{ tool: string; ok: boolean; effect: string }>;
   /** true for a question answered, false for a move made. */
   answer: boolean;
-  choices?: Array<{
-    label: string;
-    payload: Record<string, unknown>;
-    visibility: "shared" | "application-private";
-  }>;
+  scope?: "shared" | "application-private";
+  clarify?: {
+    question: string;
+    choices: Array<{
+      id: string;
+      label: string;
+      needs: Array<{ payload: Record<string, unknown>; label: string; gist: string; topic?: string; assumed?: string }>;
+    }>;
+    allowFreeText: boolean;
+    said: string;
+  };
 }
 
 type Listener = () => void;
@@ -210,6 +236,7 @@ export class SpatialStore {
     viewing: {},
     positions: {},
     agentReplies: [],
+    composerPrefill: null,
     agentBusy: false,
     agentPhase: null,
     busy: [],
@@ -217,7 +244,8 @@ export class SpatialStore {
     stages: {},
     pipeline: null,
     pendingNeeds: [],
-    facts: { ids: [], nonce: 0 },
+    facts: { ids: [], nonce: 0, reason: "", stage: null, done: false },
+    interactive: {},
     refetching: false,
     explore: new Map(),
     exploreTruncated: false,
@@ -288,6 +316,9 @@ export class SpatialStore {
   dismissAgentReply(id: string): void {
     this.update({ agentReplies: this.state.agentReplies.filter((r) => r.id !== id) });
   }
+  prefillComposer(text: string, question?: string): void {
+    this.update({ composerPrefill: { text, ...(question ? { question } : {}), nonce: Date.now() } });
+  }
   setAgentBusy(agentBusy: boolean, agentPhase: SpatialState["agentPhase"] = null): void {
     if (this.state.agentBusy !== agentBusy || this.state.agentPhase !== agentPhase) {
       this.update({ agentBusy, agentPhase: agentBusy ? agentPhase : null });
@@ -323,17 +354,40 @@ export class SpatialStore {
   }
 
   /** The `facts` frame: facts changed outside the event stream. */
-  noteFacts(ids: string[]): void {
-    this.update({ facts: { ids, nonce: this.state.facts.nonce + 1 } });
+  noteFacts(
+    ids: string[],
+    reason = "lookup",
+    detail: { stage: InteractiveStage | null; done: boolean; steps: Array<{ stage: InteractiveStage; ms?: number }>; costUsd: number | null } = { stage: null, done: false, steps: [], costUsd: null },
+  ): void {
+    let interactive = this.state.interactive;
+    if (reason === "interactive" && ids.length === 1) {
+      const id = ids[0];
+      const now = Date.now();
+      const previous = interactive[id]?.done === false ? interactive[id] : null;
+      const plan: InteractivePlan = previous
+        ? { ...previous, steps: [...previous.steps] }
+        : { candidateId: id, steps: [], done: false, costUsd: null, startedAt: now };
+      if (detail.stage) plan.steps.push({ stage: detail.stage, at: now });
+      if (detail.steps.length) {
+        plan.steps = detail.steps.map((step) => ({ stage: step.stage, at: now, ...(step.ms !== undefined ? { ms: step.ms } : {}) }));
+      }
+      if (detail.costUsd !== null) plan.costUsd = detail.costUsd;
+      if (detail.done) plan.done = true;
+      interactive = { ...interactive, [id]: plan };
+    }
+    this.update({
+      facts: { ids, nonce: this.state.facts.nonce + 1, reason, stage: detail.stage, done: detail.done },
+      interactive,
+    });
   }
 
   /** A need this page just said. Returns the local id the row is keyed by. */
-  beginPendingNeed(label: string, visibility: string): string {
+  beginPendingNeed(label: string, visibility: string, assumed?: string): string {
     const localId = `n_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
     this.update({
       pendingNeeds: [
         ...this.state.pendingNeeds,
-        { localId, label, visibility, startedAt: Date.now(), committedAt: null, needId: null, boundAt: null },
+        { localId, label, visibility, startedAt: Date.now(), committedAt: null, needId: null, boundAt: null, ...(assumed ? { assumed } : {}) },
       ],
     });
     this.reconcilePending();
@@ -422,6 +476,7 @@ export class SpatialStore {
       busyReason: null,
       stages: {},
       pipeline: null,
+      interactive: {},
       localScopeCenterKey: null,
       viewing: {},
       positions: {},

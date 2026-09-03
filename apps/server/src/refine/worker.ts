@@ -851,7 +851,7 @@ export async function searchInteractiveCandidate(
   const refreshed = await loadEligibilityInputs(pool, roomId);
   const updated = refreshed.candidates.find((entry) => entry.id === candidateId);
   const changed = updated && stableAttributeHash(updated.attributes as never) !== before ? [candidateId] : [];
-  await publishInferenceChanges(pool, roomId, changed, "interactive", "search");
+  await publishInferenceChanges(pool, roomId, changed, "interactive", "web");
   return { searched: true, paidSearch, modelCall: true, changed };
 }
 

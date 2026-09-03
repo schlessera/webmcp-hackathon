@@ -1,254 +1,217 @@
+import AjvModule from "ajv";
+import addFormatsModule from "ajv-formats";
 import {
   ATTRIBUTE_LABELS,
   ATTRIBUTE_VOCABULARY,
   HINT_TAXONOMY,
+  RequirementPayload,
   areaById,
-  normalizeCuisineTokens,
-  type Facet,
+  preparse,
+  type Concept,
+  type ConceptRole,
+  type Interpretation,
   type SpatialContextResult,
 } from "@webmcp-hackathon/contracts";
 import { config } from "../config.ts";
+import { mapInterpretation, type UnderstandInput } from "./understand/map.ts";
+import type { Clarification, ClarifyChoice, ParsedNeed } from "./understand/types.ts";
 import { parseJson, respond } from "./openai.ts";
-import { findLandmarks } from "../landmarks.ts";
 
-/**
- * The fast tier. One sentence from the composer becomes either a set of need
- * payloads the page then submits through the ordinary command bus, or a
- * question / instruction handed to the smart tier (agent.ts).
- *
- * Bounded, schema-shaped, latency-bound: exactly the job the fast model is
- * for. It never acts, never sees a peer's private content (the context it
- * gets is the caller's own view), and every payload it proposes is validated
- * by the same Ajv pass as a hand-typed one.
- */
-
-export type Intent = "need" | "ask" | "act" | "unclear";
-const MAX_TEXT_NEED_CHARS = 120;
-
-export interface ParsedNeed {
-  payload: Record<string, unknown>;
-  /** Coarse topic the owner may let a private need carry (FACETS.md §4). */
-  topic?: (typeof HINT_TAXONOMY)[number];
-  /** What the sentence meant, for the record — server labels do the rendering. */
-  gist: string;
-}
+export type Intent = "need" | "ask" | "act" | "clarify" | "unclear";
 
 export interface SayOutcome {
   intent: Intent;
   needs: ParsedNeed[];
-  /** For `unclear`: what would help. */
+  clarify: Clarification | null;
   reply: string | null;
-  /** Small page-private disambiguation set; choosing one submits its payload. */
-  choices?: Array<{ label: string; payload: Record<string, unknown> }>;
-  meta: { model: string; ms: number };
+  suggestions?: ClarifyChoice[];
+  meta: { model: string | null; ms: number };
 }
 
-function landmarkDistance(
-  text: string,
-): { dimension: "walk_min" | "radius_m"; max: number; query: string } | null {
-  const metres = /^\s*(\d+(?:[.,]\d+)?)\s*(m|km)\s+(?:from|of)\s+(.+?)\s*$/i.exec(text);
-  if (metres) {
-    const amount = Number(metres[1].replace(",", "."));
-    const max = metres[2].toLowerCase() === "km" ? amount * 1000 : amount;
-    return Number.isFinite(max) && max > 0
-      ? { dimension: "radius_m", max: Math.round(max), query: metres[3] }
-      : null;
-  }
-  const minutes = /^\s*within\s+(\d+(?:[.,]\d+)?)\s*(?:min|mins|minutes?)\s+(?:walk\s+)?(?:from|of)\s+(.+?)\s*$/i.exec(text);
-  if (minutes) {
-    const max = Number(minutes[1].replace(",", "."));
-    return Number.isFinite(max) && max > 0
-      ? { dimension: "walk_min", max: Math.round(max), query: minutes[2] }
-      : null;
-  }
-  const near = /^\s*near\s+(.+?)\s*$/i.exec(text);
-  return near ? { dimension: "walk_min", max: 10, query: near[1] } : null;
-}
-
-function landmarkNeed(
-  text: string,
-  context: SpatialContextResult,
-): SayOutcome | null {
-  const parsed = landmarkDistance(text);
-  const areaId = context.area?.areaId;
-  if (!parsed || !areaId) return null;
-  const matches = findLandmarks(areaId, parsed.query);
-  if (matches.length === 0) return null;
-  const payload = (landmarkId: string) => ({
-    kind: "scope",
-    dimension: parsed.dimension,
-    max: parsed.max,
-    referent: { kind: "landmark", landmarkId },
-  });
-  const top = matches[0].score;
-  const plausible = matches.filter((match) => match.score === top).slice(0, 3);
-  const meta = { model: "landmark-index", ms: 0 };
-  if (plausible.length === 1) {
-    return {
-      intent: "need",
-      needs: [{
-        payload: payload(plausible[0].id),
-        topic: "distance",
-        gist: `${parsed.dimension === "walk_min" ? "near" : "distance from"} ${plausible[0].name}`.slice(0, 80),
-      }],
-      reply: null,
-      meta,
-    };
-  }
-  return {
-    intent: "unclear",
-    needs: [],
-    reply: `Which ${parsed.query.trim()} did you mean?`,
-    choices: plausible.map((match) => ({
-      label: `${match.name} · ${match.kindLabel}`,
-      payload: payload(match.id),
-    })),
-    meta,
-  };
+interface DraftConcept {
+  role: ConceptRole;
+  surface: string;
+  polarity: "include" | "exclude";
+  hardness: "hard" | "soft";
+  quantityValue: number | null;
+  quantityUnit: "m" | "km" | "min" | "h" | "EUR" | "USD" | null;
+  quantityBound: "max" | "min" | "about" | "exact" | null;
+  mode: "walk" | "bike" | "car" | "transit" | null;
+  referentKind: "self" | "here" | "scope_center" | "named" | null;
+  referentName: string | null;
+  attributeKey: string | null;
+  values: string[];
+  windowStart: string | null;
+  windowEnd: string | null;
+  phrase: string | null;
+  topic: (typeof HINT_TAXONOMY)[number] | null;
+  unresolved: Concept["unresolved"];
+  gist: string;
 }
 
 interface Draft {
-  intent: Intent;
-  needs: Array<{
-    kind: "attribute" | "budget" | "walk" | "time" | "exclusion" | "inclusion" | "text";
-    attributeKey: string | null;
-    expect: "verified_true" | "verified_false" | null;
-    amountEur: number | null;
-    walkMin: number | null;
-    radiusM: number | null;
-    excludeValues: string[];
-    includeValues: string[];
-    text: string | null;
-    window: { start: string; end: string } | null;
-    phrase: string | null;
-    topic: string | null;
-    gist: string;
-  }>;
+  intent: "need" | "ask" | "act" | "other";
+  confidence: number;
+  concepts: DraftConcept[];
   reply: string | null;
 }
 
 const NULLABLE_STRING = { type: ["string", "null"] };
-const NULLABLE_NUMBER = { type: ["number", "null"] };
-
 const SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["intent", "needs", "reply"],
+  required: ["intent", "confidence", "concepts", "reply"],
   properties: {
-    intent: { type: "string", enum: ["need", "ask", "act", "unclear"] },
-    needs: {
+    intent: { enum: ["need", "ask", "act", "other"] },
+    confidence: { type: "number", minimum: 0, maximum: 1 },
+    reply: NULLABLE_STRING,
+    concepts: {
       type: "array",
       maxItems: 5,
       items: {
         type: "object",
         additionalProperties: false,
         required: [
-          "kind", "attributeKey", "expect", "amountEur", "walkMin", "radiusM",
-          "excludeValues", "includeValues", "text", "window", "phrase", "topic", "gist",
+          "role", "surface", "polarity", "hardness", "quantityValue", "quantityUnit",
+          "quantityBound", "mode", "referentKind", "referentName", "attributeKey", "values",
+          "windowStart", "windowEnd", "phrase", "topic", "unresolved", "gist",
         ],
         properties: {
-          kind: { type: "string", enum: ["attribute", "budget", "walk", "time", "exclusion", "inclusion", "text"] },
+          role: { enum: ["distance", "travel_time", "money", "time", "attribute", "kind", "quality", "place", "person", "action", "question"] },
+          surface: { type: "string", maxLength: 120 },
+          polarity: { enum: ["include", "exclude"] },
+          hardness: { enum: ["hard", "soft"] },
+          quantityValue: { type: ["number", "null"] },
+          quantityUnit: { enum: ["m", "km", "min", "h", "EUR", "USD", null] },
+          quantityBound: { enum: ["max", "min", "about", "exact", null] },
+          mode: { enum: ["walk", "bike", "car", "transit", null] },
+          referentKind: { enum: ["self", "here", "scope_center", "named", null] },
+          referentName: NULLABLE_STRING,
           attributeKey: NULLABLE_STRING,
-          expect: { type: ["string", "null"], enum: ["verified_true", "verified_false", null] },
-          amountEur: NULLABLE_NUMBER,
-          walkMin: NULLABLE_NUMBER,
-          radiusM: NULLABLE_NUMBER,
-          excludeValues: { type: "array", items: { type: "string" } },
-          includeValues: { type: "array", items: { type: "string" } },
-          text: NULLABLE_STRING,
-          window: {
-            anyOf: [
-              {
-                type: "object",
-                additionalProperties: false,
-                required: ["start", "end"],
-                properties: {
-                  start: { type: "string", format: "date-time", maxLength: 40 },
-                  end: { type: "string", format: "date-time", maxLength: 40 },
-                },
-              },
-              { type: "null" },
-            ],
-          },
+          values: { type: "array", maxItems: 8, items: { type: "string", maxLength: 60 } },
+          windowStart: NULLABLE_STRING,
+          windowEnd: NULLABLE_STRING,
           phrase: NULLABLE_STRING,
-          topic: { type: ["string", "null"], enum: [...HINT_TAXONOMY, null] },
-          gist: { type: "string" },
+          topic: { enum: [...HINT_TAXONOMY, null] },
+          unresolved: { enum: ["unit", "value", "referent", "name", "attribute", "kind", null] },
+          gist: { type: "string", maxLength: 40 },
         },
       },
     },
-    reply: NULLABLE_STRING,
   },
 };
 
-function enumValues(facets: Facet[], key: string): Set<string> {
-  const facet = facets.find((f) => f.key === key && f.type === "enum");
-  return new Set((facet?.values ?? []).map((v) => v.value));
-}
+// CJS/ESM interop: ajv publishes CJS; under Node ESM the class may sit on
+// .default depending on the loader (mirrors engine.ts).
+const Ajv = ((AjvModule as never as { default?: unknown }).default ??
+  AjvModule) as typeof AjvModule.default;
+const addFormats = ((addFormatsModule as never as { default?: unknown })
+  .default ?? addFormatsModule) as typeof addFormatsModule.default;
+
+const payloadAjv = new Ajv({ strict: false });
+addFormats(payloadAjv);
+const validatePayload = payloadAjv.compile(RequirementPayload);
 
 function localIso(now: Date, timezone: string): string {
   const parts = Object.fromEntries(new Intl.DateTimeFormat("en-CA", {
     timeZone: timezone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hourCycle: "h23",
-    timeZoneName: "longOffset",
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit",
+    hourCycle: "h23", timeZoneName: "longOffset",
   }).formatToParts(now).map((part) => [part.type, part.value]));
-  const offset = parts.timeZoneName === "GMT"
-    ? "+00:00"
-    : parts.timeZoneName?.replace("GMT", "") ?? "+00:00";
+  const offset = parts.timeZoneName === "GMT" ? "+00:00" : parts.timeZoneName?.replace("GMT", "") ?? "+00:00";
   return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:${parts.second}${offset}`;
 }
 
-function roomClock(context: SpatialContextResult, now: Date): { timezone: string; localNow: string } {
-  const timezone = areaById(context.area?.areaId ?? "")?.timezone ?? "UTC";
-  return { timezone, localNow: localIso(now, timezone) };
+function modelInstructions(
+  context: SpatialContextResult,
+  input: UnderstandInput,
+  preparsed: Concept[],
+  remainder: string,
+): string {
+  const vocabulary = ATTRIBUTE_VOCABULARY.filter((key) => key !== "price-level" && key !== "cuisine")
+    .map((key) => `${key} ("${ATTRIBUTE_LABELS[key]}")`).join(", ");
+  const cuisines = context.facets.find((facet) => facet.key === "cuisine" && facet.type === "enum")
+    ?.values?.map((row) => row.value).join(", ") ?? "none";
+  return [
+    "You read one sentence a person typed into a shared planning room where a small group is choosing a place.",
+    "Return the concepts the sentence states, one per distinct thing, up to five. Do not decide what to do with them.",
+    "Intent need means at least one stated thing could rule places in or out. A noun phrase counts. Intent ask is only a question with no stated need; act requests a room move; other is off-topic.",
+    `Already understood, do not repeat: ${JSON.stringify(preparsed)}. Read only the remaining words: ${JSON.stringify(remainder)}.`,
+    ...(input.clarifyOf
+      ? [`This follows the question ${JSON.stringify(input.clarifyOf.question)} about ${JSON.stringify(input.clarifyOf.said)}.`]
+      : []),
+    "Every quantity must carry quantityValue, quantityUnit and quantityBound. Never guess a unit. A bare number has quantityUnit null and unresolved unit.",
+    "distance is a length from a referent; travel_time is a duration and carries walk, bike, car or transit when said. Named places use referentKind named and referentName.",
+    "Examples: at most 500 m away from me -> distance 500 m max self; max 500m distance -> distance 500 m max self; not more than 20 min by bike -> travel_time 20 min max bike self.",
+    "Examples: close to Alexanderplatz -> travel_time 10 min max walk named Alexanderplatz; cheap -> money 15 in the room currency; under 20 -> quantityUnit null and unresolved unit.",
+    `Attribute keys are only: ${vocabulary}. Cuisine values on record: ${cuisines}.`,
+    "kind holds food/place words, with one concept for alternatives. no Italian is exclude; Italian or Spanish is one include concept. Never widen sushi to asian or pizza to italian.",
+    "quality is an open adjective such as quiet or kid friendly and becomes a safe question. open late is a time concept, not quality.",
+    `Area timezone: ${input.room.timezone}. Current local date/time: ${localIso(input.room.now, input.room.timezone)}.`,
+    "Time windows: lunch 12:00-14:00; dinner/evening 18:00-21:00; brunch 10:00-13:00; tonight 18:00-23:00; open late 22:00-02:00 next day; at a clock time spans one hour either side; open now spans two hours.",
+    "Time endpoints must be ISO-8601 with the area's numeric offset. Copy the exact time words into phrase.",
+    "Polarity is exclude for no/not/without/avoid/kein/nicht/ohne. Hardness is soft for ideally/preferably/if possible/am liebsten/idealerweise/wenn möglich/wäre schön.",
+    "surface is exact source words. gist is at most six lowercase words. Output only JSON.",
+  ].join("\n");
 }
 
-function instructions(
-  context: SpatialContextResult,
+function conceptFromDraft(draft: DraftConcept): Concept {
+  return {
+    role: draft.role,
+    surface: draft.surface,
+    polarity: draft.polarity,
+    hardness: draft.hardness,
+    quantity: draft.quantityValue === null
+      ? null
+      : { value: draft.quantityValue, unit: draft.quantityUnit, bound: draft.quantityBound ?? "max" },
+    mode: draft.mode,
+    referent: draft.referentKind ? { kind: draft.referentKind, name: draft.referentName } : null,
+    attributeKey: draft.attributeKey,
+    values: draft.values,
+    window: draft.windowStart && draft.windowEnd ? { start: draft.windowStart, end: draft.windowEnd } : null,
+    phrase: draft.phrase,
+    topic: draft.topic,
+    unresolved: draft.unresolved,
+    gist: draft.gist,
+    origin: "model",
+  };
+}
+
+function understandInput(
+  text: string,
   scope: string,
-  clock: { timezone: string; localNow: string },
-): string {
-  const vocab = ATTRIBUTE_VOCABULARY.filter((k) => k !== "price-level" && k !== "cuisine")
-    .map((k) => `${k} ("${ATTRIBUTE_LABELS[k]}")`)
-    .join(", ");
-  const cuisines = [...enumValues(context.facets, "cuisine")].join(", ");
-  const needs = context.activeNeeds.map((n) => `"${n.label}"`).join(", ") || "none";
-  const proposals = context.proposals
-    .filter((p) => p.status !== "withdrawn")
-    .map((p) => context.candidates.find((c) => c.candidateId === p.candidateId)?.name ?? p.candidateId)
-    .join(", ") || "none";
-  const people = context.participants.map((p) => p.displayName).join(", ");
-  return [
-    "You route one sentence a person typed into a shared planning room where a small group is choosing a place to meet.",
-    "Decide the intent:",
-    "- need: the sentence states something that would rule places in or out (a condition, a budget, how far they can go, something to avoid, a kind of place they want). One sentence often carries several: extract every distinct one, up to five, each as its own need.",
-    "- act: the sentence asks for a move in the room — propose or put a place forward, accept or rule out a proposal, widen the area, set a need aside or bring it back, withdraw a need, mark done.",
-    "- ask: the sentence is a question about the room, the places, what changed, or what to do.",
-    "- unclear: nothing above fits; say in `reply` (one short sentence, no exclamation mark) what would help.",
-    "For needs:",
-    `- kind attribute: only for these keys: ${vocab}. expect verified_true for wanting it, verified_false for wanting its absence.`,
-    "- kind budget: a per-person ceiling in euros (amountEur). Words like cheap mean 15, mid-range 25, splurge 40.",
-    "- kind walk: distance from the person. Use a maximum walking time in minutes (walkMin), or metres (radiusM), never both. 'not more than 20 min from me' is walkMin 20; 'close to me' is walkMin 10; 'within 2 km of me' is radiusM 2000. Phrases without 'me' such as 'close by' still mean walkMin 10.",
-    `Area timezone: ${clock.timezone}.`,
-    `Current local date/time: ${clock.localNow}.`,
-    "- kind time: when the sentence names a date, weekday, meal, part of day, clock time, or 'open now'. Return an absolute window in `window`, and copy the time words the person actually said into `phrase`. Never turn a sentence that names a time into kind text.",
-    "- Resolve time only from words the person supplied, using the area clock above. `window.start` and `window.end` must be ISO-8601 date-times with the area's numeric offset (`±HH:MM`, never `Z`). Never invent a time need when the sentence names no time.",
-    "- Date anchors: today is the current civil date; tomorrow is the next civil date; a named weekday is its next occurrence on or after today. Combine that date with the stated meal or clock time. A bare date or weekday covers 00:00 to 00:00 the next civil day.",
-    "- Time windows: lunch 12:00–14:00; dinner 18:00–21:00; brunch 10:00–13:00; evening 18:00–21:00; tonight 18:00–23:00 on today's date. An explicit 'at' time spans one hour before through one hour after it, so 'at 7pm' is 18:00–20:00. 'open now' starts at the exact current local date/time and ends two hours later.",
-    `- kind exclusion: cuisines the person wants to AVOID ("no Italian", "not sushi", "anything but pizza"), only from: ${cuisines || "(none known)"}. Put the matching values in excludeValues. If none is listed, use unclear rather than kind text.`,
-    `- kind inclusion: cuisines the person WANTS ("Asian please", "let's do Italian", "I fancy ramen"), from the same list. Put the matching values in includeValues. Wanting a cuisine is never an exclusion of it; when the wanted cuisine is not in the list, use kind text.`,
-    "- kind text: anything else, verbatim in `text` (max 120 chars). It rules nothing out until checked, so prefer a typed kind whenever one honestly fits.",
-    "- topic: the coarse category of the need, from the allowed list; null when none fits.",
-    "- gist: the need in at most six words, lowercase, no domain jargon.",
-    `The person chose visibility "${scope}" for what they say; that does not change the intent.`,
-    `Needs already stated in the room: ${needs}. Places currently on the table: ${proposals}. People: ${people}.`,
-    "Never invent keys or cuisine values. A cuisine value must be the one the person named or its plain synonym, never a broader family (sushi is not asian, pizza is not italian). A missing wanted cuisine becomes kind text; a missing avoided cuisine is unclear. Never answer the question yourself. Output only the JSON.",
-  ].join("\n");
+  context: SpatialContextResult,
+  now: Date,
+  clarifyOf?: { said: string; question: string },
+  viewerId?: string,
+): UnderstandInput {
+  const area = areaById(context.area?.areaId ?? "");
+  const openProposals = context.proposals.filter((proposal) => proposal.status !== "withdrawn");
+  return {
+    text,
+    scope,
+    ...(clarifyOf ? { clarifyOf } : {}),
+    room: {
+      areaId: context.area?.areaId ?? "",
+      timezone: area?.timezone ?? "UTC",
+      currency: area?.currency === "USD" ? "USD" : "EUR",
+      now,
+      hasOwnOrigin: viewerId
+        ? Boolean(context.participants.find((participant) => participant.participantId === viewerId)?.origin)
+        : context.participants.some((participant) => Boolean(participant.origin)),
+      transport: (context.scope?.transport ?? ["walk"]).filter(
+        (mode): mode is "walk" | "bike" | "car" | "transit" => ["walk", "bike", "car", "transit"].includes(mode),
+      ),
+      facets: context.facets,
+      activeNeeds: context.activeNeeds,
+      candidateWalkMinutes: context.candidates.map((candidate) => candidate.walkMin),
+      candidateNames: context.candidates.map((candidate) => ({ candidateId: candidate.candidateId, name: candidate.name })),
+      participantNames: context.participants.map((participant) => ({ participantId: participant.participantId, name: participant.displayName })),
+      ...(context.agreement ? { agreementCandidateId: context.agreement.candidateId } : {}),
+      proposalCandidateIds: openProposals.map((proposal) => proposal.candidateId),
+    },
+  };
 }
 
 export async function say(
@@ -256,96 +219,67 @@ export async function say(
   scope: string,
   context: SpatialContextResult,
   now = new Date(),
+  clarifyOf?: { said: string; question: string },
+  viewerId?: string,
 ): Promise<SayOutcome> {
-  const indexed = landmarkNeed(text, context);
-  if (indexed) return indexed;
-  const clock = roomClock(context, now);
-  const reply = await respond({
-    model: config.nlFastModel,
-    instructions: instructions(context, scope, clock),
-    input: [{ role: "user", content: text }],
-    schema: { name: "composer_route", schema: SCHEMA },
-    reasoning: "low",
-    maxOutputTokens: 600,
-    timeoutMs: 15_000,
-  });
-  const draft = parseJson<Draft>(reply.text);
-  const meta = { model: reply.model, ms: reply.ms };
-  if (!draft) return { intent: "unclear", needs: [], reply: null, meta };
-
-  const cuisines = enumValues(context.facets, "cuisine");
-  const needs: ParsedNeed[] = [];
-  for (const n of draft.needs ?? []) {
-    const topic = HINT_TAXONOMY.includes(n.topic as never)
-      ? (n.topic as ParsedNeed["topic"])
-      : undefined;
-    const base = { gist: n.gist || text.slice(0, 40), ...(topic ? { topic } : {}) };
-    if (
-      n.kind === "attribute" &&
-      n.attributeKey &&
-      (ATTRIBUTE_VOCABULARY as readonly string[]).includes(n.attributeKey) &&
-      n.attributeKey !== "price-level" &&
-      n.attributeKey !== "cuisine"
-    ) {
-      needs.push({
-        ...base,
-        payload: { kind: "attribute", key: n.attributeKey, expect: n.expect ?? "verified_true" },
-      });
-    } else if (n.kind === "budget" && n.amountEur && n.amountEur > 0) {
-      needs.push({
-        ...base,
-        payload: { kind: "budget", perPersonMax: { amount: Math.round(n.amountEur), currency: "EUR" } },
-      });
-    } else if (n.kind === "walk" && n.radiusM && n.radiusM > 0) {
-      needs.push({
-        ...base,
-        payload: { kind: "scope", dimension: "radius_m", max: Math.round(n.radiusM) },
-      });
-    } else if (n.kind === "walk" && n.walkMin && n.walkMin > 0) {
-      needs.push({
-        ...base,
-        payload: { kind: "scope", dimension: "walk_min", max: Math.round(n.walkMin) },
-      });
-    } else if (n.kind === "time") {
-      const startText = n.window?.start;
-      const endText = n.window?.end;
-      const hasOffset = (value: unknown): value is string =>
-        typeof value === "string" && /[+-]\d{2}:\d{2}$/.test(value);
-      const start = hasOffset(startText) ? Date.parse(startText) : Number.NaN;
-      const end = hasOffset(endText) ? Date.parse(endText) : Number.NaN;
-      if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) continue;
-      const proposedPhrase = n.phrase?.trim();
-      const phrase = proposedPhrase && text.toLocaleLowerCase().includes(proposedPhrase.toLocaleLowerCase())
-        ? proposedPhrase
-        : text.trim();
-      needs.push({
-        ...base,
-        payload: {
-          kind: "time",
-          window: { start: startText, end: endText },
-          ...(phrase ? { phrase: phrase.slice(0, 200) } : {}),
-        },
-      });
-    } else if (n.kind === "exclusion" || n.kind === "inclusion") {
-      const source = n.kind === "exclusion" ? n.excludeValues : n.includeValues;
-      const values = [...new Set((source ?? []).flatMap((value) =>
-        normalizeCuisineTokens(value).filter((token) => cuisines.has(token)),
-      ))].slice(0, 8);
-      if (values.length) {
-        needs.push({
-          ...base,
-          payload: { kind: n.kind, key: "cuisine", values, lifetime: "session" },
-        });
-      } else if (n.kind === "inclusion") {
-        const t = (n.text ?? text).trim().slice(0, MAX_TEXT_NEED_CHARS);
-        if (t) needs.push({ ...base, payload: { kind: "text", text: t } });
-      }
-    } else {
-      const t = (n.text ?? text).trim().slice(0, MAX_TEXT_NEED_CHARS);
-      if (t) needs.push({ ...base, payload: { kind: "text", text: t } });
-    }
+  const input = understandInput(text, scope, context, now, clarifyOf, viewerId);
+  const parsed = preparse(text, { currency: input.room.currency });
+  let interpretation: Interpretation;
+  let meta: SayOutcome["meta"];
+  if (parsed.preparsedWhole) {
+    interpretation = {
+      intent: "need",
+      concepts: parsed.concepts,
+      confidence: 1,
+      reply: null,
+      meta: { model: null, ms: 0, preparsedWhole: true },
+    };
+    meta = { model: null, ms: 0 };
+  } else {
+    const reply = await respond({
+      model: config.nlFastModel,
+      instructions: modelInstructions(context, input, parsed.concepts, parsed.remainder),
+      input: [{ role: "user", content: parsed.remainder || text }],
+      schema: { name: "understanding", schema: SCHEMA },
+      reasoning: "low",
+      maxOutputTokens: 700,
+      timeoutMs: 12_000,
+      serviceTier: "default",
+    });
+    const draft = parseJson<Draft>(reply.text);
+    interpretation = {
+      intent: draft?.intent ?? "other",
+      concepts: [...parsed.concepts, ...(draft?.concepts ?? []).map(conceptFromDraft)].slice(0, 5),
+      confidence: draft?.confidence ?? 0,
+      reply: draft?.reply ?? null,
+      meta: { model: reply.model, ms: reply.ms, preparsedWhole: false },
+    };
+    meta = { model: reply.model, ms: reply.ms };
   }
-  const intent: Intent =
-    draft.intent === "need" && needs.length === 0 ? "unclear" : draft.intent;
-  return { intent, needs: intent === "need" ? needs : [], reply: draft.reply, meta };
+  const mapped = mapInterpretation(interpretation, input);
+  const validNeeds = mapped.needs.filter((need) => validatePayload(need.payload));
+  const validClarify = mapped.clarify
+    ? {
+        ...mapped.clarify,
+        choices: mapped.clarify.choices.map((choice) => ({
+          ...choice,
+          needs: choice.needs.filter((need) => validatePayload(need.payload)),
+        })),
+      }
+    : null;
+  return {
+    intent: mapped.intent,
+    needs: validNeeds,
+    clarify: validClarify,
+    reply: mapped.reply,
+    ...(mapped.suggestions
+      ? { suggestions: mapped.suggestions.map((choice) => ({
+          ...choice,
+          needs: choice.needs.filter((need) => validatePayload(need.payload)),
+        })) }
+      : {}),
+    meta,
+  };
 }
+
+export type { ParsedNeed, Clarification, ClarifyChoice } from "./understand/types.ts";

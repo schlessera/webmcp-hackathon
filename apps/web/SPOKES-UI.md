@@ -333,6 +333,27 @@ candidate set** (see `FACETS.md`). Order by count descending. Never hardcode.
 
 ---
 
+### Hover card
+
+A dot or name card whose summary carries `image` shows a floating card after
+120 ms under a fine pointer (`pointer: fine`, never touch) or when keyboard
+focus lands on it: the name in the display face and a 172 px card with the
+first photo (3:2). The blurhash paints first, the bytes replace it. The card
+has `pointer-events: none` so the cursor moves freely between dots; it sits
+above the dot, below it near the top edge, clamped inside the band, and goes
+on move start, drag, blur, leave and mouse-out. It is not an animation: only
+its opacity rides the settle token, and reduced motion zeroes that. GL dots
+without a DOM marker get the card through the nearest-dot rule on mousemove.
+
+### Photo band placeholder
+
+The details panel reserves the photo band's box from first paint whenever
+the summary says a photo exists — the band's fixed 3:2 crop — with the
+blurhash as background, so the facts below never move when the bytes land.
+When no photo is known and a lookup is running, a fixed-height line says
+"looking for a photo…" and collapses only when the lookup ends without one.
+No photo and nothing running: no box at all.
+
 ## 6. Place details
 
 Side panel that pushes the map on ≥980px; full-screen takeover on phone
@@ -503,3 +524,10 @@ map's own ring vocabulary and no new colour or animation:
 Stages differ in stroke and opacity, never hue, so they survive greyscale and
 stand still under reduced motion while staying distinguishable. DOM markers
 expose `data-stage`; GL dots carry a `stage` feature-state beside `busy`.
+
+Opening a place is the fast track: the panel renders cached facts at once
+and applies each interactive `facts` frame in place (rows transition on the
+settle token) with a stage line; after 3 s without the plan closing the line
+reads "still reading the site…". Hover or keyboard focus on a dot or card
+sends `previewing` (debounced 250 ms, cleared on blur) so the server can
+prefetch; GL dots merely under the pointer during a drag never send it.

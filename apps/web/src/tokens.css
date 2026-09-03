@@ -145,7 +145,7 @@
   --spoke-ease:         cubic-bezier(.22, .61, .36, 1);
   --spoke-dur-settle:   420ms;   /* a place enters or leaves the set */
   --spoke-dur-pop:      3200ms;  /* selected sticker idle loop       */
-  --spoke-dur-busy:     1600ms;  /* one turn of the busy ring        */
+  --spoke-dur-busy:     3200ms;  /* one turn of the busy ring        */
 }
 
 @media (prefers-reduced-motion: reduce) {

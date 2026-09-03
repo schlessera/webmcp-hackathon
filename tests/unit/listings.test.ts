@@ -4,6 +4,8 @@ import {
   LISTING_NOTE,
   LISTING_SOURCE,
   DATAFORSEO_CATEGORIES_PER_REQUEST,
+  DATAFORSEO_LIMIT,
+  listingRequestLimit,
   LISTING_CATEGORIES,
   listingCategoryBatches,
   listingNameContains,
@@ -252,7 +254,42 @@ describe("name normalization and the domain path", () => {
     expect(diagnostics).toEqual({
       matched: 1,
       // Faraway had no listing inside 60 m; Kopenhagen was refused by the veto.
-      unmatchedByReason: { distance: 1, name: 0, domain: 1 },
+      unmatchedByReason: { distance: 1, name: 0, domain: 1, category: 0 },
     });
+  });
+});
+
+describe("request sizing and the category gap", () => {
+  it("sizes the limit to the batch, floors it at the pool, caps it at the maximum", () => {
+    // A full batch of ten categories reaches the provider maximum.
+    expect(listingRequestLimit(60, 10)).toBe(DATAFORSEO_LIMIT);
+    // A short batch asks for proportionally less.
+    expect(listingRequestLimit(60, 2)).toBe(200);
+    // A pool larger than the sized figure still gets room for itself.
+    expect(listingRequestLimit(400, 2)).toBe(400);
+    // Nothing ever exceeds the maximum.
+    expect(listingRequestLimit(5_000, 10)).toBe(DATAFORSEO_LIMIT);
+  });
+
+  it("reports a place whose class no batch asked for as a category miss", () => {
+    const near = { lat: 52.5, lng: 13.4 };
+    const candidates = [
+      { candidateId: "c1", osmRef: "node/1", name: "Café Nénom", location: near, placeClass: "cafe" },
+      { candidateId: "c2", osmRef: "node/2", name: "Monbijoupark", location: near, placeClass: "park" },
+    ];
+    const listed = [listing({
+      title: "Cafe Nenom", latitude: 52.5, longitude: 13.4, domain: undefined, url: undefined,
+    })];
+    // Only the cafe classes were asked for; the park was never in a batch.
+    const { diagnostics } = matchListingsWithDiagnostics(
+      candidates, listed, AT, new Set(["cafe"]),
+    );
+    expect(diagnostics).toEqual({
+      matched: 1,
+      unmatchedByReason: { distance: 0, name: 0, domain: 0, category: 1 },
+    });
+    // With both classes asked for, the same pool blames the name instead.
+    expect(matchListingsWithDiagnostics(candidates, listed, AT, new Set(["cafe", "park"])).diagnostics)
+      .toEqual({ matched: 1, unmatchedByReason: { distance: 0, name: 1, domain: 0, category: 0 } });
   });
 });

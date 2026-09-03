@@ -233,7 +233,7 @@ describe("refinement web search", () => {
     expect(apiBody).toMatchObject({
       objective: "Venue Berlin wifi",
       search_queries: ["Venue Berlin wifi"],
-      mode: "fast",
+      mode: "turbo",
       advanced_settings: {
         source_policy: { include_domains: ["venue.example"] },
       },

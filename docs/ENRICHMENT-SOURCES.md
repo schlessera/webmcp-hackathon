@@ -412,6 +412,12 @@ because the provider files branches as “Restaurant Hackescher Hof” and
 characters and cover half the longer one's words, so “sushi” never claims
 “Sushi Miyabi”.
 
+The three distances that matter, together: **60 m** is how far a listing may
+sit from the map's coordinate and still be the same place, **25 m** is the
+tighter bound a branch-suffix name must fall inside, and **1 km** is the
+provider's own floor on `location_coordinate` — a scope smaller than that is
+fetched at the floor and the 60 m rule discards the overshoot.
+
 ### How names are compared
 
 Names are compared on their **core** form: diacritics folded, `ß` expanded,
@@ -455,6 +461,10 @@ truncation drops places at random. Measured on the same pool:
 | 300 | 788 | $0.344 | 40 |
 | 1,000 | 958 | $0.405 | 46 |
 
+A durable budget row per room enforces one fetch per `(room, scope)` in
+24 hours; changing `scopeId` grants one immediately. The reservation is taken
+before the request, so two server processes cannot both pay for the same pool.
+
 The category filter bounds this cost, and the per-room 24-hour budget bounds how
 often it is paid. The limit is not a cost lever worth pulling.
 
@@ -482,9 +492,9 @@ provider's own categories endpoint publishes. The provider caps a request at
 ten categories, so a wide pool is split across up to six requests; the request
 fee is $0.012 each and the item fee dominates.
 
-The provider rejects a `location_coordinate` radius below one kilometre, so a
-tighter scope is fetched at that floor and the 60 metre match rule discards the
-overshoot.
+Each request asks for as many items as its batch could plausibly hold — a
+hundred per category, never below the pool size and never above the provider's
+thousand — so a two-category batch does not pay for a thousand-item answer.
 
 Available and unavailable Google-profile attributes are symmetric. Dogs,
 wheelchair entrance, outdoor seating, vegetarian options, wi-fi, takeaway and
@@ -502,7 +512,9 @@ claim. `enrichments.listing` retains only the companion hours, rating and
 website fields for seven days. A durable per-room budget permits at most one
 request in 24 hours, with one immediate extra request when `scopeId` changes.
 Each batch logs counts only — pool size, matched, and unmatched split into
-`distance`, `name` and `domain` — so a drop in yield says which rule to look at.
+`distance`, `name`, `domain` and `category` — so a drop in yield says which rule
+to look at. `category` means the place's own class was in no batch the request
+asked for, which is a gap in the category map rather than in the match rule.
 A listing that matched nothing is stored nowhere and named nowhere.
 `LISTINGS=0` disables the class. The price is **$0.012 per request plus
 $0.00036 per returned item**: 343 results cost about **$0.135** and the
@@ -521,7 +533,10 @@ Split refinement supports `SEARCH_PROVIDER=parallel|openai|tavily`. Without an
 explicit setting it chooses Parallel when `PARALLEL_API_KEY` exists, otherwise
 OpenAI when `OPENAI_API_KEY` exists, otherwise Tavily. Tavily remains the
 cross-room, seven-day fallback described above. OpenAI stores validated claims
-but not raw snippets.
+but not raw snippets. Parallel runs on its `turbo` processor by default: the same price per task
+as `fast`, quicker to finish at some cost in quality, which frees our worker
+slots sooner (`PARALLEL_SEARCH_MODE=fast` trades latency for quality); the request shape and
+the page-fetch fallback for verbatim spans are the same on both.
 
 Parallel uses the GA Search API's `fast` mode at **$1 per 1,000 searches**.
 Its excerpts are not verbatim. Parallel calls them “LLM-optimized”; measured

@@ -8,8 +8,10 @@ import type {
 import {
   ATTRIBUTE_LABELS,
   ATTRIBUTE_VOCABULARY,
+  AREAS,
   CUISINE_IMPLICATION_SATISFACTION_FLOOR,
   PRICE_LEVEL_EUR,
+  TRAVEL_SPEED_M_PER_MIN,
   criterionFor,
   implies,
   normalizeCuisineTokens,
@@ -58,7 +60,6 @@ export interface FacetsBundle {
   privateEffects: PrivateEffect[];
 }
 
-const WALK_SPEED_M_PER_MIN = 4500 / 60;
 const HISTOGRAM_BUCKETS = 5;
 /** Handled by a facet of their own rather than as boolean claims. */
 const NON_BOOLEAN_KEYS = new Set(["cuisine", "price-level"]);
@@ -194,6 +195,7 @@ export function computeFacetsBundle(
         candidates,
         inputs.scope,
         inputs.origins?.get(viewerId) ?? inputs.scope?.area?.center,
+        AREAS.find((area) => area.timezone === inputs.timezone)?.currency === "USD" ? "USD" : "EUR",
       ),
       ...temporalFacets(
         active.filter((req) => req.owner_id === viewerId || req.visibility === "shared"),
@@ -291,6 +293,7 @@ export function computeFacets(
   candidates: CandidateRow[],
   scope: ScopeState | null,
   viewerOrigin?: { lat: number; lng: number },
+  currency: "EUR" | "USD" = "EUR",
 ): Facet[] {
   const booleans: Facet[] = [];
   for (const key of ATTRIBUTE_VOCABULARY) {
@@ -328,7 +331,7 @@ export function computeFacets(
   if (cuisine) facets.push(cuisine);
   const walk = walkFacet(candidates, viewerOrigin ?? scope?.area?.center);
   if (walk) facets.push(walk);
-  const price = priceFacet(candidates);
+  const price = priceFacet(candidates, currency);
   if (price) facets.push(price);
   return facets;
 }
@@ -408,7 +411,7 @@ function walkFacet(
   const minutes = candidates.map((c) =>
     Math.max(
       1,
-      Math.round(haversineMeters(c.location, center) / WALK_SPEED_M_PER_MIN),
+      Math.round(haversineMeters(c.location, center) / TRAVEL_SPEED_M_PER_MIN.walk),
     ),
   );
   return {
@@ -424,7 +427,7 @@ function walkFacet(
 
 /** Price as the per-person EUR band the budget predicate compares against,
  * so the number the UI shows is the number a budget need is measured in. */
-function priceFacet(candidates: CandidateRow[]): Facet | null {
+function priceFacet(candidates: CandidateRow[], currency: "EUR" | "USD"): Facet | null {
   const bands: number[] = [];
   let unknown = 0;
   for (const c of candidates) {
@@ -437,7 +440,7 @@ function priceFacet(candidates: CandidateRow[]): Facet | null {
     key: "price-level",
     label: labelForKey("price-level"),
     type: "numeric",
-    unit: "EUR",
+    unit: currency,
     range: { min: Math.min(...bands), max: Math.max(...bands) },
     histogram: histogram(bands),
     counts: { unknown },
@@ -482,7 +485,7 @@ function humanize(value: string): string {
 export function labelForRequirement(
   req: RequirementRow,
   ownedByViewer: boolean,
-  context?: { timezone: string; now: Date },
+  context?: { timezone: string; now: Date; referentLabel?: string },
 ): string {
   const p = req.payload;
   if (!p) {
@@ -494,16 +497,22 @@ export function labelForRequirement(
       const label = labelForKey(String(p.key));
       return p.expect === "verified_false" ? `no ${label}` : label;
     }
-    case "scope":
-      return `${p.dimension === "walk_min"
+    case "scope": {
+      const base = p.dimension === "walk_min"
         ? `within ${p.max} min walk`
-        : `within ${p.max} m`} of ${scopeReferentLabel(req, ownedByViewer)}`;
+        : p.dimension === "travel_min"
+          ? `within ${p.max} min by ${p.mode ?? "transit"}`
+          : `within ${p.max} m`;
+      return `${base} of ${scopeReferentLabel(req, ownedByViewer)}`;
+    }
     case "budget": {
       const b = p.perPersonMax;
       if (!b) return "a budget";
       return b.currency === "EUR"
         ? `budget €${b.amount}`
-        : `budget ${b.amount} ${b.currency}`;
+        : b.currency === "USD"
+          ? `budget $${b.amount}`
+          : `budget ${b.amount} ${b.currency}`;
     }
     case "time": {
       const start = p.window?.start;

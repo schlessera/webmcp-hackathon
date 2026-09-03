@@ -10,6 +10,7 @@
   "dependencies": {
     "@vis.gl/react-maplibre": "^8.1.2",
     "@webmcp-hackathon/contracts": "workspace:*",
+    "blurhash": "2.0.5",
     "maplibre-gl": "^6.6.0",
     "react": "^18.3.0",
     "react-dom": "^18.3.0"

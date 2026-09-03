@@ -48,7 +48,11 @@ export interface Call {
   reasoning?: "none" | "minimal" | "low" | "medium" | "high";
   maxOutputTokens?: number;
   timeoutMs?: number;
+  /** Foreground work uses default. Flex is reserved for later background work. */
+  serviceTier?: "default" | "flex";
 }
+
+export const ALLOWED_SERVICE_TIERS = ["default", "flex"] as const;
 
 export interface ToolCall {
   callId: string;
@@ -190,9 +194,11 @@ function observedServiceTier(value: unknown, requested: ServiceTier): ObservedSe
 
 export async function respond(call: Call): Promise<Reply> {
   const started = Date.now();
-  let serviceTier: ServiceTier = call.intent === "interactive" || flexUnsupportedModels.has(call.model)
+  const requestedServiceTier: ServiceTier = call.serviceTier ??
+    (call.intent === "background" ? "flex" : "default");
+  let serviceTier: ServiceTier = requestedServiceTier === "flex" && flexUnsupportedModels.has(call.model)
     ? "default"
-    : "flex";
+    : requestedServiceTier;
   const body: Record<string, unknown> = {
     model: call.model,
     instructions: call.instructions,
@@ -215,6 +221,9 @@ export async function respond(call: Call): Promise<Reply> {
   if (call.reasoning) body.reasoning = { effort: call.reasoning };
   if (call.maxOutputTokens) body.max_output_tokens = call.maxOutputTokens;
 
+  if (!(ALLOWED_SERVICE_TIERS as readonly unknown[]).includes(requestedServiceTier)) {
+    throw new NlError(`service tier ${String(requestedServiceTier)} is not allowed`, 400);
+  }
   const timeoutMs = call.timeoutMs ?? 30_000;
   let response: unknown;
   try {
