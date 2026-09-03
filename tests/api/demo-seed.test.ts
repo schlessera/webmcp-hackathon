@@ -4,6 +4,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import pg from "pg";
 import { haversineMeters } from "../../apps/server/src/eligibility.ts";
 import { DATABASE_URL } from "./helpers.ts";
+import { areaById } from "@webmcp-hackathon/contracts";
 
 const run = promisify(execFile);
 const database = new pg.Pool({ connectionString: DATABASE_URL });
@@ -37,6 +38,15 @@ describe("demo reseed", () => {
       expect(row.origin).toMatchObject({ source: "fixture" });
       expect(row.origin.label).toBeTruthy();
       expect(haversineMeters(row.origin, scope.area.center)).toBeLessThanOrEqual(1500);
+    }
+    const expectedByName = new Map(
+      ["Alain", "Sarah", "Joe"].map((name, index) => [
+        name,
+        areaById("berlin-mitte")!.fixtureOrigins[index],
+      ]),
+    );
+    for (const row of rows.rows) {
+      expect(row.origin).toMatchObject(expectedByName.get(row.display_name)!);
     }
   }, 30_000);
 

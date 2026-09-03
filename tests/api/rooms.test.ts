@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import pg from "pg";
 import { DATABASE_URL, apiPost, startServer, type TestServer } from "./helpers.ts";
 import { POOL_SEED_SIZE } from "../../apps/server/src/places.ts";
+import { areaById } from "@webmcp-hackathon/contracts";
 
 /**
  * The area picker's server half: GET /api/areas reports what was measured,
@@ -110,18 +111,19 @@ describe("POST /api/rooms", () => {
     expect(context.body.total).toBe(POOL_SEED_SIZE);
     for (const c of context.body.candidates) expect(c.priceLevel).toBeNull();
     const origins = await pool.query(
-      "SELECT origin FROM participants WHERE room_id = $1 ORDER BY id",
+      "SELECT id, origin FROM participants WHERE room_id = $1",
       [room.roomId],
     );
     expect(origins.rows).toHaveLength(3);
-    for (const row of origins.rows) {
-      expect(row.origin).toMatchObject({
-        lat: context.body.scope.area.center.lat,
-        lng: context.body.scope.area.center.lng,
-        label: "the area centre",
-        source: "fixture",
-      });
-    }
+    const byId = new Map(origins.rows.map((row) => [row.id as string, row.origin]));
+    const assigned = room.invites.map((invite) => byId.get(invite.participantId));
+    expect(assigned.map((origin) => ({
+      label: origin.label,
+      lat: origin.lat,
+      lng: origin.lng,
+    }))).toEqual(areaById("sf-soma")!.fixtureOrigins);
+    expect(new Set(assigned.map((origin) => `${origin.lat},${origin.lng}`)).size).toBe(3);
+    for (const origin of assigned) expect(origin).toMatchObject({ source: "fixture" });
 
     const inspect = await apiPost<{
       ok: boolean;
@@ -171,6 +173,29 @@ describe("POST /api/rooms", () => {
     );
     expect(after.body.matching).toBe(0);
     expect(after.body.feasibility.uncertain).toBe(POOL_SEED_SIZE);
+  });
+
+  it("assigns the three Berlin fixtures in organizer-first roster order", async () => {
+    const { status, body } = await post("/api/rooms", {
+      areaId: "berlin-mitte",
+      organizerName: "Alex",
+      memberNames: ["Sarah", "Joe"],
+    });
+    expect(status).toBe(200);
+    const room = body as Created;
+    created.push(room.roomId);
+    const rows = await pool.query(
+      "SELECT id, origin FROM participants WHERE room_id = $1",
+      [room.roomId],
+    );
+    const byId = new Map(rows.rows.map((row) => [row.id as string, row.origin]));
+    const assigned = room.invites.map((invite) => byId.get(invite.participantId));
+    expect(assigned.map((origin) => ({
+      label: origin.label,
+      lat: origin.lat,
+      lng: origin.lng,
+    }))).toEqual(areaById("berlin-mitte")!.fixtureOrigins);
+    expect(new Set(assigned.map((origin) => `${origin.lat},${origin.lng}`)).size).toBe(3);
   });
 
   it("opens a Berlin room on the snapshot too, distinct from room_demo", async () => {

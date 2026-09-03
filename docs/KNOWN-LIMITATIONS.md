@@ -121,10 +121,13 @@ bounded, honest threat model. We list them rather than hide them.
 
 ## Data honesty
 
-Alain, Sarah and Joe's starting positions are invented for the demo. They use
-real Berlin Mitte place names, but do not describe those people. A real client
-reads the participant's current position from device geolocation and updates
-it as the person moves.
+The three Berlin Mitte starting positions (near Rosenthaler Platz,
+Alexanderplatz and Hackescher Markt) and the three San Francisco SoMa starting
+positions (near Yerba Buena Gardens, South Park and Mint Plaza) are demo
+fiction. They use real place names, but do not describe any participant. Every
+room initially assigns them in roster order, organizer first. A real client
+reads the participant's current position from device geolocation and updates it
+as the person moves.
 
 The venue dataset is a real one-time OpenStreetMap extract of Berlin Mitte
 (ODbL; see `packages/contracts/data/ATTRIBUTION.md`). A small curated overlay,
