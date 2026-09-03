@@ -29,6 +29,15 @@ export interface ParticipantSummary {
   origin?: ParticipantOrigin;
 }
 
+/** Ephemeral, opt-in coordinates from the presence channel. Labels remain
+ * private in ParticipantOrigin and never enter this shape. */
+export interface SharedPosition {
+  participantId: string;
+  lat: number;
+  lng: number;
+  updatedAt: string;
+}
+
 export interface CandidateSummary {
   candidateId: string;
   /** Stable area-snapshot ref, when this place has one. */

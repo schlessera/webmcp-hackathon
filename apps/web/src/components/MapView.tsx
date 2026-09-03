@@ -12,6 +12,7 @@ import type {
   ExplorePlace,
   ParticipantOrigin,
   ParticipantSummary,
+  SharedPosition,
   SpatialContext,
 } from "../spatial-types.ts";
 import type { LookupReason } from "../spatial-store.ts";
@@ -220,6 +221,8 @@ interface Props {
   proposedRadiusM: number | null;
   /** participantId -> candidateId: who has which place open right now. */
   viewing: Record<string, string>;
+  /** Opted-in live positions from the presence channel, never labels. */
+  positions: Record<string, SharedPosition>;
   participants: ParticipantSummary[];
   meId: string;
   /** Places the server is looking up right now: a busy ring on each. */
@@ -336,6 +339,7 @@ export function MapView({
   committedId,
   proposedRadiusM,
   viewing,
+  positions,
   participants,
   meId,
   busy,
@@ -732,6 +736,20 @@ export function MapView({
     });
     return map;
   }, [viewing, participants, meId]);
+
+  const sharedPeople = useMemo(() => {
+    const out: Array<{
+      position: SharedPosition;
+      participant: ParticipantSummary;
+      index: number;
+    }> = [];
+    participants.forEach((participant, index) => {
+      if (participant.participantId === meId) return;
+      const position = positions[participant.participantId];
+      if (position) out.push({ position, participant, index });
+    });
+    return out;
+  }, [positions, participants, meId]);
 
   /* While a brief row is held, the drawn set is the previewed one, and the
      places the held need was removing breathe back in as dashed stickers. */
@@ -1883,6 +1901,30 @@ export function MapView({
             />
           )}
         </Source>
+        {sharedPeople.map(({ position, participant, index }) => (
+          <Marker
+            key={`person-${participant.participantId}`}
+            longitude={position.lng}
+            latitude={position.lat}
+            anchor="center"
+            style={{ zIndex: 16 }}
+          >
+            <div
+              className="person-marker"
+              role="img"
+              aria-label={`${participant.displayName} is showing where they are.`}
+              data-testid={`person-mark-${participant.participantId}`}
+            >
+              <span
+                className="person-mark-badge"
+                style={{ background: personColor(index) }}
+                aria-hidden="true"
+              >
+                {initials(participant.displayName)}
+              </span>
+            </div>
+          </Marker>
+        ))}
         {displayedOrigin && (
           <Marker
             longitude={displayedOrigin.lng}

@@ -4,6 +4,7 @@ import type {
   CommandEnvelope,
   ExplorePlace,
   OutstandingItem,
+  SharedPosition,
   SpatialContext,
 } from "./spatial-types.ts";
 
@@ -36,6 +37,9 @@ export interface SpatialState {
   /** Who has which place open right now (peers and self), from the presence
    * frame. Ephemeral: never part of `context`, never persisted. */
   viewing: Record<string, string>;
+  /** Opted-in live coordinates from the latest presence frame. Missing means
+   * not sharing or no longer present. */
+  positions: Record<string, SharedPosition>;
   /** What the person's agent last said, newest first. Dismissed by the
    * reader; nothing here is room state. */
   agentReplies: AgentReply[];
@@ -173,6 +177,7 @@ export class SpatialStore {
     preview: null,
     previewNeedId: null,
     viewing: {},
+    positions: {},
     agentReplies: [],
     agentBusy: false,
     agentPhase: null,
@@ -232,6 +237,16 @@ export class SpatialStore {
     const viewing: Record<string, string> = {};
     for (const r of rows) viewing[r.participantId] = r.candidateId;
     this.update({ viewing });
+  }
+  setPresence(
+    viewingRows: Array<{ participantId: string; candidateId: string }>,
+    positionRows: SharedPosition[],
+  ): void {
+    const viewing: Record<string, string> = {};
+    for (const row of viewingRows) viewing[row.participantId] = row.candidateId;
+    const positions: Record<string, SharedPosition> = {};
+    for (const row of positionRows) positions[row.participantId] = row;
+    this.update({ viewing, positions });
   }
   pushAgentReply(reply: Omit<AgentReply, "id">): void {
     const id = `r_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
@@ -356,6 +371,8 @@ export class SpatialStore {
       busy: [],
       busyReason: null,
       localScopeCenterKey: null,
+      viewing: {},
+      positions: {},
     });
   }
 

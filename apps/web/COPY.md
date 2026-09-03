@@ -201,6 +201,12 @@ the visible copy.
 - Place distance: **“12 min from you”**, never “away”.
 - A peer event says only **“Sarah updated where they start from.”** Coordinates
   and labels never appear in peer copy.
+- Sharing control: **“Show where you are to the room.”** It is off by default.
+- Privacy line: **“Off: only you and the room’s server know your position. On:
+  everyone in the room sees it on the map while you are here.”** Name both
+  states; never imply that the private address label is shared.
+- Sharing events say **“Sarah is showing where they are”** and **“Sarah stopped
+  showing where they are.”**
 
 ## Tone
 
