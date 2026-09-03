@@ -250,7 +250,12 @@ export function connectRealtime(
         callbacks.onConfirmation(message);
       } else if (message.type === "error") {
         diagnostics.log(`ws error: ${message.code}`);
-        if (message.code === "upgrade_required") callbacks.onStaleBundle();
+        if (message.code === "upgrade_required") {
+          // The server refuses a stale page before any welcome (R17), so the
+          // Gate 5 silent reload has to happen here, not on the welcome path.
+          if (reloadIsProvenSafe()) window.location.reload();
+          else callbacks.onStaleBundle();
+        }
       }
     };
     socket.onclose = (event) => {
