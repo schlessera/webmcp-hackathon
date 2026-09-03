@@ -840,7 +840,7 @@ async function withdrawRequirement(
 ): Promise<HandlerOutcome> {
   const row = (
     await client.query(
-      "SELECT owner_id, visibility FROM requirements WHERE id = $1 AND room_id = $2 AND NOT withdrawn",
+      "SELECT owner_id, visibility, payload FROM requirements WHERE id = $1 AND room_id = $2 AND NOT withdrawn",
       [cmd.requirementId, actor.roomId],
     )
   ).rows[0];
@@ -863,6 +863,7 @@ async function withdrawRequirement(
   await client.query("UPDATE requirements SET withdrawn = true WHERE id = $1", [
     cmd.requirementId,
   ]);
+  const criterion = criterionFor(row.payload as never);
   return {
     events: [
       {
@@ -873,6 +874,7 @@ async function withdrawRequirement(
       },
     ],
     effect: "Requirement withdrawn.",
+    refine: Boolean(criterion),
   };
 }
 
@@ -1377,6 +1379,7 @@ async function setSearchScope(
     ],
     effect: `Search scope is now ${summary}.`,
     poolFill: cmd.area !== undefined,
+    refine: true,
   };
 }
 
@@ -2037,6 +2040,8 @@ async function applyAdjustment(
   return {
     events,
     effect: `Adjustment applied: ${describeChange(adj)}.`,
+    poolFill: adj.kind === "scope_change",
+    refine: true,
   };
 }
 

@@ -35,8 +35,16 @@ outbound proxy variables passed through to the app service.
 | `REFINE_IDLE_STOP_MS` | optional | How long refinement remains alive after the last room participant leaves; defaults to `600000`. |
 | `REFINE_TICK_MS` | optional | Working-loop interval in milliseconds; defaults to `1000`. |
 | `REFINE_IDLE_TICK_MS` | optional | Empty-queue polling interval in milliseconds; defaults to `30000`. |
+| `REFINE_PLAN_WATCHDOG_MS` | optional | Maximum wait for one room plan before replanning; defaults to `REFINE_TICK_MS * 120`. |
 | `REFINE_MODEL_CALLS_PER_HOUR` | optional | Per-room model-call budget; defaults to `200`. |
 | `REFINE_SEARCHES_PER_HOUR` | optional | Per-room search budget; defaults to `150`. |
+| `PIPELINE_TIMEOUT_FETCH_SITE_MS` | optional | Site-dispatch deadline in milliseconds; defaults to `30000`. |
+| `PIPELINE_TIMEOUT_FETCH_ASSET_MS` | optional | Asset-dispatch deadline in milliseconds; defaults to `30000`. |
+| `PIPELINE_TIMEOUT_FETCH_SEARCH_MS` | optional | Search-dispatch deadline in milliseconds; defaults to `45000`. |
+| `PIPELINE_TIMEOUT_PROCESS_JUDGE_MS` | optional | Matrix-judging deadline in milliseconds; defaults to `120000`. |
+| `PIPELINE_TIMEOUT_PROCESS_ADJUDICATE_MS` | optional | Adjudication deadline in milliseconds; defaults to `120000`. |
+| `PIPELINE_TIMEOUT_PROCESS_VISION_MS` | optional | Vision deadline in milliseconds; defaults to `60000`. |
+| `PIPELINE_TIMEOUT_PROCESS_DECODE_MS` | optional | Image-decode deadline in milliseconds; defaults to `30000`. |
 | `SEARCH_PROVIDER` | optional | Search provider: `parallel`, `openai`, or `tavily`. Parallel is always the default; `openai` names the built-in search path, which now runs through OpenRouter. |
 | `PARALLEL_API_KEY` | when using Parallel | Parallel Search credential. Results are cached per room under its End Customer restriction. |
 | `PARALLEL_SEARCH_MODE` | optional | Parallel search processor; `turbo` by default (same price as `fast`, quicker, slightly lower quality), `fast` when quality matters more than latency. |

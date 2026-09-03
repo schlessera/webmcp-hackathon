@@ -73,6 +73,12 @@ may admit an item. It uses room-level deficit round robin, item priority,
 ready-buffer backpressure and the read-only `hostGateOpen(host)` hint. It never
 reserves or mutates host state in the outbound client.
 
+Each priority class is indexed by pool, so an admission probe considers only
+work that can use the pool being filled. Queued items are reprioritised against
+the latest room plan and queued work that left the active scope is rejected;
+already-running work finishes and may still populate shared evidence caches.
+Scope and need changes bump the room epoch and wake the planner immediately.
+
 Pool choice and route choice are separate decisions. The scheduler consults
 `routeFor(host, purpose)` when work is enqueued and again when it is dispatched,
 because the circuit breaker may change while it waits. `net/outbound.ts` is the
@@ -81,6 +87,13 @@ control group, per-host limits, session pacing and the circuit breaker. A
 dispatcher reports the actual route; accounting follows that report rather
 than the enqueue-time prediction. Interactive fetches prefer direct, with one
 same-priority proxy retry for a block-shaped result.
+
+Every dispatch has a kind-specific deadline. Expiry aborts signal-aware fetches,
+settles the item, clears its progress state and releases the pool slot. The room
+planner submits at most 32 places per tick and has its own plan watchdog, so one
+unsettled plan cannot prevent the next replan. Site evaluation releases the
+LLM-matrix slot before its search leg and reacquires it only for post-search
+evaluation.
 
 The scheduler and its progress volume are process-local. The socket-holding
 process emits the room frame; no cross-process counter is claimed.
