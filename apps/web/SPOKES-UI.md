@@ -62,6 +62,11 @@ The subtitle is **state, not metadata** — it changes with the room:
 
 Absent participants use `--spoke-person-idle`.
 
+Tapping the avatar row opens a small roster card under the header — every
+person by name with "here now" / "arrived" / "not arrived yet" — so names and
+presence are reachable on touch, not only on hover. It closes on Escape, on an
+outside tap, or on the row again. It is a disclosure, not navigation.
+
 **Don't** make `{ }` prominent. It is a debugging affordance: no border, no
 fill, no label. Everything protocol-shaped lives behind it.
 
@@ -82,6 +87,7 @@ fill, no label. Everything protocol-shaped lives behind it.
 | Staged | as proposed, suffix `· staged`, no idle breath (the decision is on the page now) |
 | Settled | as selected (works fill, cream), suffix `· settled` |
 | Would come back | dashed 1.5px `--spoke-works` border, dashed dot, `+n` chip, `spoke-breathe` |
+| Being looked up | any of the above, plus a 24px dashed ring in the state's own colour turning around the dot (`spoke-busy`, `data-busy`). A ring, never a spinner glyph; with reduced motion it stands still |
 
 Precedence, first match wins: selected → settled → staged → vetoed →
 proposed → would come back → works / unsure / out.
@@ -168,6 +174,15 @@ Header: `WHAT MATTERS` (display 800, 12px, uppercase) + count badge.
 | Has unknowns | `--spoke-unsure` | `--spoke-unsure` | `3 unknown` badge |
 | Private (yours) | `--spoke-scope` | `--spoke-scope` | `private` badge |
 | Agent-only (other's) | 1.5px dashed `--spoke-line` | none | `agent only` badge |
+| Pending (just said) | 1.5px dashed `--spoke-line` | none | busy ring + `checking 12 places…` |
+
+A need is **pending** from the moment it is said until the room has committed
+it and the first round of lookups it triggered has landed (or 8 s, whichever
+first). The row exists at once — the person sees their own words on the
+brief before the server answers — and settles into its real variant when the
+count does. The count block carries the same state: `checking 12 for
+step-free access`. `aria-busy` is set on the brief while a need is pending
+and the count is announced once, when it settles.
 
 The semantic border is the **only** full-strength line in the design. Neutral
 rows use the tinted line. That way an outline means something.
@@ -195,7 +210,8 @@ Pinned, 16px inset, 20px from the bottom.
   `--spoke-shadow-lift`, `overflow: hidden`.
 - **Scope selector inline on the left** — a small `--spoke-works-tint` chip
   reading `Shared`, opening to `Private` / `Agent only`. Scope is chosen
-  *before* speaking, never after.
+  *before* speaking, never after. Each option carries one line saying what
+  leaves the device and what the room sees, at the point of choice.
 - Input: transparent, no border of its own, 13px / 600, `min-height: 44px`.
 - **Add**: flush right, full bar height, `--spoke-works` fill, cream, divided
   by a 1.5px border. A word, not a glyph — no arrow, no paper plane, no emoji.
@@ -254,6 +270,17 @@ Where everyone stands             ← per person: avatar · sentence · mark
 - Provenance is one line under the facts, not a column per row.
 - **Don't** invent icons per attribute type; label + value in the type ramp.
 - A peer with this place open reads "· looking now" on their stance row.
+- **Looking it up.** The panel reserves one line under the verdict from the
+  first paint: `looking it up…` with the busy ring while a lookup runs for
+  this place, `what the record says` once it has landed. Facts that arrive
+  update their rows in place; the first render never looks final.
+- The "Does it fit" rows come from the server's per-need verdicts on the
+  dossier (`needs[]`); the client never parses a need label. A guess names
+  its evidence under the answer in the reader's words ("the menu mentions a
+  vegan bowl") and its confidence as a word — "likely", "fairly sure",
+  "a guess" — never as a number.
+- Address, phone and opening hours sit in a "Where and when" group when the
+  record carries them; hours group consecutive days with the same times.
 
 ---
 
@@ -310,14 +337,21 @@ chat and the map never disagree.
 
 ## 10. Motion
 
-Two gestures. Everything else is instant.
+Three gestures and the settle. Everything else is instant.
 
 1. **Settle** (`--spoke-dur-settle`, 420ms) — when the candidate set changes,
    places that leave fade to `--spoke-out` in place; places that return grow
    from their dot. Never re-layout the map, never re-centre.
 2. **Pop** (`--spoke-dur-pop`) — the selected sticker's idle breath.
+3. **Breathe** (`--spoke-dur-breathe`) — a "would come back" sticker.
+4. **Busy** (`--spoke-dur-busy`, one turn in 1.6 s) — a dashed ring turning
+   around whatever is being looked up: a dot on the map, a pending need row,
+   the panel's lookup line. Rotation only, on an inner element. Shown only
+   for work that takes longer than a glance; a sub-second answer never
+   flashes a ring.
 
-Respect `prefers-reduced-motion`; the tokens already zero both.
+Respect `prefers-reduced-motion`; the tokens zero all four, and busy then
+stands as a still dashed ring beside its text.
 
 ---
 

@@ -1,6 +1,6 @@
 import { useRef } from "react";
 import type { ProjectedEvent } from "@webmcp-hackathon/contracts";
-import type { AgentReply } from "../spatial-store.ts";
+import type { AgentReply, PendingNeed } from "../spatial-store.ts";
 import type {
   ActiveNeed,
   CommandEnvelope,
@@ -30,9 +30,18 @@ interface RowProps {
   canToggle: boolean;
   justApplied: boolean;
   previewing: boolean;
+  /** Said, committed, and the room is still checking places for it. */
+  pending: boolean;
+  /** How many places are being looked up right now (for the pending text). */
+  busyCount: number;
   onToggle(): void;
   onHoldStart(): void;
   onHoldEnd(): void;
+}
+
+/** "checking 12 places…" / "checking…" (COPY.md in progress). */
+function checkingText(busyCount: number): string {
+  return busyCount > 0 ? `checking ${busyCount} place${busyCount === 1 ? "" : "s"}…` : "checking…";
 }
 
 function NeedRow({
@@ -42,6 +51,8 @@ function NeedRow({
   canToggle,
   justApplied,
   previewing,
+  pending,
+  busyCount,
   onToggle,
   onHoldStart,
   onHoldEnd,
@@ -85,8 +96,10 @@ function NeedRow({
       data-variant={variant}
       data-inactive={!need.active || undefined}
       data-previewing={previewing || undefined}
+      data-pending={pending || undefined}
       data-testid={`need-${need.id}`}
       aria-pressed={need.active}
+      aria-busy={pending || undefined}
       aria-describedby="brief-preview-count"
       onPointerDown={(e) => {
         // Capture so the release always lands here even if the finger drifts.
@@ -139,7 +152,12 @@ function NeedRow({
           {need.unlikely} unlikely
         </span>
       )}
-      {need.unknown > 0 ? (
+      {pending ? (
+        <span className="need-pending" data-testid="need-pending">
+          <i className="busy-ring row-busy" aria-hidden="true" />
+          {checkingText(busyCount)}
+        </span>
+      ) : need.unknown > 0 ? (
         <span className="badge" data-kind="unsure">
           {need.unknown} unknown
         </span>
@@ -163,6 +181,11 @@ interface NeedsProps {
   absent: string[];
   justAppliedId: string | null;
   previewNeedId: string | null;
+  /** Needs this page said that have not settled yet (store truth). */
+  pendingNeeds: PendingNeed[];
+  busyCount: number;
+  /** The room holds no places at all. */
+  noPlaces: boolean;
   matching: number;
   onToggle(need: ActiveNeed): void;
   onHoldStart(need: ActiveNeed): void;
@@ -177,6 +200,9 @@ export function NeedsSection({
   absent,
   justAppliedId,
   previewNeedId,
+  pendingNeeds,
+  busyCount,
+  noPlaces,
   matching,
   onToggle,
   onHoldStart,
@@ -184,7 +210,15 @@ export function NeedsSection({
 }: NeedsProps) {
   const nameOf = (id: string) =>
     participants.find((p) => p.participantId === id)?.displayName ?? null;
-  const empty = needs.length === 0 && privateEffects.length === 0;
+  /* Rows the room has not shown yet: a need said a moment ago exists on the
+     brief at once, in the person's own words, dashed, and settles into its
+     real row when the context brings it (the bound ones render there). */
+  const provisional = pendingNeeds.filter((n) => n.needId === null);
+  const pendingIds = new Set(pendingNeeds.map((n) => n.needId).filter(Boolean));
+  const empty =
+    needs.length === 0 && privateEffects.length === 0 && provisional.length === 0;
+  const anyPending = pendingNeeds.length > 0;
+  const held = previewNeedId ? needs.find((n) => n.id === previewNeedId) : undefined;
 
   return (
     <section data-testid="brief-needs">
@@ -193,20 +227,36 @@ export function NeedsSection({
         {!empty && (
           <span className="section-count">{needs.length + privateEffects.length}</span>
         )}
-        {!empty && <span className="section-hint">{COPY.holdHint}</span>}
+        {/* While a row is held the hint names the preview (W11); a bare
+            instruction the rest of the time. */}
+        {!empty &&
+          (held ? (
+            <span className="section-hint" data-tone="preview" data-testid="preview-label">
+              previewing without “{held.label}”
+            </span>
+          ) : (
+            <span className="section-hint">{COPY.holdHint}</span>
+          ))}
       </div>
 
-      {/* The press-and-hold count, announced politely (SPOKES-UI §11). */}
+      {/* The press-and-hold count, announced politely (SPOKES-UI §11). While
+          a need is pending the region is busy, so the count is announced once
+          when it settles rather than at every interim step. */}
       <span
         id="brief-preview-count"
         className="sr-only"
         role="status"
         aria-live="polite"
+        aria-busy={anyPending || undefined}
       >
         {matching} still work
       </span>
 
-      {empty ? (
+      {noPlaces ? (
+        <p className="empty-note" data-testid="brief-no-places">
+          {COPY.noCandidates}
+        </p>
+      ) : empty ? (
         <p className="empty-note" data-testid="brief-empty">
           {COPY.emptyRoom}
         </p>
@@ -235,12 +285,32 @@ export function NeedsSection({
               isOwn={n.ownerId === meId}
               canToggle={n.ownerId === meId}
               ownerName={nameOf(n.ownerId)}
-              justApplied={n.id === justAppliedId}
+              justApplied={n.id === justAppliedId && !pendingIds.has(n.id)}
               previewing={n.id === previewNeedId}
+              pending={pendingIds.has(n.id)}
+              busyCount={busyCount}
               onToggle={() => onToggle(n)}
               onHoldStart={() => onHoldStart(n)}
               onHoldEnd={onHoldEnd}
             />
+          ))}
+
+          {provisional.map((n) => (
+            <div
+              key={n.localId}
+              className="need-row"
+              data-variant={n.visibility === "shared" ? "shared" : "private"}
+              data-pending="true"
+              data-provisional="true"
+              data-testid="need-provisional"
+              aria-busy="true"
+            >
+              <span className="need-label">{n.label}</span>
+              <span className="need-pending">
+                <i className="busy-ring row-busy" aria-hidden="true" />
+                {n.committedAt === null ? "saying it…" : checkingText(busyCount)}
+              </span>
+            </div>
           ))}
 
           {/* A peer's private need: its EFFECT is public, its CONTENT never

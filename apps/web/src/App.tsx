@@ -23,7 +23,7 @@ import type {
   OutstandingAdjustment,
   OutstandingItem,
 } from "./spatial-types.ts";
-import { numberWord, stillWorkVerb } from "./ui/copy.ts";
+import { COPY, numberWord, stillWorkVerb } from "./ui/copy.ts";
 import { Wordmark } from "./components/Wordmark.tsx";
 import { Header, type HeaderSubtitle } from "./components/Header.tsx";
 import { MapView } from "./components/MapView.tsx";
@@ -269,6 +269,16 @@ export function App() {
           spatial.setViewing(viewing);
           void spatial.refetch();
         },
+        onLookups(pending, reason) {
+          // Presentation only: rings on the dots, a line in the panel.
+          spatial.setLookups(pending, reason);
+        },
+        onFacts(ids) {
+          // Facts changed without a commit: the counts may have moved and an
+          // open panel may be looking at one of these places.
+          spatial.noteFacts(ids);
+          void spatial.refetch();
+        },
         onStaleBundle() {
           setStaleBanner(true);
         },
@@ -297,6 +307,32 @@ export function App() {
   useEffect(() => {
     realtimeRef.current?.setViewing(spatialState.selectedId);
   }, [spatialState.selectedId]);
+
+  // A need this page said becomes real when the context first shows it: the
+  // newest own need ids this tab has not seen bind to the pending rows, in
+  // order. The first context seeds the set — nothing at boot is "just said".
+  const seenNeedIds = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    const ctx = spatialState.context;
+    if (!ctx || !session?.identity) return;
+    const own = ctx.activeNeeds
+      .filter((n) => n.ownerId === session.identity!.participantId)
+      .map((n) => n.id);
+    if (seenNeedIds.current === null) {
+      seenNeedIds.current = new Set(own);
+      return;
+    }
+    const fresh = own.filter((id) => !seenNeedIds.current!.has(id));
+    if (fresh.length === 0) return;
+    // The commit's realtime event can bring the context before the HTTP
+    // response marks the row committed. An id is burnt only once a row took
+    // it, or when no row is still waiting to hear back — otherwise it stays
+    // fresh for the next pass, which runs when the commit lands.
+    const bound = new Set(spatial.bindPendingNeeds(fresh));
+    for (const id of fresh) {
+      if (bound.has(id) || !spatial.awaitingCommit) seenNeedIds.current.add(id);
+    }
+  }, [spatialState.context, spatialState.pendingNeeds, session]);
 
   const run = useCallback(
     async (
@@ -441,6 +477,8 @@ export function App() {
   const impasse = context?.impasse?.active === true;
   const shown = spatialState.preview ?? context;
   const matching = shown?.matching ?? 0;
+  const busySet = new Set(spatialState.busy);
+  const pendingNeeds = spatialState.pendingNeeds;
 
   const proposedRadiusM = (() => {
     const widen = spatialState.outstanding.find(
@@ -485,7 +523,7 @@ export function App() {
     <div className="app">
       {staleBanner && (
         <div className="stale-banner" role="alert">
-          This room is running an older version.{" "}
+          {COPY.stale.replace(/ Reload to catch up\.$/, "")}{" "}
           <button onClick={() => window.location.reload()}>Reload to catch up</button>
         </div>
       )}
@@ -510,6 +548,9 @@ export function App() {
               viewing={spatialState.viewing}
               participants={participants}
               meId={id.participantId}
+              busy={busySet}
+              busyReason={spatialState.busyReason}
+              pendingCount={pendingNeeds.length}
               onSelect={(cid) => spatial.select(cid)}
             />
           ) : (
@@ -520,7 +561,11 @@ export function App() {
         </div>
 
         <div className="rail">
-          <div className="brief" data-testid="brief">
+          <div
+            className="brief"
+            data-testid="brief"
+            aria-busy={pendingNeeds.length > 0 || undefined}
+          >
             {context && (
               <ConsentCards
                 context={context}
@@ -573,6 +618,9 @@ export function App() {
               meId={id.participantId}
               justAppliedId={justAppliedId}
               previewNeedId={spatialState.previewNeedId}
+              pendingNeeds={pendingNeeds}
+              busyCount={busySet.size}
+              noPlaces={context !== null && context.candidates.length === 0}
               matching={matching}
               onToggle={toggleNeed}
               onHoldStart={(n) => spatial.startPreview(n.id)}
@@ -603,6 +651,7 @@ export function App() {
             <Composer
               facets={context?.facets ?? []}
               activeNeeds={activeNeeds}
+              placeCount={context?.total ?? 0}
               disabled={!context}
               run={run}
             />
@@ -621,6 +670,8 @@ export function App() {
             meId={id.participantId}
             phase={context.phase}
             viewing={spatialState.viewing}
+            busy={busySet.has(selected.candidateId)}
+            factsFrame={spatialState.facts}
             onClose={() => spatial.select(null)}
             run={run}
           />
@@ -640,6 +691,9 @@ export function App() {
           diagnostics={diag}
           context={context}
           revision={revision}
+          busy={spatialState.busy}
+          busyReason={spatialState.busyReason}
+          pendingNeeds={pendingNeeds}
           onClose={() => setDrawerOpen(false)}
           run={run}
         />

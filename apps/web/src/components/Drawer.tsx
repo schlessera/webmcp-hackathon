@@ -1,7 +1,9 @@
+import type React from "react";
 import { PROTOCOL_VERSIONS, TOOL_CONTRACT_VERSION } from "@webmcp-hackathon/contracts";
 import type { DiagnosticsState } from "../diagnostics-store.ts";
 import type { SessionIdentity } from "../session.ts";
 import type { CommandEnvelope, SpatialContext } from "../spatial-types.ts";
+import type { LookupReason, PendingNeed } from "../spatial-store.ts";
 import { COPY } from "../ui/copy.ts";
 
 /**
@@ -21,8 +23,33 @@ interface Props {
   diagnostics: DiagnosticsState;
   context: SpatialContext | null;
   revision: number;
+  /** Presentation-only frames the page is holding right now. */
+  busy: string[];
+  busyReason: LookupReason | null;
+  pendingNeeds: PendingNeed[];
   onClose(): void;
   run(type: string, input: Record<string, unknown>): Promise<CommandEnvelope>;
+}
+
+/* Collapsible groups (W13): the raw dumps are long; the drawer opens on the
+   state that matters and folds the rest. Native <details>: no state to keep,
+   keyboard for free. Module scope, so a diagnostics tick never remounts the
+   folds and a fold the reader closed stays closed. */
+function Section({
+  title,
+  open,
+  children,
+}: {
+  title: string;
+  open?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <details className="drawer-section" open={open}>
+      <summary className="drawer-section-title">{title}</summary>
+      {children}
+    </details>
+  );
 }
 
 export function Drawer({
@@ -30,6 +57,9 @@ export function Drawer({
   diagnostics,
   context,
   revision,
+  busy,
+  busyReason,
+  pendingNeeds,
   onClose,
   run,
 }: Props) {
@@ -49,8 +79,7 @@ export function Drawer({
 
         <div className="drawer-body">
           {context?.area && (
-            <div className="drawer-section">
-              <div className="drawer-section-title">places</div>
+            <Section title="places" open>
               <div className="drawer-kv">
                 <span>
                   area <code data-testid="diag-area">{context.area.areaId}</code>
@@ -62,13 +91,13 @@ export function Drawer({
                   extract <code>{context.area.dataAsOf}</code>
                 </span>
                 <span>
-                  pool {context.area.poolSize} of {context.area.focusVenues} within reach
+                  pool {context.pool?.size ?? context.area.poolSize}
+                  {context.pool ? ` / cap ${context.pool.cap}` : ""} of {context.area.focusVenues} within reach
                 </span>
               </div>
-            </div>
+            </Section>
           )}
-          <div className="drawer-section">
-            <div className="drawer-section-title">session</div>
+          <Section title="session" open>
             <div className="drawer-kv">
               <span>
                 room <code data-testid="room-id">{identity.roomId}</code>
@@ -96,10 +125,9 @@ export function Drawer({
                 </code>
               </span>
             </div>
-          </div>
+          </Section>
 
-          <div className="drawer-section">
-            <div className="drawer-section-title">connection</div>
+          <Section title="connection" open>
             <div className="drawer-kv">
               <span>
                 document.modelContext{" "}
@@ -123,11 +151,26 @@ export function Drawer({
                 <span role="alert">{diagnostics.registrationError}</span>
               )}
             </div>
-          </div>
+          </Section>
+
+          <Section title="in flight" open>
+            <div className="drawer-kv" data-testid="diag-inflight">
+              <span>
+                lookups pending <strong data-testid="diag-lookups">{busy.length}</strong>
+                {busyReason ? ` (${busyReason.kind}${busyReason.label ? `: ${busyReason.label}` : ""})` : ""}
+              </span>
+              <span>
+                pending needs <strong>{pendingNeeds.length}</strong>
+                {pendingNeeds.length > 0
+                  ? ` — ${pendingNeeds.map((n) => `${n.label}${n.needId ? ` → ${n.needId}` : n.committedAt ? " (committed)" : " (sent)"}`).join("; ")}`
+                  : ""}
+              </span>
+              {busy.length > 0 && <code>{busy.join(" ")}</code>}
+            </div>
+          </Section>
 
           {context && (
-            <div className="drawer-section">
-              <div className="drawer-section-title">state</div>
+            <Section title="state" open>
               <div className="drawer-kv">
                 <span data-testid="phase-chip">phase {context.phase}</span>
                 <span data-testid="feasibility-chip">
@@ -137,35 +180,31 @@ export function Drawer({
                 <span>scope {Math.round(context.scope.area.radiusM)} m</span>
                 <span>category {context.scope.category}</span>
               </div>
-            </div>
+            </Section>
           )}
 
-          <div className="drawer-section">
-            <div className="drawer-section-title">what crossed the wire</div>
+          <Section title="what crossed the wire" open>
             <pre className="drawer-log" data-testid="diag-log">
               {diagnostics.lines.join("\n")}
             </pre>
-          </div>
+          </Section>
 
           {context && (
             <>
-              <div className="drawer-section">
-                <div className="drawer-section-title">candidates (raw)</div>
+              <Section title={`candidates (raw, ${context.candidates.length})`}>
                 <pre className="drawer-json" data-testid="raw-candidates">
                   {JSON.stringify(context.candidates, null, 1)}
                 </pre>
-              </div>
-              <div className="drawer-section">
-                <div className="drawer-section-title">facets (raw)</div>
+              </Section>
+              <Section title={`facets (raw, ${context.facets.length})`}>
                 <pre className="drawer-json" data-testid="raw-facets">
                   {JSON.stringify(context.facets, null, 1)}
                 </pre>
-              </div>
+              </Section>
             </>
           )}
 
-          <div className="drawer-section">
-            <div className="drawer-section-title">put a command on the wire</div>
+          <Section title="put a command on the wire" open>
             <div className="drawer-actions">
               <button
                 className="drawer-btn"
@@ -217,7 +256,7 @@ export function Drawer({
                 SubmitRequirement · declaration · agent-private
               </button>
             </div>
-          </div>
+          </Section>
         </div>
       </div>
     </div>

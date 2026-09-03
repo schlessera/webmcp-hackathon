@@ -614,6 +614,7 @@ test("impasse and pending states protect previews, privacy, map stability, and d
       settle: root.getPropertyValue("--spoke-dur-settle").trim(),
       pop: root.getPropertyValue("--spoke-dur-pop").trim(),
       breathe: root.getPropertyValue("--spoke-dur-breathe").trim(),
+      busy: root.getPropertyValue("--spoke-dur-busy").trim(),
       animationName: sticker.animationName,
       animationDuration: sticker.animationDuration,
     };
@@ -622,6 +623,7 @@ test("impasse and pending states protect previews, privacy, map stability, and d
     settle: "0ms",
     pop: "0ms",
     breathe: "0ms",
+    busy: "0ms",
     animationName: "spoke-breathe",
     animationDuration: "0s",
   });
@@ -1011,4 +1013,267 @@ test("consent grant stages before confirmation and a staged agreement is not set
     page.locator('[data-testid="confirm-card"] .card-kicker, [data-testid="confirm-card"] .card-body'),
   );
   await expect(page.getByTestId("last-result")).toHaveCount(0);
+});
+
+/**
+ * A scripted realtime channel. The page authenticates and gets a welcome; the
+ * test then pushes presentation frames (lookups, facts) whenever it likes.
+ * Nothing is forwarded to a server — there is none behind vite preview.
+ */
+async function scriptedSocket(page: Page, revision: number) {
+  let route: { send(data: string): void } | null = null;
+  let ready: () => void = () => {};
+  const welcomed = new Promise<void>((resolve) => {
+    ready = resolve;
+  });
+  await page.routeWebSocket("**/ws", (ws) => {
+    route = ws;
+    ws.onMessage((raw) => {
+      const message = JSON.parse(String(raw)) as {
+        type: string;
+        clientToolContractVersion?: string;
+      };
+      if (message.type !== "auth") return;
+      ws.send(
+        JSON.stringify({
+          type: "welcome",
+          buildId: "mock-build",
+          toolContractVersion: message.clientToolContractVersion,
+          revision,
+          participantId: identity.participantId,
+          displayName: identity.displayName,
+          role: identity.role,
+        }),
+      );
+      ws.send(JSON.stringify({ type: "presence", present: ["p_org"], viewing: [] }));
+      ready();
+    });
+  });
+  return {
+    welcomed,
+    send(frame: Record<string, unknown>) {
+      if (!route) throw new Error("socket not open yet");
+      route.send(JSON.stringify(frame));
+    },
+  };
+}
+
+test("a need said is pending until the room settles it, and busy rings mark places being looked up", async ({ page }) => {
+  const audit: string[] = [];
+  const state: MockState = {
+    audit,
+    context: fixture({ matching: 4, revision: 30 }),
+    outstanding: [],
+    command(request, current) {
+      if (request.type === "SubmitRequirement") {
+        current.context.revision += 1;
+        current.context.activeNeeds.push({
+          id: "mock-pill",
+          label: "outdoor seating",
+          ruledOut: 2,
+          wouldReturn: 2,
+          unknown: 0,
+          active: true,
+          visibility: "shared",
+          hardness: "hard",
+          ownerId: "p_org",
+        });
+        applyEligibility(current.context, DEFAULT_UNCERTAIN_IDS.slice(0, 2), []);
+      }
+      return {
+        ok: true,
+        revision: current.context.revision,
+        effect: "Done (mock).",
+        outstanding: current.outstanding,
+      };
+    },
+  };
+  await mockApi(page, state);
+  // The commit takes a moment, so the provisional row is observable.
+  await page.route("**/api/commands", async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 700));
+    await route.fallback();
+  });
+  const socket = await scriptedSocket(page, 30);
+  await page.goto(`${BASE}/#invite=deadbeef`);
+  await socket.welcomed;
+  // Nothing stated yet: the block counts places, not survivors.
+  await expect(page.getByTestId("count-number")).toHaveText("21");
+  await expect(page.getByTestId("map-region")).not.toHaveAttribute("aria-busy", "true");
+
+  // Said: the row exists at once, in the person's words, dashed and busy.
+  await page.getByTestId("pill-outdoor-seating").click();
+  const provisional = page.getByTestId("need-provisional");
+  await expect(provisional).toBeVisible();
+  await expect(provisional).toHaveAttribute("data-pending", "true");
+  await expect(provisional).toContainText("outdoor seating");
+  await expect(provisional).toContainText("saying it…");
+  await expect(page.getByTestId("brief")).toHaveAttribute("aria-busy", "true");
+  await expect(page.locator("#brief-preview-count")).toHaveAttribute("aria-busy", "true");
+
+  // The server starts looking places up for it before the commit lands.
+  socket.send({
+    type: "lookups",
+    pending: ["place_1", "place_2"],
+    reason: { kind: "need", label: "outdoor seating" },
+  });
+  await expect(page.getByTestId("pin-place_1")).toHaveAttribute("data-busy", "true");
+  await expect(page.getByTestId("pin-place_2")).toHaveAttribute("data-busy", "true");
+  await expect(page.getByTestId("pin-place_3")).not.toHaveAttribute("data-busy", "true");
+  await expect(page.getByTestId("count-busy")).toHaveText("checking 2 for outdoor seating");
+  await expect(page.getByTestId("map-region")).toHaveAttribute("aria-busy", "true");
+  // The ring fades in over the settle duration; wait for it to land.
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        // The ring sits on the sticker's dot when the place carries a name
+        // card, on the anchor dot otherwise.
+        const pin = document.querySelector('[data-testid="pin-place_1"]')!;
+        const named = pin.getAttribute("data-named") === "true";
+        const el = pin.querySelector(named ? ".sticker-busy" : ".marker-busy")!;
+        const style = getComputedStyle(el);
+        return { name: style.animationName, opacity: style.opacity, border: style.borderTopStyle };
+      }),
+    )
+    .toEqual({ name: "spoke-busy", opacity: "1", border: "dashed" });
+
+  // Committed: the real row takes over, still pending while the room looks.
+  const row = page.getByTestId("need-mock-pill");
+  await expect(row).toBeVisible();
+  await expect(row).toHaveAttribute("data-pending", "true");
+  await expect(row).toContainText("checking 2 places…");
+  await expect(page.getByTestId("need-provisional")).toHaveCount(0);
+  await expect(page.getByTestId("count-number")).toHaveText("2");
+
+  // The lookups end: rings clear, the row settles, the count is announced.
+  const contextCallsBefore = audit.filter((line) => line.includes('"revision":31')).length;
+  socket.send({ type: "lookups", pending: [] });
+  await expect(page.getByTestId("pin-place_1")).not.toHaveAttribute("data-busy", "true");
+  await expect(page.getByTestId("count-busy")).toHaveCount(0);
+  await expect(row).not.toHaveAttribute("data-pending", "true");
+  await expect(row).toContainText("−2");
+  await expect(page.getByTestId("brief")).not.toHaveAttribute("aria-busy", "true");
+  await expect(page.locator("#brief-preview-count")).not.toHaveAttribute("aria-busy", "true");
+  await expect(page.getByTestId("map-region")).not.toHaveAttribute("aria-busy", "true");
+
+  // A facts frame re-reads the context without any commit.
+  socket.send({ type: "facts", candidateIds: ["place_1"], reason: "lookup" });
+  await expect
+    .poll(() => audit.filter((line) => line.includes('"revision":31')).length)
+    .toBeGreaterThan(contextCallsBefore);
+});
+
+test("place details read the server's verdicts, address and hours, and say when a lookup runs", async ({ page }) => {
+  const needs = [
+    { id: "need-veg", label: "vegetarian options", ruledOut: 3, wouldReturn: 3, unknown: 2, active: true, visibility: "shared" as const, hardness: "hard" as const, ownerId: "p_sarah" },
+    { id: "need-budget", label: "budget €15", ruledOut: 1, wouldReturn: 1, unknown: 0, active: true, visibility: "shared" as const, hardness: "hard" as const, ownerId: "p_org" },
+  ];
+  const state: MockState = {
+    context: fixture({ matching: 3, revision: 40, activeNeeds: needs, privateEffects: [{ owner: "p_joe", ruledOut: 1 }] }),
+    outstanding: [],
+  };
+  await mockApi(page, state);
+  await page.route("**/api/spatial/inspect", (route) =>
+    route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        ok: true,
+        revision: 40,
+        candidates: [
+          {
+            candidateId: "place_24",
+            name: "The Barn",
+            location: center,
+            category: "cafe",
+            priceLevel: 2,
+            hours: [
+              { day: "mon", open: "09:00", close: "18:00" },
+              { day: "tue", open: "09:00", close: "18:00" },
+              { day: "sat", open: "10:00", close: "14:00" },
+            ],
+            address: "Schiffbauerdamm 12, 10117 Berlin",
+            phone: "+49 30 123456",
+            needs: [
+              { requirementId: "need-veg", label: "vegetarian options", verdict: "likely", confidence: 0.6 },
+              { requirementId: "need-budget", label: "budget €15", verdict: "yes" },
+              { requirementId: "req_private_joe", private: true, verdict: "unknown" },
+            ],
+            attributes: [
+              { key: "vegetarian-options", status: "likely_true", source: "menu:example.org", observedAt: "2026-08-31T00:00:00Z", confidence: 0.6, note: "the menu mentions a vegan bowl" },
+              { key: "outdoor-seating", status: "verified_true", source: "osm:outdoor_seating", observedAt: "2026-08-31T00:00:00Z", confidence: 0.8 },
+              { key: "price-level", value: 2, status: "likely_true", source: "guess:amenity", observedAt: "2026-08-31T00:00:00Z", confidence: 0.4, note: "a café" },
+              { key: "hours", status: "likely_true", source: "web:example.org", observedAt: "2026-08-31T00:00:00Z", confidence: 0.5 },
+            ],
+            mapRevision: 1,
+          },
+        ],
+      }),
+    }),
+  );
+  const socket = await scriptedSocket(page, 40);
+  await page.goto(`${BASE}/#invite=deadbeef`);
+  await socket.welcomed;
+
+  await page.getByTestId("pin-place_24").click();
+  const details = page.getByTestId("place-details");
+  await expect(details).toBeVisible();
+  await expect(details.getByTestId("details-lookup")).toHaveText("what the record says");
+  await expect(details.locator(".details-nav-title")).toHaveCount(0);
+  await expect(details.locator(".details-title")).toHaveText("The Barn");
+  await expect(details.locator(".details-meta")).toContainText("likely about €");
+
+  const ledger = details.getByTestId("fit-ledger");
+  const rows = ledger.locator(".check-row");
+  await expect(rows).toHaveCount(3);
+  await expect(rows.nth(0)).toHaveAttribute("data-mark", "likely");
+  await expect(rows.nth(0)).toContainText("vegetarian options");
+  await expect(rows.nth(0)).toContainText("the menu mentions a vegan bowl");
+  await expect(rows.nth(0).locator(".ledger-answer")).toHaveText(/^likely: likely$/);
+  await expect(rows.nth(1)).toHaveAttribute("data-mark", "in");
+  await expect(rows.nth(1)).toContainText("yes");
+  await expect(rows.nth(2)).toHaveAttribute("data-mark", "unknown");
+  await expect(rows.nth(2)).toContainText("A private condition");
+  await expect(rows.nth(2)).toContainText("nobody could confirm");
+  await expect(ledger).not.toContainText(/verified|unverified|pending|-options/);
+
+  const whereWhen = details.getByTestId("where-when");
+  await expect(whereWhen).toContainText("Schiffbauerdamm 12");
+  await expect(whereWhen.locator(".details-phone")).toHaveAttribute("href", "tel:+4930123456");
+  await expect(whereWhen.locator(".hours-row")).toHaveCount(2);
+  await expect(whereWhen.locator(".hours-row").nth(0)).toContainText("Mon–Tue");
+  await expect(whereWhen.locator(".hours-row").nth(0)).toContainText("09:00–18:00");
+  await expect(whereWhen.locator(".hours-row").nth(1)).toContainText("Sat");
+
+  // Facts nobody asked about: the verified one is a pill; the valueless
+  // "hours" fact and the guessed price (said once, above) are not.
+  const facts = details.getByTestId("facts");
+  await expect(facts).toContainText("outdoor seating");
+  await expect(facts).not.toContainText("hours");
+  await expect(facts).not.toContainText("€");
+
+  // A lookup on this place: the reserved line says so, with the ring.
+  socket.send({ type: "lookups", pending: ["place_24"], reason: { kind: "place" } });
+  await expect(details.getByTestId("details-lookup")).toHaveAttribute("data-state", "busy");
+  await expect(details.getByTestId("details-lookup")).toHaveText("looking it up…");
+  await expect(details.getByTestId("details-lookup-btn")).toBeDisabled();
+  socket.send({ type: "lookups", pending: [] });
+  await expect(details.getByTestId("details-lookup")).toHaveText("what the record says");
+  await expect(details.getByTestId("details-lookup-btn")).toHaveText("Look it up");
+
+  // The roster opens on tap and names everyone with their presence.
+  await details.getByTestId("details-close").click();
+  await page.getByTestId("avatars").click();
+  const roster = page.getByTestId("roster-card");
+  await expect(roster).toBeVisible();
+  await expect(roster.getByTestId("roster-p_sarah")).toContainText("Sarah");
+  await expect(roster.getByTestId("roster-p_sarah")).toContainText("here now");
+  await expect(roster.getByTestId("roster-p_org")).toContainText("organizer");
+  await page.keyboard.press("Escape");
+  await expect(roster).toHaveCount(0);
+  await expect(page.getByTestId("avatars")).toBeFocused();
+
+  // The scopes explain themselves at the point of choice.
+  await page.getByTestId("composer-scope").click();
+  await expect(page.getByTestId("scope-application-private")).toContainText("the room sees only what it rules out");
+  await expect(page.getByTestId("scope-agent-private")).toContainText("your agent holds it");
 });

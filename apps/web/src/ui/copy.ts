@@ -1,3 +1,5 @@
+import { ATTRIBUTE_LABELS } from "@webmcp-hackathon/contracts";
+
 /**
  * Copy and formatting helpers. Every string the app authors goes through here
  * or through a component; none of them may name a domain (CLAUDE.md §1,
@@ -88,8 +90,97 @@ export function sourceLabel(source: string): string {
   if (source.startsWith("wikidata:")) return "from Wikidata";
   if (source.startsWith("guess:")) return "a guess from the kind of place";
   if (source.startsWith("menu:")) return "read from the menu";
+  if (source.startsWith("infer:")) return "a guess from what the place publishes";
   if (!source) return "unknown";
   return source;
+}
+
+/**
+ * Confidence as a word, never a number (COPY.md confidence): the source would
+ * nearly verify it / a reasoned guess / thin evidence.
+ */
+export function confidenceWord(confidence: number): string {
+  if (confidence >= 0.65) return "fairly sure";
+  if (confidence >= 0.45) return "likely";
+  return "a guess";
+}
+
+/**
+ * The classifier's `why` is written for agent surfaces. Where the main UI
+ * still has to show one (no per-need verdicts on the dossier yet), the
+ * protocol's own words become the reader's: attribute keys become their
+ * manifest labels, the status vocabulary becomes plain words. This maps
+ * over protocol tokens, never over domains.
+ */
+export function readableWhy(why: string): string {
+  let text = why;
+  for (const [key, label] of Object.entries(ATTRIBUTE_LABELS)) {
+    text = text.replace(new RegExp(`\\b${key}\\b`, "g"), label);
+  }
+  return text
+    // The classifier's pending phrases (eligibility.ts), one by one.
+    .replace(/your private screening is pending/g, "your agent hasn't said")
+    .replace(/your screening verdict: unacceptable/g, "your agent ruled it out")
+    .replace(/private evidence pending/g, "a private condition not yet checked")
+    .replace(/excluded by a private requirement/g, "ruled out by a private condition")
+    .replace(/scope evidence pending/g, "distance not yet checked")
+    .replace(/budget evidence pending/g, "price not yet checked")
+    .replace(/(inclusion|exclusion) evidence pending/g, "the kind of place not yet checked")
+    .replace(/unevaluated requirement/g, "a need not yet checked")
+    .replace(/\bunverified\b/g, "not confirmed")
+    .replace(/\bverified_true\b/g, "yes")
+    .replace(/\bverified_false\b/g, "no")
+    .replace(/\blikely_true\b/g, "likely")
+    .replace(/\blikely_false\b/g, "unlikely")
+    .replace(/\bprobably\b/g, "likely")
+    .replace(/; /g, " · ")
+    .replace(/^\w/, (c) => c.toUpperCase());
+}
+
+const DAY_SHORT: Record<string, string> = {
+  mon: "Mon", tue: "Tue", wed: "Wed", thu: "Thu", fri: "Fri", sat: "Sat", sun: "Sun",
+};
+const DAY_ORDER = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+
+/**
+ * Opening hours as lines: consecutive days with the same times fold into a
+ * range ("Mon–Fri 9:00–18:00"). Data in, words out; nothing domain-shaped.
+ */
+export function hoursLines(
+  hours: Array<{ day: string; open: string; close: string }>,
+): Array<{ days: string; times: string }> {
+  const byDay = new Map<string, string[]>();
+  for (const h of hours) {
+    const day = h.day.toLowerCase().slice(0, 3);
+    if (!DAY_ORDER.includes(day)) continue;
+    const list = byDay.get(day) ?? [];
+    list.push(`${h.open}–${h.close}`);
+    byDay.set(day, list);
+  }
+  const out: Array<{ days: string; times: string }> = [];
+  let runStart: string | null = null;
+  let runEnd: string | null = null;
+  let runTimes = "";
+  const flush = () => {
+    if (!runStart || !runEnd) return;
+    out.push({
+      days: runStart === runEnd ? DAY_SHORT[runStart] : `${DAY_SHORT[runStart]}–${DAY_SHORT[runEnd]}`,
+      times: runTimes,
+    });
+  };
+  for (const day of DAY_ORDER) {
+    const times = byDay.get(day)?.join(", ") ?? null;
+    if (times !== null && times === runTimes && runEnd !== null) {
+      runEnd = day;
+      continue;
+    }
+    flush();
+    runStart = times === null ? null : day;
+    runEnd = times === null ? null : day;
+    runTimes = times ?? "";
+  }
+  flush();
+  return out;
 }
 
 /** "unknown" is a state we draw, never a failure (CLAUDE.md §4). */
@@ -146,13 +237,20 @@ export const COPY = {
   stale: "This room is running an older version. Reload to catch up.",
   quiet: "Quiet so far.",
   verdictClears: "Clears every need the room has stated",
-  holdHint: "hold to preview without",
+  holdHint: "hold a need to preview without it",
   reassurance: "nothing here is needed to use the app",
   agentBusy: "your agent is on it",
+  agentReading: "reading what you said…",
+  lookingUp: "looking it up…",
+  readingRecord: "reading the record…",
+  recordRead: "what the record says",
+  pendingAgentOnly: "a condition your agent holds",
   agentUnclear: "Say what would rule a place in or out, or ask about the room.",
   agentHolds: "Your agent holds it. The room learns only that a condition exists.",
   startLede:
     "Pick an area. The places come from OpenStreetMap, and what it knows about them differs by city. The room shows that difference instead of hiding it.",
   startUnknown:
     "What the data does not know shows as unsure, never as a no. Thin data is where an agent can look things up.",
+  /** "updating 40 places…" — the agent's second phase (COPY.md in progress). */
+  agentApplying: (places: number) => `updating ${places} place${places === 1 ? "" : "s"}…`,
 } as const;

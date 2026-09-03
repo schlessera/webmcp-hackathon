@@ -74,6 +74,13 @@ Phrase the offer as a consequence, not an instruction:
 
 ---
 
+## Confidence
+
+A guess carries its confidence as a word, never a number: **fairly sure**
+(the source would nearly verify it), **likely** / **unlikely** (a reasoned
+guess), **a guess** (thin evidence). The evidence itself is quoted where
+there is one: "the menu mentions a vegan bowl".
+
 ## Privacy phrasing
 
 This is the highest-stakes copy in the app. A private need's **effect** is
@@ -88,6 +95,19 @@ effect didn't happen.
 - ❌ "2 places hidden" *(hides that anything happened)*
 
 Say **who** only when the person made it public. Otherwise "someone".
+
+## In progress
+
+Work the room is doing is stated as what it is doing, never as a bare
+"Loading…" (2026-09-03).
+
+- A need just said: `checking 12 places…` on the row; `checking 12 for
+  step-free access` in the count block. Zero places to check: `checking…`.
+- A place being looked up: `looking it up…` in the panel; a ring on the map.
+- The agent: `reading what you said…` then `updating 40 places…`. Never
+  "thinking", never "processing".
+- Nothing under a second shows a state at all; a ring that flashes for a
+  glance is noise.
 
 ## Agent phrasing
 
@@ -111,6 +131,9 @@ Each states what's true, then the one thing to do.
 - **No candidates at all** — "Nothing here fits yet. Widen the area, or drop
   a need." Never "No results found."
 - **Impasse** — "Nothing works for all three." Then the ways out, quantified.
+  The count block's subline says what the zero is made of: `none confirmed ·
+  17 still to check` while unknowns remain, `two needs collide` when several
+  needs each rule places out, `one need rules the rest out` when one does.
 - **Stale protocol** — "This room is running an older version. Reload to catch
   up." Never a version number in the main UI — that belongs in `{ }`.
 - **Offline** — "You're seeing the map as of 9:24. Changes will sync."

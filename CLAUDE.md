@@ -94,10 +94,18 @@ product.
 
 Exception: an explicit user action (search, "show me", opening a place).
 
-## 9. Two animations only
+Second exception (2026-09-03): the **explore layer** — the places behind the
+map that are not in the room yet — is loaded for the viewport the user has
+panned to. Loading follows the viewport; the viewport never follows the data.
 
-`spoke-pop` (selected sticker idle) and the 420ms settle. Everything else is
-instant. Respect `prefers-reduced-motion` — the tokens zero both.
+## 9. Four animations only
+
+`spoke-pop` (selected sticker idle), `spoke-breathe` (would come back),
+`spoke-busy` (a lookup is running: a dashed ring turning around the dot, the
+need row, the panel line — added 2026-09-03 at the user's request) and the
+420ms settle. Everything else is instant. Respect `prefers-reduced-motion` —
+the tokens zero all four; busy then renders as a standing dashed ring plus
+text, never nothing.
 
 **Trap:** position on an outer wrapper, animate on an inner element. A CSS
 `animation` that sets `transform` overwrites a positioning `translate` and the

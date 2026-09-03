@@ -179,8 +179,10 @@ export function ConsentCards({
               <span className="card-title">{describeChange(item)}?</span>
             </div>
             <div className="card-body">
-              Beyond {boundPhrase(item)}.{gainSentence(item)} Your agent staged it;
-              only this gesture applies it.
+              {item.delegatedBound
+                ? `Beyond ${boundPhrase(item)}.`
+                : "Nothing about this was delegated, so it is yours to decide."}
+              {gainSentence(item)} Your agent staged it; only this gesture applies it.
             </div>
             <div className="card-actions">
               <button
@@ -212,7 +214,9 @@ export function ConsentCards({
               {gainSentence(item).trim()}
               {item.withinDelegatedBound
                 ? ` Inside ${boundPhrase(item)}, so accepting applies it straight away.`
-                : ` Beyond ${boundPhrase(item)}, so accepting stages it for a second gesture here.`}
+                : item.delegatedBound
+                  ? ` Beyond ${boundPhrase(item)}, so accepting stages it for a second gesture here.`
+                  : " Nothing about this was delegated, so accepting stages it for a second gesture here."}
             </div>
             <div className="card-actions">
               <button

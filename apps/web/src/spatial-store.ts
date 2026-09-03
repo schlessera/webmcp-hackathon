@@ -38,7 +38,52 @@ export interface SpatialState {
   agentReplies: AgentReply[];
   /** A sentence is with the agent right now. */
   agentBusy: boolean;
+  /** What the agent is doing with it, for the composer's status line. */
+  agentPhase: "reading" | "applying" | null;
+  /**
+   * Places the server is looking up right now, from the `lookups` frame.
+   * Presentation only: a busy ring on those dots, a line in the panel. An
+   * empty list clears every ring.
+   */
+  busy: string[];
+  busyReason: LookupReason | null;
+  /**
+   * Needs this page has said and the room has not settled yet. A row exists
+   * from the moment of saying; it settles when the commit has landed and
+   * the first round of lookups it triggered is over (or 8 s, whichever
+   * first). Client-side state — nothing here is room truth.
+   */
+  pendingNeeds: PendingNeed[];
+  /** Bumped when a `facts` frame lands; carries the places it named so an
+   * open panel knows whether it is one of them. */
+  facts: { ids: string[]; nonce: number };
+  /** A context refetch is in flight. */
+  refetching: boolean;
 }
+
+export interface LookupReason {
+  kind: "need" | "place" | "pool";
+  label?: string;
+}
+
+export interface PendingNeed {
+  localId: string;
+  /** What the person said, in their words or the facet's label. */
+  label: string;
+  visibility: string;
+  startedAt: number;
+  /** The server accepted it at this moment (the row is now real). */
+  committedAt: number | null;
+  /** The need's id once the context shows it. */
+  needId: string | null;
+  boundAt: number | null;
+}
+
+/** After the commit, how long the room may stay quiet before a pending need
+ * counts as settled — the server never started a lookup for it. */
+const PENDING_GRACE_MS = 600;
+/** Whatever happens, a pending need settles after this. */
+const PENDING_CAP_MS = 8000;
 
 export interface AgentReply {
   id: string;
@@ -72,8 +117,15 @@ class SpatialStore {
     viewing: {},
     agentReplies: [],
     agentBusy: false,
+    agentPhase: null,
+    busy: [],
+    busyReason: null,
+    pendingNeeds: [],
+    facts: { ids: [], nonce: 0 },
+    refetching: false,
   };
   private listeners = new Set<Listener>();
+  private pendingTimer: number | null = null;
   private inflight: Promise<SpatialContext | null> | null = null;
   private queued = false;
   private previewAbort: AbortController | null = null;
@@ -110,8 +162,108 @@ class SpatialStore {
   dismissAgentReply(id: string): void {
     this.update({ agentReplies: this.state.agentReplies.filter((r) => r.id !== id) });
   }
-  setAgentBusy(agentBusy: boolean): void {
-    if (this.state.agentBusy !== agentBusy) this.update({ agentBusy });
+  setAgentBusy(agentBusy: boolean, agentPhase: SpatialState["agentPhase"] = null): void {
+    if (this.state.agentBusy !== agentBusy || this.state.agentPhase !== agentPhase) {
+      this.update({ agentBusy, agentPhase: agentBusy ? agentPhase : null });
+    }
+  }
+
+  /** The `lookups` frame: which places are being looked up right now. */
+  setLookups(pending: string[], reason: LookupReason | null): void {
+    const same =
+      pending.length === this.state.busy.length &&
+      pending.every((id, i) => id === this.state.busy[i]);
+    if (!same || reason !== this.state.busyReason) {
+      this.update({ busy: pending, busyReason: pending.length ? reason : null });
+    }
+    this.reconcilePending();
+  }
+
+  /** The `facts` frame: facts changed outside the event stream. */
+  noteFacts(ids: string[]): void {
+    this.update({ facts: { ids, nonce: this.state.facts.nonce + 1 } });
+  }
+
+  /** A need this page just said. Returns the local id the row is keyed by. */
+  beginPendingNeed(label: string, visibility: string): string {
+    const localId = `n_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+    this.update({
+      pendingNeeds: [
+        ...this.state.pendingNeeds,
+        { localId, label, visibility, startedAt: Date.now(), committedAt: null, needId: null, boundAt: null },
+      ],
+    });
+    this.reconcilePending();
+    return localId;
+  }
+  /** The server accepted (or refused) it. */
+  settlePendingCommit(localId: string, ok: boolean): void {
+    if (!ok) {
+      this.update({ pendingNeeds: this.state.pendingNeeds.filter((n) => n.localId !== localId) });
+      return;
+    }
+    this.update({
+      pendingNeeds: this.state.pendingNeeds.map((n) =>
+        n.localId === localId && n.committedAt === null ? { ...n, committedAt: Date.now() } : n,
+      ),
+    });
+    this.reconcilePending();
+  }
+  /**
+   * The context now shows needs this page has not seen: bind them, oldest
+   * first, to the pending rows that were committed and are still unbound.
+   */
+  bindPendingNeeds(newNeedIds: string[]): string[] {
+    if (newNeedIds.length === 0) return [];
+    const queue = [...newNeedIds];
+    const bound: string[] = [];
+    const pendingNeeds = this.state.pendingNeeds.map((n) => {
+      if (n.needId !== null || n.committedAt === null) return n;
+      const needId = queue.shift();
+      if (!needId) return n;
+      bound.push(needId);
+      return { ...n, needId, boundAt: Date.now() };
+    });
+    if (bound.length > 0) this.update({ pendingNeeds });
+    this.reconcilePending();
+    return bound;
+  }
+  /** A row said and sent, whose commit the page has not heard back on. */
+  get awaitingCommit(): boolean {
+    return this.state.pendingNeeds.some((n) => n.needId === null && n.committedAt === null);
+  }
+  /**
+   * A pending need settles once it is bound and the room has been quiet
+   * (no lookups) for the grace period, or at the cap. Timers re-run this
+   * so the row settles on its own, not on the next unrelated update.
+   */
+  private reconcilePending(): void {
+    if (this.pendingTimer !== null) {
+      clearTimeout(this.pendingTimer);
+      this.pendingTimer = null;
+    }
+    if (this.state.pendingNeeds.length === 0) return;
+    const now = Date.now();
+    const quiet = this.state.busy.length === 0;
+    let next = Infinity;
+    const keep = this.state.pendingNeeds.filter((n) => {
+      const cap = n.startedAt + PENDING_CAP_MS;
+      if (now >= cap) return false;
+      if (n.needId !== null && n.boundAt !== null) {
+        const grace = n.boundAt + PENDING_GRACE_MS;
+        if (quiet && now >= grace) return false;
+        if (quiet) next = Math.min(next, grace);
+      }
+      next = Math.min(next, cap);
+      return true;
+    });
+    if (keep.length !== this.state.pendingNeeds.length) this.update({ pendingNeeds: keep });
+    if (keep.length > 0 && Number.isFinite(next)) {
+      this.pendingTimer = window.setTimeout(() => {
+        this.pendingTimer = null;
+        this.reconcilePending();
+      }, Math.max(20, next - Date.now()));
+    }
   }
 
   /**
@@ -209,6 +361,7 @@ class SpatialStore {
       return this.inflight;
     }
     this.inflight = (async () => {
+      this.update({ refetching: true });
       try {
         const result = (await spatialContext()) as
           | SpatialContext
@@ -226,6 +379,7 @@ class SpatialStore {
         return this.state.context;
       } finally {
         this.inflight = null;
+        this.update({ refetching: false });
         if (this.queued) {
           this.queued = false;
           void this.refetch();

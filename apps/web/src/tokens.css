@@ -125,15 +125,20 @@
   --spoke-tap-min:      44px;
 
   /* ── Motion ───────────────────────────────────────────────────
-     Two gestures only. Everything else is instant.
+     Three gestures and the settle. Everything else is instant.
+       settle — a place enters or leaves the set
+       pop    — the selected sticker's idle breath
+       breathe — "would come back" (defined in styles.css)
+       busy   — a lookup is running on this place / need (2026-09-03)
      ─────────────────────────────────────────────────────────── */
   --spoke-ease:         cubic-bezier(.22, .61, .36, 1);
   --spoke-dur-settle:   420ms;   /* a place enters or leaves the set */
   --spoke-dur-pop:      3200ms;  /* selected sticker idle loop       */
+  --spoke-dur-busy:     1600ms;  /* one turn of the busy ring        */
 }
 
 @media (prefers-reduced-motion: reduce) {
-  :root { --spoke-dur-settle: 0ms; --spoke-dur-pop: 0ms; }
+  :root { --spoke-dur-settle: 0ms; --spoke-dur-pop: 0ms; --spoke-dur-busy: 0ms; }
 }
 
 /* ── Keyframes ───────────────────────────────────────────────── */
@@ -151,6 +156,13 @@
 @keyframes spoke-breathe {
   0%, 100% { opacity: .72; }
   50%      { opacity: 1; }
+}
+
+/* In progress: a dashed ring turning around the thing being looked up.
+   Rotation only, on its own inner element — never on anything positioned.
+   With reduced motion the duration is 0 and the ring simply stands. */
+@keyframes spoke-busy {
+  to { transform: rotate(360deg); }
 }
 
 /* ── Base ────────────────────────────────────────────────────── */
