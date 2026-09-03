@@ -504,3 +504,10 @@ Stages differ in stroke and opacity, never hue, so they survive greyscale and
 stand still under reduced motion while staying distinguishable. DOM markers
 expose `data-stage`; GL dots carry a `stage` feature-state beside `busy`.
 
+Opening a place is the fast track: the panel renders cached facts at once
+and applies each interactive `facts` frame in place (rows transition on the
+settle token) with a stage line; after 3 s without the plan closing the line
+reads "still reading the site…". Hover or keyboard focus on a dot or card
+sends `previewing` (debounced 250 ms, cleared on blur) so the server can
+prefetch; GL dots merely under the pointer during a drag never send it.
+

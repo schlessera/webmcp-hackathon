@@ -259,6 +259,10 @@ interface Props {
   onSetOrigin(position: { lat: number; lng: number }): Promise<boolean>;
   run(type: string, input: Record<string, unknown>): Promise<CommandEnvelope>;
   onSelect(candidateId: string | null): void;
+  /** The place under the pointer or keyboard focus (a dot or a card), or
+   * null when it leaves — a prefetch hint, never sent for GL dots merely
+   * under the pointer during a drag. */
+  onPreview(candidateId: string | null): void;
 }
 
 /** GeoJSON circle polygon (64 segments) around a lat/lng centre. */
@@ -375,6 +379,7 @@ export function MapView({
   onSetOrigin,
   run,
   onSelect,
+  onPreview,
 }: Props) {
   const mapRef = useRef<MapRef>(null);
   const { scope, candidates, proposals } = context;
@@ -1405,7 +1410,11 @@ export function MapView({
               type="button"
               tabIndex={rovingCandidateId === candidate.candidateId ? 0 : -1}
               data-testid={`keyboard-place-${candidate.candidateId}`}
-              onFocus={() => setRovingCandidateId(candidate.candidateId)}
+              onFocus={() => {
+                setRovingCandidateId(candidate.candidateId);
+                onPreview(candidate.candidateId);
+              }}
+              onBlur={() => onPreview(null)}
               onClick={() => dispatchSelect(candidate.candidateId)}
               onKeyDown={(event) => {
                 if (event.key === "ArrowDown" || event.key === "ArrowRight") {
@@ -1737,6 +1746,19 @@ export function MapView({
           viewportSettled();
         }}
         onMoveEnd={viewportSettled}
+        onMouseMove={(event) => {
+          // The place under the pointer, resolved the way a tap is (card box
+          // first, then the nearest dot): a prefetch hint the socket
+          // debounces. Never during a drag — a button held down is a pan,
+          // and GL dots sliding under the pointer are not an intent.
+          if (event.originalEvent.buttons !== 0) return;
+          const map = mapRef.current;
+          const mapRect = map?.getContainer().getBoundingClientRect();
+          const clientX = (mapRect?.left ?? 0) + event.point.x;
+          const clientY = (mapRect?.top ?? 0) + event.point.y;
+          onPreview(cardAt(clientX, clientY) ?? nearestTo(clientX, clientY));
+        }}
+        onMouseOut={() => onPreview(null)}
         onClick={(event) => {
           // A marker handles its own tap. Maplibre binds click on the canvas
           // container that markers are appended into, so without this the map
@@ -2121,6 +2143,10 @@ export function MapView({
                 data-testid={`pin-${c.candidateId}`}
                 role="button"
                 tabIndex={0}
+                onMouseEnter={() => onPreview(c.candidateId)}
+                onMouseLeave={() => onPreview(null)}
+                onFocus={() => onPreview(c.candidateId)}
+                onBlur={() => onPreview(null)}
                 aria-label={`${c.name} — ${STATE_LABEL[state]}${
                   busy.has(c.candidateId) ? ", being looked up" : ""
                 }${
