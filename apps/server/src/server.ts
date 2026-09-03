@@ -59,6 +59,13 @@ const app = Fastify({
   disableRequestLogging: true,
 });
 
+// HTTP payloads negotiate Brotli or gzip. This onSend-based plugin is
+// registered before routes and does not participate in WebSocket upgrades.
+await app.register(import("@fastify/compress"), {
+  global: true,
+  encodings: ["br", "gzip"],
+});
+
 app.addHook("onSend", async (_req, reply, payload) => {
   if (config.originTrialToken) {
     reply.header("Origin-Trial", config.originTrialToken);

@@ -138,7 +138,12 @@ export function snapshot(
       name: c.name,
       eligibility: c.eligibility,
       walkMin: c.walkMin,
-      ...(i < 14 ? { priceLevel: c.priceLevel, why: c.why.slice(0, 80) } : {}),
+      ...(i < 14
+        ? {
+            priceLevel: c.priceLevel,
+            ...(c.why ? { why: c.why } : {}),
+          }
+        : {}),
     }));
   return {
     // R2: this is the revision the model is actually reasoning from. It must

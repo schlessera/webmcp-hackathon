@@ -236,6 +236,18 @@ describe("eligibility against the Berlin Mitte dataset", () => {
     expect(whyFor(rows[0], "p_org")).toContain("somewhere the kids can run");
   });
 
+  it("omits eligible reasons and caps every other viewer-safe reason at 60 characters", () => {
+    const eligible = classifyAll([candidates[0]], [], [], null)[0];
+    expect(whyFor(eligible, "p_org")).toBeUndefined();
+    const uncertain = classifyAll(
+      [candidates[0]],
+      [req({ kind: "text", text: "a".repeat(100) } as never)],
+      [],
+      null,
+    )[0];
+    expect(whyFor(uncertain, "p_org")).toHaveLength(60);
+  });
+
   it("a need its owner set aside classifies nothing", () => {
     const veto = req(
       { kind: "attribute", key: "vegetarian-options", expect: "verified_false" },

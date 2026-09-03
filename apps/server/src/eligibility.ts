@@ -139,10 +139,10 @@ const PRIVATE_PENDING = "a private condition not yet checked";
  * fixed token, independent of how many private constraints touch the
  * candidate or whose they are.
  */
-export function whyFor(row: CandidateEligibility, viewerId: string): string {
+export function whyFor(row: CandidateEligibility, viewerId: string): string | undefined {
   if (row.eligibility === "excluded") {
     const r = row.exclusion!;
-    if (r.shared || r.ownerId === viewerId) return r.text;
+    if (r.shared || r.ownerId === viewerId) return r.text.slice(0, 60);
     return PRIVATE_EXCLUDED;
   }
   if (row.eligibility === "uncertain") {
@@ -154,7 +154,7 @@ export function whyFor(row: CandidateEligibility, viewerId: string): string {
     );
     const parts = [...new Set(visible)];
     if (hasHiddenPrivate) parts.push(PRIVATE_PENDING);
-    return parts.join("; ").slice(0, 120);
+    return parts.join("; ").slice(0, 60);
   }
   if (row.eligibility === "likely" || row.eligibility === "unlikely") {
     const visible = (row.likelyReasons ?? [])
@@ -165,9 +165,9 @@ export function whyFor(row: CandidateEligibility, viewerId: string): string {
     );
     const parts = [...new Set(visible)];
     if (hasHiddenPrivate) parts.push(PRIVATE_PENDING);
-    return parts.join("; ").slice(0, 120);
+    return parts.join("; ").slice(0, 60);
   }
-  return "clears every need on record";
+  return undefined;
 }
 
 export function haversineMeters(
