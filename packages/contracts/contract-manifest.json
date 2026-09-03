@@ -1,6 +1,6 @@
 {
   "toolContractVersion": "3",
-  "sha256": "f060ef22afdefa03717c0bce9d44ea47fa59c155f7e2e8494087fa9d1fae94c3",
+  "sha256": "f28391c73a4afd771fb5fa15b5f765e28bb6fd6f88863583de923288e4269c39",
   "manifest": {
     "capabilityManifest": {
       "agreement": {
@@ -2494,6 +2494,38 @@
                 ],
                 "type": "object"
               },
+              "stages": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "candidateId": {
+                      "type": "string"
+                    },
+                    "stage": {
+                      "anyOf": [
+                        {
+                          "const": "queued",
+                          "type": "string"
+                        },
+                        {
+                          "const": "fetching",
+                          "type": "string"
+                        },
+                        {
+                          "const": "processing",
+                          "type": "string"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "candidateId",
+                    "stage"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
               "type": {
                 "const": "lookups",
                 "type": "string"
@@ -2501,6 +2533,82 @@
             },
             "required": [
               "pending",
+              "type"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "done": {
+                "type": "number"
+              },
+              "etaMs": {
+                "type": "number"
+              },
+              "inFlight": {
+                "additionalProperties": false,
+                "properties": {
+                  "fetch": {
+                    "type": "number"
+                  },
+                  "process": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "fetch",
+                  "process"
+                ],
+                "type": "object"
+              },
+              "outstanding": {
+                "additionalProperties": false,
+                "properties": {
+                  "fetch": {
+                    "type": "number"
+                  },
+                  "process": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "fetch",
+                  "process"
+                ],
+                "type": "object"
+              },
+              "paused": {
+                "anyOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "const": "budget",
+                    "type": "string"
+                  },
+                  {
+                    "const": "idle",
+                    "type": "string"
+                  }
+                ]
+              },
+              "roomId": {
+                "type": "string"
+              },
+              "total": {
+                "type": "number"
+              },
+              "type": {
+                "const": "pipeline",
+                "type": "string"
+              }
+            },
+            "required": [
+              "done",
+              "inFlight",
+              "outstanding",
+              "total",
               "type"
             ],
             "type": "object"

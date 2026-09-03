@@ -137,6 +137,8 @@ export interface LookupTarget {
   countryCode?: string;
   /** Opaque per-pass sticky identity shared by site, menu and image legs. */
   session?: string;
+  /** Interactive preference. The outbound client remains route authority. */
+  direct?: boolean;
 }
 
 /** A successful lookup is good for a week; a failed one is retried after an hour. */
@@ -269,17 +271,42 @@ function purposeForVenueRequest(
   return target.toString() === new URL(homeUrl).toString() ? "venue-site" : "venue-menu";
 }
 
+function blockShapedResponse(status: number): boolean {
+  return status === 403 || status === 429 || status === 503;
+}
+
+function blockShapedFailure(error: unknown): boolean {
+  if (error === null || (typeof error !== "object" && typeof error !== "function")) return false;
+  const failure = error as Error & {
+    status?: number;
+    outboundFailure?: { proxyStatus?: number; leg?: string };
+  };
+  return blockShapedResponse(failure.status ?? 0) ||
+    failure.outboundFailure?.proxyStatus === 502;
+}
+
 function liveVenueFetch(target: LookupTarget): FetchLike {
-  return (url, init = {}) => {
+  return async (url, init = {}) => {
     const purpose = purposeForVenueRequest(url, target.website!, init);
-    return outboundFetch(url, {
+    const request = (direct: boolean) => outboundFetch(url, {
       ...init,
       purpose,
       country: target.countryCode,
       session: target.session,
+      ...(direct ? { direct: true } : {}),
       maxBytes: purpose === "venue-image" ? 6 * 1024 * 1024 : 1_500_000,
       timeoutMs: purpose === "venue-image" ? 10_000 : 20_000,
     });
+    if (!target.direct) return request(false);
+    try {
+      const response = await request(true);
+      if (!blockShapedResponse(response.status)) return response;
+      await response.body?.cancel();
+    } catch (error) {
+      if (!blockShapedFailure(error)) throw error;
+    }
+    // One logical interactive read, one same-session proxy fallback.
+    return request(false);
   };
 }
 
@@ -298,16 +325,25 @@ function wikiFetch(): FetchLike {
 
 function imageFetch(target: LookupTarget): FetchLike {
   if (injectedFetch) return fetchImpl;
-  return (url, init = {}) => {
+  return async (url, init = {}) => {
     const hostname = new URL(url).hostname.toLowerCase();
     const commons = hostname === "upload.wikimedia.org" || hostname.endsWith(".wikimedia.org");
-    return outboundFetch(url, {
+    const request = (direct: boolean) => outboundFetch(url, {
       ...init,
       purpose: commons ? "commons" : "image-cdn",
-      ...(commons ? { direct: true } : { country: target.countryCode, session: target.session }),
+      ...(commons || direct ? { direct: true } : { country: target.countryCode, session: target.session }),
       maxBytes: 6 * 1024 * 1024,
       timeoutMs: 20_000,
     });
+    if (commons || !target.direct) return request(commons);
+    try {
+      const response = await request(true);
+      if (!blockShapedResponse(response.status)) return response;
+      await response.body?.cancel();
+    } catch (error) {
+      if (!blockShapedFailure(error)) throw error;
+    }
+    return request(false);
   };
 }
 
@@ -740,10 +776,18 @@ export interface LookupPass {
   pageText?: WebsiteTransientText;
 }
 
-async function lookup(db: pg.Pool, target: LookupTarget, force = false): Promise<LookupPass> {
+export type LookupIntent = "interactive" | "background";
+
+async function lookup(
+  db: pg.Pool,
+  target: LookupTarget,
+  intent: LookupIntent | boolean = "background",
+): Promise<LookupPass> {
+  const force = intent === true || intent === "interactive";
   const passTarget: LookupTarget = {
     ...target,
     session: target.session ?? randomUUID().replace(/-/g, "").slice(0, 16),
+    ...(force ? { direct: true } : {}),
   };
   const initial = (await loadCached(db, [target.osmRef])).get(target.osmRef);
   const initialImagesDue = await imageRefreshDue(
@@ -868,8 +912,9 @@ export function readRefinementSource(
   db: pg.Pool,
   target: LookupTarget,
   countryCode?: string,
+  intent: LookupIntent = "background",
 ): Promise<LookupPass> {
-  return lookup(db, { ...target, ...(countryCode ? { countryCode } : {}) }, true);
+  return lookup(db, { ...target, ...(countryCode ? { countryCode } : {}) }, intent);
 }
 
 /**
@@ -892,7 +937,7 @@ export async function ensureEnrichments(
   );
   if (stale.length === 0) return found;
 
-  const jobs = stale.map((target) => lookup(db, target));
+  const jobs = stale.map((target) => lookup(db, target, "background"));
   // R9/X4: the request waits only for its remaining budget. Jobs admitted to
   // the bounded queue continue and populate cache; queued jobs hold no lease.
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -923,6 +968,8 @@ export interface LookupNowOptions {
    * monotonically merging what was inferred before. A provider's failure TTL, the
    * robots and network rules, and the per-participant budget all still hold.
    */
+  intent?: LookupIntent;
+  /** @deprecated Use intent: "interactive". Retained through phase B. */
   force?: boolean;
   /** Fresh fetched/proxy page material for focused adjudication in this pass. */
   pageCache?: AdjudicationPageCache;
@@ -1270,13 +1317,14 @@ export function lookupNow(
   const criteria = [
     ...new Map((options.criteria ?? []).map((criterion) => [criterion.id, criterion])).values(),
   ];
+  const intent = options.intent ?? (options.force === true ? "interactive" : "background");
   const keyFor = (target: RoomLookupTarget) =>
     JSON.stringify([
       roomId,
       target.candidateId,
       keys,
       criteria.map((criterion) => criterion.id).sort(),
-      options.force === true,
+      intent,
     ]);
   const existingJobs: Promise<string[]>[] = [];
   const fresh: RoomLookupTarget[] = [];
@@ -1294,7 +1342,7 @@ export function lookupNow(
       options.reason,
     );
     const freshKeys = fresh.map(keyFor);
-    const job = runLookupNow(pool, roomId, fresh, { ...options, keys, criteria }).finally(() => {
+    const job = runLookupNow(pool, roomId, fresh, { ...options, intent, keys, criteria }).finally(() => {
       endProgress();
       for (const key of freshKeys) {
         if (lookupNowInFlight.get(key) === job) lookupNowInFlight.delete(key);
@@ -1315,6 +1363,7 @@ async function runLookupNow(
   targets: RoomLookupTarget[],
   options: LookupNowOptions,
 ): Promise<string[]> {
+  const intent = options.intent ?? (options.force === true ? "interactive" : "background");
   const wantedIds = [...new Set(targets.map((target) => target.candidateId))];
   const [candidateRows, roomArea] = await Promise.all([
     pool.query(
@@ -1387,7 +1436,7 @@ async function runLookupNow(
         // Provider freshness is independent: lookup retries only the due leg,
         // retains last-known-good facts, and preserves a failed leg's TTL.
         if (hasLookupSource(target)) {
-          const pass = await lookup(pool, target, options.force === true);
+          const pass = await lookup(pool, target, intent);
           current = pass.enrichment ?? undefined;
           transientText = pass.pageText;
         }
@@ -1443,7 +1492,7 @@ async function runLookupNow(
       const attr = evaluation.base!.find((attribute) => attribute.key === key);
       if (attr && attr.status !== "unknown") return false;
       if (!attr && criterion.kind === "key" && !activeCriteria.has(criterion.id)) return false;
-      return options.force === true || !evaluation.current?.inferred?.[storedKey];
+      return intent === "interactive" || !evaluation.current?.inferred?.[storedKey];
     });
     evaluation.openCriteria = openCriteria;
     if (openCriteria.length === 0) continue;
@@ -1512,7 +1561,7 @@ async function runLookupNow(
           }),
         );
         if (accepted.length > 0) inferenceChanged = true;
-      }, pool, options.force === true ? "refresh" : "reuse");
+      }, pool, intent === "interactive" ? "refresh" : "reuse");
       inferenceChanged ||= claims.length > 0;
       const refreshed = await loadCached(
         pool,
@@ -1633,7 +1682,10 @@ export function warmEnrichmentsDone(
   targets: RoomLookupTarget[],
 ): Promise<void> {
   if (targets.length === 0) return Promise.resolve();
-  return lookupNow(pool, roomId, targets, { reason: { kind: "pool" } })
+  return lookupNow(pool, roomId, targets, {
+    intent: "background",
+    reason: { kind: "pool" },
+  })
     .then(() => undefined)
     .catch(() => {
       /* warm-up never holds room creation, or the fill, hostage */

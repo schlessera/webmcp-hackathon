@@ -268,3 +268,50 @@ conditions a peer is holding.
 
 1 and 2 are the blocking pair. Without them the UI can be built but not
 honestly populated, and the temptation to hardcode domain chips returns.
+
+---
+
+## 6. Pipeline realtime frames
+
+Phase A adds a process-local progress frame when `PIPELINE=1`:
+
+```jsonc
+{
+  "type": "pipeline",
+  "roomId": "room_123",
+  "outstanding": { "fetch": 7, "process": 4 },
+  "inFlight": { "fetch": 3, "process": 2 },
+  "done": 12,
+  "total": 28,
+  "etaMs": 9400,
+  "paused": null
+}
+```
+
+Only priority-zero and priority-one work contributes to the volume. `total` is
+deduplicated by place and describes the active-need uncertain set, not the
+whole candidate pool. `paused: "budget"` carries budget exhaustion through the
+existing “paused for now” state. Frames are coalesced to at most four per
+second, with an immediate first change for a quiet room and a guaranteed
+clearing frame. The socket-holding process emits the frame; counts are not
+cross-process in Phase A.
+
+The compatibility `lookups` frame remains readable by the current client for
+one release. `pending` stays a `string[]`; the additive `stages` field carries
+the richer state in parallel:
+
+```jsonc
+{
+  "type": "lookups",
+  "pending": ["place_a", "place_b"],
+  "stages": [
+    { "candidateId": "place_a", "stage": "fetching" },
+    { "candidateId": "place_b", "stage": "processing" }
+  ]
+}
+```
+
+Stages are `queued`, `fetching`, or `processing`; absence from both arrays
+means settled. A reason label may name only a shared need. Application-private
+and agent-private question text never enters either frame, an outbound search
+query, or a log line.

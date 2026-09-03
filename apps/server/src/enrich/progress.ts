@@ -57,6 +57,11 @@ export function currentLookups(roomId: string): LookupsMessage {
   return {
     type: "lookups",
     pending,
+    // Phase A is default-off: the legacy loop's wire stays byte-for-byte
+    // compatible until the pipeline itself is selected.
+    ...(process.env.PIPELINE === "1"
+      ? { stages: pending.map((candidateId) => ({ candidateId, stage: "queued" as const })) }
+      : {}),
     ...(pending.length && resolved && (agrees || refining.length > 0)
       ? { reason: resolved }
       : {}),

@@ -80,10 +80,26 @@ export interface PresenceMessage {
  */
 export interface LookupsMessage {
   type: "lookups";
+  /** Compatibility field retained for one release. */
   pending: string[];
+  /** Additive per-place stage data. Older clients ignore this field. */
+  stages?: Array<{ candidateId: string; stage: PipelineStage }>;
   /** Why they are being looked up, for the count block ("checking 12 places
    * for step-free access"). Absent for a warm-up nobody asked for. */
   reason?: { kind: "need" | "place" | "pool" | "refine"; label?: string };
+}
+export type PipelineStage = "queued" | "fetching" | "processing";
+export type PipelinePause = "budget" | "idle" | null;
+/** Process-local refinement progress. The socket-holding process emits it. */
+export interface PipelineMessage {
+  type: "pipeline";
+  roomId?: string;
+  outstanding: { fetch: number; process: number };
+  inFlight: { fetch: number; process: number };
+  done: number;
+  total: number;
+  etaMs?: number;
+  paused?: PipelinePause;
 }
 /**
  * Facts about places changed outside the event stream (a lookup landed, an
@@ -114,5 +130,6 @@ export type ServerMessage =
   | ConfirmationMessage
   | PresenceMessage
   | LookupsMessage
+  | PipelineMessage
   | FactsMessage
   | PingMessage;

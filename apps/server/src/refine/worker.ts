@@ -29,6 +29,7 @@ import {
 } from "../enrich/index.ts";
 import {
   evaluateMatrix,
+  matrixEvidenceHash,
   MAX_MATRIX_CRITERIA,
   MAX_MATRIX_PLACES,
   type EvaluateMatrixInput,
@@ -47,6 +48,13 @@ import {
   searchProviderId,
   type SearchResult,
 } from "./search.ts";
+import { pipelineScheduler, type DispatchResult } from "../pipeline/scheduler.ts";
+import {
+  pipelineDedupeKey,
+  type PipelineItem,
+  type ReadyCell,
+} from "../pipeline/queue.ts";
+import { MatrixBatcher } from "../pipeline/batcher.ts";
 
 export const REFINE_BATCH_SIZE = MAX_MATRIX_PLACES;
 export const REFINE_IDLE_STOP_MS = positiveInt(
@@ -158,9 +166,19 @@ interface RoomState {
   providerChecked: Set<string>;
   checkedDay: string;
   checked: Set<string>;
+  priorityZeroEpoch: number;
 }
 
 const rooms = new Map<string, RoomState>();
+const pipelinePlanning = new Set<string>();
+const pipelineLatestPlans = new Map<string, {
+  epoch: number;
+  items: Map<string, RefinementQueueItem>;
+}>();
+
+function pipelineEnabled(): boolean {
+  return process.env.PIPELINE === "1";
+}
 
 export interface RefinementQueueItem {
   candidate: CandidateRow;
@@ -240,6 +258,7 @@ function stateFor(roomId: string): RoomState {
       providerChecked: new Set(),
       checkedDay: utcDay(),
       checked: new Set(),
+      priorityZeroEpoch: -1,
     };
     rooms.set(roomId, state);
   }
@@ -432,7 +451,10 @@ export function startRefinement(roomId: string, scheduleLoop = true): boolean {
   state.stopped = false;
   if (state.idleTimer) clearTimeout(state.idleTimer);
   state.idleTimer = undefined;
-  if (scheduleLoop) schedule(roomId);
+  if (scheduleLoop) {
+    if (pipelineEnabled()) schedulePipelinePlan(roomId);
+    else schedule(roomId);
+  }
   return true;
 }
 
@@ -445,6 +467,7 @@ export function stopRefinement(roomId: string): void {
   state.timer = undefined;
   state.idleTimer = undefined;
   rooms.delete(roomId);
+  pipelineLatestPlans.delete(roomId);
 }
 
 export function noteRefinementPresence(roomId: string, present: Set<string>): void {
@@ -463,6 +486,7 @@ export function wakeRefinement(roomId: string): void {
   const state = rooms.get(roomId);
   if (!state || state.stopped) return;
   state.cursorEpoch += 1;
+  cancelStalePipelineCells(roomId, state.cursorEpoch);
   state.criteriaKey = "";
   // Forget the cursor for need-shaped cells so the changed need is re-queued,
   // but keep the background vocabulary sweep's progress. Restarting the sweep
@@ -475,6 +499,12 @@ export function wakeRefinement(roomId: string): void {
     if (ids.size === 0) state.evaluated.delete(candidateId);
   }
   state.providerChecked.clear();
+  if (pipelineEnabled()) {
+    if (state.timer) clearTimeout(state.timer);
+    state.timer = undefined;
+    schedulePipelinePlan(roomId);
+    return;
+  }
   if (state.running) {
     state.wakePending = true;
     return;
@@ -482,6 +512,125 @@ export function wakeRefinement(roomId: string): void {
   if (state.timer) clearTimeout(state.timer);
   state.timer = undefined;
   schedule(roomId, 0);
+}
+
+/** PIPELINE=1 plans each place independently. The default-off loop above is
+ * retained verbatim until phase C. */
+function schedulePipelinePlan(roomId: string, delay = 0): void {
+  const state = rooms.get(roomId);
+  if (!state || state.stopped || state.timer || pipelinePlanning.has(roomId)) return;
+  state.timer = setTimeout(() => {
+    state.timer = undefined;
+    void planPipelineRoom(roomId);
+  }, Math.max(0, delay));
+  state.timer.unref?.();
+}
+
+async function planPipelineRoom(roomId: string): Promise<void> {
+  const state = rooms.get(roomId);
+  if (!state || state.stopped || pipelinePlanning.has(roomId)) return;
+  pipelinePlanning.add(roomId);
+  try {
+    const inputs = await loadEligibilityInputs(pool, roomId);
+    pipelineScheduler.needsChanged(
+      roomId,
+      state.cursorEpoch,
+      new Set(activeCriteria(inputs).keys()),
+    );
+    const queue = buildRefinementQueue(inputs, state, roomId);
+    pipelineLatestPlans.set(roomId, {
+      epoch: state.cursorEpoch,
+      items: new Map(queue.map((entry) => [entry.candidate.id, entry])),
+    });
+    const counts = refinementQueueCounts(queue);
+    state.queued = counts.tier1;
+    state.tier1Queued = counts.tier1;
+    state.backlog = counts.total;
+    pipelineScheduler.volume.pause(roomId, state.paused);
+    if (queue.length === 0) {
+      pipelineScheduler.frames.changed(roomId);
+      const delay = refinementQueueDeferred() ? REFINE_TICK_MS : REFINE_IDLE_TICK_MS;
+      queueMicrotask(() => schedulePipelinePlan(roomId, delay));
+      return;
+    }
+    const placeInfo = await roomPlace(roomId);
+    const cached = await loadCached(
+      pool,
+      queue.map((item) => item.candidate.osm_ref!).filter(Boolean),
+    );
+    const priorityZero = state.cursorEpoch > 0 && state.priorityZeroEpoch !== state.cursorEpoch;
+    if (priorityZero) state.priorityZeroEpoch = state.cursorEpoch;
+    const promises = queue.map((planned, index) => {
+      const website = planned.candidate.extras?.website;
+      let host: string | undefined;
+      try {
+        host = website ? new URL(website).hostname.toLowerCase() : undefined;
+      } catch {
+        host = undefined;
+      }
+      const base = {
+        roomId,
+        candidateId: planned.candidate.id,
+        osmRef: planned.candidate.osm_ref!,
+        kind: "fetch.site" as const,
+        // Site evidence is criterion-independent. Keeping this empty makes a
+        // need change join the queued/in-flight read instead of buying it a
+        // second time; the completion is rematched through `pipelineLatestPlans`.
+        criteria: [],
+        priority: priorityZero && planned.tier === 1 && index < REFINE_BATCH_SIZE
+          ? 0 as const
+          : planned.tier,
+        intent: "background" as const,
+        ...(host ? { host, purpose: "venue-site" as const } : {}),
+        needsEpoch: state.cursorEpoch,
+        enqueuedAt: Date.now(),
+      };
+      const item = { ...base, dedupeKey: pipelineDedupeKey(base) };
+      const reason = refinementLookupReason([planned], inputs);
+      return pipelineScheduler.enqueue<PreparedPlace>(
+        item,
+        async (route): Promise<DispatchResult<PreparedPlace>> => ({
+          value: await preparePlace(
+            planned,
+            cached,
+            Date.now(),
+            placeInfo.countryCode,
+            "background",
+          ),
+          actualRoute: route ?? "direct",
+        }),
+        {
+          present: presentIn(roomId).size > 0,
+          reason: { ...reason, ...(reason.label ? { visibility: "shared" as const } : {}) },
+        },
+      ).then((prepared) => {
+        const latest = pipelineLatestPlans.get(roomId);
+        const rematched = latest?.items.get(planned.candidate.id);
+        if (!latest || latest.epoch !== item.needsEpoch || rematched !== planned) {
+          return REFINE_TICK_MS;
+        }
+        return queuePreparedForJudging(
+          roomId,
+          { ...prepared, item: rematched },
+          item.priority,
+          item.needsEpoch,
+          { ...reason, ...(reason.label ? { visibility: "shared" as const } : {}) },
+        );
+      });
+    });
+    void Promise.allSettled(promises).then((results) => {
+      const delay = Math.max(
+        REFINE_TICK_MS,
+        ...results.flatMap((result) => result.status === "fulfilled" ? [result.value] : []),
+      );
+      schedulePipelinePlan(roomId, delay);
+    });
+  } catch (error) {
+    console.warn("pipeline planning failed:", error instanceof Error ? error.message : String(error));
+    queueMicrotask(() => schedulePipelinePlan(roomId, REFINE_TICK_MS));
+  } finally {
+    pipelinePlanning.delete(roomId);
+  }
 }
 
 function cachedText(osmRef: string, now: number): TextCacheEntry["text"] | undefined {
@@ -555,6 +704,8 @@ export interface RefinementTickOptions extends RefinementSearchPolicy {
   searchMode?: RefineSearchMode;
   /** Benchmark seam: keep queue membership and order fixed across variants. */
   frozenCandidateIds?: string[];
+  /** PIPELINE=1 owns the additive stage frame for this batch. */
+  pipelineManaged?: boolean;
 }
 
 export function refineSearchMode(value = process.env.REFINE_SEARCH_MODE): RefineSearchMode {
@@ -701,6 +852,182 @@ interface PreparedPlace {
   matrix: EvaluateMatrixInput["places"][number];
 }
 
+type PipelineReason = {
+  kind: "refine";
+  label?: string;
+  visibility?: "shared" | "application-private" | "agent-private";
+};
+
+interface PipelineCellCompletion {
+  remaining: number;
+  settled: boolean;
+  delay: number;
+  resolve(value: number): void;
+  reject(error: unknown): void;
+}
+
+interface PipelineReadyValue {
+  prepared: PreparedPlace;
+  item: PipelineItem;
+  needsEpoch: number;
+  reason: PipelineReason;
+  completion: PipelineCellCompletion;
+}
+
+function finishPipelineCell(
+  value: PipelineReadyValue,
+  error?: unknown,
+  delay = REFINE_TICK_MS,
+): void {
+  if (value.completion.settled) return;
+  if (error !== undefined) {
+    value.completion.settled = true;
+    value.completion.reject(error);
+    return;
+  }
+  value.completion.delay = Math.max(value.completion.delay, delay);
+  value.completion.remaining -= 1;
+  if (value.completion.remaining <= 0) {
+    value.completion.settled = true;
+    value.completion.resolve(value.completion.delay);
+  }
+}
+
+function queuePreparedForJudging(
+  roomId: string,
+  prepared: PreparedPlace,
+  priority: PipelineItem["priority"],
+  needsEpoch: number,
+  reason: PipelineReason,
+): Promise<number> {
+  // A fetch that crossed a need change is still useful: its page text is now
+  // in the page cache/transient evidence map. The next plan rematches it to
+  // the new criteria instead of running stale judge cells.
+  const room = rooms.get(roomId);
+  if (!room || room.cursorEpoch !== needsEpoch) return Promise.resolve(REFINE_TICK_MS);
+
+  const criteria = prepared.item.criteria.filter(modelCriterion);
+  if (criteria.length === 0) return Promise.resolve(REFINE_TICK_MS);
+  return new Promise<number>((resolve, reject) => {
+    const completion: PipelineCellCompletion = {
+      remaining: criteria.length,
+      settled: false,
+      delay: REFINE_TICK_MS,
+      resolve,
+      reject,
+    };
+    const bytes = Buffer.byteLength(JSON.stringify(prepared.matrix), "utf8");
+    const cells = criteria.map((criterion): ReadyCell<PipelineReadyValue> => {
+      const base = {
+        roomId,
+        candidateId: prepared.item.candidate.id,
+        osmRef: prepared.item.candidate.osm_ref!,
+        kind: "process.judge" as const,
+        criteria: [criterion],
+        priority,
+        intent: "background" as const,
+        evidenceHash: matrixEvidenceHash(prepared.matrix),
+        needsEpoch,
+        enqueuedAt: Date.now(),
+      };
+      const processItem: PipelineItem = {
+        ...base,
+        dedupeKey: pipelineDedupeKey(base),
+      };
+      return {
+        roomId,
+        candidateId: processItem.candidateId,
+        criterionId: criterion.id,
+        priority: processItem.priority,
+        bytes,
+        value: {
+          prepared,
+          item: processItem,
+          needsEpoch,
+          reason,
+          completion,
+        },
+      };
+    });
+    const added: Array<ReadyCell<PipelineReadyValue>> = [];
+    for (const cell of cells) {
+      if (pipelineScheduler.ready.push(cell)) {
+        added.push(cell);
+        continue;
+      }
+      pipelineScheduler.ready.take((candidate) => added.includes(candidate as ReadyCell<PipelineReadyValue>));
+      finishPipelineCell(cell.value, new Error("pipeline ready buffer is full"));
+      return;
+    }
+    for (const cell of cells) {
+      const processItem = cell.value.item;
+      pipelineScheduler.buffer(processItem, { reason });
+      pipelineBatcher.add(cell);
+    }
+  });
+}
+
+async function dispatchPipelineBatch(cells: Array<ReadyCell<PipelineReadyValue>>): Promise<void> {
+  pipelineScheduler.ready.take((candidate) => cells.includes(candidate as ReadyCell<PipelineReadyValue>));
+  const live = cells.filter((cell) =>
+    rooms.get(cell.roomId)?.cursorEpoch === cell.value.needsEpoch
+  );
+  for (const cell of cells) {
+    if (live.includes(cell)) continue;
+    pipelineScheduler.dropBuffered(cell.value.item);
+    finishPipelineCell(cell.value);
+  }
+  if (live.length === 0) return;
+  const roomId = live[0].roomId;
+  const processItems = live.map((cell) => cell.value.item);
+  const candidateIds = [...new Set(live.map((cell) => cell.candidateId))];
+  const reason = live.every((cell) =>
+    JSON.stringify(cell.value.reason) === JSON.stringify(live[0].value.reason)
+  ) ? live[0].value.reason : { kind: "refine" as const };
+  try {
+    const delay = await pipelineScheduler.enqueueBatch(
+      processItems,
+      () => runRefinementTick(roomId, Date.now(), {
+        frozenCandidateIds: candidateIds,
+        pipelineManaged: true,
+      }),
+      {
+        buffered: true,
+        present: presentIn(roomId).size > 0,
+        reason,
+      },
+    );
+    for (const cell of live) finishPipelineCell(cell.value, undefined, delay);
+  } catch (error) {
+    for (const cell of live) finishPipelineCell(cell.value, error);
+  }
+}
+
+const pipelineBatcher = new MatrixBatcher<PipelineReadyValue>(dispatchPipelineBatch);
+
+function cancelStalePipelineCells(roomId: string, needsEpoch: number): void {
+  const removed = pipelineBatcher.remove((cell) =>
+    cell.roomId === roomId && cell.value.needsEpoch !== needsEpoch
+  );
+  if (removed.length === 0) return;
+  pipelineScheduler.ready.take((cell) => removed.includes(cell as ReadyCell<PipelineReadyValue>));
+  for (const cell of removed) {
+    pipelineScheduler.dropBuffered(cell.value.item);
+    finishPipelineCell(cell.value);
+  }
+}
+
+function clearPipelineCells(): void {
+  const removed = pipelineBatcher.remove(() => true);
+  if (removed.length === 0) return;
+  pipelineScheduler.ready.take((cell) => removed.includes(cell as ReadyCell<PipelineReadyValue>));
+  const error = new Error("refinement pipeline reset");
+  for (const cell of removed) {
+    pipelineScheduler.dropBuffered(cell.value.item);
+    finishPipelineCell(cell.value, error);
+  }
+}
+
 function usablePageText(text: LookupPass["pageText"] | undefined): boolean {
   return Boolean(text && Object.values(text).some((value) =>
     typeof value === "string" && value.replace(/\s+/g, " ").trim().length >= 12
@@ -712,13 +1039,14 @@ async function preparePlace(
   cached: Map<string, Enrichment>,
   now: number,
   countryCode?: string,
+  intent: "interactive" | "background" = "background",
 ): Promise<PreparedPlace> {
   const candidate = item.candidate;
   const target = lookupTargetOf(candidate);
   let enrichment = cached.get(candidate.osm_ref!);
   let text = cachedText(candidate.osm_ref!, now);
   if (!text && target && (target.website || target.wikidata)) {
-    const pass = await readRefinementSource(pool, target, countryCode);
+    const pass = await readRefinementSource(pool, target, countryCode, intent);
     enrichment = pass.enrichment ?? enrichment;
     if (pass.pageText) {
       text = pass.pageText;
@@ -836,17 +1164,19 @@ export async function runRefinementTick(
   state.paused = null;
   const spendBefore = responseMetrics();
 
-  const endProgress = beginLookups(
-    roomId,
-    batch.map((item) => item.candidate.id),
-    refinementLookupReason(batch, inputs),
-  );
+  const endProgress = options.pipelineManaged
+    ? () => undefined
+    : beginLookups(
+        roomId,
+        batch.map((item) => item.candidate.id),
+        refinementLookupReason(batch, inputs),
+      );
   try {
     const refs = batch.map((item) => item.candidate.osm_ref!).filter(Boolean);
     const placeInfo = await roomPlace(roomId);
     const cached = await loadCached(pool, refs);
     const prepared = await Promise.all(batch.map((item) =>
-      preparePlace(item, cached, now, placeInfo.countryCode)
+      preparePlace(item, cached, now, placeInfo.countryCode, "background")
     ));
     // Cells the model genuinely answered (a claim or an explicit abstention);
     // only those are cached, everything else is re-queued (C3).
@@ -1220,9 +1550,13 @@ export function exhaustRefinementSearchesForTest(roomId: string, now: number): v
 /** Test-only reset for timers, cursors, budgets and transient prose. */
 export function resetRefinement(): void {
   for (const roomId of [...rooms.keys()]) stopRefinement(roomId);
+  clearPipelineCells();
   transientText.clear();
   modelBudget.reset();
   searchBudget.reset();
+  pipelinePlanning.clear();
+  pipelineLatestPlans.clear();
+  pipelineScheduler.reset();
 }
 
 // Register once per process. Presence frames and fact frames are separate;

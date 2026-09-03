@@ -6,6 +6,7 @@ const PRIVATE_SENTENCE = "private-zebra-741 needs a quiet courtyard";
 const PRIVATE_EVIDENCE = "A quiet courtyard is available behind the main room";
 
 setEnrichFetch(async (url) => {
+  console.info(`scripted-site-fetch ${new URL(url).hostname}`);
   if (url.endsWith("/robots.txt")) return new Response("", { status: 200 });
   return new Response(
     `<html><body><p>${TRANSIENT} General information about this place. ${PRIVATE_EVIDENCE}.</p></body></html>`,
@@ -103,6 +104,7 @@ setTransport(async (body) => {
     places: Array<{ candidateId: string; texts: Array<{ source: string; text: string }> }>;
     criteria: Array<{ id: string; kind: string; text?: string }>;
   };
+  console.info(`scripted-matrix-call cells=${matrix.places.length * matrix.criteria.length}`);
   if (
     matrix.criteria.some((criterion) => criterion.kind === "key") &&
     matrix.places.some((place) => place.texts.some((item) => item.source === "web")) &&

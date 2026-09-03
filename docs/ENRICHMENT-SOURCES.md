@@ -585,6 +585,43 @@ decision and discarding useful direct evidence. Silence still requires
 abstention: a `no` lean needs explicit negative wording and, for record grade,
 must pass the same explicit/span/exact-host gate.
 
+## The pipeline
+
+`PIPELINE=1` enables the process-local Phase A refinement pipeline. It is off
+by default; without it the existing per-room tick loop remains the authority.
+One scheduler uses deficit round robin across rooms, strict priority inside a
+room, and reserves every eighth admission for the lowest non-empty priority so
+background work cannot starve.
+
+Work is separated into fetch stages (`fetch.site`, `fetch.search`,
+`fetch.asset`) and process stages (`process.judge`, `process.adjudicate`,
+`process.vision`, `process.decode`). A judge item is one place/criterion cell.
+Ready evidence is byte-bounded to 4 MB for the process and 512 KB per room; a
+full room stops only that room's fetch admissions until a matrix drains it.
+Matrix cells wait no more than 300 ms for a rectangle of at most eight places
+by five criteria, while priority-zero work closes its batch immediately.
+
+The named pools are independently and continuously refilled: proxy 8, direct
+4, search 4, matrix 2, vision 1 and image decode 2. The proxy limit is tunable
+from 8–12 with `POOL_PROXY`; the other `POOL_*` variables tune their matching
+pools. A fetch is selected only when its host gate appears open, and selection
+examines at most 32 queued items. The gate is a hint, never a reservation; the
+outbound client's existing per-host and pacing checks remain authoritative.
+Interactive site and asset reads prefer direct and retry exactly once through
+the proxy on 403, 429, 503 or a CONNECT-502-class failure.
+
+Priorities are: 0 interactive, 1 uncertain active needs in scope, 2 stale
+facts, 3 background vocabulary, and 4 on-demand assets. Realtime volume counts
+only priorities 0 and 1, by fetch and process stage. `done` and `total` are
+deduplicated by place. ETA uses the RFC 6298 smoothed mean/deviation constants
+and is sent for diagnostics, not presented as a promise to the user. The
+`pipeline` frame is coalesced to at most four per second.
+
+These counters are deliberately single-process. The process holding a room's
+sockets emits its frame; a deployment with sockets and work split across
+multiple server processes will have incomplete volume figures. Phase A adds no
+Redis or PostgreSQL counter.
+
 ### Continuous refinement
 
 Each room has one process-local refinement loop. It starts when the room gains

@@ -535,6 +535,7 @@ async function triggerNeedLookup(
     return target ? [{ candidateId: candidate.id, ...target }] : [];
   });
   await lookupNow(pool, roomId, targets, {
+    intent: "interactive",
     keys: criterion.kind === "key" ? [criterion.key] : [],
     criteria: [criterion],
     reason: {
