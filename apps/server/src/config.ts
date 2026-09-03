@@ -37,6 +37,9 @@ export const config = {
    *    private condition against evidence, or answers a question about state.
    */
   openaiApiKey: process.env.OPENAI_API_KEY ?? "",
+  parallelApiKey: process.env.PARALLEL_API_KEY ?? "",
+  dataForSeoLogin: process.env.DATAFORSEO_LOGIN ?? "",
+  dataForSeoPassword: process.env.DATAFORSEO_PASSWORD ?? "",
   nlFastModel: process.env.NL_FAST_MODEL ?? "gpt-5.6-luna",
   nlSmartModel: process.env.NL_SMART_MODEL ?? "gpt-5.6-sol",
   /** Reads menu photos and PDFs (enrich/menu-reader.ts); vision-capable. */

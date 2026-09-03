@@ -55,6 +55,7 @@ import { resumePoolFills } from "./pool-fill.ts";
 import { loadPlaceImage } from "./enrich/images.ts";
 import {
   outboundDiagnostics,
+  outboundProviderCounts,
   startOutboundDiagnosticLogging,
 } from "./net/outbound.ts";
 
@@ -207,7 +208,7 @@ const notAuthenticated = {
 app.get("/api/diag/outbound", async (req, reply) => {
   const actor = await bearer(req);
   if (!actor) return reply.code(401).send(notAuthenticated);
-  return outboundDiagnostics();
+  return { ...outboundDiagnostics(), providers: outboundProviderCounts() };
 });
 
 // The OSM ref rides as two path segments (node/123), never as an encoded

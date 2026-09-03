@@ -58,9 +58,9 @@ export function cacheUrlHash(url: string | URL): string {
   return createHash("sha256").update(new URL(url).toString()).digest("hex");
 }
 
-export function cacheQueryHash(query: string, domains: string[] = []): string {
+export function cacheQueryHash(query: string, domains: string[] = [], roomId?: string): string {
   return createHash("sha256")
-    .update(JSON.stringify({ query, domains: [...domains].sort() }))
+    .update(JSON.stringify({ query, domains: [...domains].sort(), ...(roomId ? { roomId } : {}) }))
     .digest("hex");
 }
 
@@ -153,17 +153,28 @@ export interface SearchCacheEntry {
   answeredIds?: string[];
 }
 
+export type SearchCacheProvider = "tavily" | "openai" | "parallel";
+
+function providerRoomKey(provider: SearchCacheProvider, roomId: string | undefined): string | undefined {
+  // Parallel's customer terms prohibit serving one query's output to another
+  // end customer. A missing room id therefore disables caching rather than
+  // silently falling back to the cross-room Tavily/OpenAI key.
+  return provider === "parallel" ? roomId : undefined;
+}
+
 export async function loadSearchCache(
   q: CacheQuery,
   osmRef: string,
   query: string,
-  provider: "tavily" | "openai",
+  provider: SearchCacheProvider,
   domains: string[] = [],
+  roomId?: string,
 ): Promise<SearchCacheEntry | null> {
+  if (provider === "parallel" && !roomId) return null;
   const row = (await q.query(
     `SELECT snippets, claims, answered_ids FROM search_cache
       WHERE osm_ref = $1 AND query_hash = $2 AND provider = $3 AND expires_at > now()`,
-    [osmRef, cacheQueryHash(query, domains), provider],
+    [osmRef, cacheQueryHash(query, domains, providerRoomKey(provider, roomId)), provider],
   )).rows[0] as { snippets: SearchCacheEntry["snippets"] | null; claims: EvaluatedInference[] | null; answered_ids: string[] | null } | undefined;
   return row ? {
     ...(Array.isArray(row.snippets) ? { snippets: cleanSearchResults(row.snippets) } : {}),
@@ -177,16 +188,21 @@ export async function storeSearchCache(
   input: {
     osmRef: string;
     query: string;
-    provider: "tavily" | "openai";
+    provider: SearchCacheProvider;
+    roomId?: string;
     domains?: string[];
     snippets?: SearchCacheEntry["snippets"];
     claims?: EvaluatedInference[];
     answeredIds?: string[];
   },
 ): Promise<void> {
+  if (input.provider === "parallel" && !input.roomId) return;
   // Provider policy is enforced at the write boundary: OpenAI web-search raw
   // snippets never enter durable storage, only validated application claims.
-  const snippets = input.provider === "tavily" ? cleanSearchResults(input.snippets) : undefined;
+  // Parallel snippets may be retained only under the room-scoped hash above.
+  const snippets = input.provider === "tavily" || input.provider === "parallel"
+    ? cleanSearchResults(input.snippets)
+    : undefined;
   const claims = input.claims?.map(cleanEvaluatedInference);
   await q.query(
     `INSERT INTO search_cache
@@ -201,7 +217,11 @@ export async function storeSearchCache(
        answered_ids = EXCLUDED.answered_ids`,
     [
       input.osmRef,
-      cacheQueryHash(input.query, input.domains),
+      cacheQueryHash(
+        input.query,
+        input.domains,
+        providerRoomKey(input.provider, input.roomId),
+      ),
       input.provider,
       String(SEARCH_CACHE_TTL_MS),
       snippets ? JSON.stringify(snippets) : null,

@@ -19,6 +19,7 @@ Three sources ship, all server-side, all evidence-labelled:
 | S1 | OpenStreetMap's own long tail | ODbL | menu URL, opening-hours page, Instagram, description, vegan / gluten-free / halal, takeaway, delivery, Wikidata id | more tags kept in the snapshot (`KEPT_TAGS`); no request at all |
 | S2 | the place's own website | the venue's | schema.org facts (cuisine, price range, hours, accessibility, self-published rating, menu, reservations), menu link discovery, one-line description; selected visible text for evaluation only | one homepage fetch plus an optional menu follow, robots.txt honoured; parsed facts and bounded evaluator text cached 7 days |
 | S3 | Wikidata | CC0 | description, Wikipedia article, official site, awards (Michelin star, Bib Gourmand) | one entity fetch for places carrying a `wikidata` tag, cached 30 days |
+| S4 | Google business listings through DataForSEO | provider output; production terms need legal review | dogs, wheelchair entrance, outdoor seating, vegetarian options, wi-fi, takeaway, delivery, hours, price, rating and website | one centre-and-radius request for the whole room pool, cached 7 days |
 
 A fourth input is not enrichment by a provider: a person can permanently
 confirm or rule out a vocabulary fact or `q:<sha1>` question answer. It is
@@ -48,6 +49,8 @@ stay direct. The table is the code's purpose allowlist, not a hostname guess:
 | `wikidata`, `wikimedia`, `commons` | direct | public, non-geographic Wikimedia data and licence metadata need no residential identity |
 | `geofabrik` | direct | the fixed open-data extract host is not a venue and gains nothing from residential routing |
 | `tavily` | direct | it is an authenticated API; Tavily's terms prohibit concealing the customer application's identity |
+| `parallel` | direct | authenticated search API; residential venue routing provides no benefit |
+| `dataforseo` | direct | authenticated structured-listings API; one room-pool request is not venue traffic |
 | `openai` | direct | the API key is the service identity and organization rate limits do not become safer or larger through an exit proxy |
 
 The cache is deliberately source-shaped. Venue homepage and HTML-menu rows in
@@ -84,6 +87,14 @@ retention right for raw search excerpts. Its snippets and raw search responses
 therefore are not stored; only claims that pass this application's criterion,
 citation, span and confidence validators are cached for seven days under the
 same place/query key.
+
+Parallel Search output is also cached for seven days, but its key additionally
+contains the room id. Parallel's Customer Terms say output from one query is
+primarily for one End Customer and must not be cached or made available to
+other End Customers. A cross-room hit would violate that restriction, so a
+missing room id disables Parallel caching instead of falling back to the
+shared Tavily/OpenAI key. The per-room duplication is deliberate and cheap at
+the `fast` price.
 
 Matrix results use `(place, criterion, evidence-text hash)`. The hash includes
 every bounded source string and record token the model can inspect. Cache hits
@@ -384,6 +395,67 @@ URL. No participant IP ever reaches the place, Wikimedia Commons, or another
 third-party image host. This is the same rule as every other enrichment
 source, not a browser optimization.
 
+## Listings
+
+DataForSEO's Business Listings Search is a separate evidence class,
+`listing:google`. It is neither the OpenStreetMap record nor verified evidence.
+One request covers the current room pool using the scope centre and radius and
+asks for at most 1,000 items. Returned businesses are joined locally only when
+the normalized names are similar and their coordinates are within 60 metres;
+when both sides have a website domain, the domains must agree. A nearby
+different business and a same-name result 300 metres away are both rejected.
+
+Available and unavailable Google-profile attributes are symmetric. Dogs,
+wheelchair entrance, outdoor seating, vegetarian options, wi-fi, takeaway and
+delivery map to `likely_true` or `likely_false` at confidence **0.65**. A false
+listing value is evidence leaning no, never absence. Price strings map to the
+four `PRICE_LEVEL_EUR` bands. Published work hours remain `likely`, ratings are
+labelled “on Google”, and a listing website fills the site-discovery gap only
+when the OSM record has none; the normal venue-site fetch can then use it.
+Every row says “Google business profile” and links to the listing's Google Maps
+URL. No listing value can produce `verified_true` or `verified_false`.
+
+The normalized boolean and price claims are written through `saveInferences`
+and `resolveInference`, the same monotonic path used by every other inferred
+claim. `enrichments.listing` retains only the companion hours, rating and
+website fields for seven days. A durable per-room budget permits at most one
+request in 24 hours, with one immediate extra request when `scopeId` changes.
+`LISTINGS=0` disables the class. The price is **$0.012 per request plus
+$0.00036 per returned item**: 343 results cost about **$0.135** and the
+1,000-item maximum costs **$0.372**.
+
+DataForSEO's current Terms do not state a cache duration or an explicit
+redistribution grant. They do prohibit using SERP-derived data to compete with
+or adversely affect the originating search provider. This implementation's
+seven-day retention is therefore a product decision based on contractual
+silence, not an affirmative licence; production use needs a legal review.
+
+## Search providers
+
+Split refinement supports `SEARCH_PROVIDER=parallel|openai|tavily`. Without an
+explicit setting it chooses Parallel when `PARALLEL_API_KEY` exists, otherwise
+OpenAI when `OPENAI_API_KEY` exists, otherwise Tavily. Tavily remains the
+cross-room, seven-day fallback described above. OpenAI stores validated claims
+but not raw snippets.
+
+Parallel uses the GA Search API's `fast` mode at **$1 per 1,000 searches**.
+Its excerpts are not reliably verbatim: Parallel calls them “LLM-optimized”,
+and its own response example inserts `Section Title:`, `Content:` and a
+truncation marker that do not occur together on the source page. An excerpt is
+therefore only a discovery hint. The server fetches at most the first two
+result pages through the outbound client and passes onward only a literal span
+located in that fetched page; results without a usable exact span are dropped.
+Parallel results are cached for seven days **per room**, never cross-room,
+because its Customer Terms restrict one query's output to one End Customer.
+Those terms also conflict with Parallel's FAQ on model training, another reason
+queries contain only place identity and shared or server-vocabulary words.
+
+Provider search fees used in the structured refinement tick are $0.001 for
+Parallel `fast`, $0.010 for OpenAI web search and $0.008 for Tavily basic.
+Listing batch spend is added to the next room tick as well as logged on its own
+content-free batch line. Outbound diagnostics expose attempt/success counts by
+API provider without URLs, bodies, queries or credentials.
+
 ## Inference: evidence-backed likely facts
 
 When the record, looked-up web facts and the small deterministic guess table
@@ -456,8 +528,9 @@ Source buckets rank as follows, highest first:
 
 | rank | bucket | source representation |
 |---:|---|---|
-| 5 | record | record-grade `web:<host>` |
-| 4 | own-site explicit | explicit `infer:<model>:venue_site` / `:menu` |
+| 6 | record | record-grade `web:<host>` |
+| 5 | own-site explicit | explicit `infer:<model>:venue_site` / `:menu` |
+| 4 | Google listing | `listing:google` at 0.65, always likely |
 | 3 | own-site inferred | non-explicit `infer:<model>:venue_site` / `:menu` |
 | 2 | domain search | `infer:<model>:domain_search` |
 | 1 | open web | `infer:<model>:open_web_search` |
@@ -733,10 +806,11 @@ is present, and `null` while the loop is working.
 stale-fact and background vocabulary sweeps are real work but are not counted
 there, because a number that climbs while the room sits still is a number
 nobody can trust. `REFINE=0` disables the loop. `ENRICH_NETWORK=0` disables all
-of its outbound work. `SEARCH_PROVIDER=tavily` selects the Tavily fallback and needs
-`TAVILY_API_KEY`; otherwise split search uses OpenAI Responses `web_search` on
-`NL_FAST_MODEL` with low search context. Combined mode is intrinsically an
-OpenAI Responses tool call.
+of its outbound work. `SEARCH_PROVIDER=parallel|openai|tavily` selects the split
+provider. With no explicit value, a Parallel key wins, then an OpenAI key, then
+Tavily. Parallel needs `PARALLEL_API_KEY`, uses `fast`, and stores its validated
+snippets per room. Tavily needs `TAVILY_API_KEY`. Combined mode is intrinsically
+an OpenAI Responses tool call.
 
 Every frame the loop emits carries `reason: { kind: "refine" }`, with a label
 only when one shared need is behind the whole batch. When a pool warm-up is

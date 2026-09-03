@@ -28,7 +28,7 @@ import { beginLookups, resetProgress } from "../../apps/server/src/enrich/progre
 const keys = [
   "vegetarian-options", "vegan-options", "gluten-free-options", "halal-options",
   "lactose-free-options", "wheelchair-accessible", "outdoor-seating", "dog-friendly",
-  "takeaway", "delivery", "price-level",
+  "wifi", "takeaway", "delivery", "price-level",
 ];
 
 function attributes(overrides: Record<string, { status: string; observedAt?: string }> = {}) {

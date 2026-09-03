@@ -1,0 +1,16 @@
+{
+  "response": {
+    "search_id": "search_fixture",
+    "results": [
+      {
+        "url": "https://venue.example/connectivity",
+        "title": "Venue connectivity",
+        "publish_date": null,
+        "excerpts": [
+          "Section Title: Visit > Amenities\n Content:\n Free wireless internet is available throughout the dining room.\n\n... (content truncated)"
+        ]
+      }
+    ]
+  },
+  "pageHtml": "<html><body><main><h1>Visit</h1><p>Free wireless internet is available throughout the dining room.</p></main></body></html>"
+}
