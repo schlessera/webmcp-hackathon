@@ -384,7 +384,7 @@ app.post("/api/spatial/lookup", async (req, reply) => {
   // Held before validation: the compiled guard narrows `body` to its required
   // properties only, which would drop the optional `keys` from the type.
   const keys = body.keys;
-  const force = body.force === true;
+  const intent = body.force === true ? "interactive" : "background";
   if (!validateLookupInput(body)) {
     return invalidInput(
       "candidateIds must be 1-3 candidate ID strings and keys, when present, 1-6 attribute keys.",
@@ -395,7 +395,7 @@ app.post("/api/spatial/lookup", async (req, reply) => {
     reply.header("retry-after", "10");
     return reply.code(429).send({ ok: false, error: LOOKUP_RATE_LIMIT_ERROR });
   }
-  const result = await lookUpPlaces(actor, body.candidateIds!, keys, force);
+  const result = await lookUpPlaces(actor, body.candidateIds!, keys, intent);
   logRead(req, actor.id, "LookUpPlaces", result.ok);
   return result;
 });

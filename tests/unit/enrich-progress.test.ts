@@ -8,6 +8,9 @@ import {
   resetProgress,
 } from "../../apps/server/src/enrich/progress.ts";
 
+const stages = (candidateIds: string[]) =>
+  candidateIds.map((candidateId) => ({ candidateId, stage: "queued" }));
+
 afterEach(() => {
   resetProgress();
   vi.useRealTimers();
@@ -23,7 +26,7 @@ describe("lookup progress", () => {
       // out immediately, later changes wait for the window.
       const endA = beginLookups("room_1", ["a", "b"], { kind: "need", label: "step-free access" });
       expect(frames).toEqual([
-        { roomId: "room_1", type: "lookups", pending: ["a", "b"], reason: { kind: "need", label: "step-free access" } },
+        { roomId: "room_1", type: "lookups", pending: ["a", "b"], stages: stages(["a", "b"]), reason: { kind: "need", label: "step-free access" } },
       ]);
       const endB = beginLookups("room_1", ["b", "c"], { kind: "place" });
       endA();
@@ -31,7 +34,7 @@ describe("lookup progress", () => {
       vi.advanceTimersByTime(LOOKUP_COALESCE_MS);
       expect(frames).toHaveLength(2);
       expect(frames[1]).toEqual(
-        { roomId: "room_1", type: "lookups", pending: ["b", "c"], reason: { kind: "place" } },
+        { roomId: "room_1", type: "lookups", pending: ["b", "c"], stages: stages(["b", "c"]), reason: { kind: "place" } },
       );
 
       // Many changes in the next window still yield one frame.
@@ -42,7 +45,7 @@ describe("lookup progress", () => {
       expect(frames).toHaveLength(2);
       vi.advanceTimersByTime(1);
       expect(frames).toHaveLength(3);
-      expect(frames[2]).toEqual({ roomId: "room_1", type: "lookups", pending: [] });
+      expect(frames[2]).toEqual({ roomId: "room_1", type: "lookups", pending: [], stages: [] });
     } finally {
       off();
     }
@@ -55,11 +58,12 @@ describe("lookup progress", () => {
     expect(currentLookups("room_2")).toEqual({
       type: "lookups",
       pending: ["a"],
+      stages: stages(["a"]),
     });
     endFirst();
-    expect(currentLookups("room_2")).toEqual({ type: "lookups", pending: ["a"] });
+    expect(currentLookups("room_2")).toEqual({ type: "lookups", pending: ["a"], stages: stages(["a"]) });
     endSecond();
-    expect(currentLookups("room_2")).toEqual({ type: "lookups", pending: [] });
+    expect(currentLookups("room_2")).toEqual({ type: "lookups", pending: [], stages: [] });
   });
 
   it("derives a reason only when every outstanding batch agrees", () => {
@@ -69,17 +73,20 @@ describe("lookup progress", () => {
     expect(currentLookups("room_3")).toEqual({
       type: "lookups",
       pending: ["a", "b"],
+      stages: stages(["a", "b"]),
       reason: { kind: "need", label: "step-free access" },
     });
     const endPlace = beginLookups("room_3", ["c"], { kind: "place" });
     expect(currentLookups("room_3")).toEqual({
       type: "lookups",
       pending: ["a", "b", "c"],
+      stages: stages(["a", "b", "c"]),
     });
     endPlace();
     expect(currentLookups("room_3")).toEqual({
       type: "lookups",
       pending: ["a", "b"],
+      stages: stages(["a", "b"]),
       reason: { kind: "need", label: "step-free access" },
     });
     endNeed();
@@ -94,14 +101,14 @@ describe("lookup progress", () => {
       const end = beginLookups("room_wedged", ["a"], { kind: "place" });
       vi.advanceTimersByTime(LOOKUP_COALESCE_MS);
       expect(frames).toEqual([
-        { type: "lookups", pending: ["a"], reason: { kind: "place" } },
+        { type: "lookups", pending: ["a"], stages: stages(["a"]), reason: { kind: "place" } },
       ]);
       vi.advanceTimersByTime(LOOKUP_DEADLINE_MS - LOOKUP_COALESCE_MS);
-      expect(currentLookups("room_wedged")).toEqual({ type: "lookups", pending: [] });
+      expect(currentLookups("room_wedged")).toEqual({ type: "lookups", pending: [], stages: [] });
       vi.advanceTimersByTime(LOOKUP_COALESCE_MS);
-      expect(frames.at(-1)).toEqual({ type: "lookups", pending: [] });
+      expect(frames.at(-1)).toEqual({ type: "lookups", pending: [], stages: [] });
       end();
-      expect(currentLookups("room_wedged")).toEqual({ type: "lookups", pending: [] });
+      expect(currentLookups("room_wedged")).toEqual({ type: "lookups", pending: [], stages: [] });
     } finally {
       off();
     }

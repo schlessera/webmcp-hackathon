@@ -162,7 +162,7 @@ Question criteria are refined continuously while the room is present, with a
 ten-minute grace period after it empties. The client can rely on question
 statuses moving only from validated place-site or cited search evidence,
 abstention remaining `unknown`, and `sourceUrl` being present for every
-search-derived fact. `SpatialContextResult.refine` reports whether the loop is
+search-derived fact. `SpatialContextResult.refine` reports whether refinement is
 active, how many places remain queued, the tier-one count for active needs, how
 many places were checked since UTC midnight, and the remaining per-room
 model-call and search budgets.
@@ -273,7 +273,7 @@ honestly populated, and the temptation to hardcode domain chips returns.
 
 ## 6. Pipeline realtime frames
 
-Phase A adds a process-local progress frame when `PIPELINE=1`:
+The server unconditionally emits a process-local pipeline progress frame:
 
 ```jsonc
 {
@@ -297,7 +297,7 @@ clearing frame. The socket-holding process emits the frame; counts are not
 cross-process in Phase A.
 
 The compatibility `lookups` frame remains readable by the current client for
-one release. `pending` stays a `string[]`; the additive `stages` field carries
+one more release. `pending` stays a `string[]`; the additive `stages` field carries
 the richer state in parallel:
 
 ```jsonc

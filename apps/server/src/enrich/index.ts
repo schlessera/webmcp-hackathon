@@ -35,9 +35,7 @@ import {
 } from "./wikidata.ts";
 import {
   imageRefreshDue,
-  imagesRefreshDue,
   loadImageVersions,
-  refreshPlaceImages,
   type ImageCandidate,
 } from "./images.ts";
 import { menuReaderEnabled, readMenu } from "./menu-reader.ts";
@@ -62,7 +60,6 @@ import { beginLookups, publishFacts } from "./progress.ts";
 import { notifyCommit } from "../commit-notifications.ts";
 import {
   outboundFetch,
-  proxyEnabled,
   type OutboundPurpose,
   type OutboundRoute,
 } from "../net/outbound.ts";
@@ -246,10 +243,6 @@ export function resolveInference(
   if (fresh.explicit === true && freshRank >= previousRank) return fresh;
   return { ...retainedPrevious, note: INFERENCE_DISAGREEMENT_NOTE };
 }
-const LOOKUP_CONCURRENCY = proxyEnabled() ? 12 : 4;
-const WARM_CONCURRENCY = LOOKUP_CONCURRENCY;
-export const ON_DEMAND_CONCURRENCY = LOOKUP_CONCURRENCY;
-export const ON_DEMAND_MAX_WAITERS = 32;
 const LEASE_MS = 2 * 60 * 1000;
 
 const OFFLINE = "ENRICH_NETWORK=0";
@@ -325,30 +318,6 @@ const liveWikiFetch: FetchLike = (url, init = {}) => outboundFetch(url, {
 
 function wikiFetch(): FetchLike {
   return injectedFetch ? fetchImpl : liveWikiFetch;
-}
-
-function imageFetch(target: LookupTarget): FetchLike {
-  if (injectedFetch) return fetchImpl;
-  return async (url, init = {}) => {
-    const hostname = new URL(url).hostname.toLowerCase();
-    const commons = hostname === "upload.wikimedia.org" || hostname.endsWith(".wikimedia.org");
-    const request = (direct: boolean) => outboundFetch(url, {
-      ...init,
-      purpose: commons ? "commons" : "image-cdn",
-      ...(commons || direct ? { direct: true } : { country: target.countryCode, session: target.session }),
-      maxBytes: 6 * 1024 * 1024,
-      timeoutMs: 20_000,
-    });
-    if (commons || !target.direct) return request(commons);
-    try {
-      const response = await request(true);
-      if (!blockShapedResponse(response.status)) return response;
-      await response.body?.cancel();
-    } catch (error) {
-      if (!blockShapedFailure(error)) throw error;
-    }
-    return request(false);
-  };
 }
 
 /** A scheduled asset attempt uses the pool's route; outbound remains
@@ -559,66 +528,26 @@ export async function loadCached(
   return new Map(rows.map((r) => [r.osm_ref, rowToEnrichment(r)]));
 }
 
-export class BoundedSemaphore {
-  private active = 0;
-  private readonly waiting: Array<() => void> = [];
-  private readonly limit: number;
-  private readonly maxWaiting: number;
-
-  constructor(limit: number, maxWaiting: number) {
-    this.limit = limit;
-    this.maxWaiting = maxWaiting;
-  }
-
-  async use<T>(work: () => Promise<T>): Promise<T | undefined> {
-    if (this.active >= this.limit || this.waiting.length > 0) {
-      if (this.waiting.length >= this.maxWaiting) return undefined;
-      await new Promise<void>((resolve) => this.waiting.push(resolve));
-    } else {
-      this.active += 1;
-    }
-    try {
-      return await work();
-    } finally {
-      this.release();
-    }
-  }
-
-  private release(): void {
-    this.active -= 1;
-    // X4: reserve every newly free counter for an already queued waiter
-    // before resolving it. Re-checking here, synchronously, prevents a fresh
-    // caller from observing spare capacity and barging past the queue.
-    while (this.active < this.limit && this.waiting.length > 0) {
-      this.active += 1;
-      this.waiting.shift()!();
-    }
-  }
-}
-
-// R9: one process-wide bound covers every on-demand caller, including the
-// page-held screening loop. Database leases provide cross-process dedupe.
-const lookupSlots = new BoundedSemaphore(
-  ON_DEMAND_CONCURRENCY,
-  ON_DEMAND_MAX_WAITERS,
-);
-
 const expired = (state: ProviderFetchState | undefined, now: number): boolean =>
   !state?.expiresAt || new Date(state.expiresAt).getTime() <= now;
 
-/** Under force: a good read older than FORCE_STALE_MS is due again; a failed
+/** For interactive intent, a good read older than INTERACTIVE_STALE_MS is due again; a failed
  * read keeps its retry TTL (a site that was down a minute ago is not asked
  * again just because someone pressed the button twice). */
-const dueUnderForce = (state: ProviderFetchState | undefined, now: number): boolean => {
+const dueForInteractive = (state: ProviderFetchState | undefined, now: number): boolean => {
   if (expired(state, now)) return true;
   if (state?.status === "error") return false;
   const fetched = state?.fetchedAt ? new Date(state.fetchedAt).getTime() : 0;
-  return now - fetched >= FORCE_STALE_MS;
+  return now - fetched >= INTERACTIVE_STALE_MS;
 };
 
-function dueProviders(target: LookupTarget, cached: Enrichment | undefined, force = false) {
+function dueProviders(
+  target: LookupTarget,
+  cached: Enrichment | undefined,
+  intent: LookupIntent = "background",
+) {
   const now = Date.now();
-  const due = force ? dueUnderForce : expired;
+  const due = intent === "interactive" ? dueForInteractive : expired;
   return {
     website: Boolean(target.website) && due(cached?.providerStatus?.website, now),
     wikidata: Boolean(target.wikidata) && due(cached?.providerStatus?.wikidata, now),
@@ -807,37 +736,26 @@ export type LookupIntent = "interactive" | "background";
 async function lookup(
   db: pg.Pool,
   target: LookupTarget,
-  intent: LookupIntent | boolean = "background",
+  intent: LookupIntent = "background",
   scheduledRoute?: OutboundRoute,
 ): Promise<LookupPass> {
-  const force = intent === true || intent === "interactive";
-  const pipelinePath = process.env.PIPELINE === "1";
+  const interactive = intent === "interactive";
   const passTarget: LookupTarget = {
     ...target,
     session: target.session ?? randomUUID().replace(/-/g, "").slice(0, 16),
-    ...(scheduledRoute ? { direct: scheduledRoute === "direct" } : force ? { direct: true } : {}),
+    ...(scheduledRoute ? { direct: scheduledRoute === "direct" } : interactive ? { direct: true } : {}),
   };
   const initial = (await loadCached(db, [target.osmRef])).get(target.osmRef);
-  const initialImagesDue = pipelinePath ? false : await imageRefreshDue(
-      db,
-      target.osmRef,
-      force ? FORCE_STALE_MS : undefined,
-    );
-  if (!Object.values(dueProviders(target, initial, force)).some(Boolean) && !initialImagesDue) {
+  if (!Object.values(dueProviders(target, initial, intent)).some(Boolean)) {
     const pageText = await cachedPageText(db, target, initial);
     return { enrichment: initial ?? null, ...(pageText ? { pageText } : {}) };
   }
 
-  // X4: queue before acquiring the cross-process lease. A bounded waiter can
-  // never consume lease lifetime while another lookup owns all network slots.
+  // Scheduler admission happens before this provider pass, so a queued item
+  // never consumes lease lifetime while another lookup owns the network pool.
   const work = async (): Promise<LookupPass> => {
     const beforeLease = (await loadCached(db, [target.osmRef])).get(target.osmRef);
-    const beforeLeaseImagesDue = pipelinePath ? false : await imageRefreshDue(
-        db,
-        target.osmRef,
-        force ? FORCE_STALE_MS : undefined,
-      );
-    if (!Object.values(dueProviders(target, beforeLease, force)).some(Boolean) && !beforeLeaseImagesDue) {
+    if (!Object.values(dueProviders(target, beforeLease, intent)).some(Boolean)) {
       const pageText = await cachedPageText(db, target, beforeLease);
       return { enrichment: beforeLease ?? null, ...(pageText ? { pageText } : {}) };
     }
@@ -849,45 +767,21 @@ async function lookup(
     }
     try {
       const current = (await loadCached(db, [target.osmRef])).get(target.osmRef);
-      const attempted = dueProviders(target, current, force);
-      const attemptedImages = pipelinePath ? false : await imageRefreshDue(
-          db,
-          target.osmRef,
-          force ? FORCE_STALE_MS : undefined,
-        );
-      if (!attempted.website && !attempted.wikidata && !attemptedImages) {
+      const attempted = dueProviders(target, current, intent);
+      if (!attempted.website && !attempted.wikidata) {
         const pageText = await cachedPageText(db, target, current);
         return { enrichment: current ?? null, ...(pageText ? { pageText } : {}) };
       }
 
       const noSite: WebsiteFetchResult = { facts: null };
       const noWiki: { facts: WikiFacts | null; error?: string } = { facts: null };
-      const imageWork = { commonsApiCalls: 0 };
-      // Counts on the routed Wikimedia leg, so the log line reports real
-      // outbound Commons API calls rather than intended ones.
-      const routedWikiFetch = wikiFetch();
-      const countedWikiFetch: FetchLike = (url, init) => {
-        try {
-          const targetUrl = new URL(url);
-          if (targetUrl.hostname === "commons.wikimedia.org" && targetUrl.pathname === "/w/api.php") {
-            imageWork.commonsApiCalls += 1;
-          }
-        } catch {
-          /* the called fetch path owns invalid-URL handling */
-        }
-        return routedWikiFetch(url, init);
-      };
-      const harvestWebsiteImages = attemptedImages && Boolean(target.website) && !attempted.website;
-      const [site, wiki, harvestedWebsiteCandidates] = await Promise.all([
+      const [site, wiki] = await Promise.all([
         attempted.website
           ? fetchInjectedWebsiteFacts(db, passTarget, current?.website)
           : Promise.resolve(noSite),
         attempted.wikidata
-          ? fetchWikidataFacts(target.wikidata!, countedWikiFetch)
+          ? fetchWikidataFacts(target.wikidata!, wikiFetch())
           : Promise.resolve(noWiki),
-        harvestWebsiteImages
-          ? fetchInjectedWebsiteImageCandidates(db, passTarget)
-          : Promise.resolve([]),
       ]);
       // A menu that is a picture gets read (menu-reader.ts); the bytes are
       // never stored, the claims are.
@@ -900,28 +794,12 @@ async function lookup(
         }
       }
       await persistProviderResults(db, target, owner, attempted, site, wiki);
-      const refreshed = (await loadCached(db, [target.osmRef])).get(target.osmRef);
-      if (attemptedImages) {
-        await refreshPlaceImages(
-          db,
-          target.osmRef,
-          target.placeName ?? target.osmRef,
-          await imageCandidatesFor(
-            passTarget,
-            refreshed,
-            site.facts?.imageCandidates ?? harvestedWebsiteCandidates,
-            countedWikiFetch,
-          ),
-          imageFetch(passTarget),
-          imageWork,
-        );
-      }
       const finalEnrichment = (await loadCached(db, [target.osmRef])).get(target.osmRef);
       const pageText = site.pageText ?? await cachedPageText(db, target, finalEnrichment);
       return {
         enrichment: finalEnrichment ?? null,
         ...(pageText ? { pageText } : {}),
-        ...(pipelinePath && site.facts?.imageCandidates?.length
+        ...(site.facts?.imageCandidates?.length
           ? { imageCandidates: site.facts.imageCandidates }
           : {}),
       };
@@ -931,11 +809,7 @@ async function lookup(
       await releaseLease(db, target.osmRef, owner);
     }
   };
-  const completed = pipelinePath ? await work() : await lookupSlots.use(work);
-  // A full queue is load shedding, not a failed fact read: return stale data.
-  if (completed !== undefined) return completed;
-  const pageText = await cachedPageText(db, target, initial);
-  return { enrichment: initial ?? null, ...(pageText ? { pageText } : {}) };
+  return work();
 }
 
 /** The refinement worker's one provider pass for a place. Page text stays on
@@ -962,17 +836,14 @@ export async function ensureEnrichments(
 ): Promise<Map<string, Enrichment>> {
   const wanted = targets.filter(hasLookupSource);
   const found = await loadCached(db, wanted.map((t) => t.osmRef));
-  const imagesDue = await imagesRefreshDue(db, wanted.map((t) => t.osmRef));
   const stale = wanted.filter(
-    (target) =>
-      Object.values(dueProviders(target, found.get(target.osmRef))).some(Boolean) ||
-      imagesDue.has(target.osmRef),
+    (target) => Object.values(dueProviders(target, found.get(target.osmRef))).some(Boolean),
   );
   if (stale.length === 0) return found;
 
   const jobs = stale.map((target) => lookup(db, target, "background"));
-  // R9/X4: the request waits only for its remaining budget. Jobs admitted to
-  // the bounded queue continue and populate cache; queued jobs hold no lease.
+  // The request waits only for its remaining budget. Provider passes continue
+  // and populate cache after the caller's read budget expires.
   let timer: ReturnType<typeof setTimeout> | undefined;
   await Promise.race([
     Promise.allSettled(jobs),
@@ -996,20 +867,18 @@ export interface LookupNowOptions {
   reason?: NonNullable<LookupsMessage["reason"]>;
   /**
    * "Look again": a provider whose last good read is older than
-   * FORCE_STALE_MS is read again inside its success TTL, and inference runs
+   * INTERACTIVE_STALE_MS is read again inside its success TTL, and inference runs
    * again for every requested key that is still unknown on the record,
    * monotonically merging what was inferred before. A provider's failure TTL, the
    * robots and network rules, and the per-participant budget all still hold.
    */
   intent?: LookupIntent;
-  /** @deprecated Use intent: "interactive". Retained through phase B. */
-  force?: boolean;
   /** Fresh fetched/proxy page material for focused adjudication in this pass. */
   pageCache?: AdjudicationPageCache;
 }
 
-/** A forced lookup re-reads a provider only when its last read is older than this. */
-export const FORCE_STALE_MS = 10 * 60_000;
+/** An interactive lookup re-reads a provider only when its last read is older than this. */
+export const INTERACTIVE_STALE_MS = 10 * 60_000;
 
 async function scheduledLookup(
   db: pg.Pool,
@@ -1055,7 +924,7 @@ async function refreshPipelineImages(
   current: Enrichment | undefined,
   passCandidates: ImageCandidate[],
 ): Promise<void> {
-  if (!(await imageRefreshDue(db, target.osmRef, FORCE_STALE_MS))) return;
+  if (!(await imageRefreshDue(db, target.osmRef, INTERACTIVE_STALE_MS))) return;
   const passTarget: LookupTarget = {
     ...target,
     session: target.session ?? randomUUID().replace(/-/g, "").slice(0, 16),
@@ -1437,7 +1306,7 @@ export function lookupNow(
   const criteria = [
     ...new Map((options.criteria ?? []).map((criterion) => [criterion.id, criterion])).values(),
   ];
-  const intent = options.intent ?? (options.force === true ? "interactive" : "background");
+  const intent = options.intent ?? "background";
   const keyFor = (target: RoomLookupTarget) =>
     JSON.stringify([
       roomId,
@@ -1483,7 +1352,7 @@ async function runLookupNow(
   targets: RoomLookupTarget[],
   options: LookupNowOptions,
 ): Promise<string[]> {
-  const intent = options.intent ?? (options.force === true ? "interactive" : "background");
+  const intent = options.intent ?? "background";
   const wantedIds = [...new Set(targets.map((target) => target.candidateId))];
   const [candidateRows, roomArea] = await Promise.all([
     pool.query(
@@ -1557,14 +1426,12 @@ async function runLookupNow(
         // Provider freshness is independent: lookup retries only the due leg,
         // retains last-known-good facts, and preserves a failed leg's TTL.
         if (hasLookupSource(target)) {
-          const pass = process.env.PIPELINE === "1"
-            ? await scheduledLookup(pool, roomId, row.id, target, intent, options.reason)
-            : await lookup(pool, target, intent);
+          const pass = await scheduledLookup(pool, roomId, row.id, target, intent, options.reason);
           current = pass.enrichment ?? undefined;
           transientText = pass.pageText;
           passCandidates = pass.imageCandidates ?? [];
         }
-        if (process.env.PIPELINE === "1" && intent === "interactive") {
+        if (intent === "interactive") {
           await refreshPipelineImages(
             pool,
             roomId,
@@ -1591,13 +1458,7 @@ async function runLookupNow(
       }
     }
   };
-  await Promise.all(
-    Array.from({
-      length: process.env.PIPELINE === "1"
-        ? actionable.length
-        : Math.min(WARM_CONCURRENCY, actionable.length),
-    }, () => worker()),
-  );
+  await Promise.all(Array.from({ length: actionable.length }, () => worker()));
 
   const criteria = new Map(activeCriteria);
   for (const evaluation of evaluations.values()) {
@@ -1812,8 +1673,8 @@ export function warmEnrichments(
 
 /**
  * The same warm-up, awaitable. A caller adding places in batches chains on
- * this so the room warms one batch at a time and the outbound fetches stay
- * inside WARM_CONCURRENCY, instead of every batch opening its own four.
+ * this so the room warms one batch at a time while scheduler pools own the
+ * process-wide outbound concurrency.
  */
 export function warmEnrichmentsDone(
   pool: pg.Pool,

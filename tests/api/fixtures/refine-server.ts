@@ -148,7 +148,7 @@ setTransport(async (body) => {
     matrix.places.some((place) => place.texts.some((item) => item.source === "web")) &&
     matrix.places.some((place) => !place.texts.some((item) => item.text.includes(TRANSIENT)))
   ) {
-    throw new Error("the second tick lost its transient page-text LRU");
+    throw new Error("the process batch lost ready-buffer page text");
   }
   const claims = matrix.places.flatMap((place) => matrix.criteria.map((criterion) => {
     const privateSourceIndex = place.texts.findIndex((item) =>

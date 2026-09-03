@@ -256,10 +256,6 @@ export async function adjudicateLikelyForRoom(
           )) inFlight.delete(key);
         }
       };
-      if (process.env.PIPELINE !== "1") {
-        await run();
-        continue;
-      }
       const items = admitted.flatMap((cell) => {
         const criterion = criteria.get(cell.criterionId);
         if (!criterion) return [];

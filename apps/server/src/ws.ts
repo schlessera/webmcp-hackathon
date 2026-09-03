@@ -243,9 +243,7 @@ export function attachWebSocket(server: Server): void {
         // Presentation state follows presence on every authentication. An
         // empty frame is meaningful: it clears rings left by a dropped socket.
         send(socket, currentLookups(participant.roomId));
-        if (process.env.PIPELINE === "1") {
-          send(socket, pipelineScheduler.frames.currentPipeline(participant.roomId));
-        }
+        send(socket, pipelineScheduler.frames.currentPipeline(participant.roomId));
       })().catch((err) => {
         // Unauthenticated input must never take the server down.
         console.error("ws message handling failed:", err);
@@ -281,10 +279,8 @@ export function attachWebSocket(server: Server): void {
     });
   };
   onLookupProgress(enqueueRoomMessage);
-  if (process.env.PIPELINE === "1") {
-    pipelineScheduler.frames.onPipeline(enqueueRoomMessage);
-    pipelineScheduler.frames.onLookups(enqueueRoomMessage);
-  }
+  pipelineScheduler.frames.onPipeline(enqueueRoomMessage);
+  pipelineScheduler.frames.onLookups(enqueueRoomMessage);
   onFacts(enqueueRoomMessage);
 }
 

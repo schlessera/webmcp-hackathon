@@ -68,8 +68,8 @@ scale.
 
 ### Refinement scheduler and outbound routing
 
-With `PIPELINE=1`, a process-global scheduler chooses which named concurrency
-pool may admit an item. It uses room-level deficit round robin, item priority,
+The process-global refinement scheduler chooses which named concurrency pool
+may admit an item. It uses room-level deficit round robin, item priority,
 ready-buffer backpressure and the read-only `hostGateOpen(host)` hint. It never
 reserves or mutates host state in the outbound client.
 
@@ -83,14 +83,13 @@ than the enqueue-time prediction. Interactive fetches prefer direct, with one
 same-priority proxy retry for a block-shaped result.
 
 The scheduler and its progress volume are process-local. The socket-holding
-process emits the room frame; no cross-process counter is claimed in Phase A.
+process emits the room frame; no cross-process counter is claimed.
 
-Asset materialisation no longer rides inside the site-fetch slot when the
-pipeline is enabled. Only an on-demand place detail can schedule it: image
+Asset materialisation does not ride inside the site-fetch slot. Only an
+on-demand place detail can schedule it: image
 bytes use the route-selected proxy/direct pool, Sharp decode/resize uses the
 image-decode pool, and one per-place classifier batch uses the vision pool.
 Background refinement and room warming schedule none of those three stages.
-The legacy default-off loop retains its original combined lookup semaphore.
 
 ### Realtime transport
 

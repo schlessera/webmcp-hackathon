@@ -587,8 +587,7 @@ must pass the same explicit/span/exact-host gate.
 
 ## The pipeline
 
-`PIPELINE=1` enables the process-local Phase A refinement pipeline. It is off
-by default; without it the existing per-room tick loop remains the authority.
+The process-local refinement pipeline is the only enrichment execution model.
 One scheduler uses deficit round robin across rooms, strict priority inside a
 room, and reserves every eighth admission for the lowest non-empty priority so
 background work cannot starve.
@@ -634,26 +633,27 @@ and is sent for diagnostics, not presented as a promise to the user. The
 
 These counters are deliberately single-process. The process holding a room's
 sockets emits its frame; a deployment with sockets and work split across
-multiple server processes will have incomplete volume figures. Phase A adds no
+multiple server processes will have incomplete volume figures. There is no
 Redis or PostgreSQL counter.
 
 ### Continuous refinement
 
-Each room has one process-local refinement loop. It starts when the room gains
+Each room has one process-local refinement plan. It starts when the room gains
 a present socket and stops ten minutes after the last participant leaves. A
-new or reactivated need moves its unknown places to the front immediately.
-The loop first checks in-scope places that the shared eligibility classifier
+new or reactivated need invalidates the plan and moves its unknown places to
+the front immediately. The planner first selects in-scope places that the
+shared eligibility classifier
 currently calls `uncertain` for an active need, nearest to the scope centre
 first. An unrelated unknown attribute alone does not qualify for tier 1. A
 place the classifier already excludes on decisive active evidence is skipped:
-refining another gap cannot bring it back. The loop then checks facts last
+refining another gap cannot bring it back. The planner then checks facts last
 observed more than seven days ago, then unknown keys from the remaining
 vocabulary. A place already being looked up is skipped.
 
-One tick takes at most 12 places. It reads each place's site at most once and
-reuses selected homepage and menu prose from the durable seven-day page cache.
-The legacy loop also has a small in-process hot set; `PIPELINE=1` bypasses it
-because the ready-buffer already owns transient evidence. That prose is never logged, put in a
+Fetches are admitted per place, and the ready buffer carries selected homepage
+and menu prose into matrix rectangles of at most eight places by five criteria.
+The durable seven-day page cache remains the reusable cache; there is no second
+in-process page-text LRU. That prose is never logged, put in a
 dossier, shown to a participant, or sent in a realtime frame. One matrix
 evaluation covers the batch's whole open criterion set. For each place whose
 site material leaves criteria unanswered, one search covers all of those
@@ -698,7 +698,7 @@ that need is shared. A private need's words stay in, because a search would
 reveal both the words and the fact that this room is asking, and its label
 being server vocabulary does not change that.
 
-A criterion belonging to **no active need** is the background sweep: the loop
+A criterion belonging to **no active need** is the background sweep: the planner
 walks the whole vocabulary over every place regardless of what anyone wants,
 so the query is evidence of nobody's need. Those criteria may contribute their
 words, but only when the label is server vocabulary from `ATTRIBUTE_LABELS`. A
@@ -727,14 +727,12 @@ than left to mislead. For the record, the plain query also measured better:
 over three live twelve-place Berlin runs it returned 14 validated claims to the
 richer query's 11.
 
-A queue emptied only because its places already have lookups in flight is busy,
-not idle, and keeps the working cadence. A need toggled while a tick is running
-survives that tick: the wake is remembered and re-ticks as soon as the tick
-ends, and the finishing tick does not write its cursor back over the
-invalidation the wake just made. Without those three, the background sweep
-could hold a woken need behind a thirty-second backoff.
+A plan emptied only because its places already have lookups in flight keeps the
+working cadence. A need toggle advances the room epoch: queued stale judge cells
+are dropped, in-flight fetches finish, and ready evidence is rematched to the
+new active criteria instead of being discarded.
 
-With nothing left to refine the loop backs off to `REFINE_IDLE_TICK_MS`
+With nothing left to refine the planner backs off to `REFINE_IDLE_TICK_MS`
 (thirty times the working cadence) so an idle room is not reloaded every
 second; a need commit wakes it at once. A batch matrix call is a long prompt on
 a background path, so it waits `MATRIX_TIMEOUT_MS`, 45 seconds by default,
@@ -742,39 +740,39 @@ rather than the interactive twenty.
 
 The per-room budgets refill continuously: `REFINE_MODEL_CALLS_PER_HOUR`
 defaults to 200 model calls and `REFINE_SEARCHES_PER_HOUR` to 150 searches.
-A room working flat out for a full hour therefore costs on the order of
+A room pipeline working flat out for a full hour therefore costs on the order of
 **$1.80**, almost all of it the roughly one cent each search tool call is
-billed at; the fast-tier tokens for a twelve-place tick add well under a cent.
-A room only works flat out while somebody is watching it, and the loop stops
+billed at; the fast-tier tokens for a full matrix batch add well under a cent.
+A room only works flat out while somebody is watching it, and refinement stops
 ten minutes after the last person leaves, so the hourly ceiling is a worst
 case rather than a running rate.
 
 The earlier ceilings of 60 and 40 were measured too low: in a 343-place room
-the search budget was gone sixteen seconds after the first need, and the loop
+the search budget was gone sixteen seconds after the first need, and refinement
 then reported itself paused for the rest of the hour.
 
-An empty search bucket no longer pauses anything. The loop keeps reading site
+An empty search bucket no longer pauses anything. The pipeline keeps reading site
 text and running the batch matrix, which costs no search at all and still
-answers cells and clears the queue; only the search leg goes quiet. A tick
+answers cells and clears the queue; only the search leg goes quiet. Processing
 pauses only when the model-call bucket is empty, because without a model call
-there is nothing for the tick to run. `refine.paused` on the spatial context
+there is nothing for a judge batch to run. `refine.paused` on the spatial context
 says which is true: `"budget"` when model calls ran out, `"idle"` when nobody
-is present, and `null` while the loop is working.
+is present, and `null` while the pipeline is working.
 
 `refine.queued` counts places still needing work for an **active** need. The
 stale-fact and background vocabulary sweeps are real work but are not counted
 there, because a number that climbs while the room sits still is a number
-nobody can trust. `REFINE=0` disables the loop. `ENRICH_NETWORK=0` disables all
+nobody can trust. `REFINE=0` disables refinement. `ENRICH_NETWORK=0` disables all
 of its outbound work. `SEARCH_PROVIDER=tavily` selects the Tavily fallback and needs
 `TAVILY_API_KEY`; otherwise split search uses OpenAI Responses `web_search` on
 `NL_FAST_MODEL` with low search context. Combined mode is intrinsically an
 OpenAI Responses tool call.
 
-Every frame the loop emits carries `reason: { kind: "refine" }`, with a label
+Every refinement frame carries `reason: { kind: "refine" }`, with a label
 only when one shared need is behind the whole batch. When a pool warm-up is
 running at the same time, refinement wins the frame's single reason slot: it
 is the work a person is watching, and before this a concurrent fill left every
-busy ring either labelled `pool` or unattributed. Each tick also writes one
+busy ring either labelled `pool` or unattributed. Each matrix batch also writes one
 structured log line with its place, criterion, call, search, claim and queue
 counts and an estimated cost. That line carries counts and dollars only, never
 a place name, a criterion, or a query, because a private need must not be

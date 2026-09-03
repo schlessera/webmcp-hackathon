@@ -79,10 +79,9 @@ afterEach(() => {
   pipelineScheduler.reset();
 });
 
-describe("phase A pipeline", () => {
+describe("refinement pipeline", () => {
   it("refills fetch.search continuously instead of waiting behind the slow request", async () => {
     vi.useFakeTimers();
-    vi.stubEnv("PIPELINE", "1");
     const finished: string[] = [];
     const requests = Array.from({ length: 8 }, (_, index): RefinementSearchRequest => ({
       candidateId: `search-${index}`,
@@ -113,7 +112,6 @@ describe("phase A pipeline", () => {
   });
 
   it("never contributes a private need to a pipeline search query", async () => {
-    vi.stubEnv("PIPELINE", "1");
     const privateNeed: Criterion = {
       id: "q:private",
       kind: "question",

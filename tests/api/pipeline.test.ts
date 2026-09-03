@@ -16,7 +16,7 @@ const KNOWN_ATTRIBUTES = [
   "takeaway", "delivery", "price-level",
 ].map((key) => ({ key, status: "verified_true", source: "curated:test", confidence: 1 }));
 
-describe("PIPELINE=1 over HTTP, WebSocket, and PostgreSQL", () => {
+describe("pipeline over HTTP, WebSocket, and PostgreSQL", () => {
   let server: TestServer;
   let room: TestRoom;
   let realtime: TestRealtime;
@@ -26,7 +26,6 @@ describe("PIPELINE=1 over HTTP, WebSocket, and PostgreSQL", () => {
     server = await startServer({
       entrypoint: "tests/api/fixtures/refine-server.ts",
       env: {
-        PIPELINE: "1",
         ENRICH_NETWORK: "1",
         INFER: "1",
         REFINE: "1",

@@ -2,10 +2,12 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { Participant } from "../../apps/server/src/auth.ts";
 import {
   ensureEnrichments,
-  ON_DEMAND_CONCURRENCY,
+  lookupNow,
   setEnrichFetch,
   type LookupTarget,
+  type RoomLookupTarget,
 } from "../../apps/server/src/enrich/index.ts";
+import { pipelineScheduler } from "../../apps/server/src/pipeline/scheduler.ts";
 import { submitCommand } from "../../apps/server/src/engine.ts";
 import { inspectCandidates } from "../../apps/server/src/spatial.ts";
 import {
@@ -24,7 +26,10 @@ beforeAll(async () => {
   room = await createTestRoom(server.baseUrl);
 });
 
-afterEach(() => setEnrichFetch(null));
+afterEach(() => {
+  setEnrichFetch(null);
+  pipelineScheduler.reset();
+});
 
 afterAll(async () => {
   if (refs.size > 0) {
@@ -146,14 +151,29 @@ describe("R11 provider-specific enrichment cache", () => {
 });
 
 describe("R9 inspect enrichment bounds", () => {
-  it("never runs more than the global number of place lookups", async () => {
-    const targets: LookupTarget[] = Array.from(
-      { length: ON_DEMAND_CONCURRENCY + 2 },
+  it("admits place lookups through the global direct pipeline pool", async () => {
+    const directLimit = pipelineScheduler.pools.direct.limit;
+    const targets: RoomLookupTarget[] = Array.from(
+      { length: directLimit + 2 },
       (_, index) => ({
+        candidateId: `pipeline_bounded_${index}_${room.roomId}`,
         osmRef: uniqueRef(`bounded-${index}`),
         website: `https://bounded-${index}.example/`,
       }),
     );
+    await Promise.all(targets.map((target, index) => room.pool.query(
+      `INSERT INTO candidates
+         (id, room_id, osm_ref, name, category, price_level, walk_min, location, attributes, extras)
+       VALUES ($1, $2, $3, $4, 'cafe', 2, $5, '{"lat":52.5,"lng":13.4}', '[]', $6)`,
+      [
+        target.candidateId,
+        room.roomId,
+        target.osmRef,
+        `Bounded ${index}`,
+        index + 1,
+        JSON.stringify({ website: target.website }),
+      ],
+    )));
     let active = 0;
     let maximum = 0;
     let release!: () => void;
@@ -163,15 +183,18 @@ describe("R9 inspect enrichment bounds", () => {
     setEnrichFetch(async (url) => {
       active += 1;
       maximum = Math.max(maximum, active);
-      if (maximum === ON_DEMAND_CONCURRENCY) saturated();
+      if (maximum === directLimit) saturated();
       await gate;
       active -= 1;
       return String(url).endsWith("/robots.txt") ? new Response("", { status: 404 }) : html();
     });
 
-    const work = ensureEnrichments(room.pool, targets, 3000);
+    const work = lookupNow(room.pool, room.roomId, targets, {
+      intent: "interactive",
+      keys: [],
+    });
     await reachedLimit;
-    expect(maximum).toBe(ON_DEMAND_CONCURRENCY);
+    expect(maximum).toBe(directLimit);
     const leased = Number(
       (
         await room.pool.query(
@@ -182,10 +205,10 @@ describe("R9 inspect enrichment bounds", () => {
       ).rows[0].count,
     );
     // X4: queued jobs must not spend their two-minute lease while waiting.
-    expect(leased).toBe(ON_DEMAND_CONCURRENCY);
+    expect(leased).toBe(directLimit);
     release();
     await work;
-    expect(maximum).toBe(ON_DEMAND_CONCURRENCY);
+    expect(maximum).toBe(directLimit);
   });
 
   it("does not hold the room lock or a DB client while a slow lookup reaches the request deadline", async () => {
