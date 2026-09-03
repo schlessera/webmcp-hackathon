@@ -251,7 +251,7 @@ export async function say(
       instructions: modelInstructions(context, input, parsed.concepts, parsed.remainder),
       input: [{ role: "user", content: parsed.remainder || text }],
       schema: { name: "understanding", schema: SCHEMA },
-      reasoning: "low",
+      reasoning: config.llmReasoningEffort,
       maxOutputTokens: 1_500,
       timeoutMs: 30_000,
       serviceTier: "default",

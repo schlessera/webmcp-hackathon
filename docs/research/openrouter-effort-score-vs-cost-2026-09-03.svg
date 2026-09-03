@@ -1,0 +1,91 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1040" height="680" viewBox="0 0 1040 680" role="img" aria-labelledby="title desc">
+  <title id="title">OpenRouter routing score versus cost by model and reasoning effort</title>
+  <desc id="desc">A logarithmic cost chart for a 44-case routing corpus. GPT-5.6 Luna peaks at 88.64 percent for 0.02839 dollars at xhigh effort. GLM 5.3 Flash peaks at low effort with 65.91 percent for 0.00780 dollars. Gemini 3.8 Flash falls from 77.27 percent at low effort to 56.82 percent at high effort as timeout failures rise.</desc>
+  <rect width="1040" height="680" fill="#fbfaf7"/>
+  <style>
+    text { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #252a31; }
+    .title { font-size: 25px; font-weight: 700; }
+    .subtitle, .note { font-size: 13px; fill: #626a73; }
+    .axis { font-size: 12px; fill: #626a73; }
+    .label { font-size: 12px; font-weight: 650; fill: #252a31; stroke: none; }
+    .grid { stroke: #d8d9d6; stroke-width: 1; }
+    .curve { fill: none; stroke-width: 3; stroke-linejoin: round; stroke-linecap: round; }
+    .point { stroke: #fbfaf7; stroke-width: 2.5; }
+  </style>
+
+  <text x="70" y="38" class="title">Routing score vs. OpenRouter cost</text>
+  <text x="70" y="61" class="subtitle">44 exact-match cases · strict schema · 1,500-token output cap · 30 s timeout · default OpenRouter routing</text>
+
+  <!-- Horizontal score grid -->
+  <g>
+    <line x1="110" y1="550" x2="900" y2="550" class="grid"/>
+    <line x1="110" y1="435" x2="900" y2="435" class="grid"/>
+    <line x1="110" y1="320" x2="900" y2="320" class="grid"/>
+    <line x1="110" y1="205" x2="900" y2="205" class="grid"/>
+    <line x1="110" y1="90" x2="900" y2="90" class="grid"/>
+    <text x="98" y="554" text-anchor="end" class="axis">50%</text>
+    <text x="98" y="439" text-anchor="end" class="axis">60%</text>
+    <text x="98" y="324" text-anchor="end" class="axis">70%</text>
+    <text x="98" y="209" text-anchor="end" class="axis">80%</text>
+    <text x="98" y="94" text-anchor="end" class="axis">90%</text>
+  </g>
+
+  <!-- Logarithmic cost grid -->
+  <g>
+    <line x1="110" y1="90" x2="110" y2="550" class="grid"/>
+    <line x1="258.4" y1="90" x2="258.4" y2="550" class="grid"/>
+    <line x1="406.9" y1="90" x2="406.9" y2="550" class="grid"/>
+    <line x1="603.1" y1="90" x2="603.1" y2="550" class="grid"/>
+    <line x1="751.6" y1="90" x2="751.6" y2="550" class="grid"/>
+    <line x1="900" y1="90" x2="900" y2="550" class="grid"/>
+    <text x="110" y="572" text-anchor="middle" class="axis">$0.005</text>
+    <text x="258.4" y="572" text-anchor="middle" class="axis">$0.01</text>
+    <text x="406.9" y="572" text-anchor="middle" class="axis">$0.02</text>
+    <text x="603.1" y="572" text-anchor="middle" class="axis">$0.05</text>
+    <text x="751.6" y="572" text-anchor="middle" class="axis">$0.10</text>
+    <text x="900" y="572" text-anchor="middle" class="axis">$0.20</text>
+  </g>
+
+  <line x1="110" y1="550" x2="900" y2="550" stroke="#72777d" stroke-width="1.5"/>
+  <line x1="110" y1="90" x2="110" y2="550" stroke="#72777d" stroke-width="1.5"/>
+  <text x="505" y="600" text-anchor="middle" class="axis">Reported cost for the 44-case run (USD, logarithmic scale)</text>
+  <text x="26" y="320" text-anchor="middle" class="axis" transform="rotate(-90 26 320)">End-to-end exact-match score</text>
+
+  <!-- Curves follow increasing reasoning effort -->
+  <polyline points="205.4,367.0 245.8,393.2 393.8,393.2" class="curve" stroke="#d46b28"/>
+  <polyline points="332.6,184.1 341.1,184.1 375.0,210.2 417.4,131.8 481.9,105.7 597.9,158.0" class="curve" stroke="#3166b1"/>
+  <polyline points="670.9,236.4 741.9,262.5 856.9,471.6" class="curve" stroke="#23815b"/>
+
+  <!-- GLM points -->
+  <g fill="#d46b28">
+    <circle cx="205.4" cy="367.0" r="6" class="point"/><text x="193" y="353" text-anchor="end" class="label">low · 65.9%</text>
+    <circle cx="245.8" cy="393.2" r="6" class="point"/><text x="245.8" y="415" text-anchor="middle" class="label">high · 63.6%</text>
+    <circle cx="393.8" cy="393.2" r="6" class="point"/><text x="405" y="416" class="label">max · 63.6% · 2F</text>
+  </g>
+
+  <!-- Luna points -->
+  <g fill="#3166b1">
+    <circle cx="332.6" cy="184.1" r="6" class="point"/><text x="326" y="165" text-anchor="end" class="label">none</text>
+    <circle cx="341.1" cy="184.1" r="6" class="point"/><text x="347" y="198" class="label">low · 81.8%</text>
+    <circle cx="375.0" cy="210.2" r="6" class="point"/><text x="365" y="235" text-anchor="end" class="label">medium · 79.5%</text>
+    <circle cx="417.4" cy="131.8" r="6" class="point"/><text x="410" y="117" text-anchor="end" class="label">high · 86.4%</text>
+    <circle cx="481.9" cy="105.7" r="7" class="point"/><text x="493" y="121" class="label">xhigh · 88.6%</text>
+    <circle cx="597.9" cy="158.0" r="6" class="point"/><text x="608" y="175" class="label">max · 84.1%</text>
+  </g>
+
+  <!-- Gemini points -->
+  <g fill="#23815b">
+    <circle cx="670.9" cy="236.4" r="6" class="point"/><text x="660" y="221" text-anchor="end" class="label">low · 77.3% · 6F</text>
+    <circle cx="741.9" cy="262.5" r="6" class="point"/><text x="752" y="281" class="label">medium · 75.0% · 7F</text>
+    <circle cx="856.9" cy="471.6" r="6" class="point"/><text x="845" y="494" text-anchor="end" class="label">high · 56.8% · 17F</text>
+  </g>
+
+  <!-- Legend and interpretation -->
+  <g transform="translate(70 610)">
+    <line x1="0" y1="0" x2="28" y2="0" stroke="#d46b28" stroke-width="3"/><circle cx="14" cy="0" r="5" fill="#d46b28"/><text x="38" y="4" class="axis">GLM 5.3 Flash</text>
+    <line x1="190" y1="0" x2="218" y2="0" stroke="#3166b1" stroke-width="3"/><circle cx="204" cy="0" r="5" fill="#3166b1"/><text x="228" y="4" class="axis">GPT-5.6 Luna</text>
+    <line x1="374" y1="0" x2="402" y2="0" stroke="#23815b" stroke-width="3"/><circle cx="388" cy="0" r="5" fill="#23815b"/><text x="412" y="4" class="axis">Gemini 3.8 Flash</text>
+    <text x="630" y="4" class="note">F = failed cases (counted incorrect)</text>
+  </g>
+  <text x="70" y="660" class="note">Single live pass on 2026-09-03. Cost is OpenRouter usage.cost; points with failures understate the cost of a hypothetical fully completed run.</text>
+</svg>

@@ -130,7 +130,7 @@ export const openAiSearchProvider: SearchProvider = {
         ...(domains.length ? { filters: { allowed_domains: domains } } : {}),
         search_context_size: "low",
       }],
-      reasoning: "none",
+      reasoning: config.llmReasoningEffort,
       maxOutputTokens: 1_700,
       timeoutMs: 60_000,
     });

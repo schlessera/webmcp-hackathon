@@ -1,5 +1,15 @@
 import { randomUUID } from "node:crypto";
 
+export type LlmReasoningEffort = "none" | "minimal" | "low" | "medium" | "high";
+
+const LLM_REASONING_EFFORTS = new Set<LlmReasoningEffort>([
+  "none",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+]);
+
 export const config = {
   port: Number(process.env.PORT ?? 4173),
   host: process.env.HOST ?? "0.0.0.0",
@@ -55,26 +65,30 @@ export const config = {
   parallelApiKey: process.env.PARALLEL_API_KEY ?? "",
   dataForSeoLogin: process.env.DATAFORSEO_LOGIN ?? "",
   dataForSeoPassword: process.env.DATAFORSEO_PASSWORD ?? "",
-  llmModel: process.env.LLM_MODEL || "z-ai/glm-5.3-flash",
+  llmModel: process.env.LLM_MODEL || "openai/gpt-5.6-luna",
   llmRouteModel:
-    process.env.LLM_MODEL_ROUTE || process.env.LLM_MODEL || "z-ai/glm-5.3-flash",
+    process.env.LLM_MODEL_ROUTE || process.env.LLM_MODEL || "openai/gpt-5.6-luna",
   llmJudgeModel:
-    process.env.LLM_MODEL_JUDGE || process.env.LLM_MODEL || "z-ai/glm-5.3-flash",
+    process.env.LLM_MODEL_JUDGE || process.env.LLM_MODEL || "openai/gpt-5.6-luna",
   llmAgentModel:
-    process.env.LLM_MODEL_AGENT || process.env.LLM_MODEL || "z-ai/glm-5.3-flash",
+    process.env.LLM_MODEL_AGENT || process.env.LLM_MODEL || "openai/gpt-5.6-luna",
   llmVisionModel:
-    process.env.LLM_MODEL_VISION || process.env.LLM_MODEL || "z-ai/glm-5.3-flash",
+    process.env.LLM_MODEL_VISION || process.env.LLM_MODEL || "openai/gpt-5.6-luna",
+  get llmReasoningEffort(): LlmReasoningEffort {
+    const effort = process.env.LLM_REASONING_EFFORT as LlmReasoningEffort | undefined;
+    return effort && LLM_REASONING_EFFORTS.has(effort) ? effort : "high";
+  },
   /** Deprecated aliases retained for deployment compatibility. */
   nlFastModel:
-    process.env.NL_FAST_MODEL || process.env.LLM_MODEL || "z-ai/glm-5.3-flash",
+    process.env.NL_FAST_MODEL || process.env.LLM_MODEL || "openai/gpt-5.6-luna",
   nlSmartModel:
-    process.env.NL_SMART_MODEL || process.env.LLM_MODEL || "z-ai/glm-5.3-flash",
+    process.env.NL_SMART_MODEL || process.env.LLM_MODEL || "openai/gpt-5.6-luna",
   /** Reads menu photos and PDFs (enrich/menu-reader.ts); vision-capable. */
   menuReaderModel:
     process.env.MENU_READER_MODEL ||
     process.env.NL_SMART_MODEL ||
     process.env.LLM_MODEL ||
-    "z-ai/glm-5.3-flash",
+    "openai/gpt-5.6-luna",
   get llmProvider(): "openai" | "openrouter" {
     if (process.env.LLM_PROVIDER === "openai") return "openai";
     if (process.env.LLM_PROVIDER === "openrouter") return "openrouter";

@@ -81,7 +81,7 @@ export async function screen(
     ].join("\n"),
     input: [{ role: "user", content: JSON.stringify(rows) }],
     schema: { name: "screening", schema: SCHEMA },
-    reasoning: "medium",
+    reasoning: config.llmReasoningEffort,
     maxOutputTokens: 1_300,
     timeoutMs: 90_000,
   });

@@ -382,7 +382,7 @@ export async function runAgent(
           instructions: instructions(actor, held),
           input,
           tools: tools(),
-          reasoning: "medium",
+          reasoning: config.llmReasoningEffort,
           maxOutputTokens: 1_700,
           // R14: the transport receives the remaining total budget, never a
           // fresh timeout for every round.

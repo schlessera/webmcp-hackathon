@@ -1,4 +1,4 @@
-import { config } from "../config.ts";
+import { config, type LlmReasoningEffort } from "../config.ts";
 
 /**
  * The one door to language models. Callers speak the existing Responses-shaped
@@ -42,7 +42,7 @@ export interface Call {
   tools?: Array<FunctionTool | WebSearchTool>;
   /** Extra built-in-tool output fields requested from Responses. */
   include?: string[];
-  reasoning?: "none" | "minimal" | "low" | "medium" | "high";
+  reasoning?: LlmReasoningEffort;
   maxOutputTokens?: number;
   timeoutMs?: number;
   /** Foreground work uses default. Flex is reserved for later background work. */
@@ -282,6 +282,7 @@ function openrouterTools(tools: Call["tools"]): unknown[] | undefined {
 }
 
 function requestBody(call: Call, provider: Provider, privatePath: boolean): Record<string, unknown> {
+  const effort = call.reasoning ?? config.llmReasoningEffort;
   const body: Record<string, unknown> = {
     model: call.model,
     instructions: call.instructions,
@@ -304,7 +305,6 @@ function requestBody(call: Call, provider: Provider, privatePath: boolean): Reco
   if (provider === "openrouter") {
     const tools = openrouterTools(call.tools);
     if (tools) body.tools = tools;
-    const effort = call.reasoning ?? "low";
     body.reasoning = effort === "none" || effort === "minimal"
       ? { effort: "low", exclude: true }
       : { effort };
@@ -325,7 +325,7 @@ function requestBody(call: Call, provider: Provider, privatePath: boolean): Reco
   } else {
     if (call.tools?.length) body.tools = call.tools;
     if (call.include) body.include = call.include;
-    if (call.reasoning) body.reasoning = { effort: call.reasoning };
+    body.reasoning = { effort };
   }
   if (call.maxOutputTokens) body.max_output_tokens = call.maxOutputTokens;
   return body;

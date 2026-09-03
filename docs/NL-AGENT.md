@@ -13,9 +13,9 @@ participant at a time, through the **same** tool surface and the **same**
 command bus. Nothing about the protocols changed; the page gained a way to
 turn words into commands.
 
-Every job uses OpenRouter's Responses API and `z-ai/glm-5.3-flash` by default.
-The old tier names remain configuration seams, but they resolve to the same
-deployment model today.
+Every job uses OpenRouter's Responses API, `openai/gpt-5.6-luna`, and `high`
+reasoning effort by default. The old tier names remain configuration seams,
+but they resolve to the same deployment model today.
 
 | Job | Where | Model use |
 |---|---|---|
@@ -27,9 +27,10 @@ deployment model today.
 | Screen places against an agent-private condition | `apps/server/src/nl/screening.ts` | Strict schema with no-collection and zero-retention provider routing. |
 
 `LLM_MODEL` chooses the deployment default and defaults to
-`z-ai/glm-5.3-flash`. `LLM_MODEL_ROUTE`, `LLM_MODEL_JUDGE`,
+`openai/gpt-5.6-luna`. `LLM_MODEL_ROUTE`, `LLM_MODEL_JUDGE`,
 `LLM_MODEL_AGENT`, and `LLM_MODEL_VISION` can override one job family; each
 inherits `LLM_MODEL` when unset, preserving the single-model default.
+`LLM_REASONING_EFFORT` controls every job and defaults to `high`.
 `LLM_PROVIDER` selects `openrouter` or `openai`; absent an explicit value it
 uses OpenRouter when `OPENROUTER_API_KEY` exists and OpenAI otherwise.
 
@@ -203,7 +204,7 @@ uses the existing honest `text` fallback.
 ## What the drawer shows
 
 Every routed sentence logs its intent, model and milliseconds to the `{ }`
-drawer (`agent routed "need" (z-ai/glm-5.3-flash 1200ms)`), and a held condition
+drawer (`agent routed "need" (openai/gpt-5.6-luna 1200ms)`), and a held condition
 logs that it is held. The reply cards in the brief carry none of that.
 
 ## Verification
