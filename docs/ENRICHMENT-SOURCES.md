@@ -316,15 +316,34 @@ Neither mode can create a verified fact.
 Combined claims carry a final `:combined` source suffix so presentation can
 distinguish a retrieved-page anchor from split mode's checked snippet span.
 
-Every outbound search query is capped at 400 characters and contains only the
-place name, city, and words from shared active needs. Tagged addresses,
-categories, inactive vocabulary, and application-private sentences never enter
-a search query. An application-private criterion may be evaluated in the plain
-matrix call over place-site text or snippets already returned for a shared
-need. That matrix call has no tools, so its contents do not become search terms
-or reach a search index. If a place has no unresolved shared criterion, it does
-not cause a search. Combined mode excludes application-private criteria from
-the entire tool-enabled call. Agent-private content never enters refinement.
+Every outbound search query is capped at 400 characters and contains the place
+name, the city, and criterion words admitted by one of two rules.
+
+A criterion belonging to an **active need** may contribute its words only when
+that need is shared. A private need's words stay in, because a search would
+reveal both the words and the fact that this room is asking, and its label
+being server vocabulary does not change that.
+
+A criterion belonging to **no active need** is the background sweep: the loop
+walks the whole vocabulary over every place regardless of what anyone wants,
+so the query is evidence of nobody's need. Those criteria may contribute their
+words, but only when the label is server vocabulary from `ATTRIBUTE_LABELS`. A
+question criterion carries a person's own sentence and can therefore travel
+only as an active shared need, never through the sweep. Synthetic keys such as
+`open:*` are not vocabulary and never travel at all.
+
+That is what lets the stale-fact and vocabulary tiers keep improving the whole
+pool over time, which is the point of continuous refinement. The hourly search
+bucket bounds what it can cost, and searches are handed out in queue order, so
+a short bucket is spent on active needs first and the sweep takes what is left.
+
+Tagged addresses and categories never enter a query. An application-private
+criterion may still be evaluated in the plain matrix call over place-site text
+or snippets already returned for another criterion's search. That matrix call
+has no tools, so its contents do not become search terms or reach a search
+index. If a place has no criterion admitted by either rule, it causes no
+search. Combined mode excludes application-private criteria from the entire
+tool-enabled call. Agent-private content never enters refinement.
 
 There is one query shape and no setting for it. A richer shaper once carried
 the street address, the category and a German lexicon behind
@@ -333,6 +352,13 @@ server, so the setting had stopped changing anything and was removed rather
 than left to mislead. For the record, the plain query also measured better:
 over three live twelve-place Berlin runs it returned 14 validated claims to the
 richer query's 11.
+
+A queue emptied only because its places already have lookups in flight is busy,
+not idle, and keeps the working cadence. A need toggled while a tick is running
+survives that tick: the wake is remembered and re-ticks as soon as the tick
+ends, and the finishing tick does not write its cursor back over the
+invalidation the wake just made. Without those three, the background sweep
+could hold a woken need behind a thirty-second backoff.
 
 With nothing left to refine the loop backs off to `REFINE_IDLE_TICK_MS`
 (thirty times the working cadence) so an idle room is not reloaded every

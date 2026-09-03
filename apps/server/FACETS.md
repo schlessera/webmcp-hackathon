@@ -235,10 +235,13 @@ supplies an authorized row's label from the requirement payload, never from
 the cache.
 
 Shared and application-private needs may reach the server-side matrix evaluator
-over text already held by the application. That call has no tools. Only shared
-need words may enter a search query or a prompt with `web_search` enabled.
-Application-private criteria may be evaluated over snippets returned by a
-search caused by a shared need, but never cause a search themselves. Combined
+over text already held by the application. That call has no tools. A search
+query, or any prompt with `web_search` enabled, may carry a need's words only
+when that need is shared. It may also carry server vocabulary labels for
+criteria behind no active need at all, which is how the background sweep keeps
+working over the whole pool without speaking for anyone. Application-private
+criteria may be evaluated over snippets returned by another criterion's search,
+but never cause a search themselves. Combined
 search excludes them from the tool-enabled call. Agent-private content stays in
 its owner's agent context and is not harvested by the server-side evaluator.
 

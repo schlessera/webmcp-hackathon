@@ -137,6 +137,11 @@ interface RoomState {
   timer?: ReturnType<typeof setTimeout>;
   idleTimer?: ReturnType<typeof setTimeout>;
   running: boolean;
+  /** A wake arrived while a tick was in flight; re-tick as soon as it ends. */
+  wakePending: boolean;
+  /** Bumped by every wake. A tick that finishes after its epoch moved must not
+   * write its cursor back: the need it was working from has since changed. */
+  cursorEpoch: number;
   stopped: boolean;
   budgetLogged: boolean;
   paused: "budget" | null;
@@ -174,6 +179,30 @@ interface ActiveCriterion {
   visibilities: Set<string>;
 }
 
+/**
+ * May this criterion's words leave the server in a search query?
+ *
+ * Two different rules, because two different things are at stake. A criterion
+ * that belongs to an ACTIVE need is governed by the privacy rule: only a
+ * shared need's words go out, because a search would otherwise reveal both the
+ * words of a private need and the fact that this room is asking. A criterion
+ * that belongs to no active need is background sweeping: the loop walks the
+ * whole vocabulary over every place regardless of what anyone wants, so its
+ * label is server vocabulary and the query is evidence of nobody's need.
+ *
+ * Only `ATTRIBUTE_LABELS` counts as vocabulary. A question criterion carries a
+ * person's own sentence, so it can only ever travel as an active shared need.
+ */
+export function searchableCriterion(
+  criterion: Criterion,
+  active: Map<string, ActiveCriterion>,
+): boolean {
+  const need = active.get(criterion.id);
+  if (need) return need.visibilities.has("shared");
+  return criterion.kind === "key" &&
+    Object.prototype.hasOwnProperty.call(ATTRIBUTE_LABELS, criterion.key);
+}
+
 function modelCriterion(criterion: Criterion): boolean {
   return !(criterion.kind === "key" &&
     (criterion.key === "cuisine" || criterion.key.startsWith("open:")));
@@ -194,6 +223,8 @@ function stateFor(roomId: string): RoomState {
   if (!state) {
     state = {
       running: false,
+      wakePending: false,
+      cursorEpoch: 0,
       stopped: false,
       budgetLogged: false,
       paused: null,
@@ -260,12 +291,22 @@ function factsAreStale(candidate: CandidateRow, now: number): boolean {
 }
 
 /** Pure priority shaping apart from the supplied process-local cursor. */
+/** Set by `buildRefinementQueue` when it skipped a place only because that
+ * place already had a lookup in flight. An empty queue for that reason is
+ * busy, not idle, and must not trigger the long backoff. */
+let lastQueueDeferred = false;
+
+export function refinementQueueDeferred(): boolean {
+  return lastQueueDeferred;
+}
+
 export function buildRefinementQueue(
   inputs: EligibilityInputs,
   state: Pick<RoomState, "evaluated" | "providerChecked">,
   roomId: string,
   now = Date.now(),
 ): RefinementQueueItem[] {
+  lastQueueDeferred = false;
   const active = activeCriteria(inputs);
   const activeList = [...active.values()].map((entry) => entry.criterion).filter(modelCriterion);
   const activeKeyIds = new Set(
@@ -292,7 +333,11 @@ export function buildRefinementQueue(
   ]));
   const queued: RefinementQueueItem[] = [];
   for (const candidate of inputs.candidates) {
-    if (!candidate.osm_ref || lookupPending(roomId, candidate.id)) continue;
+    if (!candidate.osm_ref) continue;
+    if (lookupPending(roomId, candidate.id)) {
+      lastQueueDeferred = true;
+      continue;
+    }
     const eligibility = classified.get(candidate.id)?.eligibility;
     // The classifier is the authority on decisive active needs. Once a place
     // is already excluded, refining a different gap cannot bring it back.
@@ -351,7 +396,16 @@ function schedule(roomId: string, delay = REFINE_TICK_MS): void {
 
 async function drive(roomId: string): Promise<void> {
   const state = rooms.get(roomId);
-  if (!state || state.stopped || state.running) return;
+  if (!state || state.stopped) return;
+  // A wake that lands mid-tick used to be dropped on the floor: the timer it
+  // set fired into a running tick, this function returned early, and the need
+  // that was just toggled waited for whatever the loop was already doing.
+  // Ticks got longer when the background sweep started searching, which made
+  // a rare race into a common one.
+  if (state.running) {
+    state.wakePending = true;
+    return;
+  }
   state.running = true;
   let delay = REFINE_TICK_MS;
   try {
@@ -360,6 +414,10 @@ async function drive(roomId: string): Promise<void> {
     console.warn("refinement tick failed:", error instanceof Error ? error.message : String(error));
   } finally {
     state.running = false;
+  }
+  if (state.wakePending) {
+    state.wakePending = false;
+    delay = 0;
   }
   schedule(roomId, delay);
 }
@@ -400,9 +458,23 @@ export function noteRefinementPresence(roomId: string, present: Set<string>): vo
 export function wakeRefinement(roomId: string): void {
   const state = rooms.get(roomId);
   if (!state || state.stopped) return;
+  state.cursorEpoch += 1;
   state.criteriaKey = "";
-  state.evaluated.clear();
+  // Forget the cursor for need-shaped cells so the changed need is re-queued,
+  // but keep the background vocabulary sweep's progress. Restarting the sweep
+  // on every toggle would re-buy the whole pool's vocabulary work every time
+  // somebody flicks a need in the brief.
+  for (const [candidateId, ids] of state.evaluated) {
+    for (const id of [...ids]) {
+      if (!Object.prototype.hasOwnProperty.call(ATTRIBUTE_LABELS, id)) ids.delete(id);
+    }
+    if (ids.size === 0) state.evaluated.delete(candidateId);
+  }
   state.providerChecked.clear();
+  if (state.running) {
+    state.wakePending = true;
+    return;
+  }
   if (state.timer) clearTimeout(state.timer);
   state.timer = undefined;
   schedule(roomId, 0);
@@ -665,6 +737,7 @@ export async function runRefinementTick(
       return item ? [item] : [];
     });
   }
+  const epoch = state.cursorEpoch;
   const queueCounts = refinementQueueCounts(queue);
   // The number a person reads is work for needs they actually set. The
   // vocabulary and stale sweeps are real work but they are background, and a
@@ -672,7 +745,11 @@ export async function runRefinementTick(
   state.queued = queueCounts.tier1;
   state.tier1Queued = queueCounts.tier1;
   state.backlog = queueCounts.total;
-  if (queue.length === 0) return refinementTickDelay(0);
+  // A queue emptied by places already in flight is busy, not idle. Backing off
+  // thirty seconds there strands whatever need just woke the loop.
+  if (queue.length === 0) {
+    return refinementQueueDeferred() ? REFINE_TICK_MS : refinementTickDelay(0);
+  }
 
   const batch = queue.slice(0, REFINE_BATCH_SIZE);
   const criteria = [...new Map(batch.flatMap((item) => item.criteria).map((criterion) => [
@@ -685,10 +762,11 @@ export async function runRefinementTick(
   // matrix costs no search at all and still moves places off the queue, so the
   // loop keeps reading and only the search leg goes quiet. Only the model
   // bucket can pause a tick, because without it there is nothing to run.
-  const searchLeft = searchBudget.remaining(roomId, now);
-  const canSearch = searchLeft >= batch.length;
+  // Searches are handed out in queue order, so a short bucket is spent on
+  // tier 1 first and the background sweep takes whatever is left over.
+  const searchSlots = Math.min(searchBudget.remaining(roomId, now), batch.length);
   const worstCalls = firstCalls +
-    (canSearch ? (searchMode === "combined" ? batch.length : firstCalls) : 0);
+    (searchSlots > 0 ? (searchMode === "combined" ? searchSlots : firstCalls) : 0);
   const delay = modelBudget.remaining(roomId, now) >= worstCalls
     ? 0
     : modelBudget.retryAfterMs(roomId, worstCalls, now);
@@ -732,22 +810,22 @@ export async function runRefinementTick(
     );
     const firstCells = new Set(firstClaims.map((claim) => `${claim.candidateId}\u0000${claim.criterionId}`));
     const placeInfo = await roomPlace(roomId);
-    const searchRequests: RefinementSearchRequest[] = [];
+    const wanted: RefinementSearchRequest[] = [];
     const searchedCells = new Set<string>();
     const active = activeCriteria(inputs);
-    for (const preparedPlace of canSearch ? prepared : []) {
+    for (const preparedPlace of prepared) {
       const unresolved = preparedPlace.item.criteria.filter((criterion) =>
         modelCriterion(criterion) &&
         !firstCells.has(`${preparedPlace.item.candidate.id}\u0000${criterion.id}`)
       );
       if (unresolved.length === 0) continue;
       const searchCriteria = unresolved.filter((criterion) =>
-        active.get(criterion.id)?.visibilities.has("shared") === true
+        searchableCriterion(criterion, active)
       );
-      // A private criterion can be evaluated over text already fetched for a
-      // shared search, but it can never cause a search on its own.
+      // A private criterion can be evaluated over text already fetched for
+      // another criterion's search, but it can never cause a search on its own.
       if (searchCriteria.length === 0) continue;
-      searchRequests.push({
+      wanted.push({
         candidateId: preparedPlace.item.candidate.id,
         osmRef: preparedPlace.item.candidate.osm_ref!,
         name: preparedPlace.item.candidate.name,
@@ -759,6 +837,7 @@ export async function runRefinementTick(
         searchCriteria,
       });
     }
+    const searchRequests = wanted.slice(0, searchSlots);
     searchBudget.consume(roomId, searchRequests.length, now);
     let searchClaims: EvaluatedInference[] = [];
     if (searchMode === "combined") {
@@ -856,11 +935,17 @@ export async function runRefinementTick(
       }] : [];
     }));
 
+    // A wake during this tick already cleared the cursor for the need that
+    // changed. Writing this batch's cursor back would erase that invalidation
+    // and the changed need would wait for the whole background sweep.
+    const cursorStillOurs = state.cursorEpoch === epoch;
     for (const item of batch) {
-      const ids = state.evaluated.get(item.candidate.id) ?? new Set<string>();
-      for (const criterion of item.criteria) ids.add(criterion.id);
-      state.evaluated.set(item.candidate.id, ids);
-      state.providerChecked.add(item.candidate.id);
+      if (cursorStillOurs) {
+        const ids = state.evaluated.get(item.candidate.id) ?? new Set<string>();
+        for (const criterion of item.criteria) ids.add(criterion.id);
+        state.evaluated.set(item.candidate.id, ids);
+        state.providerChecked.add(item.candidate.id);
+      }
       if (item.criteria.length > 0) state.checked.add(item.candidate.id);
     }
     const batchCounts = refinementQueueCounts(batch);

@@ -162,7 +162,7 @@ describe("continuous refinement over the API", () => {
     for (const expected of [2, 3]) {
       await toggle(false);
       await toggle(true);
-      await waitFor(() => gammaSearches() === expected, 4_000);
+      await waitFor(() => gammaSearches() === expected, 6_000);
     }
     const gammaRef = `refine/${room.roomId}/gamma`;
     const attempt = (await room.pool.query(

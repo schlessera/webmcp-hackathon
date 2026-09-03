@@ -10,6 +10,8 @@ import {
   refinementActive,
   refinementBudgetSleepForTest,
   refinementLookupReason,
+  refinementQueueDeferred,
+  searchableCriterion,
   refinementQueueCounts,
   refinementTickDelay,
   REFINE_IDLE_TICK_MS,
@@ -21,7 +23,7 @@ import {
   searchRefinementPlaces,
   refinementSearchDomains,
 } from "../../apps/server/src/refine/worker.ts";
-import { resetProgress } from "../../apps/server/src/enrich/progress.ts";
+import { beginLookups, resetProgress } from "../../apps/server/src/enrich/progress.ts";
 
 const keys = [
   "vegetarian-options", "vegan-options", "gluten-free-options", "halal-options",
@@ -336,5 +338,58 @@ describe("continuous refinement queue", () => {
     // query the privacy ruling retired. None of them may come back.
     expect(query).not.toContain("Mitte");
     expect(query).not.toContain("barrierefrei");
+  });
+
+  describe("what a search query may carry, per tier", () => {
+    const area = { city: "Berlin", label: "Berlin Mitte", countryCode: "DE" };
+    const shared = { id: "wheelchair-accessible", kind: "key" as const, key: "wheelchair-accessible", label: "step-free access" };
+    const question = { id: "q:abc", kind: "question" as const, text: "room for a tandem stroller", label: "room for a tandem stroller" };
+    const vocabulary = { id: "dog-friendly", kind: "key" as const, key: "dog-friendly", label: "dogs welcome" };
+    const activeWith = (criterion: typeof shared | typeof question, visibility: string) =>
+      new Map([[criterion.id, { criterion, visibilities: new Set([visibility]) }]]);
+
+    it("tier 1: a shared need travels, and its words compose the query", () => {
+      const active = activeWith(shared, "shared");
+      expect(searchableCriterion(shared, active)).toBe(true);
+      expect(buildRefinementQuery({ name: "Ort", searchCriteria: [shared] }, area))
+        .toBe("Ort Berlin step-free access");
+    });
+
+    it("tier 1: a private need never travels, whatever its label is made of", () => {
+      // Its label is server vocabulary, but a search would still reveal that
+      // this room is asking, and when.
+      expect(searchableCriterion(shared, activeWith(shared, "application-private"))).toBe(false);
+      expect(searchableCriterion(question, activeWith(question, "application-private"))).toBe(false);
+    });
+
+    it("tiers 2 and 3: a vocabulary key travels because it answers to no need", () => {
+      const none = new Map();
+      expect(searchableCriterion(vocabulary, none)).toBe(true);
+      expect(buildRefinementQuery({ name: "Ort", searchCriteria: [vocabulary] }, area))
+        .toBe("Ort Berlin dogs welcome");
+    });
+
+    it("tiers 2 and 3: a question never travels, because its label is a person's sentence", () => {
+      expect(searchableCriterion(question, new Map())).toBe(false);
+      expect(searchableCriterion(
+        { id: "open:2026-09-04T11:00/2026-09-04T14:00", kind: "key" as const, key: "open:2026-09-04T11:00/2026-09-04T14:00", label: "open then" },
+        new Map(),
+      )).toBe(false);
+    });
+  });
+
+  it("treats a queue emptied by in-flight lookups as busy, not idle", () => {
+    // The background sweep keeps places in flight most of the time. Reading
+    // that as an idle queue backed the loop off for thirty seconds and
+    // stranded whatever need had just woken it.
+    const room = "deferred-room";
+    const built = buildRefinementQueue(inputs(), { evaluated: new Map(), providerChecked: new Set() }, room);
+    expect(built.length).toBeGreaterThan(0);
+    expect(refinementQueueDeferred()).toBe(false);
+    const end = beginLookups(room, built.map((item) => item.candidate.id));
+    expect(buildRefinementQueue(inputs(), { evaluated: new Map(), providerChecked: new Set() }, room))
+      .toHaveLength(0);
+    expect(refinementQueueDeferred()).toBe(true);
+    end();
   });
 });

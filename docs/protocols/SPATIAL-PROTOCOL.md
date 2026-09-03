@@ -381,9 +381,15 @@ Shared and application-private needs may reach the server-side matrix evaluator.
 That matrix is a plain model call over text already held by the server and has
 no tools. Application-private permits this evaluation but does not permit its
 sentence to enter an outbound search query, any prompt on a call with
-`web_search` enabled, shared storage, or a peer's dossier. Search queries contain
-only the place name, city, and words from shared needs. A place with no open
-shared criterion causes no search. Combined search excludes private criteria
+`web_search` enabled, shared storage, or a peer's dossier. A search query
+contains the place name, the city, and criterion words admitted by one of two
+rules: a criterion behind an active need travels only when that need is shared,
+and a criterion behind no active need travels only when its label is server
+vocabulary from `ATTRIBUTE_LABELS`. The second rule is what lets the background
+sweep keep improving the whole pool: it runs over every place regardless of
+what anyone wants, so its query is evidence of nobody's need. A question
+criterion carries a person's own sentence and so travels only as an active
+shared need. A place with no admitted criterion causes no search. Combined search excludes private criteria
 from its tool-enabled call entirely. Agent-private needs are evaluated in the
 owner's agent context and never enter server-side criterion harvesting.
 
