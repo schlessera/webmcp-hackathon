@@ -152,12 +152,15 @@ describe.each(AREAS.map((a) => [a.id, a] as const))("snapshot %s", (_id, area) =
   it("tops up from the spread rule without returning refs already in the room", () => {
     const existing = new Set(poolFor(area, snapshot, area.center).map((venue) => venue.ref));
     const shifted = { lat: area.center.lat + 0.008, lng: area.center.lng + 0.008 };
-    const first = topUp("room_test", area, snapshot, shifted, existing);
-    const again = topUp("room_test", area, snapshot, shifted, existing);
+    const first = topUp("room_test", area, snapshot, shifted, area.radii.narrow, existing);
+    const again = topUp("room_test", area, snapshot, shifted, area.radii.narrow, existing);
     expect(first.length).toBeGreaterThan(0);
-    expect(first.length).toBeLessThanOrEqual(3 * POOL_PER_RING);
+    expect(first.length).toBeLessThanOrEqual(POOL_PER_RING);
     expect(first.map((seed) => seed.osmRef)).toEqual(again.map((seed) => seed.osmRef));
-    for (const seed of first) expect(existing.has(seed.osmRef!)).toBe(false);
+    for (const seed of first) {
+      expect(existing.has(seed.osmRef!)).toBe(false);
+      expect(haversineMeters(shifted, seed.location)).toBeLessThanOrEqual(area.radii.narrow);
+    }
   });
 
   it("names snapshot additions safely for the curated demo room", () => {

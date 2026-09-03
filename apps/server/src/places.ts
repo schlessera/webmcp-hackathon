@@ -364,10 +364,13 @@ export function topUp(
   area: AreaDefinition,
   snapshot: AreaSnapshot,
   center: { lat: number; lng: number },
+  scopeRadiusM: number,
   existingRefs: Iterable<string>,
 ): CandidateSeed[] {
   const existing = new Set(existingRefs);
-  const venues = poolFor(area, snapshot, center).filter((venue) => !existing.has(venue.ref));
+  const venues = poolFor(area, snapshot, center).filter(
+    (venue) => venue.distance <= scopeRadiusM && !existing.has(venue.ref),
+  );
   return seedsForVenues(roomId, venues, snapshot.manifest.extract.timestamp);
 }
 

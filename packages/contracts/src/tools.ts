@@ -238,10 +238,10 @@ const spatialTools: ToolDefinition[] = [
   {
     name: "add_candidates",
     description:
-      "Bring up to 40 places from the data behind the map into the room's " +
-      "pool, by the refs the explore layer reports. Additive and shared: " +
-      "nothing is removed, every participant sees the new places, and the " +
-      "room's pool ceiling applies.",
+      "Bring up to 40 places shown on the page's explore map into the room, " +
+      "using the refs attached to those page places. The page is the discovery " +
+      "path for refs. Additive and shared: nothing is removed, every participant " +
+      "sees the new places, and the room's place ceiling applies.",
     inputSchema: AddCandidatesInput,
     annotations: {},
   },

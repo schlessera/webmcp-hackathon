@@ -177,10 +177,14 @@ export async function submitCommand(
     // Append eligibility-shift aggregate event when ANY classification
     // changed (eligible -> uncertain matters as much as -> excluded).
     const after = await computeEligibility(client, actor.roomId);
-    const beforeExcluded = before.filter((c) => c.eligibility === "excluded").length;
-    const afterExcluded = after.filter((c) => c.eligibility === "excluded").length;
     const eligibleNow = after.filter((c) => c.eligibility === "eligible").length;
     const beforeByCandidate = new Map(before.map((c) => [c.candidateId, c.eligibility]));
+    const newlyExcluded = after.filter(
+      (c) =>
+        c.eligibility === "excluded" &&
+        beforeByCandidate.has(c.candidateId) &&
+        beforeByCandidate.get(c.candidateId) !== "excluded",
+    ).length;
     const classificationChanged = after.some(
       (c) => beforeByCandidate.get(c.candidateId) !== c.eligibility,
     );
@@ -190,7 +194,7 @@ export async function submitCommand(
         actorId: null,
         visibility: "shared",
         payload: {
-          newlyExcluded: Math.max(0, afterExcluded - beforeExcluded),
+          newlyExcluded,
           eligible: eligibleNow,
         },
       });
@@ -815,7 +819,7 @@ async function addCandidates(
   if (!area || !snapshot) {
     return errorOutcome(
       "invalid_input",
-      "This room has no explorable place data.",
+      "There are no more places available for this room.",
       "Use the places already in the room.",
     );
   }
@@ -824,8 +828,8 @@ async function addCandidates(
   if (!resolved) {
     return errorOutcome(
       "not_found",
-      "One or more place refs are not in this area's snapshot.",
-      "Refresh the explore layer and retry with refs it returned.",
+      "One or more of those places are no longer available.",
+      "Choose the places again from the map and retry.",
     );
   }
   const existingRows = (
@@ -919,7 +923,14 @@ async function setSearchScope(
       const existingRefs = existingRows
         .map((row) => row.osm_ref)
         .filter((ref): ref is string => ref !== null);
-      added = topUp(actor.roomId, area, snapshot, next.area.center, existingRefs).slice(
+      added = topUp(
+        actor.roomId,
+        area,
+        snapshot,
+        next.area.center,
+        next.area.radiusM,
+        existingRefs,
+      ).slice(
         0,
         Math.max(0, POOL_CAP - existingRows.length),
       );
@@ -965,12 +976,11 @@ async function insertCandidateSeeds(
   roomId: string,
   seeds: CandidateSeed[],
 ): Promise<void> {
-  for (const seed of seeds) {
-    await client.query(
-      `INSERT INTO candidates
-         (id, room_id, name, category, price_level, walk_min, location, attributes, hours, osm_ref, extras)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-      [
+  if (seeds.length > 0) {
+    const values: unknown[] = [];
+    const rows = seeds.map((seed, index) => {
+      const offset = index * 11;
+      values.push(
         seed.id,
         roomId,
         seed.name,
@@ -982,10 +992,15 @@ async function insertCandidateSeeds(
         JSON.stringify(seed.hours),
         seed.osmRef ?? null,
         JSON.stringify(seed.extras ?? {}),
-      ],
+      );
+      return `(${Array.from({ length: 11 }, (_, i) => `$${offset + i + 1}`).join(", ")})`;
+    });
+    await client.query(
+      `INSERT INTO candidates
+         (id, room_id, name, category, price_level, walk_min, location, attributes, hours, osm_ref, extras)
+       VALUES ${rows.join(", ")}`,
+      values,
     );
-  }
-  if (seeds.length > 0) {
     await client.query(
       `UPDATE rooms
           SET data_source = CASE WHEN data_source IS NULL THEN NULL

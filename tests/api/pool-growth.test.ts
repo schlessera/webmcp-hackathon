@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import pg from "pg";
 import { POOL_CAP, POOL_PER_RING } from "@webmcp-hackathon/contracts";
+import { haversineMeters } from "../../apps/server/src/eligibility.ts";
 import {
   DATABASE_URL,
   apiPost,
@@ -90,10 +91,10 @@ describe("room pool growth and viewport exploration", () => {
 
     const center = first.body.scope.area.center;
     const bbox = [
-      center.lat - 0.004,
-      center.lng - 0.004,
-      center.lat + 0.004,
-      center.lng + 0.004,
+      center.lat - 0.02,
+      center.lng - 0.02,
+      center.lat + 0.02,
+      center.lng + 0.02,
     ].join(",");
     expect((await get(`/api/rooms/${roomId}/places?bbox=${bbox}`)).status).toBe(401);
     const explored = await get(`/api/rooms/${roomId}/places?bbox=${bbox}`, memberToken);
@@ -101,10 +102,17 @@ describe("room pool growth and viewport exploration", () => {
     const places = explored.body.places as Array<{
       ref: string;
       name: string;
+      location: { lat: number; lng: number };
       candidateId?: string;
     }>;
     expect(places.some((place) => place.candidateId)).toBe(true);
-    const novel = places.filter((place) => !place.candidateId).slice(0, 3);
+    const novel = places
+      .filter(
+        (place) =>
+          !place.candidateId &&
+          haversineMeters(center, place.location) > first.body.scope.area.radiusM,
+      )
+      .slice(0, 3);
     expect(novel).toHaveLength(3);
 
     const added = await apiPost<{ ok: boolean; revision: number }>(
@@ -147,6 +155,13 @@ describe("room pool growth and viewport exploration", () => {
     const actorAdded = actorSync.body.delta.events.find((event) => event.type === "candidates_added")!;
     expect(actorAdded.level).toBe("full");
     expect(actorAdded.payload?.names).toEqual(novel.map((place) => place.name));
+    const reconciled = await database.query(
+      `SELECT payload FROM events
+        WHERE room_id = $1 AND type = 'candidates_updated'
+        ORDER BY revision DESC LIMIT 1`,
+      [roomId],
+    );
+    expect(reconciled.rows[0].payload.newlyExcluded).toBe(0);
 
     const unknown = await apiPost<{ ok: boolean; error?: { code: string } }>(
       server.baseUrl,
@@ -178,11 +193,21 @@ describe("room pool growth and viewport exploration", () => {
       pool: { size: number };
       area: { poolSize: number };
       scope: { area: { center: { lat: number; lng: number } } };
-      candidates: Array<{ ref?: string }>;
+      candidates: Array<{ ref?: string; location: { lat: number; lng: number } }>;
     }>(server.baseUrl, "/api/spatial/context", organizerToken, {});
     expect(afterMove.body.pool.size).toBeGreaterThan(afterAdd.body.pool.size);
     expect(afterMove.body.area.poolSize).toBe(afterMove.body.pool.size);
     expect(afterMove.body.scope.area.center).toEqual(shifted);
+    const refsBeforeMove = new Set(afterAdd.body.candidates.map((candidate) => candidate.ref));
+    const topUpRows = afterMove.body.candidates.filter(
+      (candidate) => candidate.ref && !refsBeforeMove.has(candidate.ref),
+    );
+    expect(topUpRows.length).toBeGreaterThan(0);
+    for (const candidate of topUpRows) {
+      expect(haversineMeters(shifted, candidate.location)).toBeLessThanOrEqual(
+        first.body.scope.area.radiusM,
+      );
+    }
 
     const fill = POOL_CAP - afterMove.body.pool.size;
     if (fill > 0) {
