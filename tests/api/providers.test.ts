@@ -185,6 +185,120 @@ describe("listing provider over API projections", () => {
   });
 });
 
+describe("listing matching over a real-shaped fixture", () => {
+  let server: TestServer;
+  let room: TestRoom;
+  const named = [
+    // name in the map            // title the provider returns
+    ["Cafe Nenom", "Café Nénom"],                    // diacritics only
+    ["Gentle", "Gentle Restaurant"],                 // class-word suffix
+    ["Schnitzelei", "Schnitzelei Mitte"],            // district suffix
+    ["Weinstube Sued", "Weinstube Süd GmbH"],        // sharp-s form and legal form
+    ["Ryce", "RYCE - Kitchen & Sushi Bar"],          // only the domain identifies it
+    ["Kopenhagen", "Kopenhagen"],                    // same name, different site
+  ] as const;
+
+  beforeAll(async () => {
+    server = await startServer();
+    room = await createTestRoom(server.baseUrl);
+    const rows = (await room.pool.query(
+      "SELECT id, name FROM candidates WHERE room_id = $1", [room.roomId],
+    )).rows as Array<{ id: string; name: string }>;
+    // Reuse the three seeded rows and add the rest, all at one coordinate.
+    for (const [index, [mapName]] of named.entries()) {
+      const id = rows[index]?.id ?? `place_x${index}_${room.roomId}`;
+      if (rows[index]) {
+        await room.pool.query(
+          `UPDATE candidates SET name = $2, osm_ref = $3, location = '{"lat":52.5,"lng":13.4}'::jsonb,
+                  extras = $4::jsonb, attributes = '[]'::jsonb WHERE id = $1`,
+          [id, mapName, `node/match-${index}`, JSON.stringify(
+            mapName === "Ryce" ? { website: "https://ryce.example/" }
+              : mapName === "Kopenhagen" ? { website: "https://kopenhagen-mine.example/" }
+              : {},
+          )],
+        );
+      } else {
+        await room.pool.query(
+          `INSERT INTO candidates (id, room_id, name, category, price_level, walk_min, location, attributes, osm_ref, extras)
+           VALUES ($1, $2, $3, 'cafe', 2, 5, '{"lat":52.5,"lng":13.4}', '[]'::jsonb, $4, $5::jsonb)`,
+          [id, room.roomId, mapName, `node/match-${index}`, JSON.stringify(
+            mapName === "Ryce" ? { website: "https://ryce.example/" }
+              : mapName === "Kopenhagen" ? { website: "https://kopenhagen-mine.example/" }
+              : {},
+          )],
+        );
+      }
+    }
+    await room.pool.query(
+      `UPDATE rooms SET scope = $2::jsonb, scope_seq = 1 WHERE id = $1`,
+      [room.roomId, JSON.stringify({
+        scopeId: "match_scope_1",
+        area: { kind: "circle", center: { lat: 52.5, lng: 13.4 }, radiusM: 800 },
+        transport: ["walk"],
+        category: "food",
+      })],
+    );
+    process.env.ENRICH_NETWORK = "1";
+    process.env.DATAFORSEO_LOGIN = "scripted-login";
+    process.env.DATAFORSEO_PASSWORD = "scripted-password";
+    delete process.env.LISTINGS;
+    setListingFetch(async () => Response.json({
+      tasks: [{
+        status_code: 20_000,
+        cost: 0.0142,
+        result: [{
+          items: named.map(([, title], index) => ({
+            type: "business_listing",
+            title,
+            latitude: 52.5,
+            longitude: 13.4,
+            check_url: `https://www.google.com/maps?cid=90${index}`,
+            ...(title.startsWith("RYCE") ? { domain: "ryce.example" } : {}),
+            // Same name, a different site, 0 m away: the veto must refuse it.
+            ...(title === "Kopenhagen" ? { domain: "kopenhagen-other.example" } : {}),
+            attributes: { available_attributes: { amenities: ["has_wi_fi"] } },
+          })),
+        }],
+      }],
+    }));
+  });
+
+  afterAll(async () => {
+    setListingFetch(null);
+    for (const [key, value] of Object.entries(oldEnv)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    await room?.pool.query(
+      "DELETE FROM enrichments WHERE osm_ref LIKE 'node/match-%'",
+    );
+    await room?.cleanup();
+    await server?.stop();
+  });
+
+  it("matches through diacritics, class and district suffixes, and the domain", async () => {
+    const result = await refreshRoomListings(room.pool, room.roomId);
+    expect(result).not.toBeNull();
+    const byName = new Map((await room.pool.query(
+      "SELECT name, osm_ref FROM candidates WHERE room_id = $1 AND osm_ref LIKE 'node/match-%'",
+      [room.roomId],
+    )).rows.map((row: { name: string; osm_ref: string }) => [row.name, row.osm_ref]));
+    const matched = new Set(result!.matchedOsmRefs);
+    expect(matched).toContain(byName.get("Cafe Nenom"));
+    expect(matched).toContain(byName.get("Gentle"));
+    expect(matched).toContain(byName.get("Schnitzelei"));
+    expect(matched).toContain(byName.get("Weinstube Sued"));
+    // Name similarity is far below threshold; only the shared domain identifies it.
+    expect(matched).toContain(byName.get("Ryce"));
+    // Identical name at zero metres, but the sites contradict each other.
+    expect(matched).not.toContain(byName.get("Kopenhagen"));
+    expect(result!.diagnostics).toEqual({
+      matched: 5,
+      unmatchedByReason: { distance: 0, name: 0, domain: 1 },
+    });
+  });
+});
+
 describe("Parallel provider switch over the refinement API", () => {
   let server: TestServer;
   let room: TestRoom;
