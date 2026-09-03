@@ -2111,6 +2111,57 @@ test("a two-photo dossier renders the snap band, source credit, authenticated im
   await context.close();
 });
 
+test("the agent tool surface receives a photo count, never a route to the bytes", async ({ browser }) => {
+  const context = await browser.newContext({ viewport: { width: 1180, height: 900 } });
+  const page = await context.newPage();
+  const state: MockState = { context: fixture({ revision: 54 }), outstanding: [] };
+  await mockApi(page, state);
+  await page.route("**/api/spatial/inspect", (route) =>
+    route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        ok: true,
+        revision: 54,
+        candidates: [{
+          candidateId: "place_24",
+          name: "The Barn",
+          location: center,
+          category: "cafe",
+          hours: [],
+          attributes: [],
+          mapRevision: 1,
+          images: [
+            { url: "/api/places/node%2F24/images/0", width: 960, height: 640, source: "website" },
+            { url: "/api/places/node%2F24/images/1", width: 800, height: 600, source: "wikidata:Q24" },
+          ],
+        }],
+      }),
+    }),
+  );
+  const socket = await scriptedSocket(page, 54);
+  await page.goto(`${BASE}/?shim=webmcp#invite=deadbeef`);
+  await socket.welcomed;
+
+  // The reader gets the pictures; the model gets only their number. Bytes cost
+  // budget the agent's decision does not need, so no route to them is exposed.
+  const result = await page.evaluate(async () => {
+    const shim = (window as never as {
+      __webmcpTestShim: { executeTool(name: string, args: string): Promise<unknown> };
+    }).__webmcpTestShim;
+    return shim.executeTool(
+      "inspect_candidates",
+      JSON.stringify({ candidateIds: ["place_24"] }),
+    );
+  }) as { content: Array<{ text: string }> };
+  const payload = JSON.parse(result.content[0].text) as {
+    candidates: Array<Record<string, unknown>>;
+  };
+  expect(payload.candidates[0].images).toBeUndefined();
+  expect(payload.candidates[0].imageCount).toBe(2);
+  expect(result.content[0].text).not.toContain("/api/places/");
+  await context.close();
+});
+
 test("the refinement line and the fact rows are still under reduced motion", async ({ browser }) => {
   const context = await browser.newContext({ reducedMotion: "reduce" });
   const page = await context.newPage();
