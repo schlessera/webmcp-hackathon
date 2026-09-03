@@ -238,6 +238,48 @@ Inference is completely off when `ENRICH_NETWORK=0`, when
 and write no inference cache entry. Menu image reading remains a separate
 smart-tier job.
 
+### Evidence never regresses on re-read
+
+`saveInferences` resolves each `(OSM ref, criterion)` monotonically. A fresh
+abstain or omission cannot overwrite a claim, though it can create the first
+24-hour omission marker for an empty cell. A same-lean claim replaces the old
+one only for higher confidence or a higher source bucket. An opposite-lean
+claim replaces it only when the new claim is explicit and comes from an equal
+or higher bucket. Otherwise the stored lean, confidence, source, evidence and
+`observedAt` remain intact and its dossier note becomes exactly `another read
+leaned the other way`. A validated span missing from fresh page text is only
+an absence: it neither disproves nor refreshes the stored claim.
+
+Source buckets rank as follows, highest first:
+
+| rank | bucket | source representation |
+|---:|---|---|
+| 5 | record | record-grade `web:<host>` |
+| 4 | own-site explicit | explicit `infer:<model>:venue_site` / `:menu` |
+| 3 | own-site inferred | non-explicit `infer:<model>:venue_site` / `:menu` |
+| 2 | domain search | `infer:<model>:domain_search` |
+| 1 | open web | `infer:<model>:open_web_search` |
+| 0 | name/category | `infer:<model>:name_category` or legacy unbucketed inference |
+
+Name/category sits below open web because it is based only on generic place
+context, without a quoted external span. Attestations are still applied after
+inferences at dossier read time and keep their existing precedence.
+
+The batch write is a read-modify-write transaction. It first materializes any
+missing enrichment row, then locks every affected row in OSM-ref order with
+`SELECT ... FOR UPDATE`, applies the exported pure resolver, and writes the
+resolved JSON. The same write statement still prunes entries older than 30
+days and separately caps the `q:` and legacy `open:` partitions at 64. The
+resolver also preserves the existing same-day search-attempt accumulation and
+three-attempt cap. The refine worker uses this same function, so its bulk
+writes have no alternate merge policy.
+
+Therefore **Look again** can add evidence, strengthen it, or expose a
+contradiction; it cannot turn a known fact back into unknown merely because a
+later pass abstained or page copy changed. The panel counts additions,
+strengthenings (including confidence-only changes), and contradictions as
+changed facts.
+
 ### Batched evaluation
 
 Live lookups evaluate a matrix rather than calling the model once per place:

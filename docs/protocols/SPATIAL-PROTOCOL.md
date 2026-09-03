@@ -408,6 +408,40 @@ search at 0.55, open-web evidence at 0.50, and name/category evidence at 0.45.
 A participant attestation may also verify a `q:` question key. No evidence
 keeps the place `unknown`; abstention is not a negative answer.
 
+#### Evidence never regresses on re-read
+
+Evidence cached for one `(place, criterion)` merges monotonically. An abstain,
+an omitted model cell, or a search pass that finds nothing cannot replace an
+existing claim. It may create an omission marker only when that cell has no
+claim. If a fresh claim has the same lean, it replaces the stored claim only
+when its confidence is higher **or** its source bucket is higher. A fresh
+opposite lean replaces the stored claim only when it is explicit and its
+bucket is equal or higher. Every other opposite lean retains the claim and its
+status, and sets its displayed note to exactly `another read leaned the other
+way`.
+
+The comparison order, highest first, is:
+
+| rank | bucket | stored source shape |
+|---:|---|---|
+| 5 | record | `web:<host>` (validated record-grade own-site statement) |
+| 4 | own-site explicit | `infer:<model>:venue_site` or `:menu`, `explicit: true` |
+| 3 | own-site inferred | `infer:<model>:venue_site` or `:menu`, not explicit |
+| 2 | domain search | `infer:<model>:domain_search` |
+| 1 | open web | `infer:<model>:open_web_search` |
+| 0 | name/category | `infer:<model>:name_category` and legacy unbucketed inference |
+
+Name/category is last because it is generic contextual inference without a
+quoted external source; even an open-web span has a stronger evidence basis.
+A previously validated span disappearing from newly fetched text is absence,
+not disproof: the claim and its original `observedAt` remain unchanged.
+Consequently **Look again** may add a fact, strengthen one, or record a
+contradiction, but it cannot silently remove one. The panel's changed-fact
+count uses those durable fact differences, including confidence
+strengthenings and the disagreement note. Attestations still merge after all
+cached inference and therefore retain their existing decisive/disputing
+precedence.
+
 Cuisine uses a value-specific key criterion carrying `values` and a literal
 question such as “Does this place serve Italian food?”. Its id is derived from
 the normalized wanted-value set, so a stored Italian answer never suppresses a
