@@ -432,7 +432,7 @@ export function MapView({
   /** True once the basemap has loaded and the first fit has run — the moment
    * marker positions stop moving on their own. The e2e specs wait on it. */
   const [loaded, setLoaded] = useState(false);
-  const [motion, setMotion] = useState({ reduced: false, settleMs: 420, busyMs: 1600 });
+  const [motion, setMotion] = useState({ reduced: false, settleMs: 420, busyMs: 3200 });
   /* Screen readers hear the refinement line at most every 10 s, never on
      every frame (SPOKES-UI "Refinement"). */
   const [refineAnnouncement, setRefineAnnouncement] = useState("");
