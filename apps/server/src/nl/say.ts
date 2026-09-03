@@ -22,6 +22,7 @@ import { parseJson, respond } from "./openai.ts";
  */
 
 export type Intent = "need" | "ask" | "act" | "unclear";
+const MAX_TEXT_NEED_CHARS = 120;
 
 export interface ParsedNeed {
   payload: Record<string, unknown>;
@@ -170,14 +171,14 @@ function instructions(
     "- Resolve time only from words the person supplied, using the area clock above. `window.start` and `window.end` must be ISO-8601 date-times with the area's numeric offset (`±HH:MM`, never `Z`). Never invent a time need when the sentence names no time.",
     "- Date anchors: today is the current civil date; tomorrow is the next civil date; a named weekday is its next occurrence on or after today. Combine that date with the stated meal or clock time. A bare date or weekday covers 00:00 to 00:00 the next civil day.",
     "- Time windows: lunch 12:00–14:00; dinner 18:00–21:00; brunch 10:00–13:00; evening 18:00–21:00; tonight 18:00–23:00 on today's date. An explicit 'at' time spans one hour before through one hour after it, so 'at 7pm' is 18:00–20:00. 'open now' starts at the exact current local date/time and ends two hours later.",
-    `- kind exclusion: cuisines the person wants to AVOID ("no Italian", "not sushi", "anything but pizza"), only from: ${cuisines || "(none known)"}. Put the matching values in excludeValues.`,
+    `- kind exclusion: cuisines the person wants to AVOID ("no Italian", "not sushi", "anything but pizza"), only from: ${cuisines || "(none known)"}. Put the matching values in excludeValues. If none is listed, use unclear rather than kind text.`,
     `- kind inclusion: cuisines the person WANTS ("Asian please", "let's do Italian", "I fancy ramen"), from the same list. Put the matching values in includeValues. Wanting a cuisine is never an exclusion of it; when the wanted cuisine is not in the list, use kind text.`,
     "- kind text: anything else, verbatim in `text` (max 120 chars). It rules nothing out until checked, so prefer a typed kind whenever one honestly fits.",
     "- topic: the coarse category of the need, from the allowed list; null when none fits.",
     "- gist: the need in at most six words, lowercase, no domain jargon.",
     `The person chose visibility "${scope}" for what they say; that does not change the intent.`,
     `Needs already stated in the room: ${needs}. Places currently on the table: ${proposals}. People: ${people}.`,
-    "Never invent keys or cuisine values. A cuisine value must be the one the person named or its plain synonym, never a broader family (sushi is not asian, pizza is not italian); a cuisine missing from the list becomes kind text. Never answer the question yourself. Output only the JSON.",
+    "Never invent keys or cuisine values. A cuisine value must be the one the person named or its plain synonym, never a broader family (sushi is not asian, pizza is not italian). A missing wanted cuisine becomes kind text; a missing avoided cuisine is unclear. Never answer the question yourself. Output only the JSON.",
   ].join("\n");
 }
 
@@ -259,11 +260,12 @@ export async function say(
           ...base,
           payload: { kind: n.kind, key: "cuisine", values, lifetime: "session" },
         });
-      } else {
-        needs.push({ ...base, payload: { kind: "text", text: (n.text ?? text).slice(0, 200) } });
+      } else if (n.kind === "inclusion") {
+        const t = (n.text ?? text).trim().slice(0, MAX_TEXT_NEED_CHARS);
+        if (t) needs.push({ ...base, payload: { kind: "text", text: t } });
       }
     } else {
-      const t = (n.text ?? text).trim().slice(0, 200);
+      const t = (n.text ?? text).trim().slice(0, MAX_TEXT_NEED_CHARS);
       if (t) needs.push({ ...base, payload: { kind: "text", text: t } });
     }
   }

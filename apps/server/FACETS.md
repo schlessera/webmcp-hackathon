@@ -203,6 +203,20 @@ shared response therefore carries the effect only:
 
 The owner's own client receives the full need; peers receive only this.
 
+Question inference follows the same boundary. Its cross-room enrichment-cache
+entry is keyed only by `q:<sha1(normalized sentence)>`; the entry never stores
+the sentence itself, either normalized or as a reader label. The hash is a
+guessable identity commitment, not a secret. On a dossier read, the server
+derives the viewer's permitted criterion ids with `criterionFor`: every shared
+need plus every need the viewer owns. It drops any other `q:` attribute and
+supplies an authorized row's label from the requirement payload, never from
+the cache.
+
+Shared and application-private needs may reach the server-side model evaluator;
+the latter tier permits application processing without making the content room
+visible. Agent-private content stays in its owner's agent context and is not
+harvested by the server-side evaluator.
+
 The same boundary governs a place dossier's `needs[]`. The viewer's own needs
 and every shared need are full rows, each naming its requirement. Every
 **peer-private** need collapses into a single row — `{ private: true, verdict }`

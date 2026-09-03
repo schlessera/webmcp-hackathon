@@ -366,6 +366,17 @@ place. A vocabulary need uses
 collapsed, case is folded and one trailing question mark or full stop is
 removed. Its dossier/cache key is `q:<sha1(normalized text)>`, so equivalent
 wording shares evidence without putting the sentence into a machine field.
+The hash is an identity commitment, not a secret: a short question may be
+guessable. The cross-room enrichment cache therefore stores the `q:` key and
+its evidence fields but never the normalized sentence or its label. A dossier
+renders a question row only when the viewer owns the corresponding need or the
+need is shared, and takes its label from that viewer-authorized requirement,
+never from the cache. An unauthorized `q:` row is omitted completely.
+
+Shared and application-private needs may reach the server-side model evaluator.
+Application-private permits that evaluation but does not permit its sentence to
+enter shared storage or a peer's dossier. Agent-private needs are evaluated in
+the owner's agent context and never enter server-side criterion harvesting.
 
 A model or web lookup can only make a question `likely_true` or
 `likely_false`. A question is never verified without a participant
