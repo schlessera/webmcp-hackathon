@@ -40,6 +40,10 @@ export interface InferredClaim {
   /** Matrix-only provenance: direct statement rather than indirect inference. */
   explicit?: boolean;
   sourceUrl?: string;
+  /** Bounded reread material captured when the evidence span was validated. */
+  context?: string;
+  pageTitle?: string;
+  publisherNames?: string[];
 }
 
 export type StoredInference =

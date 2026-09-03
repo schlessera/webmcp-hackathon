@@ -26,6 +26,9 @@ export interface WebFacts {
   url: string;
   host: string;
   fetchedAt: string;
+  /** Bounded publisher identity hints retained for focused evidence adjudication. */
+  pageTitle?: string;
+  publisherNames?: string[];
   /** schema.org types seen, for the drawer. */
   types: string[];
   cuisine?: string[];
@@ -70,6 +73,9 @@ const TIMEOUT_MS = 8000;
 const MAX_HTML = 1_500_000;
 const MAX_REDIRECTS = 5;
 export const MAX_PAGE_TEXT = 6_000;
+export const MAX_PAGE_TITLE = 160;
+export const MAX_PUBLISHER_NAMES = 6;
+export const MAX_PUBLISHER_NAME = 120;
 export const MAX_IMAGE_CANDIDATE_HTML_BYTES = 512 * 1024;
 
 const FOOD_TYPES = /Restaurant|Cafe|CoffeeShop|Bar|Pub|Bakery|Brewery|Winery|FoodEstablishment|IceCreamShop|FastFood|Distillery/;
@@ -288,6 +294,47 @@ function attributeOf(attributes: string, name: string): string | undefined {
 
 function visibleFragment(fragment: string): string {
   return decodeEntities(fragment.replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ").trim();
+}
+
+/** Metadata that can establish whether a page speaks for a place or chain. */
+export function extractPageIdentity(html: string): {
+  title?: string;
+  publisherNames: string[];
+} {
+  const title = visibleFragment(
+    /<title\b[^>]*>([\s\S]*?)<\/title>/i.exec(html)?.[1] ?? "",
+  ).slice(0, MAX_PAGE_TITLE);
+  const names: string[] = [];
+  const add = (raw: unknown) => {
+    if (typeof raw !== "string") return;
+    const value = visibleFragment(raw).slice(0, MAX_PUBLISHER_NAME);
+    if (value && !names.some((name) => name.toLocaleLowerCase() === value.toLocaleLowerCase())) {
+      names.push(value);
+    }
+  };
+  for (const meta of html.matchAll(/<meta\b([^>]*)>/gi)) {
+    const attrs = meta[1];
+    const key = (attributeOf(attrs, "property") ?? attributeOf(attrs, "name") ?? "")
+      .toLocaleLowerCase();
+    if (key === "og:site_name") add(attributeOf(attrs, "content"));
+  }
+  for (const script of html.matchAll(
+    /<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi,
+  )) {
+    try {
+      for (const node of collectNodes(JSON.parse(script[1].trim()))) {
+        if (typesOf(node).some((type) =>
+          FOOD_TYPES.test(type) || BUSINESS_TYPES.test(type) || PAGE_TYPES.test(type)
+        )) add(node.name);
+      }
+    } catch {
+      /* broken JSON-LD contributes no publisher identity */
+    }
+  }
+  return {
+    ...(title ? { title } : {}),
+    publisherNames: names.slice(0, MAX_PUBLISHER_NAMES),
+  };
 }
 
 /**
@@ -543,6 +590,9 @@ export function scanMenuMentions(html: string): string[] {
 export function parseWebsite(html: string, url: string, fetchedAt: string): WebFacts {
   const host = new URL(url).host;
   const facts: WebFacts = { url, host, fetchedAt, types: [] };
+  const identity = extractPageIdentity(html);
+  if (identity.title) facts.pageTitle = identity.title;
+  if (identity.publisherNames.length) facts.publisherNames = identity.publisherNames;
   const nodes: Node[] = [];
   for (const m of html.matchAll(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)) {
     try {

@@ -786,16 +786,25 @@ export function inferenceTexts(
     source: MatrixInferenceTextSource;
     text: string;
     url?: string;
+    title?: string;
+    publisherNames?: string[];
   }> = [];
   const osmDescription = row.extras?.description?.text;
   if (osmDescription) texts.push({ source: "osm", text: osmDescription });
   const web = enrichment?.website;
-  if (web?.description) texts.push({ source: "web", text: web.description, url: web.url });
+  const webIdentity = web ? {
+    ...(web.pageTitle ? { title: web.pageTitle } : {}),
+    ...(web.publisherNames?.length ? { publisherNames: web.publisherNames } : {}),
+  } : {};
+  if (web?.description) {
+    texts.push({ source: "web", text: web.description, url: web.url, ...webIdentity });
+  }
   if (transient?.homepage) {
     texts.push({
       source: "web",
       text: transient.homepage,
       ...(row.extras?.website ?? web?.url ? { url: row.extras?.website ?? web?.url } : {}),
+      ...webIdentity,
     });
   }
   if (web) {
@@ -806,14 +815,21 @@ export function inferenceTexts(
     const facts = [
       web.cuisine?.length ? `Cuisine: ${web.cuisine.join(", ")}` : "",
     ].filter(Boolean);
-    if (facts.length) texts.push({ source: "web", text: facts.join(". "), url: web.url });
+    if (facts.length) {
+      texts.push({ source: "web", text: facts.join(". "), url: web.url, ...webIdentity });
+    }
     const menu = [
       ...(web.menuMentions ?? []).map((key) => `${key} mentioned on the menu`),
       ...(web.menuReading?.claims ?? []).map((claim) => claim.evidence),
       ...(web.menuReading?.cuisine ?? []),
     ].filter(Boolean);
     if (menu.length) {
-      texts.push({ source: "menu", text: menu.join(". "), url: web.menuUrl ?? web.url });
+      texts.push({
+        source: "menu",
+        text: menu.join(". "),
+        url: web.menuUrl ?? web.url,
+        ...webIdentity,
+      });
     }
   }
   if (transient?.menu) {
@@ -823,6 +839,7 @@ export function inferenceTexts(
       ...(web?.menuUrl ?? web?.url ?? row.extras?.website
         ? { url: web?.menuUrl ?? web?.url ?? row.extras?.website }
         : {}),
+      ...webIdentity,
     });
   }
   if (enrichment?.wikidata?.description) {
@@ -891,6 +908,9 @@ export async function saveInferences(
           explicit: claim.explicit,
           ...(claim.value ? { value: claim.value } : {}),
           ...(claim.sourceUrl ? { sourceUrl: claim.sourceUrl } : {}),
+          ...(claim.context ? { context: claim.context } : {}),
+          ...(claim.pageTitle ? { pageTitle: claim.pageTitle } : {}),
+          ...(claim.publisherNames?.length ? { publisherNames: claim.publisherNames } : {}),
         };
       } else if (answered.has(criterion.id) || searched.has(criterion.id)) {
         inferred[key] = {

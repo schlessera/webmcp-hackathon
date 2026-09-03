@@ -894,6 +894,7 @@ export async function runRefinementTick(
             source: entry.source,
             text: result.snippet,
             url: result.url,
+            title: result.title,
           })),
         }));
         const secondCalls = modelCalls(searchPlaces.length, searchCriteria.length);
