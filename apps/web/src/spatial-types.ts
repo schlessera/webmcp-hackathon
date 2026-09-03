@@ -122,6 +122,9 @@ export interface ExplorePlace {
   name: string;
   location: { lat: number; lng: number };
   category: string;
+  /** Optimistic local state after a successful bring-in, until the read path
+   * supplies the real candidateId. Never masquerades as a candidate id. */
+  added?: boolean;
   candidateId?: string;
 }
 

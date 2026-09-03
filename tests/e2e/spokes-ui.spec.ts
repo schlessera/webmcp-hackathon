@@ -277,6 +277,7 @@ type MockState = {
     location: { lat: number; lng: number };
   }>;
   exploreAtViewportCenter?: boolean;
+  exploreTruncated?: boolean;
 };
 
 async function mockApi(page: Page, state: MockState) {
@@ -354,7 +355,11 @@ async function mockApi(page: Page, state: MockState) {
         location: { lat: (south + north) / 2, lng: (west + east) / 2 },
       }));
     }
-    return respond(route, { ok: true, places, truncated: false });
+    return respond(route, {
+      ok: true,
+      places,
+      truncated: state.exploreTruncated ?? false,
+    });
   });
   await page.route("**/api/spatial/inspect", (route) => {
     recordRequest(route.request());
@@ -692,9 +697,10 @@ test("impasse and pending states protect previews, privacy, map stability, and d
   await browserContext.close();
 });
 
-test("candidate batches settle in place across requirements and radius changes, while a centre change refits", async ({ page }) => {
+test("candidate batches settle in place, and only this viewer's centre action refits", async ({ page }) => {
   const localIds = ["place_1", "place_2", "place_3", "place_4"];
   const trackedIds = ["place_1", "place_10", "place_24", "place_31"];
+  let peerCenter: { lat: number; lng: number } | null = null;
   const state: MockState = {
     context: fixture({ eligibleIds: localIds }),
     outstanding: [],
@@ -720,6 +726,7 @@ test("candidate batches settle in place across requirements and radius changes, 
         );
         if (need) need.active = Boolean(input.active);
         applyEligibility(current.context, localIds, []);
+        if (peerCenter) current.context.scope.area.center = peerCenter;
       } else if (request.type === "SetSearchScope") {
         const area = input.area as MockContext["scope"]["area"];
         current.context = fixture({
@@ -787,6 +794,15 @@ test("candidate batches settle in place across requirements and radius changes, 
   await expect
     .poll(async () => JSON.stringify(await markerTransforms(page, trackedIds)))
     .not.toBe(JSON.stringify(initialTransforms));
+  const afterOwnCentre = await stableMarkerTransforms(page, trackedIds);
+
+  // A peer's shared Search here lands alongside an unrelated local refresh:
+  // the scope ring moves, but this viewer's camera must stay where they left it.
+  peerCenter = { lat: center.lat - 0.004, lng: center.lng - 0.004 };
+  await page.getByTestId("need-batch-need").focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("need-batch-need")).toHaveAttribute("aria-pressed", "true");
+  expect(await markerTransforms(page, trackedIds)).toEqual(afterOwnCentre);
 });
 
 test("panning reveals explorable places, bringing one in preserves the viewport, and the area is recoverable", async ({ page }) => {
@@ -816,6 +832,7 @@ test("panning reveals explorable places, bringing one in preserves the viewport,
     outstanding: [],
     explore: [explored],
     exploreAtViewportCenter: true,
+    exploreTruncated: true,
     command(request, current) {
       current.context.revision += 1;
       if (request.type === "AddCandidates") {
@@ -875,6 +892,9 @@ test("panning reveals explorable places, bringing one in preserves the viewport,
   await expect
     .poll(async () => Number(await page.getByTestId("map-region").getAttribute("data-explore-count")))
     .toBeGreaterThan(0);
+  await expect(page.getByTestId("explore-truncated")).toHaveText(
+    "Zoom in to see every place here.",
+  );
   const pannedBefore = await stableMarkerTransforms(page, ["place_1", "place_24"]);
 
   // The GL layer also exposes its visible places through one native keyboard
@@ -888,7 +908,12 @@ test("panning reveals explorable places, bringing one in preserves the viewport,
     explored.ref,
   );
   await expect(page.getByTestId("explore-card")).toContainText("Everyone in the room will see it.");
-  await page.getByRole("button", { name: "Bring into the room" }).click();
+  const bringIn = page.getByRole("button", { name: "Bring into the room" });
+  await expect(bringIn).toBeFocused();
+  await expect(page.locator('.map-region > .sr-only[aria-live="polite"]')).toContainText(
+    "Eastside Place opened.",
+  );
+  await bringIn.click();
   await expect(page.getByTestId("pin-pl_demo_032")).toBeVisible();
   expect(await markerTransforms(page, ["place_1", "place_24"])).toEqual(pannedBefore);
 

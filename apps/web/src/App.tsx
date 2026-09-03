@@ -69,6 +69,32 @@ const NEED_EVENTS = new Set([
 
 const lastSeenKey = (roomId: string) => `spokes:lastSeen:${roomId}`;
 
+/** Command failures are also tool results. Keep the precise wire wording for
+ * agents and the drawer, but never let it leak into the reader-facing alert. */
+function readerFacingError(error: CommandEnvelope["error"]): string {
+  if (!error) return "Something went wrong. Try again.";
+  const wireWords =
+    /\b(?:refs?|snapshot|explore layer|endpoints?|commands?|session|revisions?|baseRevision|candidateIds?|requirementIds?|proposalIds?|payload|phase|scope|stances?|visibility|protocol|versions?|sync_session|get_spatial_context)\b/i;
+  const commandName = /\b[A-Z][a-z]+(?:[A-Z][A-Za-z]+)+\b/;
+  if (!wireWords.test(error.message) && !commandName.test(error.message)) {
+    return error.message;
+  }
+  switch (error.code) {
+    case "not_authenticated":
+      return "This room is still connecting. Try again in a moment.";
+    case "not_authorized":
+      return "You can’t make that change in this room.";
+    case "not_found":
+      return "That item is no longer available. Refresh the page and try again.";
+    case "phase_unavailable":
+      return "That action isn’t available at this point in the room.";
+    case "sync_required":
+      return "The room changed while you were acting. Try again.";
+    default:
+      return "That change couldn’t be applied. Check it and try again.";
+  }
+}
+
 /** Events after which this participant's outstanding list may have changed. */
 const OUTSTANDING_EVENTS = new Set([
   "adjustment_proposed",
@@ -311,6 +337,16 @@ export function App() {
       input: Record<string, unknown>,
       retried = false,
     ): Promise<CommandEnvelope> => {
+      const requestedArea = input.area as
+        | { center?: { lat?: unknown; lng?: unknown } }
+        | undefined;
+      const requestedCenter =
+        type === "SetSearchScope" &&
+        typeof requestedArea?.center?.lat === "number" &&
+        typeof requestedArea.center.lng === "number"
+          ? { lat: requestedArea.center.lat, lng: requestedArea.center.lng }
+          : null;
+      if (requestedCenter) spatial.noteLocalScopeCenter(requestedCenter);
       const result = (await submitCommand(type, {
         // The ref, not render-time state: a WS event between paint and click
         // must not send a stale baseRevision. A tool caller's own baseRevision
@@ -345,10 +381,11 @@ export function App() {
         setAway(null);
         void spatial.refetch();
       } else if (!result.ok) {
+        if (requestedCenter) spatial.clearLocalScopeCenter();
         // Only failures are surfaced. A success is visible in the map and the
         // count block; a toast celebrating it would be noise.
         setErrorLine(
-          result.error?.message ?? result.error?.code ?? "Something went wrong.",
+          readerFacingError(result.error),
         );
         // Stale base without a live WS would strand every later click on the
         // same revision — pull the delta and advance now.
@@ -512,6 +549,7 @@ export function App() {
               preview={spatialState.preview}
               selectedId={spatialState.selectedId}
               focusNonce={spatialState.focusNonce}
+              localScopeCenterKey={spatialState.localScopeCenterKey}
               committedId={committedId}
               proposedRadiusM={proposedRadiusM}
               viewing={spatialState.viewing}

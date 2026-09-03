@@ -72,6 +72,8 @@ interface Props {
   preview: SpatialContext | null;
   selectedId: string | null;
   focusNonce: number;
+  /** A centre requested through this viewer's command path, if any. */
+  localScopeCenterKey: string | null;
   committedId: string | null;
   /** A wider radius an agent has asked for, drawn as a second faint ring. */
   proposedRadiusM: number | null;
@@ -164,6 +166,7 @@ export function MapView({
   preview,
   selectedId,
   focusNonce,
+  localScopeCenterKey,
   committedId,
   proposedRadiusM,
   viewing,
@@ -200,7 +203,11 @@ export function MapView({
   const [scopeOffscreen, setScopeOffscreen] = useState(false);
   const [panned, setPanned] = useState(false);
   const [selectedExploreRef, setSelectedExploreRef] = useState<string | null>(null);
+  const [exploreAnnouncement, setExploreAnnouncement] = useState("");
   const [addingExplore, setAddingExplore] = useState(false);
+  const exploreActionRef = useRef<HTMLButtonElement>(null);
+  const focusExploreAction = useRef(false);
+  const ownScopeCenter = useRef<string | null>(null);
   const exploreTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastExploreView = useRef<{
     center: { lat: number; lng: number };
@@ -283,10 +290,9 @@ export function MapView({
     [ring],
   );
 
-  /* The automatic viewport moves: the first fit on load, and a refit when
-     the scope CENTRE moves (an explicit search — the §8 exception). There is
-     deliberately no effect keyed on the scope radius — a widened area grows
-     the ring under a viewport the user still recognises (§8). */
+  /* The only automatic viewport move is the first fit on load. A later scope
+     centre change refits only when this viewer pressed Search here; a peer's
+     shared action updates the ring in place without taking over this map. */
   const fitOnce = () => {
     const latR = scope.area.radiusM / 111320;
     const lngR =
@@ -303,10 +309,21 @@ export function MapView({
   const centerKey = `${center.lat},${center.lng}`;
   const fittedCenter = useRef(centerKey);
   useEffect(() => {
-    if (fittedCenter.current === centerKey) return;
+    if (fittedCenter.current === centerKey) {
+      if (ownScopeCenter.current === centerKey) ownScopeCenter.current = null;
+      if (localScopeCenterKey === centerKey) spatial.clearLocalScopeCenter(centerKey);
+      return;
+    }
     fittedCenter.current = centerKey;
-    fitOnce();
-  }, [centerKey]);
+    if (
+      ownScopeCenter.current === centerKey ||
+      localScopeCenterKey === centerKey
+    ) {
+      ownScopeCenter.current = null;
+      spatial.clearLocalScopeCenter(centerKey);
+      fitOnce();
+    }
+  }, [centerKey, localScopeCenterKey]);
 
   /* Explicit user actions only: opening a place from a card, or the
      `focus_destination` tool ("show me"). Pin selection does not fly. */
@@ -583,9 +600,13 @@ export function MapView({
   const explorePlaces = useMemo(() => {
     const refs = new Set(candidates.flatMap((candidate) => candidate.ref ? [candidate.ref] : []));
     return [...explore.values()].filter(
-      (place) => !place.candidateId && !refs.has(place.ref),
+      (place) => !place.candidateId && !place.added && !refs.has(place.ref),
     );
   }, [explore, candidates]);
+  const exploreMembershipKey = useMemo(
+    () => [...explore.keys()].sort().join("\n"),
+    [explore],
+  );
   const exploreGeoJson = useMemo(
     () => ({
       type: "FeatureCollection" as const,
@@ -598,29 +619,42 @@ export function MapView({
         },
       })),
     }),
-    [explore],
+    [exploreMembershipKey],
   );
+  const hiddenExploreRefs = useRef<Set<string>>(new Set());
+  const featureStateMembership = useRef("");
   useEffect(() => {
     if (!loaded) return;
     const map = mapRef.current;
     if (!map) return;
-    const candidateRefs = new Set(
+    const nextHidden = new Set(
       candidates.flatMap((candidate) => candidate.ref ? [candidate.ref] : []),
     );
+    for (const place of explore.values()) {
+      if (place.candidateId || place.added) nextHidden.add(place.ref);
+    }
+    const membershipChanged = featureStateMembership.current !== exploreMembershipKey;
+    const changedRefs = membershipChanged
+      ? [...nextHidden]
+      : [...new Set([...hiddenExploreRefs.current, ...nextHidden])].filter(
+          (ref) => hiddenExploreRefs.current.has(ref) !== nextHidden.has(ref),
+        );
     const apply = () => {
-      for (const place of explore.values()) {
+      for (const ref of changedRefs) {
         map.setFeatureState(
-          { source: "explore", id: place.ref },
-          { hidden: Boolean(place.candidateId) || candidateRefs.has(place.ref) },
+          { source: "explore", id: ref },
+          { hidden: nextHidden.has(ref) },
         );
       }
     };
+    hiddenExploreRefs.current = nextHidden;
+    featureStateMembership.current = exploreMembershipKey;
     apply();
     map.once("idle", apply);
     return () => {
       map.off("idle", apply);
     };
-  }, [loaded, explore, candidates]);
+  }, [loaded, explore, exploreMembershipKey, candidates]);
   const selectedExplore = selectedExploreRef ? explore.get(selectedExploreRef) ?? null : null;
   const visibleExplore = useMemo(() => {
     const map = mapRef.current;
@@ -638,6 +672,14 @@ export function MapView({
   useEffect(() => {
     if (selectedExploreRef && !explore.has(selectedExploreRef)) setSelectedExploreRef(null);
   }, [explore, selectedExploreRef]);
+
+  useEffect(() => {
+    if (!selectedExplore || !focusExploreAction.current) return;
+    focusExploreAction.current = false;
+    setExploreAnnouncement(`${selectedExplore.name} opened.`);
+    const frame = requestAnimationFrame(() => exploreActionRef.current?.focus());
+    return () => cancelAnimationFrame(frame);
+  }, [selectedExplore]);
 
   const viewportSettled = () => {
     const map = mapRef.current;
@@ -789,6 +831,7 @@ export function MapView({
             }
           }
           if (typeof ref === "string") {
+            focusExploreAction.current = false;
             onSelect(null);
             setSelectedExploreRef(ref);
             return;
@@ -996,6 +1039,7 @@ export function MapView({
               <div className="explore-card-shared">Everyone in the room will see it.</div>
               <div className="explore-card-actions">
                 <button
+                  ref={exploreActionRef}
                   type="button"
                   disabled={addingExplore || (context.pool?.size ?? 0) >= (context.pool?.cap ?? Infinity)}
                   onClick={() => void bringExplore([selectedExplore.ref])}
@@ -1014,9 +1058,6 @@ export function MapView({
                   </button>
                 )}
               </div>
-              {exploreTruncated && (
-                <div className="explore-card-truncated">Zoom in to see every place here.</div>
-              )}
             </div>
           </Marker>
         )}
@@ -1031,6 +1072,7 @@ export function MapView({
           value=""
           onChange={(event) => {
             if (event.target.value) {
+              focusExploreAction.current = true;
               onSelect(null);
               setSelectedExploreRef(event.target.value);
             }
@@ -1042,6 +1084,15 @@ export function MapView({
           ))}
         </select>
       </label>
+      <div className="sr-only" aria-live="polite" aria-atomic="true">
+        {exploreAnnouncement}
+      </div>
+
+      {exploreTruncated && (
+        <div className="explore-truncated-cue" data-testid="explore-truncated">
+          Zoom in to see every place here.
+        </div>
+      )}
 
       <div className="map-wash" aria-hidden="true" />
 
@@ -1123,12 +1174,16 @@ export function MapView({
               onClick={() => {
                 const here = mapRef.current?.getCenter();
                 if (!here) return;
+                const requestedCenter = { lat: here.lat, lng: here.lng };
+                ownScopeCenter.current = `${requestedCenter.lat},${requestedCenter.lng}`;
                 void run("SetSearchScope", {
                   area: {
                     kind: "circle",
-                    center: { lat: here.lat, lng: here.lng },
+                    center: requestedCenter,
                     radiusM: scope.area.radiusM,
                   },
+                }).then((result) => {
+                  if (!result.ok) ownScopeCenter.current = null;
                 });
               }}
             >
