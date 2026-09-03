@@ -11,6 +11,7 @@ import { pool } from "../db.ts";
 import { submitCommand } from "../engine.ts";
 import { outstandingFor } from "../outstanding.ts";
 import { inspectCandidates, lookUpPlaces, prepareNavigation, spatialContext } from "../spatial.ts";
+import { consumeLookupToken, LOOKUP_RATE_LIMIT_ERROR } from "../lookup-budget.ts";
 import { respond, type FunctionTool, type InputItem } from "./openai.ts";
 
 /**
@@ -193,6 +194,9 @@ async function execute(
     case "look_up_places": {
       const ids = Array.isArray(args.candidateIds) ? (args.candidateIds as string[]).slice(0, 3) : [];
       const keys = Array.isArray(args.keys) ? (args.keys as string[]).slice(0, 6) : undefined;
+      // The agent spends from the same per-participant budget as the route:
+      // a tool-calling loop is exactly the caller the budget exists to bound.
+      if (!consumeLookupToken(actor.id)) return { ok: false, error: LOOKUP_RATE_LIMIT_ERROR };
       const result = await lookUpPlaces(actor, ids, keys);
       if (!result.ok) return result;
       return { ok: true, candidates: result.candidates.map(compactDossier) };

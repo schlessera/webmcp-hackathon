@@ -39,6 +39,7 @@ import { pool } from "./db.ts";
 import { say } from "./nl/say.ts";
 import { runAgent } from "./nl/agent.ts";
 import { heldFor, hold, release, screenPending } from "./nl/holder.ts";
+import { consumeLookupToken, LOOKUP_RATE_LIMIT_ERROR } from "./lookup-budget.ts";
 
 /**
  * One Node process serves the production UI, API, and WebSocket endpoint.
@@ -49,34 +50,6 @@ const app = Fastify({
   logger: { level: process.env.LOG_LEVEL ?? "info" },
   disableRequestLogging: true,
 });
-
-interface LookupBucket {
-  tokens: number;
-  updatedAt: number;
-}
-
-const LOOKUP_BUCKET_SIZE = 6;
-const LOOKUP_BUCKET_WINDOW_MS = 60_000;
-const lookupBuckets = new Map<string, LookupBucket>();
-
-function consumeLookupToken(participantId: string, now = Date.now()): boolean {
-  const bucket = lookupBuckets.get(participantId) ?? {
-    tokens: LOOKUP_BUCKET_SIZE,
-    updatedAt: now,
-  };
-  bucket.tokens = Math.min(
-    LOOKUP_BUCKET_SIZE,
-    bucket.tokens + ((now - bucket.updatedAt) * LOOKUP_BUCKET_SIZE) / LOOKUP_BUCKET_WINDOW_MS,
-  );
-  bucket.updatedAt = now;
-  if (bucket.tokens < 1) {
-    lookupBuckets.set(participantId, bucket);
-    return false;
-  }
-  bucket.tokens -= 1;
-  lookupBuckets.set(participantId, bucket);
-  return true;
-}
 
 app.addHook("onSend", async (_req, reply, payload) => {
   if (config.originTrialToken) {
@@ -292,12 +265,7 @@ app.post("/api/spatial/lookup", async (req, reply) => {
   }
   if (!consumeLookupToken(actor.id)) {
     reply.header("retry-after", "10");
-    return reply.code(429).send(
-      invalidInput(
-        "Place lookup rate limit exceeded (6 per minute).",
-        "Wait before asking to look up more places, then retry.",
-      ),
-    );
+    return reply.code(429).send({ ok: false, error: LOOKUP_RATE_LIMIT_ERROR });
   }
   const result = await lookUpPlaces(actor, body.candidateIds!, keys);
   logRead(req, actor.id, "LookUpPlaces", result.ok);
