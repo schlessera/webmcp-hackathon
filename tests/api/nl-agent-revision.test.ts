@@ -5,7 +5,6 @@ import { runAgent } from "../../apps/server/src/nl/agent.ts";
 import { hold, release } from "../../apps/server/src/nl/holder.ts";
 import { setTransport } from "../../apps/server/src/nl/openai.ts";
 import {
-  apiPost,
   createTestRoom,
   startServer,
   type TestRoom,
@@ -15,6 +14,9 @@ import {
 let server: TestServer;
 let room: TestRoom;
 
+const participantId = (kind: "org" | "sarah" | "joe") =>
+  `p_${kind}_${room.roomId.replace("room_test_", "")}`;
+
 beforeAll(async () => {
   server = await startServer();
   room = await createTestRoom(server.baseUrl);
@@ -22,7 +24,7 @@ beforeAll(async () => {
 
 afterEach(() => {
   setTransport(null);
-  if (room) release(room.participantIds.joe);
+  if (room) release(participantId("joe"));
 });
 
 afterAll(async () => {
@@ -71,25 +73,31 @@ describe("R2 in-page agent revision discipline", () => {
     });
 
     const actor: Participant = {
-      id: room.participantIds.org,
+      id: participantId("org"),
       roomId: room.roomId,
       displayName: "Alex",
       role: "organizer",
       readyState: "contributing",
     };
+    const sarah: Participant = {
+      id: participantId("sarah"),
+      roomId: room.roomId,
+      displayName: "Sarah",
+      role: "member",
+      readyState: "contributing",
+    };
+    const baseRevision = Number(
+      (await room.pool.query("SELECT revision FROM rooms WHERE id = $1", [room.roomId])).rows[0]
+        .revision,
+    );
     const agent = runAgent(actor, "mark me ready", null);
     await started;
-    const competing = await apiPost<{ ok: boolean; revision: number }>(
-      server.baseUrl,
-      "/api/commands",
-      room.tokens.sarah,
-      {
-        type: "SetReadyState",
-        input: { baseRevision: 0, state: "ready" },
-      },
-    );
-    expect(competing.body.ok).toBe(true);
+    const competing = await submitCommand(sarah, "SetReadyState", {
+      baseRevision,
+      state: "ready",
+    });
     releaseModel();
+    expect(competing.ok).toBe(true);
 
     const outcome = await agent;
     expect(outcome.actions).toHaveLength(1);
@@ -99,7 +107,7 @@ describe("R2 in-page agent revision discipline", () => {
 
     const organizer = await room.pool.query(
       "SELECT ready_state FROM participants WHERE id = $1",
-      [room.participantIds.org],
+      [participantId("org")],
     );
     expect(organizer.rows[0].ready_state).toBe("contributing");
   });
@@ -108,14 +116,14 @@ describe("R2 in-page agent revision discipline", () => {
 describe("R3 page-held screening invalidation", () => {
   it("screens a changed candidate again after its map revision bumps", async () => {
     const joe: Participant = {
-      id: room.participantIds.joe,
+      id: participantId("joe"),
       roomId: room.roomId,
       displayName: "Joe",
       role: "member",
       readyState: "contributing",
     };
     const sarah: Participant = {
-      id: room.participantIds.sarah,
+      id: participantId("sarah"),
       roomId: room.roomId,
       displayName: "Sarah",
       role: "member",
@@ -207,5 +215,158 @@ describe("R3 page-held screening invalidation", () => {
     }
     expect(screeningCalls).toBeGreaterThan(0);
     expect(refreshed).toBe(true);
+  });
+});
+
+describe("R7 partial NL turns", () => {
+  it("returns and persists a completed action when the next model round fails", async () => {
+    const actor: Participant = {
+      id: participantId("sarah"),
+      roomId: room.roomId,
+      displayName: "Sarah",
+      role: "member",
+      readyState: "ready",
+    };
+    const before = Number(
+      (
+        await room.pool.query(
+          "SELECT count(*)::int AS count FROM nl_agent_actions WHERE participant_id = $1",
+          [actor.id],
+        )
+      ).rows[0].count,
+    );
+    let round = 0;
+    setTransport(async () => {
+      round += 1;
+      if (round === 1) {
+        return {
+          output: [
+            {
+              type: "function_call",
+              call_id: "call_completed",
+              name: "set_ready_state",
+              arguments: JSON.stringify({ state: "contributing" }),
+            },
+          ],
+        };
+      }
+      throw new Error("scripted model failure");
+    });
+
+    const outcome = await runAgent(actor, "keep contributing", null);
+    expect(outcome).toMatchObject({ partial: true, failureCategory: "model" });
+    expect(outcome.actions).toHaveLength(1);
+    expect(outcome.actions[0]).toMatchObject({ tool: "set_ready_state", ok: true });
+    expect(outcome.reply).toContain("completed changes");
+    const stored = await room.pool.query(
+      `SELECT tool, ok, effect FROM nl_agent_actions
+        WHERE participant_id = $1 ORDER BY id DESC LIMIT 1`,
+      [actor.id],
+    );
+    expect(stored.rows[0]).toMatchObject({ tool: "set_ready_state", ok: true });
+    const after = Number(
+      (
+        await room.pool.query(
+          "SELECT count(*)::int AS count FROM nl_agent_actions WHERE participant_id = $1",
+          [actor.id],
+        )
+      ).rows[0].count,
+    );
+    expect(after).toBe(before + 1);
+    expect(
+      (await room.pool.query("SELECT ready_state FROM participants WHERE id = $1", [actor.id]))
+        .rows[0].ready_state,
+    ).toBe("contributing");
+  });
+});
+
+describe("R14 NL resource bounds", () => {
+  it("applies one total deadline across multiple slow model rounds", async () => {
+    const actor: Participant = {
+      id: participantId("joe"),
+      roomId: room.roomId,
+      displayName: "Joe",
+      role: "member",
+      readyState: "contributing",
+    };
+    const timeouts: number[] = [];
+    let round = 0;
+    setTransport(async (_body, timeoutMs) => {
+      timeouts.push(timeoutMs);
+      round += 1;
+      if (round === 1) {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        return {
+          output: [
+            {
+              type: "function_call",
+              call_id: "call_read",
+              name: "get_spatial_context",
+              arguments: "{}",
+            },
+          ],
+        };
+      }
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      return { output: [] };
+    });
+
+    const started = Date.now();
+    const outcome = await runAgent(actor, "what changed", null, { deadlineMs: 220 });
+    expect(outcome).toMatchObject({ partial: true, failureCategory: "deadline" });
+    expect(Date.now() - started).toBeLessThan(400);
+    expect(timeouts).toHaveLength(2);
+    expect(timeouts[1]).toBeLessThan(timeouts[0]);
+  });
+
+  it("defers a second mutation from the same model batch", async () => {
+    const actor: Participant = {
+      id: participantId("org"),
+      roomId: room.roomId,
+      displayName: "Alex",
+      role: "organizer",
+      readyState: "contributing",
+    };
+    let round = 0;
+    setTransport(async () => {
+      round += 1;
+      if (round === 1) {
+        return {
+          output: [
+            {
+              type: "function_call",
+              call_id: "call_first",
+              name: "set_ready_state",
+              arguments: JSON.stringify({ state: "ready" }),
+            },
+            {
+              type: "function_call",
+              call_id: "call_deferred",
+              name: "set_ready_state",
+              arguments: JSON.stringify({ state: "contributing" }),
+            },
+          ],
+        };
+      }
+      return {
+        output: [
+          {
+            type: "message",
+            content: [{ type: "output_text", text: "You are marked ready." }],
+          },
+        ],
+      };
+    });
+
+    const outcome = await runAgent(actor, "mark me ready, then undo it", null);
+    expect(outcome.partial).toBeUndefined();
+    expect(outcome.actions).toHaveLength(2);
+    expect(outcome.actions[0]).toMatchObject({ ok: true });
+    expect(outcome.actions[1]).toMatchObject({ ok: false });
+    expect(outcome.actions[1].effect).toContain("Only one mutation");
+    expect(
+      (await room.pool.query("SELECT ready_state FROM participants WHERE id = $1", [actor.id]))
+        .rows[0].ready_state,
+    ).toBe("ready");
   });
 });

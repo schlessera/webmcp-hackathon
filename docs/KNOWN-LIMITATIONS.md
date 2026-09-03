@@ -70,6 +70,11 @@ bounded, honest threat model. We list them rather than hide them.
   Website and Wikidata freshness and errors are independent, and a transient
   provider failure keeps its last good parsed facts while shortening only its
   own retry window.
+- In-page agent turns now have one 60-second deadline, four rounds, valid
+  structurally compacted tool JSON, and one mutation per model round. Every
+  mutation outcome is persisted immediately; a later failure returns those
+  completed actions as an additive partial result and leaves the original
+  composer text available for retry instead of creating a fallback need.
 
 ## Data honesty
 

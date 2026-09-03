@@ -4,6 +4,7 @@ import { SpatialStore } from "../../apps/web/src/spatial-store.ts";
 import { hasRevisionGap } from "../../apps/web/src/ws-client.ts";
 import { RoomBroadcastQueue } from "../../apps/server/src/ws.ts";
 import { RevisionWatermarks } from "../../apps/web/src/revision-watermarks.ts";
+import { serializeToolOutput } from "../../apps/server/src/nl/tool-output.ts";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -88,5 +89,30 @@ describe("ordered realtime delivery", () => {
     expect(hasRevisionGap(4, 5)).toBe(true);
     expect(hasRevisionGap(4, 3)).toBe(true);
     expect(hasRevisionGap(4, undefined)).toBe(false);
+  });
+});
+
+describe("NL tool-result compaction", () => {
+  it("stays valid JSON and reports structural omission within the byte budget", () => {
+    const oversized = {
+      ok: true,
+      candidates: Array.from({ length: 80 }, (_, index) => ({
+        candidateId: `place_${index}`,
+        name: `Place ${index}`,
+        description: "quoted \\\"provider text\\\" ".repeat(80),
+        attributes: Array.from({ length: 20 }, (_unused, attribute) => ({
+          key: `attribute-${attribute}`,
+          status: "unknown",
+        })),
+      })),
+    };
+    const encoded = serializeToolOutput(oversized, 1200);
+    const decoded = JSON.parse(encoded) as {
+      truncated?: boolean;
+      omitted?: { bytes?: number };
+    };
+    expect(Buffer.byteLength(encoded, "utf8")).toBeLessThanOrEqual(1200);
+    expect(decoded.truncated).toBe(true);
+    expect(decoded.omitted?.bytes).toBeGreaterThan(0);
   });
 });

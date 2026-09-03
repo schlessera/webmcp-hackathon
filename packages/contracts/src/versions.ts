@@ -15,7 +15,9 @@
 // the presentation-only `lookups` and `facts` frames. Additive on the wire;
 // bumped because the tool catalog changed. Protocol reliability then added
 // optional sync continuation/result fields and event `fromRevision` without
-// another bump (R1/R10; additive under INTERACTION-AND-BINDING.md §6).
+// another bump (R1/R10; additive under INTERACTION-AND-BINDING.md §6). The
+// page-private NL response later gained optional `partial` and
+// `failureCategory` fields (R7), also additive and outside registered tools.
 export const TOOL_CONTRACT_VERSION = "3";
 
 export const PROTOCOL_VERSIONS = {

@@ -390,6 +390,11 @@ app.post("/api/nl/say", async (req) => {
         intent: routed.intent,
         reply: outcome.reply,
         actions: outcome.actions,
+        // R7: additive page-private fields preserve already committed steps
+        // and tell the composer to retain the person's words for retry.
+        ...(outcome.partial
+          ? { partial: true, failureCategory: outcome.failureCategory }
+          : {}),
         meta: { route: routed.meta, agent: outcome.meta },
       };
     } else {

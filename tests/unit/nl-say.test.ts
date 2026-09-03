@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { say } from "../../apps/server/src/nl/say.ts";
 import { setTransport } from "../../apps/server/src/nl/openai.ts";
+import { shouldPreserveNlText } from "../../apps/web/src/nl-result.ts";
 import type { SpatialContextResult } from "@webmcp-hackathon/contracts";
 
 /**
@@ -118,5 +119,12 @@ describe("say: draft → payloads", () => {
     const out = await say("???", "shared", context);
     expect(out.intent).toBe("unclear");
     expect(out.needs).toEqual([]);
+  });
+
+  it("preserves failed ask/act text for retry instead of creating a fallback need", () => {
+    expect(shouldPreserveNlText({ ok: false, intent: "ask" })).toBe(true);
+    expect(shouldPreserveNlText({ ok: false, intent: "act" })).toBe(true);
+    expect(shouldPreserveNlText({ ok: true, intent: "act", partial: true })).toBe(true);
+    expect(shouldPreserveNlText({ ok: true, intent: "need" })).toBe(false);
   });
 });

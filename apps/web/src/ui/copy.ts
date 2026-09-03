@@ -151,6 +151,7 @@ export const COPY = {
   agentBusy: "your agent is on it",
   agentUnclear: "Say what would rule a place in or out, or ask about the room.",
   agentHolds: "Your agent holds it. The room learns only that a condition exists.",
+  agentRetry: "Your agent could not finish that. Your words are still here so you can try again.",
   startLede:
     "Pick an area. The places come from OpenStreetMap, and what it knows about them differs by city. The room shows that difference instead of hiding it.",
   startUnknown:
