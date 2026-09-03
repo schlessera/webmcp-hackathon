@@ -12,9 +12,11 @@ interface CorpusRow {
   text: string;
   context: string;
   expect: {
-    intent: string;
-    needs: Array<Record<string, unknown>>;
-    clarify: boolean | null;
+    intent?: string;
+    needs: Array<Record<string, unknown>> | string[];
+    clarify?: boolean | null;
+    /** Plan rows only: the step class the goal must land on. */
+    placeClass?: string;
   };
   preparse: "whole" | "partial" | "none";
   tags: string[];
@@ -22,6 +24,10 @@ interface CorpusRow {
 
 const corpusPath = join(dirname(fileURLToPath(import.meta.url)), "..", "fixtures", "nl-corpus.jsonl");
 const corpus = readFileSync(corpusPath, "utf8").trim().split("\n").map((line) => JSON.parse(line) as CorpusRow);
+/** Plan rows are goals for a room that does not exist yet: they go through
+ * /api/plans/preview, not say(), and tests/unit/plan-preview.test.ts drives
+ * them. They still live in the one corpus so the live check reads one file. */
+const sayCorpus = corpus.filter((row) => !row.tags.includes("plan"));
 
 function context(row: CorpusRow): SpatialContextResult {
   const usd = row.context === "usd";
@@ -103,13 +109,14 @@ describe("shared pre-parser corpus", () => {
       "ask-act": 6,
       clarify: 8,
       other: 4,
+      plan: 8,
     };
     for (const [tag, minimum] of Object.entries(minimums)) {
       expect(corpus.filter((row) => row.tags.includes(tag)).length, tag).toBeGreaterThanOrEqual(minimum);
     }
   });
 
-  for (const row of corpus.filter((candidate) => candidate.preparse === "whole")) {
+  for (const row of sayCorpus.filter((candidate) => candidate.preparse === "whole")) {
     it(`${row.id}: maps the whole sentence without transport`, async () => {
       let calls = 0;
       setTransport(async () => {
@@ -119,12 +126,14 @@ describe("shared pre-parser corpus", () => {
       const out = await say(row.text, "shared", context(row), new Date("2026-09-03T10:00:00Z"));
       expect(calls).toBe(0);
       expect(out.intent).toBe(row.expect.intent);
-      expect(out.needs.map((need) => need.payload)).toMatchObject(row.expect.needs);
+      expect(out.needs.map((need) => need.payload)).toMatchObject(
+        row.expect.needs as Array<Record<string, unknown>>,
+      );
       expect(Boolean(out.clarify)).toBe(Boolean(row.expect.clarify));
     });
   }
 
-  for (const row of corpus.filter((candidate) => candidate.preparse === "partial")) {
+  for (const row of sayCorpus.filter((candidate) => candidate.preparse === "partial")) {
     it(`${row.id}: reports consumed spans and leaves the residual words`, () => {
       const parsed = preparse(row.text, { currency: row.context === "usd" ? "USD" : "EUR" });
       expect(parsed.preparsedWhole).toBe(false);
@@ -139,7 +148,7 @@ describe("shared pre-parser corpus", () => {
     });
   }
 
-  for (const row of corpus.filter((candidate) => candidate.preparse === "none")) {
+  for (const row of sayCorpus.filter((candidate) => candidate.preparse === "none")) {
     it(`${row.id}: leaves model-only words for stage A`, () => {
       const parsed = preparse(row.text, { currency: row.context === "usd" ? "USD" : "EUR" });
       expect(parsed.concepts).toEqual([]);
@@ -148,4 +157,54 @@ describe("shared pre-parser corpus", () => {
       expect(parsed.preparsedWhole).toBe(false);
     });
   }
+});
+
+describe("time pre-parser grammar", () => {
+  it.each([
+    ["open tomorrow for lunch", { day: { kind: "tomorrow" }, part: "lunch", clock: null }],
+    ["Friday evening", { day: { kind: "weekday", weekday: 5 }, part: "evening", clock: null }],
+    ["tonight at 7pm", { day: { kind: "today" }, part: "tonight", clock: { hour: 19, minute: 0 } }],
+    ["morgen zum Mittagessen", { day: { kind: "tomorrow" }, part: "lunch", clock: null }],
+    ["Freitagabend", { day: { kind: "weekday", weekday: 5 }, part: "evening", clock: null }],
+    ["Samstagvormittag", { day: { kind: "weekday", weekday: 6 }, part: "morning", clock: null }],
+    ["Sonntagmittag", { day: { kind: "weekday", weekday: 0 }, part: "lunch", clock: null }],
+    ["heute Abend um halb neun", { day: { kind: "today" }, part: "evening", clock: { hour: 8, minute: 30 } }],
+    ["um viertel nach acht", { day: null, part: null, clock: { hour: 8, minute: 15 } }],
+    ["um dreiviertel neun", { day: null, part: null, clock: { hour: 8, minute: 45 } }],
+    ["at eight", { day: null, part: null, clock: { hour: 8, minute: 0 } }],
+    ["around 7", { day: null, part: null, clock: { hour: 7, minute: 0 } }],
+    ["19:30", { day: null, part: null, clock: { hour: 19, minute: 30 } }],
+    ["7.30 pm", { day: null, part: null, clock: { hour: 19, minute: 30 } }],
+    ["open on Tue. for brunch", { day: { kind: "weekday", weekday: 2 }, part: "brunch", clock: null }],
+    ["Donnerstagnachmittag", { day: { kind: "weekday", weekday: 4 }, part: "afternoon", clock: null }],
+    ["heute zum Abendessen", { day: { kind: "today" }, part: "evening", clock: null }],
+    ["spät geöffnet", { day: null, part: "late", clock: null }],
+    ["bis spät", { day: null, part: "late", clock: null }],
+  ] as const)("parses %s as one complete time concept", (text, timeSpec) => {
+    const parsed = preparse(text, { currency: "EUR" });
+    expect(parsed.preparsedWhole).toBe(true);
+    expect(parsed.remainder).toBe("");
+    expect(parsed.concepts).toMatchObject([{ role: "time", timeSpec, phrase: text }]);
+  });
+
+  it("does not read short English or German words as weekday abbreviations", () => {
+    expect(preparse("do you have vegan options?", { currency: "EUR" }).concepts.some((concept) => concept.role === "time")).toBe(false);
+    expect(preparse("so gegen 8", { currency: "EUR" }).concepts).toMatchObject([{ role: "time", timeSpec: { day: null, clock: { hour: 8, minute: 0 } } }]);
+    expect(preparse("Do. abends", { currency: "EUR" }).concepts).toMatchObject([{ role: "time", timeSpec: { day: { kind: "weekday", weekday: 4 }, part: "evening" } }]);
+  });
+
+  it("does not read a price's decimals as a clock", () => {
+    const parsed = preparse("under €7.30", { currency: "EUR" });
+    expect(parsed.concepts.some((concept) => concept.role === "time")).toBe(false);
+    expect(parsed.concepts).toMatchObject([{ role: "money" }]);
+    expect(preparse("um 7.30", { currency: "EUR" }).concepts).toMatchObject([{ role: "time", timeSpec: { clock: { hour: 7, minute: 30 } } }]);
+  });
+
+  it("does not steal durations or unrelated uses of late", () => {
+    expect(preparse("in 5 min", { currency: "EUR" }).concepts).toMatchObject([{ role: "travel_time" }]);
+    expect(preparse("in 5 min", { currency: "EUR" }).concepts.some((concept) => concept.role === "time")).toBe(false);
+    expect(preparse("late fee", { currency: "EUR" }).concepts).toEqual([]);
+    expect(preparse("good morning", { currency: "EUR" }).concepts).toEqual([]);
+    expect(preparse("Guten Morgen", { currency: "EUR" }).concepts).toEqual([]);
+  });
 });

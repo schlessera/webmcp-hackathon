@@ -337,10 +337,49 @@ export interface AreaSummary {
   source: string;
   dataAsOf: string | null;
   coverage: { measuredAt: string; city: AreaCoverage; focus: AreaCoverage; pool: AreaCoverage } | null;
+  /** Server-authored place classes available inside the area's narrow radius. */
+  classes?: StepClassSummary[];
+}
+export interface StepClassSummary {
+  key: string;
+  label: string;
+  count: number;
+}
+export interface ParsedNeed {
+  payload: Record<string, unknown>;
+  label: string;
+  gist: string;
+  topic?: string;
+  assumed?: string;
+}
+export interface PlanClarification {
+  question: string;
+  choices: Array<{ id: string; label: string; needs: ParsedNeed[] }>;
+  allowFreeText: true;
+  said: string;
+}
+export interface PlanPreview {
+  goal: string;
+  offline: boolean;
+  steps: Array<{
+    stepId: "s1";
+    title: string;
+    placeClass: { key: string; label: string };
+    needs: ParsedNeed[];
+    when: { start: string; end: string; phrase: string } | null;
+  }>;
+  classes: StepClassSummary[];
+  clarify: PlanClarification | null;
+  meta: { model: string | null; ms: number };
 }
 export interface CreatedRoom {
   roomId: string;
   areaId: string;
+  goal: string;
+  step: {
+    placeClass: { key: string; label: string };
+    seeded: number;
+  };
   invites: Array<{
     participantId: string;
     displayName: string;
@@ -355,10 +394,35 @@ export async function fetchAreas(): Promise<AreaSummary[]> {
   return ((await response.json()) as { areas: AreaSummary[] }).areas;
 }
 
+/** A best-effort read before a room exists. Any failure is the offline path. */
+export async function previewPlan(
+  input: { areaId: string; goal: string },
+  timeoutMs = 12_000,
+): Promise<PlanPreview | null> {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch("/api/plans/preview", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(input),
+      signal: controller.signal,
+    });
+    if (!response.ok) return null;
+    return (await response.json()) as PlanPreview;
+  } catch {
+    return null;
+  } finally {
+    window.clearTimeout(timeout);
+  }
+}
+
 export async function createRoom(input: {
   areaId: string;
   organizerName: string;
   memberNames: string[];
+  goal?: string;
+  step?: { placeClass: string; needs?: ParsedNeed[] };
 }): Promise<{ ok: true; room: CreatedRoom } | { ok: false; error: string }> {
   try {
     const response = await fetch("/api/rooms", {

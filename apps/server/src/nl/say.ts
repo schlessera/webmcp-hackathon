@@ -5,12 +5,14 @@ import {
   ATTRIBUTE_VOCABULARY,
   HINT_TAXONOMY,
   RequirementPayload,
+  TIME_WINDOW_INSTRUCTIONS,
   areaById,
   preparse,
   type Concept,
   type ConceptRole,
   type Interpretation,
   type SpatialContextResult,
+  type TimePart,
 } from "@webmcp-hackathon/contracts";
 import { config } from "../config.ts";
 import { mapInterpretation, type UnderstandInput } from "./understand/map.ts";
@@ -28,7 +30,7 @@ export interface SayOutcome {
   meta: { model: string | null; ms: number };
 }
 
-interface DraftConcept {
+export interface DraftConcept {
   role: ConceptRole;
   surface: string;
   polarity: "include" | "exclude";
@@ -41,6 +43,10 @@ interface DraftConcept {
   referentName: string | null;
   attributeKey: string | null;
   values: string[];
+  dayRef: "today" | "tomorrow" | "sunday" | "monday" | "tuesday" | "wednesday" | "thursday" | "friday" | "saturday" | null;
+  dayPart: TimePart | null;
+  clockHour: number | null;
+  clockMinute: number | null;
   windowStart: string | null;
   windowEnd: string | null;
   phrase: string | null;
@@ -49,7 +55,7 @@ interface DraftConcept {
   gist: string;
 }
 
-interface Draft {
+export interface Draft {
   intent: "need" | "ask" | "act" | "other";
   confidence: number;
   concepts: DraftConcept[];
@@ -57,7 +63,9 @@ interface Draft {
 }
 
 const NULLABLE_STRING = { type: ["string", "null"] };
-const SCHEMA = {
+/** Stage A's answer shape. The plan stage derives its own from this one
+ * (nl/plan.ts) rather than restating it. */
+export const SCHEMA = {
   type: "object",
   additionalProperties: false,
   required: ["intent", "confidence", "concepts", "reply"],
@@ -74,7 +82,8 @@ const SCHEMA = {
         required: [
           "role", "surface", "polarity", "hardness", "quantityValue", "quantityUnit",
           "quantityBound", "mode", "referentKind", "referentName", "attributeKey", "values",
-          "windowStart", "windowEnd", "phrase", "topic", "unresolved", "gist",
+          "dayRef", "dayPart", "clockHour", "clockMinute", "windowStart", "windowEnd",
+          "phrase", "topic", "unresolved", "gist",
         ],
         properties: {
           role: { enum: ["distance", "travel_time", "money", "time", "attribute", "kind", "quality", "place", "person", "action", "question"] },
@@ -89,6 +98,10 @@ const SCHEMA = {
           referentName: NULLABLE_STRING,
           attributeKey: NULLABLE_STRING,
           values: { type: "array", maxItems: 8, items: { type: "string", maxLength: 60 } },
+          dayRef: { enum: ["today", "tomorrow", "sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", null] },
+          dayPart: { enum: ["morning", "brunch", "lunch", "afternoon", "evening", "tonight", "night", "late", "now", null] },
+          clockHour: { type: ["integer", "null"], minimum: 0, maximum: 23 },
+          clockMinute: { type: ["integer", "null"], minimum: 0, maximum: 59 },
           windowStart: NULLABLE_STRING,
           windowEnd: NULLABLE_STRING,
           phrase: NULLABLE_STRING,
@@ -123,7 +136,7 @@ function localIso(now: Date, timezone: string): string {
   return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:${parts.second}${offset}`;
 }
 
-function modelInstructions(
+export function modelInstructions(
   context: SpatialContextResult,
   input: UnderstandInput,
   preparsed: Concept[],
@@ -159,14 +172,17 @@ function modelInstructions(
     "Examples: what changed? -> intent ask, no concepts; was hat sich geändert? -> intent ask, no concepts; is there anything vegan? -> intent ask with attribute vegan-options; gibt es etwas Veganes? -> intent ask with attribute vegan-options.",
     "Examples: put Café Einstein forward -> intent act, place Café Einstein; schlag Café Einstein vor -> intent act, place Café Einstein; hello there -> intent other, no concepts.",
     `Area timezone: ${input.room.timezone}. Current local date/time: ${localIso(input.room.now, input.room.timezone)}.`,
-    "Time windows: lunch 12:00-14:00; dinner/evening 18:00-21:00; brunch 10:00-13:00; tonight 18:00-23:00; open late 22:00-02:00 next day; at a clock time spans one hour either side; open now spans two hours.",
-    "Time endpoints must be ISO-8601 with the area's numeric offset. Copy the exact time words into phrase.",
+    `Time words and their deterministic windows: ${TIME_WINDOW_INSTRUCTIONS}.`,
+    "For a time concept, copy the words into phrase and fill dayRef, dayPart, clockHour and clockMinute. Map dinner to dayPart evening. Use null for pieces not said.",
+    "Never calculate dates or offsets. Leave windowStart and windowEnd null unless the person gave an explicit calendar date such as on the 12th or am 12. September; only that legacy case may use ISO-8601 endpoints with the area's numeric offset.",
     "Polarity is exclude for no/not/without/avoid/kein/nicht/ohne. Hardness is soft for ideally/preferably/if possible/am liebsten/idealerweise/wenn möglich/wäre schön.",
     "surface is exact source words. gist is at most six lowercase words. Output only JSON.",
   ].join("\n");
 }
 
-function conceptFromDraft(draft: DraftConcept): Concept {
+export function conceptFromDraft(draft: DraftConcept): Concept {
+  const weekdays = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"] as const;
+  const weekday = draft.dayRef ? weekdays.indexOf(draft.dayRef as typeof weekdays[number]) : -1;
   return {
     role: draft.role,
     surface: draft.surface,
@@ -180,6 +196,17 @@ function conceptFromDraft(draft: DraftConcept): Concept {
     attributeKey: draft.attributeKey,
     values: draft.values,
     window: draft.windowStart && draft.windowEnd ? { start: draft.windowStart, end: draft.windowEnd } : null,
+    timeSpec: draft.role === "time" ? {
+      day: draft.dayRef === "today" || draft.dayRef === "tomorrow"
+        ? { kind: draft.dayRef }
+        : weekday >= 0
+          ? { kind: "weekday", weekday: weekday as 0 | 1 | 2 | 3 | 4 | 5 | 6 }
+          : null,
+      part: draft.dayPart ?? null,
+      clock: draft.clockHour != null && draft.clockMinute != null
+        ? { hour: draft.clockHour, minute: draft.clockMinute }
+        : null,
+    } : null,
     phrase: draft.phrase,
     topic: draft.topic,
     unresolved: draft.unresolved,

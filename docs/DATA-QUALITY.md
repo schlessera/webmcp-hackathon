@@ -336,6 +336,28 @@ The privacy property the 2026-09-01 notes insist on holds trivially: no
 request leaves the process. A room is seeded from the snapshot at creation
 (`POST /api/rooms`); nothing is fetched at read time.
 
+### What enters a room's pool (2026-09-03)
+
+A room is opened from a goal, and its **step class** decides which snapshot
+place classes may enter its pool — seeding, background filling and top-up all
+read the same list (`packages/contracts/src/step-classes.ts`, applied by
+`places.ts roomPoolClasses`). The class is recorded as the room's
+`scope.category`; `food` is the default and its members are exactly the six
+classes every room pooled before goals existed, so a room created without a
+step is seeded from the same venues it always was. A category the table does
+not know falls back to the area's own `placeClasses`.
+
+`area.placeClasses` still governs the explore layer and any older reader. The
+snapshot itself is unchanged: it already carries every named class, so no
+rebuild was needed to open a room about a park or a cinema.
+
+`GET /api/areas` reports, per area, each step class with at least one snapshot
+venue inside the narrow radius and how many there are — measured from the
+snapshot at load, not typed. Berlin Mitte has one cinema inside 800 m of its
+centre, so a cinema room there opens with a very small pool until someone
+widens the scope; that is honest, and the number is on screen before the room
+is opened.
+
 ### What "live" means here, honestly
 
 OpenStreetMap has no real-time data. The snapshot carries the Geofabrik

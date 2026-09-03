@@ -5,12 +5,18 @@ import {
   PLACE_CLASSES,
   POOL_CAP,
   POOL_PER_RING,
+  STEP_CLASSES,
   areaById,
+  defaultStepClass,
   dossierFromTags,
   isDecisive,
   placeClassFromTags,
+  stepClassByKey,
+  stepClassFor,
+  unknownStepClassMembers,
 } from "../../packages/contracts/src/index.ts";
 import {
+  areaClassCounts,
   areaSummaries,
   candidatesForRefs,
   candidatesFor,
@@ -18,6 +24,7 @@ import {
   fillPlan,
   loadSnapshot,
   POOL_SEED_SIZE,
+  roomPoolClasses,
   seedFor,
   seedsForVenues,
   topUp,
@@ -276,5 +283,65 @@ describe("area summaries", () => {
   });
   it("unknown ids resolve to nothing", () => {
     expect(areaById("nowhere")).toBeUndefined();
+  });
+});
+
+/**
+ * Step classes (UNDERSTANDING-ARCH.md §10, D1): what a room is about decides
+ * what may enter its pool. The table is data, and `food` must stay exactly
+ * the six classes every room pooled before goals existed.
+ */
+describe("step classes", () => {
+  it("names only place classes a snapshot can hold", () => {
+    expect(unknownStepClassMembers()).toEqual([]);
+    for (const stepClass of STEP_CLASSES) {
+      expect(stepClass.key).toMatch(/^[a-z]+$/);
+      expect(stepClass.label.length).toBeGreaterThan(0);
+      expect(stepClass.members.length).toBeGreaterThan(0);
+    }
+    expect(new Set(STEP_CLASSES.map((row) => row.key)).size).toBe(STEP_CLASSES.length);
+  });
+
+  it("keeps the default class equal to the area's own room classes", () => {
+    for (const area of AREAS) {
+      expect([...defaultStepClass().members].sort()).toEqual([...area.placeClasses].sort());
+      expect(roomPoolClasses(area)).toEqual(area.placeClasses);
+      expect(roomPoolClasses(area, "food")).toEqual(defaultStepClass().members);
+      // An unknown category never empties a pool; it keeps the area's list.
+      expect(roomPoolClasses(area, "spaceport")).toEqual(area.placeClasses);
+    }
+  });
+
+  it("finds the first class a place class belongs to", () => {
+    expect(stepClassFor("cinema")?.key).toBe("cinema");
+    expect(stepClassFor("restaurant")?.key).toBe("food");
+    // Overlap is by design and resolves in table order.
+    expect(stepClassFor("bar")?.key).toBe("food");
+    expect(stepClassFor("nowhere")).toBeUndefined();
+  });
+});
+
+describe.each(AREAS.map((a) => [a.id, a] as const))("step-class pool %s", (_id, area) => {
+  it("seeds only places of the step's classes", () => {
+    const cinema = stepClassByKey("cinema")!;
+    const seed = seedFor(area, area.center, area.radii.max, cinema.members);
+    expect(seed.length).toBeGreaterThan(0);
+    for (const venue of seed) {
+      expect(venue.placeClass ?? placeClassFromTags(venue.tags)).toBe("cinema");
+    }
+    const set = candidatesFor("room_cinema01", area, area.center, cinema.members)!;
+    for (const candidate of set.candidates) expect(candidate.category).toBe("cinema");
+  });
+
+  it("reports every class it can seed, and only classes with places", () => {
+    const counts = areaClassCounts(area.id);
+    expect(counts.length).toBeGreaterThan(1);
+    for (const row of counts) {
+      expect(stepClassByKey(row.key)!.label).toBe(row.label);
+      const seed = seedFor(area, area.center, area.radii.narrow, stepClassByKey(row.key)!.members);
+      expect(row.count).toBeGreaterThan(0);
+      expect(seed.length).toBe(Math.min(row.count, POOL_SEED_SIZE));
+    }
+    expect(areaSummaries().find((row) => row.id === area.id)!.classes).toEqual(counts);
   });
 });

@@ -6,7 +6,7 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-import type { ProjectedEvent } from "@webmcp-hackathon/contracts";
+import { areaById, type ProjectedEvent } from "@webmcp-hackathon/contracts";
 import { newIdempotencyKey, submitCommand, syncSession } from "./api.ts";
 import {
   clearSession,
@@ -854,7 +854,7 @@ export function App() {
       )}
 
       <Header
-        title={settled && committedId ? candidateName(committedId) : null}
+        title={settled && committedId ? candidateName(committedId) : context?.goal ?? null}
         subtitle={subtitle}
         participants={participants}
         meId={id.participantId}
@@ -1019,6 +1019,7 @@ export function App() {
               activeNeeds={activeNeeds}
               placeCount={context?.total ?? 0}
               hasOwnOrigin={Boolean(me?.origin)}
+              timezone={areaById(context?.area?.areaId ?? "")?.timezone ?? "UTC"}
               disabled={!context}
               run={run}
             />

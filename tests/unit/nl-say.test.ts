@@ -39,6 +39,10 @@ const draftConcept = (overrides: Record<string, unknown>) => ({
   referentName: null,
   attributeKey: null,
   values: [],
+  dayRef: null,
+  dayPart: null,
+  clockHour: null,
+  clockMinute: null,
   windowStart: null,
   windowEnd: null,
   phrase: null,
@@ -232,22 +236,40 @@ describe("say orchestration", () => {
     expect(request?.instructions).toContain("Never write 0 to mean there is no amount");
   });
 
-  it("validates absolute time windows and rejects offset-free ones", async () => {
+  it("maps a model-only structured time draft without model date arithmetic", async () => {
+    let request: Record<string, unknown> | undefined;
     scripted({
       intent: "need", confidence: 1, reply: null,
       concepts: [draftConcept({
-        role: "time", surface: "tomorrow for lunch", phrase: "tomorrow for lunch", gist: "tomorrow lunch",
-        windowStart: "2026-09-04T12:00:00+02:00", windowEnd: "2026-09-04T14:00:00+02:00", topic: "time",
+        role: "time", surface: "after the keynote", phrase: "after the keynote", gist: "after keynote",
+        dayRef: "tomorrow", dayPart: "lunch", topic: "time",
+      })],
+    }, (body) => { request = body; });
+    const out = await say("after the keynote", "shared", context, new Date("2026-09-03T08:15:30Z"));
+    expect(out.needs[0].payload).toEqual({
+      kind: "time",
+      phrase: "after the keynote",
+      window: { start: "2026-09-04T12:00:00+02:00", end: "2026-09-04T14:00:00+02:00" },
+    });
+    expect(request?.instructions).toContain("Never calculate dates or offsets");
+    expect(request?.instructions).toContain("dayRef, dayPart, clockHour and clockMinute");
+  });
+
+  it("keeps raw model windows only for explicit calendar dates", async () => {
+    scripted({
+      intent: "need", confidence: 1, reply: null,
+      concepts: [draftConcept({
+        role: "time", surface: "on the 12th", phrase: "on the 12th", gist: "on the 12th",
+        windowStart: "2026-09-12T09:00:00+02:00", windowEnd: "2026-09-12T23:00:00+02:00",
       })],
     });
-    const out = await say("open tomorrow for lunch", "shared", context, new Date("2026-09-03T08:15:30Z"));
-    expect(out.needs[0].payload).toMatchObject({ kind: "time", phrase: "tomorrow for lunch" });
+    expect((await say("on the 12th", "shared", context)).needs[0].payload).toMatchObject({ kind: "time" });
 
     scripted({
       intent: "need", confidence: 1, reply: null,
-      concepts: [draftConcept({ role: "time", surface: "tomorrow", windowStart: "tomorrow", windowEnd: "later", gist: "tomorrow" })],
+      concepts: [draftConcept({ role: "time", surface: "sometime soon", windowStart: "tomorrow", windowEnd: "later", gist: "soon" })],
     });
-    expect((await say("tomorrow", "shared", context)).intent).toBe("unclear");
+    expect((await say("sometime soon", "shared", context)).intent).toBe("unclear");
   });
 
   it("returns facet-built suggestions for valid off-topic input", async () => {

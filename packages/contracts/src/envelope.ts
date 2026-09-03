@@ -382,6 +382,9 @@ export interface SpatialContextResult {
   ok: true;
   revision: number;
   phase: string;
+  /** The room's goal, verbatim as the organizer typed it. Optional so older
+   * servers keep the same contract. */
+  goal?: string;
   scope: ScopeView | null;
   area?: AreaView;
   pool?: PoolView;
