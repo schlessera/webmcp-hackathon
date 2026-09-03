@@ -32,6 +32,16 @@ export interface CommonsImageCandidate {
   credit?: string;
 }
 
+interface CommonsPage {
+  title?: unknown;
+  categories?: Array<{ title?: unknown }>;
+  imageinfo?: Array<{
+    url?: unknown;
+    descriptionurl?: unknown;
+    extmetadata?: Record<string, { value?: unknown }>;
+  }>;
+}
+
 const UA =
   "spokes-enrich/0.1 (+https://github.com/schlessera/webmcp-hackathon; alain.schlesser@gmail.com)";
 const TIMEOUT_MS = 8000;
@@ -127,6 +137,113 @@ export function parseCommonsImageInfo(
     license: license.slice(0, 80),
     ...(credit ? { credit: credit.slice(0, 180) } : {}),
   };
+}
+
+const COMMON_PLACE_WORDS = new Set([
+  "a", "an", "and", "bar", "cafe", "coffee", "das", "de", "der", "die",
+  "ein", "eine", "gaststatte", "haus", "hotel", "im", "inn", "la", "le",
+  "of", "pub", "restaurant", "the", "und", "venue", "zum", "zur",
+]);
+
+export function normalizeCommonsName(value: string): string {
+  return value
+    .normalize("NFKD")
+    .replace(/\p{M}/gu, "")
+    .toLocaleLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+/** A nearby file is curated only when its title/category names this place.
+ * Require every non-generic name token; a shared word such as "cafe" alone
+ * is never evidence that the photographer meant this POI. */
+export function commonsGeosearchNameMatches(
+  placeName: string,
+  title: string,
+  categories: string[] = [],
+): boolean {
+  const wanted = normalizeCommonsName(placeName)
+    .split(" ")
+    .filter((token) => token.length >= 3 && !COMMON_PLACE_WORDS.has(token));
+  if (wanted.length === 0) return false;
+  return [title, ...categories].some((value) => {
+    const words = new Set(normalizeCommonsName(value.replace(/^Category:|^File:/i, "")).split(" "));
+    return wanted.every((token) => words.has(token));
+  });
+}
+
+/** Pure parser for the second geosearch request: name gate first, then the
+ * existing CC licence/credit parser. */
+export function parseCommonsGeosearchImageInfo(
+  doc: unknown,
+  placeName: string,
+): CommonsImageCandidate[] {
+  const pages = (doc as { query?: { pages?: CommonsPage[] | Record<string, CommonsPage> } })
+    ?.query?.pages;
+  if (!pages) return [];
+  const out: CommonsImageCandidate[] = [];
+  for (const page of Object.values(pages)) {
+    const title = typeof page.title === "string" ? page.title : "";
+    const categories = (page.categories ?? []).flatMap((category) =>
+      typeof category.title === "string" ? [category.title] : []
+    );
+    if (!commonsGeosearchNameMatches(placeName, title, categories)) continue;
+    const candidate = parseCommonsImageInfo(
+      { query: { pages: [page] } },
+      "commons:geosearch",
+    );
+    if (candidate) out.push(candidate);
+  }
+  return out;
+}
+
+/** Commons files within 40 m, followed by metadata/category resolution. The
+ * radius alone is never enough: `parseCommonsGeosearchImageInfo` must tie the
+ * file name or a category to the place name. */
+export async function geosearchCommonsImages(
+  placeName: string,
+  location: { lat: number; lng: number },
+  fetchImpl: FetchLike = fetch,
+): Promise<CommonsImageCandidate[]> {
+  const api = new URL("https://commons.wikimedia.org/w/api.php");
+  api.searchParams.set("action", "query");
+  api.searchParams.set("format", "json");
+  api.searchParams.set("formatversion", "2");
+  api.searchParams.set("list", "geosearch");
+  api.searchParams.set("gsnamespace", "6");
+  api.searchParams.set("gscoord", `${location.lat}|${location.lng}`);
+  api.searchParams.set("gsradius", "40");
+  api.searchParams.set("gslimit", "10");
+  try {
+    const response = await fetchImpl(api.toString(), {
+      headers: { "user-agent": UA, accept: "application/json" },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!response.ok) return [];
+    const hits = (await response.json() as {
+      query?: { geosearch?: Array<{ title?: unknown }> };
+    }).query?.geosearch ?? [];
+    const titles = hits.flatMap((hit) => typeof hit.title === "string" ? [hit.title] : []);
+    if (titles.length === 0) return [];
+
+    const metadataApi = new URL("https://commons.wikimedia.org/w/api.php");
+    metadataApi.searchParams.set("action", "query");
+    metadataApi.searchParams.set("format", "json");
+    metadataApi.searchParams.set("formatversion", "2");
+    metadataApi.searchParams.set("prop", "imageinfo|categories");
+    metadataApi.searchParams.set("iiprop", "url|extmetadata");
+    metadataApi.searchParams.set("cllimit", "max");
+    metadataApi.searchParams.set("titles", titles.join("|"));
+    const metadataResponse = await fetchImpl(metadataApi.toString(), {
+      headers: { "user-agent": UA, accept: "application/json" },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!metadataResponse.ok) return [];
+    return parseCommonsGeosearchImageInfo(await metadataResponse.json(), placeName);
+  } catch {
+    return [];
+  }
 }
 
 export async function resolveCommonsImage(

@@ -302,6 +302,7 @@ export const COPY = {
   recordRead: "what the record says",
   photoFromPlaceSite: "from the place's site ↗",
   photoFromOpenStreetMap: "photo · from OpenStreetMap ↗",
+  photoNearPlace: (credit: string) => `photo near this place · ${credit} ↗`,
   photoCredit: (credit: string, license: string) => `photo · ${credit} · ${license} ↗`,
   pendingAgentOnly: "a condition your agent holds",
   agentUnclear: "Say what would rule a place in or out, or ask about the room.",

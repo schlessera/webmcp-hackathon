@@ -367,7 +367,7 @@ export async function inspectCandidates(
   if (!roomExists) return notFound();
   const lookupRows = (
     await pool.query(
-      "SELECT id, osm_ref, extras FROM candidates WHERE room_id = $1 AND id = ANY($2)",
+      "SELECT id, osm_ref, name, location, extras FROM candidates WHERE room_id = $1 AND id = ANY($2)",
       [actor.roomId, candidateIds],
     )
   ).rows;
@@ -386,7 +386,7 @@ export async function inspectCandidates(
   const targets = lookupRows
     .map((row) => {
       const target = lookupTargetOf(
-        row as { osm_ref: string | null; extras: Record<string, unknown> | null },
+        row as { osm_ref: string | null; name: string; location: { lat: number; lng: number }; extras: Record<string, unknown> | null },
       );
       return target ? { candidateId: row.id as string, ...target } : null;
     })
@@ -611,7 +611,7 @@ export async function lookUpPlaces(
 ): Promise<InspectCandidatesResponse> {
   const rows = (
     await pool.query(
-      "SELECT id, osm_ref, extras FROM candidates WHERE room_id = $1 AND id = ANY($2)",
+      "SELECT id, osm_ref, name, location, extras FROM candidates WHERE room_id = $1 AND id = ANY($2)",
       [actor.roomId, candidateIds],
     )
   ).rows;
