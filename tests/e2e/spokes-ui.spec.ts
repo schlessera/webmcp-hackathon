@@ -32,7 +32,7 @@ type Candidate = {
   name: string;
   location: { lat: number; lng: number };
   category: string;
-  eligibility: "eligible" | "uncertain" | "excluded";
+  eligibility: "eligible" | "likely" | "uncertain" | "unlikely" | "excluded";
   why: string;
   walkMin: number;
   priceLevel: number | null;
@@ -133,6 +133,28 @@ function haversineMeters(
     Math.sin(dLat / 2) ** 2 +
     Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(dLng / 2) ** 2;
   return 6371000 * 2 * Math.asin(Math.sqrt(h));
+}
+
+function candidateAtMeters(
+  candidateId: string,
+  x: number,
+  y: number,
+  eligibility: Candidate["eligibility"],
+): Candidate {
+  return {
+    candidateId,
+    ref: `node/${candidateId}`,
+    name: candidateId,
+    category: "place",
+    location: {
+      lat: center.lat + y / 111_320,
+      lng: center.lng + x / (111_320 * Math.cos((center.lat * Math.PI) / 180)),
+    },
+    eligibility,
+    why: eligibility === "eligible" ? "meets all evaluable requirements" : "not confirmed",
+    walkMin: Math.max(1, Math.round(Math.hypot(x, y) / 75)),
+    priceLevel: null,
+  };
 }
 
 function fixture(options: {
@@ -1385,6 +1407,183 @@ test("a fresh whole-area pool stays fixed, caps DOM stickers, and leaves every G
   await browserContext.close();
 });
 
+test("name-card slots follow eligibility tiers before uncertainty", async ({ browser }) => {
+  const browserContext = await browser.newContext({
+    viewport: { width: 1600, height: 1000 },
+    reducedMotion: "reduce",
+  });
+  const page = await browserContext.newPage();
+  const context = fixture({ radiusM: 800, matching: 0 });
+  const xs = [-700, -420, -140, 140, 420, 700];
+  const ys = [-360, 0, 360];
+  const eligible = ys.flatMap((y, row) =>
+    xs.map((x, column) => {
+      const candidate = candidateAtMeters(
+        `tier-eligible-${row}-${column}`,
+        x,
+        y,
+        "eligible",
+      );
+      candidate.name = `E${row}${column}`;
+      return candidate;
+    }),
+  );
+  const unsure = candidateAtMeters("tier-unsure", 0, 650, "uncertain");
+  unsure.name = "Unsure";
+  context.candidates = [...eligible, unsure];
+  context.total = context.candidates.length;
+  context.matching = eligible.length;
+  context.feasibility = {
+    state: "feasible",
+    eligible: eligible.length,
+    uncertain: 1,
+    excluded: 0,
+  };
+  await mockApi(page, { context, outstanding: [] });
+  await page.goto(`${BASE}/#invite=deadbeef`);
+  await expect(page.getByTestId("map-region")).toHaveAttribute("data-loaded", "true", {
+    timeout: 20_000,
+  });
+
+  await expect
+    .poll(() => page.locator('[data-testid^="pin-tier-eligible-"][data-named="true"]').count())
+    .toBe(18);
+  await expect(page.getByTestId("pin-tier-unsure")).toHaveAttribute("data-named", "false");
+  // A place that wins no slot loses its card onto its own dot: the box
+  // collapses about the anchor and the dot itself does not move (§8).
+  const yielded = await page.getByTestId("pin-tier-unsure").evaluate((marker) => {
+    const box = marker.querySelector<HTMLElement>(".sticker-box")!;
+    const style = getComputedStyle(box);
+    const markerRect = marker.getBoundingClientRect();
+    const dotRect = marker.querySelector<HTMLElement>(".marker-dot")!.getBoundingClientRect();
+    return {
+      scale: style.scale,
+      opacity: getComputedStyle(marker.querySelector<HTMLElement>(".marker-sticker")!).opacity,
+      dx: Math.abs(dotRect.left + dotRect.width / 2 - (markerRect.left + markerRect.width / 2)),
+      dy: Math.abs(dotRect.top + dotRect.height / 2 - (markerRect.top + markerRect.height / 2)),
+    };
+  });
+  expect(Number.parseFloat(yielded.scale)).toBeCloseTo(0.3, 5);
+  expect(yielded.opacity).toBe("0");
+  expect(yielded.dx).toBeLessThanOrEqual(1);
+  expect(yielded.dy).toBeLessThanOrEqual(1);
+  await browserContext.close();
+});
+
+test("mirrored name cards stay inside the band and keep every dot on its marker", async ({ browser }) => {
+  const browserContext = await browser.newContext({
+    viewport: { width: 480, height: 900 },
+    reducedMotion: "no-preference",
+  });
+  const page = await browserContext.newPage();
+  const context = fixture({ radiusM: 800, matching: 0 });
+  const right = candidateAtMeters("anchor-right", 700, 0, "eligible");
+  const left = candidateAtMeters("anchor-left", -700, 0, "eligible");
+  const middle = candidateAtMeters("anchor-middle", 0, -300, "eligible");
+  const standingVeto = candidateAtMeters("anchor-standing-veto", 0, 300, "excluded");
+  const terminalVeto = candidateAtMeters("anchor-terminal-veto", 250, 500, "excluded");
+  const outside = candidateAtMeters("anchor-outside", 810, 0, "eligible");
+  right.name = "Right";
+  left.name = "Left";
+  middle.name = "Middle";
+  standingVeto.name = "Standing";
+  terminalVeto.name = "Terminal";
+  outside.name = "Outside";
+  context.candidates = [right, left, middle, standingVeto, terminalVeto, outside];
+  context.total = context.candidates.length - 1;
+  context.matching = 3;
+  context.feasibility = { state: "feasible", eligible: 3, uncertain: 0, excluded: 2 };
+  context.proposals = [
+    {
+      proposalId: "standing-veto",
+      candidateId: standingVeto.candidateId,
+      status: "open",
+      stances: [{ participantId: "p_org", stance: "veto" }],
+      vetoStands: true,
+    },
+    {
+      proposalId: "terminal-veto",
+      candidateId: terminalVeto.candidateId,
+      status: "vetoed",
+      stances: [{ participantId: "p_org", stance: "veto" }],
+      vetoStands: true,
+    },
+    {
+      proposalId: "outside-proposal",
+      candidateId: outside.candidateId,
+      status: "open",
+      stances: [{ participantId: "p_org", stance: "accept" }],
+      vetoStands: false,
+    },
+  ];
+  await mockApi(page, { context, outstanding: [] });
+  await page.goto(`${BASE}/#invite=deadbeef`);
+  await expect(page.getByTestId("map-region")).toHaveAttribute("data-loaded", "true", {
+    timeout: 20_000,
+  });
+
+  const rightPin = page.getByTestId("pin-anchor-right");
+  await expect(rightPin).toHaveAttribute("data-named", "true");
+  await expect(rightPin.locator(".marker-sticker")).toHaveAttribute("data-side", "right");
+  await expect(page.getByTestId("pin-anchor-standing-veto")).toHaveAttribute(
+    "data-named",
+    "true",
+  );
+  await expect(page.getByTestId("pin-anchor-terminal-veto")).toHaveAttribute(
+    "data-named",
+    "false",
+  );
+  await expect(page.getByTestId("pin-anchor-outside")).toHaveAttribute("data-named", "false");
+
+  const measure = () =>
+    page.evaluate(() => {
+      const map = document.querySelector('[data-testid="map-region"]')!.getBoundingClientRect();
+      const cards = [...document.querySelectorAll<HTMLElement>('[data-named="true"]')].map(
+        (marker) => {
+          const markerRect = marker.getBoundingClientRect();
+          const wrapper = marker.querySelector<HTMLElement>(".marker-sticker")!;
+          const dotRect = marker.querySelector<HTMLElement>(".sticker-dot")!.getBoundingClientRect();
+          const cardRect = marker.querySelector<HTMLElement>(".sticker-box")!.getBoundingClientRect();
+          const markerX = markerRect.left + markerRect.width / 2;
+          const markerY = markerRect.top + markerRect.height / 2;
+          return {
+            id: marker.dataset.testid,
+            side: wrapper.dataset.side,
+            dx: Math.abs(dotRect.left + dotRect.width / 2 - markerX),
+            dy: Math.abs(dotRect.top + dotRect.height / 2 - markerY),
+            distanceFromRight: map.right - markerX,
+            inside: cardRect.left >= map.left - 1 && cardRect.right <= map.right + 1,
+          };
+        },
+      );
+      return cards;
+    });
+
+  let cards = await measure();
+  expect(new Set(cards.map((card) => card.side))).toEqual(new Set(["left", "right"]));
+  expect(cards.filter((card) => card.dx > 1 || card.dy > 1)).toEqual([]);
+  const nearRight = cards.find((card) => card.id === "pin-anchor-right");
+  expect(nearRight?.distanceFromRight).toBeLessThanOrEqual(120);
+  expect(nearRight?.side).toBe("right");
+  expect(nearRight?.inside).toBe(true);
+
+  await rightPin.press("Enter");
+  await expect(rightPin).toHaveAttribute("data-state", "selected");
+  cards = await measure();
+  const selected = cards.find((card) => card.id === "pin-anchor-right");
+  expect(selected?.dx).toBeLessThanOrEqual(1);
+  expect(selected?.dy).toBeLessThanOrEqual(1);
+  expect(selected?.side).toBe("right");
+  expect(selected?.inside).toBe(true);
+  const selectedMotion = await rightPin.locator(".sticker-box").evaluate((element) => {
+    const style = getComputedStyle(element);
+    return { name: style.animationName, duration: style.animationDuration };
+  });
+  expect(selectedMotion.name).toBe("spoke-pop");
+  expect(Number.parseFloat(selectedMotion.duration)).toBeGreaterThan(0);
+  await browserContext.close();
+});
+
 test("a need said is pending until the room settles it, and busy rings mark places being looked up", async ({ page }) => {
   const audit: string[] = [];
   const state: MockState = {
@@ -1406,6 +1605,10 @@ test("a need said is pending until the room settles it, and busy rings mark plac
           ownerId: "p_org",
         });
         applyEligibility(current.context, DEFAULT_UNCERTAIN_IDS.slice(0, 2), []);
+        const unlikely = current.context.candidates.find(
+          (candidate) => candidate.candidateId === "place_3",
+        );
+        if (unlikely) unlikely.eligibility = "unlikely";
       }
       return {
         ok: true,
@@ -1487,6 +1690,13 @@ test("a need said is pending until the room settles it, and busy rings mark plac
   await expect(page.getByTestId("count-busy")).toHaveCount(0);
   await expect(row).not.toHaveAttribute("data-pending", "true");
   await expect(row).toContainText("−2");
+  await expect(
+    page.locator('[data-testid^="pin-"][data-state="out"][data-named="true"]'),
+  ).toHaveCount(0);
+  await expect(
+    page.locator('[data-testid^="pin-"][data-state="unlikely"][data-named="true"]'),
+  ).toHaveCount(0);
+  await expect(page.getByTestId("pin-place_3")).toHaveAttribute("data-named", "false");
   await expect(page.getByTestId("brief")).not.toHaveAttribute("aria-busy", "true");
   await expect(page.locator("#brief-preview-count")).not.toHaveAttribute("aria-busy", "true");
   await expect(page.getByTestId("map-region")).not.toHaveAttribute("aria-busy", "true");

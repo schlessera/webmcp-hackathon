@@ -205,6 +205,10 @@ function circlePolygon(center: { lat: number; lng: number }, radiusM: number) {
  */
 const NAME_CAP = 18;
 const NAME_FLOOR = 6;
+/* The distance from the card edge to its dot centre. CSS receives this as a
+   custom property, so placement maths, positioning and transform origins all
+   use the same anchor. State-specific padding keeps every dot on this value. */
+const STICKER_ANCHOR_PX = 14;
 /* The collision box is the drawn card plus the height its ±3° tilt adds, so
    two accepted names can sit shoulder to shoulder but never on top of each
    other. Widths are estimated rather than measured: measuring would need the
@@ -484,6 +488,20 @@ export function MapView({
     return map;
   }, [proposals]);
 
+  /* Only open and staged proposals remain on the table. An open proposal may
+     carry a standing veto and still qualify; a terminal veto or withdrawal
+     keeps its marker vocabulary but falls back to ordinary eligibility for
+     whether it may carry a name. */
+  const proposalOnTable = useMemo(() => {
+    const ids = new Set<string>();
+    for (const proposal of proposals) {
+      if (proposal.status === "open" || proposal.status === "staged") {
+        ids.add(proposal.candidateId);
+      }
+    }
+    return ids;
+  }, [proposals]);
+
   /* Peers with this place open, in roster order, never the viewer. */
   const viewersOf = useMemo(() => {
     const map = new globalThis.Map<string, Array<{ p: ParticipantSummary; index: number }>>();
@@ -642,38 +660,40 @@ export function MapView({
   const named = useMemo(() => {
     const map = mapRef.current;
     const placements = new globalThis.Map<string, "left" | "right">();
-    // A place someone acted on always keeps its name, wherever it sits; a
-    // place someone is looking at comes next.
-    const priority = (c: CandidateSummary) => {
-      if (c.candidateId === selectedId || c.candidateId === committedId) return 0;
-      if (proposalByCandidate.has(c.candidateId)) return 1;
-      if (viewersOf.has(c.candidateId)) return 2;
-      return 3;
+    const previewById = new globalThis.Map(
+      (preview?.candidates ?? []).map((candidate) => [candidate.candidateId, candidate]),
+    );
+    /* Name cards are for valid options only. Places actively on the table
+       share tier zero, then confirmed eligibility, likely evidence, and only
+       then uncertainty. Terminal proposals fall through to their eligibility. */
+    const tierOf = (candidate: CandidateSummary): number | null => {
+      if (distanceMeters(center, candidate.location) > scope.area.radiusM + 1) return null;
+      if (
+        candidate.candidateId === selectedId ||
+        candidate.candidateId === committedId ||
+        proposalOnTable.has(candidate.candidateId) ||
+        viewersOf.has(candidate.candidateId)
+      ) {
+        return 0;
+      }
+      const eligibility = previewById.get(candidate.candidateId)?.eligibility ?? candidate.eligibility;
+      if (eligibility === "eligible") return 1;
+      if (eligibility === "likely") return 2;
+      if (eligibility === "uncertain") return 3;
+      return null;
     };
-    const candidatesByPriority = domCandidates
-      .filter((candidate) => {
-        const state = stateOf(candidate);
-        return (
-          candidate.candidateId === selectedId ||
-          candidate.candidateId === committedId ||
-          proposalByCandidate.has(candidate.candidateId) ||
-          viewersOf.has(candidate.candidateId) ||
-          state === "return" ||
-          state === "works" ||
-          state === "likely" ||
-          state === "unsure"
-        );
-      })
+    const candidatesByTier = domCandidates
+      .filter((candidate) => tierOf(candidate) !== null)
       .sort(
         (a, b) =>
-          priority(a) - priority(b) ||
+          tierOf(a)! - tierOf(b)! ||
           a.walkMin - b.walkMin ||
           (a.ref ?? a.candidateId).localeCompare(b.ref ?? b.candidateId),
       );
 
     if (!map) {
-      for (const c of candidatesByPriority.slice(0, NAME_CAP)) {
-        placements.set(c.candidateId, "right");
+      for (const c of candidatesByTier.slice(0, NAME_CAP)) {
+        placements.set(c.candidateId, "left");
       }
       return placements;
     }
@@ -695,8 +715,8 @@ export function MapView({
     // instead of spending every name on the nearest dense block.
     const points = new globalThis.Map(dots.map((dot) => [dot.id, dot]));
     const ordered: CandidateSummary[] = [];
-    for (let rank = 0; rank <= 3; rank += 1) {
-      const remaining = candidatesByPriority.filter((candidate) => priority(candidate) === rank);
+    for (let tier = 0; tier <= 3; tier += 1) {
+      const remaining = candidatesByTier.filter((candidate) => tierOf(candidate) === tier);
       while (remaining.length > 0) {
         let bestIndex = 0;
         let bestDistance = -1;
@@ -729,9 +749,12 @@ export function MapView({
       const point = own;
       const w = stickerWidth(c.name, true) * STICKER_SLACK;
       const preferred: Array<"left" | "right"> =
-        point.x + w - 13 > width ? ["left", "right"] : ["right", "left"];
+        point.x + w - STICKER_ANCHOR_PX > width ? ["right", "left"] : ["left", "right"];
       for (const side of preferred) {
-        const left = side === "right" ? point.x - 13 : point.x + 13 - w;
+        const left =
+          side === "left"
+            ? point.x - STICKER_ANCHOR_PX
+            : point.x + STICKER_ANCHOR_PX - w;
         if (left < 4 || left + w > width - 4) continue;
         const collides = placed.some(
           (p) =>
@@ -742,7 +765,13 @@ export function MapView({
         if (collides) continue;
         const buries =
           protectDots &&
-          priority(c) > 1 &&
+          // A place someone selected, settled or put on the table may bury a
+          // neighbour's dot; merely looking at one does not earn that.
+          !(
+            c.candidateId === selectedId ||
+            c.candidateId === committedId ||
+            proposalOnTable.has(c.candidateId)
+          ) &&
           dots.some(
             (d) =>
               d.id !== c.candidateId &&
@@ -781,8 +810,12 @@ export function MapView({
         const point = points.get(candidate.candidateId);
         if (!point || point.y < STICKER_H / 2 || point.y > height - STICKER_H / 2) continue;
         const w = stickerWidth(candidate.name, true) * STICKER_SLACK;
-        const side = point.x + w - 13 <= width - 4 ? "right" : "left";
-        const left = side === "right" ? point.x - 13 : point.x + 13 - w;
+        const side =
+          point.x + w - STICKER_ANCHOR_PX <= width - 4 ? "left" : "right";
+        const left =
+          side === "left"
+            ? point.x - STICKER_ANCHOR_PX
+            : point.x + STICKER_ANCHOR_PX - w;
         if (left >= 4 && left + w <= width - 4) placements.set(candidate.candidateId, side);
       }
     }
@@ -792,9 +825,12 @@ export function MapView({
     viewportWidth,
     selectedId,
     committedId,
-    proposalByCandidate,
+    proposalOnTable,
     viewersOf,
     markerStates,
+    preview,
+    center,
+    scope.area.radiusM,
     viewTick,
     collisionOffsets,
   ]);
@@ -1591,8 +1627,11 @@ export function MapView({
                 )}
                 <div
                   className="marker-sticker"
-                  data-side={named.get(c.candidateId) ?? "right"}
-                  style={{ "--tilt": `${tiltFor(c.candidateId)}deg` } as CSSProperties}
+                  data-side={named.get(c.candidateId) ?? "left"}
+                  style={{
+                    "--tilt": `${tiltFor(c.candidateId)}deg`,
+                    "--sticker-anchor-x": `${STICKER_ANCHOR_PX}px`,
+                  } as CSSProperties}
                 >
                   {/* Behind the card: the badges sit under the sticker box in
                       the stacking order and clear its right edge by half. */}
