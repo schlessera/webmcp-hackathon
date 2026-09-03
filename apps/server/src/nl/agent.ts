@@ -18,15 +18,15 @@ import { respondPrivate, type FunctionTool, type InputItem } from "./llm.ts";
 import { serializeToolOutput } from "./tool-output.ts";
 
 /**
- * The smart tier: a person's own agent, acting for exactly that person over
+ * A person's own agent, acting for exactly that person over
  * the same tool surface a ChatGPT-side agent would use, through the same
  * command bus (INTERACTION-AND-BINDING.md §1 rule 4). It sees only what its
  * person sees — every read runs as their actor — and it can never commit or
  * confirm: those two commands have no tool route here either.
  *
- * Why the smart model: a turn here is open-ended (read state, weigh, act,
- * explain), and a wrong move changes a shared room. That is not a job for the
- * fast tier, whose strength is bounded shape-filling at low latency.
+ * This remains an open-ended task (read state, weigh, act, explain), and a
+ * wrong move changes a shared room. The historical smart-tier config name is
+ * retained as a seam, but it inherits the single deployment model today.
  */
 
 export interface AgentAction {
@@ -259,7 +259,12 @@ async function execute(
       // The agent spends from the same per-participant budget as the route:
       // a tool-calling loop is exactly the caller the budget exists to bound.
       if (!consumeLookupToken(actor.id)) return { ok: false, error: LOOKUP_RATE_LIMIT_ERROR };
-      const result = await lookUpPlaces(actor, ids, keys, args.force === true);
+      const result = await lookUpPlaces(
+        actor,
+        ids,
+        keys,
+        args.force === true ? "interactive" : "background",
+      );
       if (!result.ok) return result;
       return { ok: true, candidates: result.candidates.map(compactDossier) };
     }

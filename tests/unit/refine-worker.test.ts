@@ -13,9 +13,8 @@ import {
   refinementQueueDeferred,
   searchableCriterion,
   refinementQueueCounts,
-  refinementTickDelay,
+  refinementPlanDelay,
   REFINE_IDLE_TICK_MS,
-  REFINE_SEARCH_CONCURRENCY,
   REFINE_TICK_MS,
   resetRefinement,
   startRefinement,
@@ -24,6 +23,7 @@ import {
   refinementSearchDomains,
 } from "../../apps/server/src/refine/worker.ts";
 import { beginLookups, resetProgress } from "../../apps/server/src/enrich/progress.ts";
+import { pipelineScheduler } from "../../apps/server/src/pipeline/scheduler.ts";
 
 const keys = [
   "vegetarian-options", "vegan-options", "gluten-free-options", "halal-options",
@@ -219,13 +219,13 @@ describe("continuous refinement queue", () => {
     vi.useRealTimers();
   });
 
-  it("backs off when there is nothing left to refine", () => {
-    expect(refinementTickDelay(1)).toBe(REFINE_TICK_MS);
-    expect(refinementTickDelay(0)).toBe(REFINE_IDLE_TICK_MS);
+  it("backs off pipeline replanning when there is nothing left to refine", () => {
+    expect(refinementPlanDelay(1)).toBe(REFINE_TICK_MS);
+    expect(refinementPlanDelay(0)).toBe(REFINE_IDLE_TICK_MS);
     expect(REFINE_IDLE_TICK_MS).toBeGreaterThan(REFINE_TICK_MS);
   });
 
-  it("bounds searches globally across concurrent room batches", async () => {
+  it("routes concurrent room searches through the shared search pool", async () => {
     const criterionA = { id: "a", kind: "key" as const, key: "a", label: "first words" };
     const criterionB = { id: "b", kind: "key" as const, key: "b", label: "second words" };
     let active = 0;
@@ -253,12 +253,16 @@ describe("continuous refinement queue", () => {
       countryCode: "DE",
     };
     const responses = (await Promise.all([
-      searchRefinementPlaces(requests.slice(0, 6), area, provider),
-      searchRefinementPlaces(requests.slice(6), area, provider),
+      searchRefinementPlaces(requests.slice(0, 6), area, provider, {
+        pipeline: { roomId: "search-room-a", needsEpoch: 1 },
+      }),
+      searchRefinementPlaces(requests.slice(6), area, provider, {
+        pipeline: { roomId: "search-room-b", needsEpoch: 1 },
+      }),
     ])).flat();
     expect(responses).toHaveLength(12);
     expect(provider).toHaveBeenCalledTimes(12);
-    expect(peak).toBe(REFINE_SEARCH_CONCURRENCY);
+    expect(peak).toBe(pipelineScheduler.pools.search.limit);
     for (const [query, opts] of provider.mock.calls) {
       expect(query).toMatch(/^Place \d+ Berlin first words second words$/);
       expect(opts).toBeUndefined();

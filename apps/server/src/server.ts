@@ -68,6 +68,7 @@ const app = Fastify({
   logger: { level: process.env.LOG_LEVEL ?? "info" },
   disableRequestLogging: true,
 });
+export { app };
 startOutboundDiagnosticLogging((fields, message) => app.log.info(fields, message));
 
 // HTTP payloads negotiate Brotli or gzip. This onSend-based plugin is
@@ -402,7 +403,7 @@ app.post("/api/spatial/lookup", async (req, reply) => {
   // Held before validation: the compiled guard narrows `body` to its required
   // properties only, which would drop the optional `keys` from the type.
   const keys = body.keys;
-  const force = body.force === true;
+  const intent = body.force === true ? "interactive" : "background";
   if (!validateLookupInput(body)) {
     return invalidInput(
       "candidateIds must be 1-3 candidate ID strings and keys, when present, 1-6 attribute keys.",
@@ -413,7 +414,7 @@ app.post("/api/spatial/lookup", async (req, reply) => {
     reply.header("retry-after", "10");
     return reply.code(429).send({ ok: false, error: LOOKUP_RATE_LIMIT_ERROR });
   }
-  const result = await lookUpPlaces(actor, body.candidateIds!, keys, force);
+  const result = await lookUpPlaces(actor, body.candidateIds!, keys, intent);
   logRead(req, actor.id, "LookUpPlaces", result.ok);
   return result;
 });
@@ -602,9 +603,9 @@ async function storedTurn(
 /**
  * The natural-language surface (docs/NL-AGENT.md). Page-only routes: an
  * agent on the WebMCP side has its own language model and needs none of
- * this. Nothing here bypasses the command bus — a need the fast tier parses
- * goes back to the page, which submits it like a typed one; a move the smart
- * tier makes goes through submitCommand as this actor.
+ * this. Nothing here bypasses the command bus — a need the deployment model
+ * parses goes back to the page, which submits it like a typed one; a move its
+ * participant agent makes goes through submitCommand as this actor.
  */
 const agentUnavailable = {
   ok: false,
@@ -714,7 +715,7 @@ app.post("/api/nl/condition", async (req) => {
   if (!text) return invalidInput("text must be 1-300 characters.", "Say it in a sentence.");
   try {
     // The condition goes to the agent; the room gets a content-free
-    // declaration. The fast tier's topic reading is returned to the page but
+    // declaration. The model's topic reading is returned to the page but
     // NOT attached as a scope hint: disclosing a category is the owner's
     // opt-in (FACETS.md §4), and nobody asked them.
     const context = await spatialContext(actor);

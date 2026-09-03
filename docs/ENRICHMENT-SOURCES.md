@@ -780,22 +780,75 @@ decision and discarding useful direct evidence. Silence still requires
 abstention: a `no` lean needs explicit negative wording and, for record grade,
 must pass the same explicit/span/exact-host gate.
 
+## The pipeline
+
+The process-local refinement pipeline is the only enrichment execution model.
+One scheduler uses deficit round robin across rooms, strict priority inside a
+room, and reserves every eighth admission for the lowest non-empty priority so
+background work cannot starve.
+
+Work is separated into fetch stages (`fetch.site`, `fetch.search`,
+`fetch.asset`) and process stages (`process.judge`, `process.adjudicate`,
+`process.vision`, `process.decode`). A judge item is one place/criterion cell.
+Ready evidence is byte-bounded to 4 MB for the process and 512 KB per room; a
+full room stops only that room's fetch admissions until a matrix drains it.
+Matrix cells wait no more than 300 ms for a rectangle of at most eight places
+by five criteria, while priority-zero work closes its batch immediately.
+
+| Stage | Unit | Pool | Wired trigger |
+|---|---|---|---|
+| `fetch.site` | place | proxy or direct | refinement and focused/background lookup |
+| `fetch.search` | place with all open criteria | search | unresolved refinement cells; query text still comes only from shared searchable criteria |
+| `fetch.asset` | place and image URL | proxy or direct | on-demand place detail only, at priority 4 |
+| `process.judge` | place and criterion | matrix | ready site/search evidence |
+| `process.adjudicate` | place and criterion | matrix | proactive or focused likely-claim review, sharing the judge limit |
+| `process.decode` | place and image URL | image decode | after an on-demand asset fetch only |
+| `process.vision` | place and image batch | vision | after on-demand website-image decoding only |
+
+The background sweep never schedules asset, decode or vision work. Opening a
+place detail schedules that chain when its image cache is due. Raw download,
+Sharp decode/resize and the classifier are separate admissions, so none can
+hold a site-lookup semaphore while waiting on another kind of work.
+
+The named pools are independently and continuously refilled: proxy 8, direct
+4, search 4, matrix 2, vision 1 and image decode 2. The proxy limit is tunable
+from 8–12 with `POOL_PROXY`; the other `POOL_*` variables tune their matching
+pools. A fetch is selected only when its host gate appears open, and selection
+examines at most 32 queued items. The gate is a hint, never a reservation; the
+outbound client's existing per-host and pacing checks remain authoritative.
+Interactive site and asset reads prefer direct and retry exactly once through
+the proxy on 403, 429, 503 or a CONNECT-502-class failure.
+
+Priorities are: 0 interactive, 1 uncertain active needs in scope, 2 stale
+facts, 3 background vocabulary, and 4 on-demand assets. Realtime volume counts
+only priorities 0 and 1, by fetch and process stage. `done` and `total` are
+deduplicated by place. ETA uses the RFC 6298 smoothed mean/deviation constants
+and is sent for diagnostics, not presented as a promise to the user. The
+`pipeline` frame is coalesced to at most four per second.
+
+These counters are deliberately single-process. The process holding a room's
+sockets emits its frame; a deployment with sockets and work split across
+multiple server processes will have incomplete volume figures. There is no
+Redis or PostgreSQL counter.
+
 ### Continuous refinement
 
-Each room has one process-local refinement loop. It starts when the room gains
+Each room has one process-local refinement plan. It starts when the room gains
 a present socket and stops ten minutes after the last participant leaves. A
-new or reactivated need moves its unknown places to the front immediately.
-The loop first checks in-scope places that the shared eligibility classifier
+new or reactivated need invalidates the plan and moves its unknown places to
+the front immediately. The planner first selects in-scope places that the
+shared eligibility classifier
 currently calls `uncertain` for an active need, nearest to the scope centre
 first. An unrelated unknown attribute alone does not qualify for tier 1. A
 place the classifier already excludes on decisive active evidence is skipped:
-refining another gap cannot bring it back. The loop then checks facts last
+refining another gap cannot bring it back. The planner then checks facts last
 observed more than seven days ago, then unknown keys from the remaining
 vocabulary. A place already being looked up is skipped.
 
-One tick takes at most 12 places. It reads each place's site at most once and
-reuses selected homepage and menu prose from the durable seven-day page cache
-(with a small in-process hot set). That prose is never logged, put in a
+Fetches are admitted per place, and the ready buffer carries selected homepage
+and menu prose into matrix rectangles of at most eight places by five criteria.
+The durable seven-day page cache remains the reusable cache; there is no second
+in-process page-text LRU. That prose is never logged, put in a
 dossier, shown to a participant, or sent in a realtime frame. One matrix
 evaluation covers the batch's whole open criterion set. For each place whose
 site material leaves criteria unanswered, one search covers all of those
@@ -822,7 +875,7 @@ that need is shared. A private need's words stay in, because a search would
 reveal both the words and the fact that this room is asking, and its label
 being server vocabulary does not change that.
 
-A criterion belonging to **no active need** is the background sweep: the loop
+A criterion belonging to **no active need** is the background sweep: the planner
 walks the whole vocabulary over every place regardless of what anyone wants,
 so the query is evidence of nobody's need. Those criteria may contribute their
 words, but only when the label is server vocabulary from `ATTRIBUTE_LABELS`. A
@@ -850,14 +903,12 @@ than left to mislead. For the record, the plain query also measured better:
 over three live twelve-place Berlin runs it returned 14 validated claims to the
 richer query's 11.
 
-A queue emptied only because its places already have lookups in flight is busy,
-not idle, and keeps the working cadence. A need toggled while a tick is running
-survives that tick: the wake is remembered and re-ticks as soon as the tick
-ends, and the finishing tick does not write its cursor back over the
-invalidation the wake just made. Without those three, the background sweep
-could hold a woken need behind a thirty-second backoff.
+A plan emptied only because its places already have lookups in flight keeps the
+working cadence. A need toggle advances the room epoch: queued stale judge cells
+are dropped, in-flight fetches finish, and ready evidence is rematched to the
+new active criteria instead of being discarded.
 
-With nothing left to refine the loop backs off to `REFINE_IDLE_TICK_MS`
+With nothing left to refine the planner backs off to `REFINE_IDLE_TICK_MS`
 (thirty times the working cadence) so an idle room is not reloaded every
 second; a need commit wakes it at once. A batch matrix call is a long prompt on
 a background path, so it waits `MATRIX_TIMEOUT_MS`, 90 seconds by default,
@@ -872,16 +923,16 @@ ten minutes after the last person leaves, so the hourly ceiling is a worst
 case rather than a running rate.
 
 The earlier ceilings of 60 and 40 were measured too low: in a 343-place room
-the search budget was gone sixteen seconds after the first need, and the loop
+the search budget was gone sixteen seconds after the first need, and refinement
 then reported itself paused for the rest of the hour.
 
-An empty search bucket no longer pauses anything. The loop keeps reading site
+An empty search bucket no longer pauses anything. The pipeline keeps reading site
 text and running the batch matrix, which costs no search at all and still
-answers cells and clears the queue; only the search leg goes quiet. A tick
+answers cells and clears the queue; only the search leg goes quiet. Processing
 pauses only when the model-call bucket is empty, because without a model call
-there is nothing for the tick to run. `refine.paused` on the spatial context
+there is nothing for a judge batch to run. `refine.paused` on the spatial context
 says which is true: `"budget"` when model calls ran out, `"idle"` when nobody
-is present, and `null` while the loop is working.
+is present, and `null` while the pipeline is working.
 
 `refine.queued` counts places still needing work for an **active** need. The
 stale-fact and background vocabulary sweeps are real work but are not counted
@@ -893,11 +944,11 @@ provider; without an explicit value it stays Parallel. Parallel needs
 Tavily needs `TAVILY_API_KEY`; the `openai` compatibility value uses
 OpenRouter's built-in search tool.
 
-Every frame the loop emits carries `reason: { kind: "refine" }`, with a label
+Every refinement frame carries `reason: { kind: "refine" }`, with a label
 only when one shared need is behind the whole batch. When a pool warm-up is
 running at the same time, refinement wins the frame's single reason slot: it
 is the work a person is watching, and before this a concurrent fill left every
-busy ring either labelled `pool` or unattributed. Each tick also writes one
+busy ring either labelled `pool` or unattributed. Each matrix batch also writes one
 structured log line with its place, criterion, call, search, claim and queue
 counts and a cost using OpenRouter's reported usage. That line carries counts and dollars only, never
 a place name, a criterion, or a query, because a private need must not be

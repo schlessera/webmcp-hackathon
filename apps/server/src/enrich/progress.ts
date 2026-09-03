@@ -57,6 +57,7 @@ export function currentLookups(roomId: string): LookupsMessage {
   return {
     type: "lookups",
     pending,
+    stages: pending.map((candidateId) => ({ candidateId, stage: "queued" as const })),
     ...(pending.length && resolved && (agrees || refining.length > 0)
       ? { reason: resolved }
       : {}),

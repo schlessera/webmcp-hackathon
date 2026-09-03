@@ -1,6 +1,6 @@
 {
   "toolContractVersion": "3",
-  "sha256": "5839363137ffa4157650d7f3d4374efd8fac70c272fe9991e91ab460fa5ddaa2",
+  "sha256": "148e02184fdd24874421f65489216aa933a020d6a60cac2a8957d81b50e06592",
   "manifest": {
     "capabilityManifest": {
       "agreement": {
@@ -2961,47 +2961,6 @@
           {
             "additionalProperties": false,
             "properties": {
-              "candidateIds": {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              "reason": {
-                "anyOf": [
-                  {
-                    "const": "confirmation",
-                    "type": "string"
-                  },
-                  {
-                    "const": "pool",
-                    "type": "string"
-                  },
-                  {
-                    "const": "lookup",
-                    "type": "string"
-                  },
-                  {
-                    "const": "inference",
-                    "type": "string"
-                  }
-                ]
-              },
-              "type": {
-                "const": "facts",
-                "type": "string"
-              }
-            },
-            "required": [
-              "candidateIds",
-              "reason",
-              "type"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
               "done": {
                 "type": "number"
               },
@@ -3097,6 +3056,9 @@
                   }
                 ]
               },
+              "roomId": {
+                "type": "string"
+              },
               "stages": {
                 "items": {
                   "additionalProperties": false,
@@ -3145,6 +3107,47 @@
               "inFlight",
               "outstanding",
               "total",
+              "type"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "candidateIds": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "reason": {
+                "anyOf": [
+                  {
+                    "const": "confirmation",
+                    "type": "string"
+                  },
+                  {
+                    "const": "pool",
+                    "type": "string"
+                  },
+                  {
+                    "const": "lookup",
+                    "type": "string"
+                  },
+                  {
+                    "const": "inference",
+                    "type": "string"
+                  }
+                ]
+              },
+              "type": {
+                "const": "facts",
+                "type": "string"
+              }
+            },
+            "required": [
+              "candidateIds",
+              "reason",
               "type"
             ],
             "type": "object"

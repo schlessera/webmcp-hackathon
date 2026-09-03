@@ -134,9 +134,11 @@ describe("question-criterion lookup over the API", () => {
           .filter((frame) => frame.type === "lookups" && (frame.pending as unknown[])?.length);
         expect(lookupFrames.length).toBeGreaterThan(0);
         for (const frame of lookupFrames) {
-          expect(frame).toMatchObject({ reason: { kind: "need" } });
-          expect(frame.reason).not.toHaveProperty("label");
           expect(JSON.stringify(frame)).not.toContain("private rooftop password");
+          expect(frame.reason).not.toHaveProperty("label");
+          expect(["need", "refine"]).toContain(
+            (frame.reason as { kind?: string } | undefined)?.kind,
+          );
         }
       } finally {
         realtime.close();

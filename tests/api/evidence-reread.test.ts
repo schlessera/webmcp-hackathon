@@ -148,7 +148,7 @@ describe("forced evidence re-reads", () => {
     });
     const target = { candidateId: id, osmRef, website };
 
-    await lookupNow(room.pool, room.roomId, [target], { keys: ["dog-friendly"], force: true });
+    await lookupNow(room.pool, room.roomId, [target], { keys: ["dog-friendly"], intent: "interactive" });
     const factBefore = await dossierFact(id);
     const eligibilityBefore = await contextCandidate(id);
     const storedBefore = (await room.pool.query(
@@ -162,7 +162,7 @@ describe("forced evidence re-reads", () => {
     });
     expect(eligibilityBefore).toMatchObject({ eligibility: "likely" });
 
-    await lookupNow(room.pool, room.roomId, [target], { keys: ["dog-friendly"], force: true });
+    await lookupNow(room.pool, room.roomId, [target], { keys: ["dog-friendly"], intent: "interactive" });
     const factAfter = await dossierFact(id);
     const eligibilityAfter = await contextCandidate(id);
     const storedAfter = (await room.pool.query(
@@ -222,14 +222,14 @@ describe("forced evidence re-reads", () => {
     });
     const target = { candidateId: id, osmRef, website };
 
-    await lookupNow(room.pool, room.roomId, [target], { keys: ["dog-friendly"], force: true });
+    await lookupNow(room.pool, room.roomId, [target], { keys: ["dog-friendly"], intent: "interactive" });
     expect(await dossierFact(id)).toMatchObject({ status: "likely_true" });
 
     await room.pool.query(
       "UPDATE enrichments SET website_fetched_at = now() - interval '11 minutes' WHERE osm_ref = $1",
       [osmRef],
     );
-    await lookupNow(room.pool, room.roomId, [target], { keys: ["dog-friendly"], force: true });
+    await lookupNow(room.pool, room.roomId, [target], { keys: ["dog-friendly"], intent: "interactive" });
     expect(await dossierFact(id)).toMatchObject({
       status: "verified_false",
       source: "web:93.184.216.34",

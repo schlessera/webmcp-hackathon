@@ -37,6 +37,7 @@ import {
   loadCached,
   lookupNow,
   lookupTargetOf,
+  type LookupIntent,
   type RoomLookupTarget,
 } from "./enrich/index.ts";
 import { lookupPending } from "./enrich/progress.ts";
@@ -413,6 +414,7 @@ export async function inspectCandidates(
     // the read returns.
     const pageCache: AdjudicationPageCache = new Map();
     const lookupJob = lookupNow(pool, actor.roomId, targets, {
+      intent: "interactive",
       reason: { kind: "place" },
       pageCache,
     });
@@ -629,7 +631,7 @@ export async function lookUpPlaces(
   actor: Participant,
   candidateIds: string[],
   keys?: string[],
-  force = false,
+  intent: LookupIntent = "background",
 ): Promise<InspectCandidatesResponse> {
   const rows = (
     await pool.query(
@@ -644,8 +646,8 @@ export async function lookUpPlaces(
   const pageCache: AdjudicationPageCache = new Map();
   const job = lookupNow(pool, actor.roomId, targets, {
     keys,
+    intent,
     reason: { kind: "place" },
-    force,
     pageCache,
   }).then(() => adjudicateLikelyForRoom(pool, actor.roomId, {
     mode: "on_demand",

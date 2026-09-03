@@ -10,7 +10,7 @@ import {
 } from "../../apps/server/src/ws.ts";
 import { RevisionWatermarks } from "../../apps/web/src/revision-watermarks.ts";
 import { serializeToolOutput } from "../../apps/server/src/nl/tool-output.ts";
-import { BoundedSemaphore } from "../../apps/server/src/enrich/index.ts";
+import { PipelinePool } from "../../apps/server/src/pipeline/pools.ts";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -107,25 +107,24 @@ describe("ordered realtime delivery", () => {
 });
 
 describe("bounded enrichment scheduling", () => {
-  it("reserves a released slot for the queued waiter and refuses excess waiters", async () => {
-    const semaphore = new BoundedSemaphore(1, 1);
+  it("reserves a released pipeline slot for queued waiters", async () => {
+    const pipelinePool = new PipelinePool("direct", 1);
     const release = deferred<void>();
     const order: string[] = [];
-    const first = semaphore.use(async () => {
+    const first = pipelinePool.submit(async () => {
       order.push("first");
       await release.promise;
     });
-    const second = semaphore.use(async () => {
+    const second = pipelinePool.submit(async () => {
       order.push("second");
     });
-    const refused = await semaphore.use(async () => {
-      order.push("barged");
+    const third = pipelinePool.submit(async () => {
+      order.push("third");
     });
-    expect(refused).toBeUndefined();
     expect(order).toEqual(["first"]);
     release.resolve();
-    await Promise.all([first, second]);
-    expect(order).toEqual(["first", "second"]);
+    await Promise.all([first, second, third]);
+    expect(order).toEqual(["first", "second", "third"]);
   });
 });
 

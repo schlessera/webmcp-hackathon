@@ -27,6 +27,9 @@ import {
   type AdjudicationPageCache,
 } from "./adjudicate.ts";
 import { inferenceEnabled } from "./infer.ts";
+import { presentIn } from "../presence.ts";
+import { pipelineDedupeKey } from "../pipeline/queue.ts";
+import { pipelineScheduler } from "../pipeline/scheduler.ts";
 
 const PROACTIVE_THRESHOLD = 20;
 const inFlight = new Set<string>();
@@ -193,12 +196,14 @@ export async function adjudicateLikelyForRoom(
   ]));
   let calls = 0;
   let attemptedCells = 0;
+  const criteria = new Map(activeCriteria(inputs).map((criterion) => [criterion.id, criterion]));
   const endProgress = beginLookups(
     roomId,
     [...new Set(cells.map((cell) => cell.candidateId))],
     options.mode === "proactive" ? { kind: "refine" } : { kind: "place" },
   );
   try {
+    const scheduled: Promise<void>[] = [];
     for (const batch of batchesByPlaces(cells)) {
       const keys = batch.map((cell) => `${cell.osmRef}\u0000${cell.criterionId}\u0000${cell.evidenceHash}`);
       const admitted = batch.filter((_, index) => !inFlight.has(keys[index]));
@@ -207,47 +212,70 @@ export async function adjudicateLikelyForRoom(
       for (const key of admitted.map((cell) =>
         `${cell.osmRef}\u0000${cell.criterionId}\u0000${cell.evidenceHash}`
       )) inFlight.add(key);
-      const started = Date.now();
-      try {
-        const result = await adjudicateCells(admitted);
-        calls += 1;
-        attemptedCells += admitted.length;
-        logBatch(roomId, admitted.length, result);
-        const criteria = new Map(activeCriteria(inputs).map((criterion) => [criterion.id, criterion]));
-        await saveInferences(pool, [...new Set(admitted.map((cell) => cell.osmRef))].flatMap((osmRef) => {
-          const placeCells = admitted.filter((cell) => cell.osmRef === osmRef);
-          const claims = result.outcomes
-            .filter((outcome) => placeCells.some((cell) => cell.criterionId === outcome.criterionId))
-            .map((outcome) => outcome.inference);
-          const usedCriteria = placeCells.flatMap((cell) => {
-            const criterion = criteria.get(cell.criterionId);
-            return criterion ? [criterion] : [];
-          });
-          return usedCriteria.length ? [{
-            osmRef,
-            criteria: usedCriteria,
-            claims,
-            answeredCriterionIds: [],
-            observedAt: new Date(now).toISOString(),
-          }] : [];
-        }));
-      } catch {
-        // A timeout, malformed response, or write failure is not a verdict.
-        console.info(JSON.stringify({
-          msg: "adjudication batch",
+      const run = async (): Promise<void> => {
+        const started = Date.now();
+        try {
+          const result = await adjudicateCells(admitted);
+          calls += 1;
+          attemptedCells += admitted.length;
+          logBatch(roomId, admitted.length, result);
+          await saveInferences(pool, [...new Set(admitted.map((cell) => cell.osmRef))].flatMap((osmRef) => {
+            const placeCells = admitted.filter((cell) => cell.osmRef === osmRef);
+            const claims = result.outcomes
+              .filter((outcome) => placeCells.some((cell) => cell.criterionId === outcome.criterionId))
+              .map((outcome) => outcome.inference);
+            const usedCriteria = placeCells.flatMap((cell) => {
+              const criterion = criteria.get(cell.criterionId);
+              return criterion ? [criterion] : [];
+            });
+            return usedCriteria.length ? [{
+              osmRef,
+              criteria: usedCriteria,
+              claims,
+              answeredCriterionIds: [],
+              observedAt: new Date(now).toISOString(),
+            }] : [];
+          }));
+        } catch {
+          // A timeout, malformed response, or write failure is not a verdict.
+          console.info(JSON.stringify({
+            msg: "adjudication batch",
+            roomId,
+            cells: admitted.length,
+            verdicts: { yes: 0, no: 0, unclear: 0 },
+            costUsd: 0,
+            latencyMs: Date.now() - started,
+            outcome: "error",
+          }));
+        } finally {
+          for (const key of admitted.map((cell) =>
+            `${cell.osmRef}\u0000${cell.criterionId}\u0000${cell.evidenceHash}`
+          )) inFlight.delete(key);
+        }
+      };
+      const items = admitted.flatMap((cell) => {
+        const criterion = criteria.get(cell.criterionId);
+        if (!criterion) return [];
+        const base = {
           roomId,
-          cells: admitted.length,
-          verdicts: { yes: 0, no: 0, unclear: 0 },
-          costUsd: 0,
-          latencyMs: Date.now() - started,
-          outcome: "error",
-        }));
-      } finally {
-        for (const key of admitted.map((cell) =>
-          `${cell.osmRef}\u0000${cell.criterionId}\u0000${cell.evidenceHash}`
-        )) inFlight.delete(key);
-      }
+          candidateId: cell.candidateId,
+          osmRef: cell.osmRef,
+          kind: "process.adjudicate" as const,
+          criteria: [criterion],
+          priority: options.mode === "on_demand" ? 0 as const : 1 as const,
+          intent: options.mode === "on_demand" ? "interactive" as const : "background" as const,
+          evidenceHash: cell.evidenceHash,
+          needsEpoch: 0,
+          enqueuedAt: Date.now(),
+        };
+        return [{ ...base, dedupeKey: pipelineDedupeKey(base) }];
+      });
+      scheduled.push(pipelineScheduler.enqueueBatch(items, run, {
+        present: presentIn(roomId).size > 0,
+        reason: options.mode === "proactive" ? { kind: "refine" } : { kind: "place" },
+      }));
     }
+    await Promise.all(scheduled);
   } finally {
     endProgress();
   }

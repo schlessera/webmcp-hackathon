@@ -24,9 +24,8 @@ export async function resetApiCacheState(
 }
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
-
 /** Let the kernel allocate a free port. Fixed worker slices collide when
- * independent API lanes run concurrently in separate repository worktrees. */
+ * independent API lanes run concurrently in many repository worktrees. */
 function nextServerPort(): Promise<number> {
   return new Promise((resolve, reject) => {
     const reservation = createNetServer();

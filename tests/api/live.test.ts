@@ -437,7 +437,7 @@ describe("need-triggered lookup and realtime facts", () => {
 
     await lookupNow(room.pool, room.roomId, [{ candidateId, osmRef, website }], {
       keys: ["dog-friendly"],
-      force: true,
+      intent: "interactive",
     });
 
     expect(modelInput).toMatchObject({
@@ -654,7 +654,7 @@ describe("need-triggered lookup and realtime facts", () => {
 
     // Force, minutes after a good read: the page stays cached, but "Look again"
     // asks for a fresh judgement even when the evidence hash is unchanged.
-    await lookupNow(room.pool, room.roomId, [target], { keys: ["delivery"], force: true });
+    await lookupNow(room.pool, room.roomId, [target], { keys: ["delivery"], intent: "interactive" });
     expect(siteFetches).toBe(1);
     expect(deliveryCalls).toBe(2);
     const stored = (await room.pool.query("SELECT inferred FROM enrichments WHERE osm_ref = $1", [osmRef])).rows[0];
@@ -666,7 +666,7 @@ describe("need-triggered lookup and realtime facts", () => {
       "UPDATE enrichments SET website_fetched_at = now() - interval '11 minutes' WHERE osm_ref = $1",
       [osmRef],
     );
-    await lookupNow(room.pool, room.roomId, [target], { keys: ["delivery"], force: true });
+    await lookupNow(room.pool, room.roomId, [target], { keys: ["delivery"], intent: "interactive" });
     expect(siteFetches).toBe(1);
     expect(deliveryCalls).toBe(3);
 
@@ -680,7 +680,7 @@ describe("need-triggered lookup and realtime facts", () => {
       "UPDATE enrichments SET website_fetched_at = now() - interval '11 minutes' WHERE osm_ref = $1",
       [osmRef],
     );
-    await lookupNow(room.pool, room.roomId, [target], { keys: ["delivery"], force: true });
+    await lookupNow(room.pool, room.roomId, [target], { keys: ["delivery"], intent: "interactive" });
     expect(siteFetches).toBe(2);
     expect(deliveryCalls).toBe(4);
 
@@ -698,10 +698,10 @@ describe("need-triggered lookup and realtime facts", () => {
       "UPDATE page_cache SET expires_at = now() - interval '1 second' WHERE url = $1",
       [website],
     );
-    await lookupNow(room.pool, room.roomId, [target], { keys: ["delivery"], force: true });
+    await lookupNow(room.pool, room.roomId, [target], { keys: ["delivery"], intent: "interactive" });
     expect(siteFetches).toBe(3);
     expect(deliveryCalls).toBe(5);
-    await lookupNow(room.pool, room.roomId, [target], { keys: ["delivery"], force: true });
+    await lookupNow(room.pool, room.roomId, [target], { keys: ["delivery"], intent: "interactive" });
     expect(siteFetches).toBe(3);
     expect(deliveryCalls).toBe(6);
 

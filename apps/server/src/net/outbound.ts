@@ -147,6 +147,10 @@ class Semaphore {
     this.limit = limit;
   }
 
+  get open(): boolean {
+    return this.active < this.limit && this.waiting.length === 0;
+  }
+
   async use<T>(job: () => Promise<T>): Promise<T> {
     if (this.active >= this.limit) {
       await new Promise<void>((resolve) => this.waiting.push(resolve));
@@ -225,6 +229,23 @@ export function proxyEnabled(): boolean {
 
 export function routeForPurpose(purpose: OutboundPurpose): OutboundRoute {
   return PROXY_PURPOSES.has(purpose) ? "proxy" : "direct";
+}
+
+/** Read-only scheduling hint. The outbound client repeats this decision at dispatch. */
+export function routeFor(host: string, purpose: OutboundPurpose): OutboundRoute {
+  const normalized = host.toLowerCase();
+  if (routeForPurpose(purpose) === "direct") return "direct";
+  if (
+    !proxyEnabled() ||
+    isDirectControlHost(normalized) ||
+    (breakerUntil.get(normalized) ?? 0) > Date.now()
+  ) return "direct";
+  return "proxy";
+}
+
+/** Non-reserving host admission hint; the real semaphore remains authoritative. */
+export function hostGateOpen(host: string): boolean {
+  return hostLimits.get(host.toLowerCase())?.open ?? true;
 }
 
 /** Stable across processes and releases: exactly buckets 0..9 of 0..99. */

@@ -66,6 +66,31 @@ The POC can prepopulate and cache a selected geographic area to provide
 reliable, low-latency experimentation without pretending to operate at global
 scale.
 
+### Refinement scheduler and outbound routing
+
+The process-global refinement scheduler chooses which named concurrency pool
+may admit an item. It uses room-level deficit round robin, item priority,
+ready-buffer backpressure and the read-only `hostGateOpen(host)` hint. It never
+reserves or mutates host state in the outbound client.
+
+Pool choice and route choice are separate decisions. The scheduler consults
+`routeFor(host, purpose)` when work is enqueued and again when it is dispatched,
+because the circuit breaker may change while it waits. `net/outbound.ts` is the
+route authority at dispatch and still owns purpose routing, the stable direct
+control group, per-host limits, session pacing and the circuit breaker. A
+dispatcher reports the actual route; accounting follows that report rather
+than the enqueue-time prediction. Interactive fetches prefer direct, with one
+same-priority proxy retry for a block-shaped result.
+
+The scheduler and its progress volume are process-local. The socket-holding
+process emits the room frame; no cross-process counter is claimed.
+
+Asset materialisation does not ride inside the site-fetch slot. Only an
+on-demand place detail can schedule it: image
+bytes use the route-selected proxy/direct pool, Sharp decode/resize uses the
+image-decode pool, and one per-place classifier batch uses the vision pool.
+Background refinement and room warming schedule none of those three stages.
+
 ### Realtime transport
 
 The application, not ChatGPT, is the realtime bus. Browser clients receive live

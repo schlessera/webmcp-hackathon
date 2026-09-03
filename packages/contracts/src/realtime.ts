@@ -88,6 +88,7 @@ export interface PresenceMessage {
  */
 export interface LookupsMessage {
   type: "lookups";
+  /** Compatibility field retained for one release. */
   pending: string[];
   /** Why they are being looked up, for the count block ("checking 12 places
    * for step-free access"). Absent for a warm-up nobody asked for. */
@@ -110,6 +111,8 @@ export type PipelineStage = "queued" | "fetching" | "processing";
  */
 export interface PipelineMessage {
   type: "pipeline";
+  /** Process-local scheduler frames may name their room before fan-out. */
+  roomId?: string;
   outstanding: { fetch: number; process: number };
   inFlight: { fetch: number; process: number };
   /** Places settled for this need set, this run. */
@@ -153,6 +156,7 @@ export type ServerMessage =
   | ConfirmationMessage
   | PresenceMessage
   | LookupsMessage
+  | PipelineMessage
   | FactsMessage
   | PipelineMessage
   | PingMessage;
