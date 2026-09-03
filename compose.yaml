@@ -37,6 +37,7 @@ services:
       # keeps its label matching and no agent card ever appears.
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       PARALLEL_API_KEY: ${PARALLEL_API_KEY:-}
+      PARALLEL_SEARCH_MODE: ${PARALLEL_SEARCH_MODE:-turbo}
       DATAFORSEO_LOGIN: ${DATAFORSEO_LOGIN:-}
       DATAFORSEO_PASSWORD: ${DATAFORSEO_PASSWORD:-}
       # Empty lets the server pick: parallel, then openai, then tavily, by

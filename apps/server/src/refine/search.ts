@@ -532,7 +532,7 @@ export const parallelSearchProvider: SearchProvider = {
         body: JSON.stringify({
           objective: query,
           search_queries: [query],
-          mode: "fast",
+          mode: parallelSearchMode(),
           max_chars_total: 10_000,
           advanced_settings: {
             max_results: 5,
@@ -590,4 +590,16 @@ export function search(
     title: cleanTitle(result.title) || result.url,
     snippet: cleanSummary(result.snippet, 2_000),
   })).filter((result) => Boolean(result.snippet)));
+}
+
+
+/**
+ * Parallel's search processor. "turbo" by default: same price per task as "fast",
+ * finishes sooner at some cost in quality, so a worker slot is held for less
+ * time (user decision 2026-09-03). "fast" or any other documented mode via
+ * PARALLEL_SEARCH_MODE.
+ */
+export function parallelSearchMode(): string {
+  const mode = process.env.PARALLEL_SEARCH_MODE?.trim();
+  return mode && mode.length > 0 ? mode : "turbo";
 }

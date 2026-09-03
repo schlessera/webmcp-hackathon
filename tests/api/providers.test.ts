@@ -473,7 +473,7 @@ describe("Parallel provider switch over the refinement API", () => {
     }
     const logs = server.logs();
     expect(logs).toContain("parallel-search-request");
-    expect(logs).toContain('"mode":"fast"');
+    expect(logs).toContain('"mode":"turbo"');
     expect(logs).not.toContain("web-search-request");
     expect(logs).toContain('"searchProvider":"parallel"');
     expect(logs).toContain('"searches":3');
