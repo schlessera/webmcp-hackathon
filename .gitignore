@@ -8,3 +8,6 @@ playwright-report/
 
 # Prepared OpenStreetMap extracts and engine scratch (scripts/build-area-snapshot.mjs)
 data/osm/
+
+# throwaway probes
+*.tmp.mts

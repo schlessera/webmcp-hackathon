@@ -94,9 +94,9 @@ three passes each on `z-ai/glm-5.3-flash` and one on `gpt-5.6-luna`:
 | `z-ai/glm-5.3-flash` | 88 / 132 (66.7 %) | 125 / 132 (94.7 %) |
 | `gpt-5.6-luna` | 37 / 44 (84.1 %) | 43 / 44 (97.7 %) |
 
-Known gap: an included kind the room's cuisines cannot reach still becomes a
-food-shaped question ("does this place serve …?"), which reads wrong for a
-venue class such as a cinema. The wording, not the routing, is what is left.
+An included kind the room's cuisines cannot reach becomes a text need phrased
+for any class of place ("is this a … kind of place?"), so a cinema and a
+cuisine read the same way; the judge answers it from the place's own pages.
 
 ## How it reaches the page
 

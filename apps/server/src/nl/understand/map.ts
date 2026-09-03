@@ -306,8 +306,8 @@ export function mapInterpretation(interpretation: Interpretation, input: Underst
       if (unknown.length && concept.polarity === "include") {
         const words = unknown.join(" or ").replace(/_/g, " ");
         needs.push({
-          ...parsedNeed(concept, { kind: "text", text: `does this place serve ${words}?`.slice(0, 120) }),
-          label: `serves ${words}`.slice(0, 60),
+          ...parsedNeed(concept, { kind: "text", text: `is this a ${words} kind of place?`.slice(0, 120) }),
+          label: `${words} place`.slice(0, 60),
         });
       } else if (unknown.length && concept.polarity === "exclude") {
         const words = unknown.join(" or ").replace(/_/g, " ");

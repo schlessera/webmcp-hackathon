@@ -152,8 +152,9 @@ describe("stage-B mapping table", () => {
     expect(out.needs.map((need) => need.payload)).toEqual([
       { kind: "exclusion", key: "cuisine", values: ["italian"], lifetime: "session" },
       { kind: "inclusion", key: "cuisine", values: ["italian"], lifetime: "session" },
-      { kind: "text", text: "does this place serve martian?" },
+      { kind: "text", text: "is this a martian kind of place?" },
     ]);
+    expect(out.needs[2].label).toBe("martian place");
   });
 
   it("clarifies an unknown excluded kind with a recorded alternative and a safe text need", () => {
