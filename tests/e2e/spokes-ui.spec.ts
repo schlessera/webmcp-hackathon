@@ -1915,7 +1915,9 @@ test("a need said is pending until the room settles it, and busy rings mark plac
   // sits idle here and the ring never turns, however hard the loop spins.
   await page.waitForTimeout(900);
   const turning = await page.evaluate(() => window.__spokesMapStats!().mapRenders);
-  await page.waitForTimeout(500);
+  // 1.5 s at a floor of ~7 fps: a loaded CI box still clears it, an idle map
+  // (no triggerRepaint) never does.
+  await page.waitForTimeout(1500);
   expect(
     (await page.evaluate(() => window.__spokesMapStats!().mapRenders)) - turning,
   ).toBeGreaterThan(10);
