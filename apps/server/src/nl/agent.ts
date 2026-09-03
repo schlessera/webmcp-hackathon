@@ -9,7 +9,7 @@ import {
 import type { Participant } from "../auth.ts";
 import { config } from "../config.ts";
 import { pool } from "../db.ts";
-import { submitCommand } from "../engine.ts";
+import { submitCommand, type CommandOrigin } from "../engine.ts";
 import { outstandingFor } from "../outstanding.ts";
 import { inspectCandidates, lookUpPlaces, prepareNavigation, spatialContext } from "../spatial.ts";
 import { consumeLookupToken, LOOKUP_RATE_LIMIT_ERROR } from "../lookup-budget.ts";
@@ -35,10 +35,26 @@ export interface AgentAction {
   effect: string;
 }
 
+/** One tool call the model made, reads included. Deliberately no arguments
+ * and no result: either can carry the held private condition. */
+export interface AgentCall {
+  tool: string;
+  round: number;
+  ok: boolean;
+  ms: number;
+}
+
 export interface AgentOutcome {
   reply: string;
   actions: AgentAction[];
-  meta: { model: string; ms: number; rounds: number };
+  meta: {
+    model: string;
+    /** The endpoint that served the last model round, when known. */
+    provider?: string;
+    ms: number;
+    rounds: number;
+    calls: AgentCall[];
+  };
   /** R7: completed actions are still authoritative when a later step fails. */
   partial?: true;
   failureCategory?: AgentFailureCategory;
@@ -228,6 +244,7 @@ async function execute(
   args: Record<string, unknown>,
   revision: { value: number },
   deadlineAt: number,
+  origin: CommandOrigin | undefined,
 ): Promise<unknown> {
   switch (name) {
     case "get_spatial_context": {
@@ -291,7 +308,7 @@ async function execute(
       const result = await submitCommand(actor, type, {
         ...args,
         baseRevision: revision.value,
-      });
+      }, undefined, origin);
       if (result.ok) revision.value = result.revision;
       return result;
     }
@@ -345,16 +362,21 @@ export async function runAgent(
   actor: Participant,
   text: string,
   held: string | null,
-  options: { deadlineMs?: number; maxRounds?: number } = {},
+  options: { deadlineMs?: number; maxRounds?: number; correlationId?: string } = {},
 ): Promise<AgentOutcome> {
   const started = Date.now();
   const deadlineAt = started + (options.deadlineMs ?? TURN_DEADLINE_MS);
   const maxRounds = Math.min(MAX_ROUNDS, Math.max(1, options.maxRounds ?? MAX_ROUNDS));
   const turnId = randomUUID();
+  // The turn's request id rides every mutation, so the page can hang the
+  // agent's frames under the sentence that caused them.
+  const origin = options.correlationId ? { correlationId: options.correlationId } : undefined;
   const actions: AgentAction[] = [];
+  const calls: AgentCall[] = [];
   let reply = "";
   let rounds = 0;
   let model = config.llmAgentModel;
+  let provider: string | undefined;
   let failureCategory: AgentFailureCategory | undefined;
   let stage: "read" | "model" | "tool" = "read";
 
@@ -382,7 +404,7 @@ export async function runAgent(
           instructions: instructions(actor, held),
           input,
           tools: tools(),
-          reasoning: "medium",
+          reasoning: config.llmReasoningEffort,
           maxOutputTokens: 1_700,
           // R14: the transport receives the remaining total budget, never a
           // fresh timeout for every round.
@@ -390,6 +412,7 @@ export async function runAgent(
         }),
       );
       model = turn.model;
+      if (turn.provider) provider = turn.provider;
       if (turn.toolCalls.length === 0) {
         reply = (turn.text ?? "").trim();
         break;
@@ -417,9 +440,19 @@ export async function runAgent(
             },
           };
         } else {
-          remainingMs(deadlineAt);
-          result = await execute(actor, call.name, args, agentRevision, deadlineAt);
-          if (call.name in MUTATIONS) mutationUsed = true;
+          // Only a call that actually ran is a step on the page's timeline:
+          // the deferral above is bookkeeping, not a tool call. A call that
+          // throws (the turn deadline, mostly) is still recorded as failed.
+          const callStarted = Date.now();
+          let ok = false;
+          try {
+            remainingMs(deadlineAt);
+            result = await execute(actor, call.name, args, agentRevision, deadlineAt, origin);
+            ok = (result as ToolResult)?.ok !== false;
+            if (call.name in MUTATIONS) mutationUsed = true;
+          } finally {
+            calls.push({ tool: call.name, round: rounds, ok, ms: Date.now() - callStarted });
+          }
         }
         const envelope = result as ToolResult;
         if (call.name in MUTATIONS) {
@@ -458,7 +491,13 @@ export async function runAgent(
   return {
     reply: reply.slice(0, REPLY_MAX),
     actions,
-    meta: { model, ms: Date.now() - started, rounds },
+    meta: {
+      model,
+      ...(provider ? { provider } : {}),
+      ms: Date.now() - started,
+      rounds,
+      calls,
+    },
     ...(failureCategory ? { partial: true as const, failureCategory } : {}),
   };
 }

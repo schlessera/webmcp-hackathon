@@ -350,6 +350,20 @@ export const COPY = {
     "Pick an area. The places come from OpenStreetMap, and what it knows about them differs by city. The room shows that difference instead of hiding it.",
   startUnknown:
     "What the data does not know shows as unsure, never as a no. Thin data is where an agent can look things up.",
+  startGoalLabel: "What are you planning?",
+  startGoalPlaceholder: "lunch near Sarah's station",
+  startGoalOptional: "Optional",
+  startClassLabel: "Kind of place",
+  startPlanKicker: "From what you said",
+  startPlanNeeds: "Needs to add",
+  startDropNeed: "Leave out",
+  startClarifyFree: "Or say it in your words",
+  startClarifyUse: "Use this",
+  startPlanOffline:
+    "There is nothing else to add yet. Choose the kind of place and keep going.",
+  startReadingPlan: "Reading what you said…",
+  startReviewPlan: "Review the room",
+  startOpeningRoom: "Opening the room…",
   /** "updating 40 places…" — the agent's second phase (COPY.md in progress). */
   agentApplying: (places: number) => `updating ${places} place${places === 1 ? "" : "s"}…`,
 } as const;

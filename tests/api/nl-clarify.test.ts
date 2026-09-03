@@ -73,6 +73,7 @@ describe("model-free natural-language clarification API", () => {
     const key = `clarify-${Date.now()}`;
     const first = await say("under 20", key);
     const replay = await say("under 20", key);
-    expect(replay).toEqual(first);
+    expect(first).not.toHaveProperty("replayed");
+    expect(replay).toEqual({ ...first, replayed: true });
   });
 });

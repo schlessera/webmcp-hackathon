@@ -50,6 +50,11 @@ export interface EventMessage {
   fromRevision?: number;
   /** Projected for THIS participant only — server-side redaction. */
   events: ProjectedEvent[];
+  /** The request that committed this frame — present ONLY on the actor's own
+   * sockets. Peers never learn who caused a move (projection.ts actor rule).
+   * `correlationId` echoes the actor's `x-correlation-id` header, so a page
+   * can draw the event frame as a consequence of its own HTTP request. */
+  causedBy?: { correlationId: string; command: string };
 }
 export interface ErrorMessage {
   type: "error";

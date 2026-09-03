@@ -6,6 +6,9 @@ export interface CommitNotification {
   storedRevisions: number[];
   /** Nonces to hand to their owner's page sockets — realtime channel only. */
   confirmations: Array<ConfirmationGrant & { participantId: string }>;
+  /** The request that committed this revision. Only the actor's own sockets
+   * may see it: peers never learn who made a private move. */
+  causedBy?: { correlationId: string; command: string; actorId: string };
 }
 
 type CommitListener = (notification: CommitNotification) => void;

@@ -41,7 +41,8 @@ describe("X3 natural-language turn idempotency", () => {
     const first = await send();
     const replay = await send();
     expect(first).toMatchObject({ ok: true, intent: "ask" });
-    expect(replay).toEqual(first);
+    expect(first).not.toHaveProperty("replayed");
+    expect(replay).toEqual({ ...first, replayed: true });
     const pid = Number(server.logs().match(/NL_SERVER_PID=(\d+)/)?.[1]);
     expect(pid).toBeGreaterThan(0);
     process.kill(pid, "SIGUSR2");

@@ -50,14 +50,14 @@
 {"id":"money-010","lang":"de","text":"unter zwanzig","context":"default","expect":{"intent":"clarify","needs":[],"clarify":true},"preparse":"whole","tags":["money","clarify"]}
 {"id":"time-001","lang":"en","text":"open now","context":"default","expect":{"intent":"need","needs":[{"kind":"time"}],"clarify":null},"preparse":"whole","tags":["time"]}
 {"id":"time-002","lang":"de","text":"jetzt offen","context":"default","expect":{"intent":"need","needs":[{"kind":"time"}],"clarify":null},"preparse":"whole","tags":["time"]}
-{"id":"time-003","lang":"en","text":"open tomorrow for lunch","context":"default","expect":{"intent":"need","needs":[{"kind":"time"}],"clarify":null},"preparse":"none","tags":["time"]}
-{"id":"time-004","lang":"en","text":"Friday evening","context":"default","expect":{"intent":"need","needs":[{"kind":"time"}],"clarify":null},"preparse":"none","tags":["time"]}
-{"id":"time-005","lang":"en","text":"open late","context":"default","expect":{"intent":"need","needs":[{"kind":"time"}],"clarify":null},"preparse":"none","tags":["time","report"]}
-{"id":"time-006","lang":"en","text":"tonight at 7pm","context":"default","expect":{"intent":"need","needs":[{"kind":"time"}],"clarify":null},"preparse":"none","tags":["time"]}
-{"id":"time-007","lang":"de","text":"morgen zum Mittagessen","context":"default","expect":{"intent":"need","needs":[{"kind":"time"}],"clarify":null},"preparse":"none","tags":["time"]}
-{"id":"time-008","lang":"de","text":"Freitagabend","context":"default","expect":{"intent":"need","needs":[{"kind":"time"}],"clarify":null},"preparse":"none","tags":["time"]}
-{"id":"time-009","lang":"de","text":"heute Abend um halb neun","context":"default","expect":{"intent":"need","needs":[{"kind":"time"}],"clarify":null},"preparse":"none","tags":["time"]}
-{"id":"time-010","lang":"de","text":"spät geöffnet","context":"default","expect":{"intent":"need","needs":[{"kind":"time"}],"clarify":null},"preparse":"none","tags":["time"]}
+{"id":"time-003","lang":"en","text":"open tomorrow for lunch","context":"default","expect":{"intent":"need","needs":[{"kind":"time"}],"clarify":null},"preparse":"whole","tags":["time"]}
+{"id":"time-004","lang":"en","text":"Friday evening","context":"default","expect":{"intent":"need","needs":[{"kind":"time"}],"clarify":null},"preparse":"whole","tags":["time"]}
+{"id":"time-005","lang":"en","text":"open late","context":"default","expect":{"intent":"need","needs":[{"kind":"time"}],"clarify":null},"preparse":"whole","tags":["time","report"]}
+{"id":"time-006","lang":"en","text":"tonight at 7pm","context":"default","expect":{"intent":"need","needs":[{"kind":"time"}],"clarify":null},"preparse":"whole","tags":["time"]}
+{"id":"time-007","lang":"de","text":"morgen zum Mittagessen","context":"default","expect":{"intent":"need","needs":[{"kind":"time"}],"clarify":null},"preparse":"whole","tags":["time"]}
+{"id":"time-008","lang":"de","text":"Freitagabend","context":"default","expect":{"intent":"need","needs":[{"kind":"time"}],"clarify":null},"preparse":"whole","tags":["time"]}
+{"id":"time-009","lang":"de","text":"heute Abend um halb neun","context":"default","expect":{"intent":"need","needs":[{"kind":"time"}],"clarify":null},"preparse":"whole","tags":["time"]}
+{"id":"time-010","lang":"de","text":"spät geöffnet","context":"default","expect":{"intent":"need","needs":[{"kind":"time"}],"clarify":null},"preparse":"whole","tags":["time"]}
 {"id":"attr-001","lang":"en","text":"step-free access","context":"default","expect":{"intent":"need","needs":[{"kind":"attribute"}],"clarify":null},"preparse":"none","tags":["attribute"]}
 {"id":"attr-002","lang":"en","text":"vegan options","context":"default","expect":{"intent":"need","needs":[{"kind":"attribute"}],"clarify":null},"preparse":"none","tags":["attribute"]}
 {"id":"attr-003","lang":"en","text":"no outdoor seating","context":"default","expect":{"intent":"need","needs":[{"kind":"attribute"}],"clarify":null},"preparse":"none","tags":["attribute","negation"]}
@@ -102,3 +102,11 @@
 {"id":"other-002","lang":"en","text":"asdf qwerty","context":"default","expect":{"intent":"unclear","needs":[],"clarify":null},"preparse":"none","tags":["other"]}
 {"id":"other-003","lang":"de","text":"hallo zusammen","context":"default","expect":{"intent":"unclear","needs":[],"clarify":null},"preparse":"none","tags":["other"]}
 {"id":"other-004","lang":"de","text":"blabla xyz","context":"default","expect":{"intent":"unclear","needs":[],"clarify":null},"preparse":"none","tags":["other"]}
+{"id":"plan-001","lang":"en","text":"let's meet somewhere close to Sarah's subway station and have lunch","context":"default","expect":{"placeClass":"food","needs":["scope","time"]},"preparse":"partial","tags":["plan","referent"]}
+{"id":"plan-002","lang":"de","text":"lass uns in der Nähe von Sarahs U-Bahnhof zu Mittag essen","context":"default","expect":{"placeClass":"food","needs":["scope","time"]},"preparse":"partial","tags":["plan","referent"]}
+{"id":"plan-003","lang":"en","text":"go for a walk with the dogs","context":"default","expect":{"placeClass":"park","needs":["attribute"]},"preparse":"none","tags":["plan","attribute"]}
+{"id":"plan-004","lang":"de","text":"mit den Hunden spazieren gehen","context":"default","expect":{"placeClass":"park","needs":["attribute"]},"preparse":"none","tags":["plan","attribute"]}
+{"id":"plan-005","lang":"en","text":"let's meet for dinner and then go watch the new MCU movie at the cinema","context":"default","expect":{"placeClass":"food","needs":["time"]},"preparse":"none","tags":["plan","time"]}
+{"id":"plan-006","lang":"de","text":"erst Abendessen, dann der neue Marvel-Film im Kino","context":"default","expect":{"placeClass":"food","needs":["time"]},"preparse":"none","tags":["plan","time"]}
+{"id":"plan-007","lang":"en","text":"coworking with a quiet room, then drinks nearby","context":"default","expect":{"placeClass":"coworking","needs":["scope","text"]},"preparse":"partial","tags":["plan","quality"]}
+{"id":"plan-008","lang":"de","text":"Coworking mit einem ruhigen Raum, danach Drinks in der Nähe","context":"default","expect":{"placeClass":"coworking","needs":["scope","text"]},"preparse":"partial","tags":["plan","quality"]}

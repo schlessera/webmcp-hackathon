@@ -53,10 +53,16 @@
 
   /* The drawer's on-ink ramp: cream stepped down toward the ink ground. */
   --spoke-drawer-ink:        color-mix(in srgb, var(--spoke-surface) 90%, var(--spoke-ink));
-  --spoke-drawer-ink-soft:   color-mix(in srgb, var(--spoke-surface) 62%, var(--spoke-ink));
+  /* 66% is the lowest step that reads at 4.59:1 on the composited well
+     (surface 7% over ink = rgb(65,78,68)); 65% measures 4.497:1. */
+  --spoke-drawer-ink-soft:   color-mix(in srgb, var(--spoke-surface) 66%, var(--spoke-ink));
   --spoke-drawer-well:       color-mix(in srgb, var(--spoke-surface) 7%, transparent);
+  /* The same well as an opaque colour, for fills that must match it. */
+  --spoke-drawer-well-solid: color-mix(in srgb, var(--spoke-surface) 7%, var(--spoke-ink));
   --spoke-drawer-line:       color-mix(in srgb, var(--spoke-surface) 22%, transparent);
   --spoke-drawer-accent-tint: color-mix(in srgb, var(--spoke-works-pop) 14%, transparent);
+  /* Hairlines inside the well that must stay quieter than --spoke-drawer-line. */
+  --spoke-drawer-line-quiet: color-mix(in srgb, var(--spoke-surface) 14%, transparent);
 
   /* The dashed "would come back" breath. Part of the settle vocabulary, and
      zeroed alongside it when the viewer asks for reduced motion. */
@@ -2164,6 +2170,250 @@ body { overflow: hidden; }
   cursor: pointer;
 }
 
+/* ── wire timeline ──────────────────────────────────────────────────────
+   Dense and mono, on the well. Three columns: clock 46px, graph 49px
+   (five 9px lanes), text. One SVG carries the graph for the whole list. */
+.wire {
+  /* Row height. Paired with ROW_H in WireTimeline.tsx; change both. */
+  --wire-row: 16px;
+  font-family: var(--spoke-font-mono);
+  font-size: var(--spoke-size-micro);
+  line-height: var(--wire-row);
+  color: var(--spoke-drawer-ink);
+}
+.wire-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 20px;
+  margin-bottom: 3px;
+  color: var(--spoke-drawer-ink-soft);
+}
+.wire-count { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.wire-live {
+  display: inline-block;
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  border: 1px solid var(--spoke-drawer-ink-soft);
+  background: none;
+  box-sizing: border-box;
+}
+.wire-live[data-live] { background: var(--spoke-works-pop); border-color: var(--spoke-works-pop); }
+.wire-lanes { margin-left: auto; display: flex; gap: 8px; }
+/* Drawn one row tall; the tap band is 44px tall and 8px wider (§13),
+   extended, not grown. Bands meet between chips without overlapping. */
+.wire-chip {
+  position: relative;
+  height: var(--wire-row);
+  padding: 0 5px;
+  border: 1px solid var(--spoke-drawer-line);
+  border-radius: var(--spoke-radius-badge);
+  background: none;
+  color: var(--spoke-drawer-ink-soft);
+  font-family: var(--spoke-font-mono);
+  font-size: var(--spoke-size-micro);
+  line-height: calc(var(--wire-row) - 2px);
+  cursor: pointer;
+}
+.wire-chip::before { content: ""; position: absolute; inset: -14px -4px; }
+.wire-chip[aria-pressed="true"] {
+  color: var(--spoke-drawer-ink);
+  border-color: var(--spoke-drawer-ink-soft);
+}
+.wire-chip:focus-visible { outline: 1px solid var(--spoke-drawer-ink); outline-offset: 1px; }
+
+.wire-scroll {
+  position: relative;
+  max-height: 46vh;
+  overflow: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+}
+.wire-empty { color: var(--spoke-drawer-ink-soft); padding: 2px 0 4px; }
+.wire-list { position: relative; isolation: isolate; }
+.wire-graph {
+  position: absolute;
+  left: 52px;
+  top: 0;
+  pointer-events: none;
+  overflow: visible;
+}
+
+/* Rows: a full-width button drawn and hit one row tall. This is below the
+   44px floor (§13) by decision: a band would overlap the neighbours and
+   steal their taps in a dense list. Keyboard focus (Tab) is the precise path. */
+.wire-item { position: relative; }
+.wire-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: 46px 49px minmax(0, 1fr);
+  column-gap: 6px;
+  align-items: center;
+  width: 100%;
+  height: var(--wire-row);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.wire-row:focus-visible { outline: 1px solid var(--spoke-drawer-ink); outline-offset: -1px; }
+.wire-row[aria-expanded="true"] .wire-label { text-decoration: underline; text-underline-offset: 2px; }
+.wire-clock {
+  text-align: right;
+  color: var(--spoke-drawer-ink-soft);
+  font-variant-numeric: tabular-nums;
+}
+.wire-text {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+/* The label never truncates; the note takes what is left and trims with an
+   ellipsis; the tail is fixed and never wraps. */
+.wire-label { flex: none; white-space: nowrap; color: var(--spoke-drawer-ink); }
+.wire-note {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--spoke-drawer-ink-soft);
+}
+.wire-tail {
+  flex: none;
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding-right: 2px;
+  color: var(--spoke-drawer-ink-soft);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.wire-tag { white-space: nowrap; }
+.wire-ms { min-width: 34px; text-align: right; }
+/* A duration: 1.5px line; the server's share is the 3px segment inside it. */
+.wire-bar {
+  position: relative;
+  display: inline-block;
+  height: 1.5px;
+  background: var(--spoke-drawer-ink-soft);
+  vertical-align: middle;
+}
+.wire-bar-server {
+  position: absolute;
+  top: -0.75px;
+  height: 3px;
+  background: var(--spoke-drawer-ink);
+}
+/* A failure is told by weight and the cross on its mark, never by a hue
+   (rule 2): the note comes up to full ink. */
+.wire-row[data-outcome="error"] .wire-note { color: var(--spoke-drawer-ink); }
+/* Never `opacity` on a row: it would make the row a stacking context and
+   change hit testing against its neighbours. Dimming is colour only. */
+.wire-row[data-outcome="cancelled"] .wire-label,
+.wire-row[data-outcome="blocked"] .wire-label { color: var(--spoke-drawer-ink-soft); }
+
+/* Hover or focus on a row lights its chain at full ink; the rest steps
+   back to the soft ink. */
+.wire-list[data-hot] .wire-row[data-related="false"] .wire-label { color: var(--spoke-drawer-ink-soft); }
+.wire-list[data-hot] .wire-row[data-related="true"] .wire-note,
+.wire-list[data-hot] .wire-row[data-related="true"] .wire-clock,
+.wire-list[data-hot] .wire-row[data-related="true"] .wire-tail { color: var(--spoke-drawer-ink); }
+.wire-list[data-hot] .wire-graph .wire-g:not(.is-related) { opacity: var(--spoke-out-opacity); }
+
+/* Minute and gap rows share the row grid. */
+.wire-minute,
+.wire-gap {
+  display: grid;
+  grid-template-columns: 46px 49px minmax(0, 1fr);
+  column-gap: 6px;
+  align-items: center;
+  height: var(--wire-row);
+  color: var(--spoke-drawer-ink-soft);
+}
+.wire-minute .wire-clock { font-weight: var(--spoke-weight-strong); }
+.wire-rule { grid-column: 2 / 4; height: 1px; background: var(--spoke-drawer-line-quiet); }
+.wire-gap-break {
+  justify-self: center;
+  width: 0;
+  height: var(--wire-row);
+  border-left: 1px dotted var(--spoke-drawer-ink-soft);
+}
+.wire-gap-label { text-align: center; }
+
+/* The graph. All paint here; the markup carries no colour. */
+.wire-graph .wire-g { color: var(--spoke-drawer-ink); }
+.wire-fill { fill: currentColor; stroke: none; }
+.wire-hollow { fill: var(--spoke-drawer-well-solid); stroke: currentColor; stroke-width: 1; }
+.wire-thick { stroke-width: 1.5; }
+.wire-mark[data-outcome="ok"] { color: var(--spoke-works-pop); }
+/* error: the mark stays in the drawer ink and carries the cross. */
+.wire-mark[data-outcome="cancelled"],
+.wire-mark[data-outcome="blocked"] { opacity: var(--spoke-out-opacity); }
+.wire-cross { stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; }
+.wire-span {
+  stroke: var(--spoke-drawer-ink-soft);
+  stroke-width: 1.5;
+  stroke-linecap: butt;
+}
+.wire-span[data-open] { stroke-dasharray: 3 3; }
+.wire-conn { fill: none; stroke: var(--spoke-drawer-line); stroke-width: 1; }
+.wire-conn-link { stroke-dasharray: 1 2; stroke-linecap: round; }
+.wire-g.is-related .wire-span,
+.wire-g.is-related .wire-conn { stroke: var(--spoke-drawer-ink); }
+/* In flight: the busy ring turns around the mark (§9, rotation on the
+   inner element only). With reduced motion the duration is zero and the
+   dashed ring simply stands. */
+.wire-busy {
+  fill: none;
+  stroke: var(--spoke-drawer-ink-soft);
+  stroke-width: 1;
+  stroke-dasharray: 2 2.5;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: spoke-busy var(--spoke-dur-busy) linear infinite;
+}
+
+/* The expanded row: `k v` pairs, then the sub-steps with their own bars. */
+.wire-detail {
+  padding: 2px 2px 6px 107px;
+  color: var(--spoke-drawer-ink-soft);
+  line-height: 15px;
+}
+.wire-detail-empty { font-style: italic; }
+.wire-kv { margin: 0; display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 0 10px; }
+.wire-kv > div { display: contents; }
+.wire-kv dt { color: var(--spoke-drawer-ink-soft); }
+.wire-kv dd { margin: 0; color: var(--spoke-drawer-ink); overflow-wrap: anywhere; }
+.wire-steps { list-style: none; margin: 3px 0 0; padding: 0 0 0 8px; border-left: 1px solid var(--spoke-drawer-line-quiet); }
+.wire-steps li { display: flex; align-items: baseline; gap: 6px; }
+.wire-step-label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--spoke-drawer-ink); }
+
+/* Following paused: the way back to the newest row. Same tap band as the
+   chips. */
+.wire-newest {
+  position: sticky;
+  bottom: 4px;
+  float: right;
+  margin-right: 4px;
+  border: 1px solid var(--spoke-drawer-line);
+  border-radius: var(--spoke-radius-badge);
+  background: var(--spoke-drawer-well-solid);
+  color: var(--spoke-drawer-ink-soft);
+  font-family: var(--spoke-font-mono);
+  font-size: var(--spoke-size-micro);
+  line-height: calc(var(--wire-row) - 2px);
+  padding: 0 6px;
+  cursor: pointer;
+}
+.wire-newest::before { content: ""; position: absolute; inset: -14px -4px; }
+
 /* ── Transients ────────────────────────────────────────────────────────
    Reduced to what states the user must see: an error line and the stale
    banner. No success celebration. */
@@ -2275,6 +2525,7 @@ body { overflow: hidden; }
    One column, the same surfaces as the brief. Numbers are absolute; the
    meter draws the same two numbers, unknown hollow (CLAUDE.md §4, §10). */
 .start {
+  height: 100%;
   min-height: 100%;
   max-width: 440px;
   margin: 0 auto;
@@ -2282,6 +2533,8 @@ body { overflow: hidden; }
   display: flex;
   flex-direction: column;
   gap: 12px;
+  overflow-x: hidden;
+  overflow-y: auto;
   color: var(--spoke-ink);
 }
 .start-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
@@ -2303,6 +2556,39 @@ body { overflow: hidden; }
 }
 .start-note { font-size: var(--spoke-size-detail); }
 .start-quiet { color: var(--spoke-ink-ghost); font-size: var(--spoke-size-detail); }
+.start-goal {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+  font-family: var(--spoke-font-display);
+  font-weight: var(--spoke-weight-strong);
+  font-size: var(--spoke-size-body);
+}
+.start-goal input,
+.start-class-field select,
+.plan-clarify-free input {
+  box-sizing: border-box;
+  min-height: var(--spoke-tap-min);
+  padding: 8px 10px;
+  border: var(--spoke-border) solid var(--spoke-line-quiet);
+  border-radius: var(--spoke-radius-badge);
+  background: var(--spoke-surface);
+  color: var(--spoke-ink);
+  font: inherit;
+  font-family: var(--spoke-font-text);
+  font-size: var(--spoke-size-body);
+}
+.start-goal small {
+  position: absolute;
+  right: 10px;
+  top: 1px;
+  color: var(--spoke-ink-faint);
+  font-family: var(--spoke-font-text);
+  font-size: var(--spoke-size-micro);
+  font-weight: var(--spoke-weight-quiet);
+}
 .start-error {
   margin: 0;
   padding: var(--spoke-pad-card);
@@ -2368,6 +2654,82 @@ body { overflow: hidden; }
   color: var(--spoke-ink-faint);
 }
 
+.start-class-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--spoke-ink-faint);
+  font-size: var(--spoke-size-meta);
+}
+.start-class-field select { flex: 1; min-width: 0; }
+
+.plan-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spoke-gap-group);
+  border-style: dashed;
+}
+.plan-heading {
+  font-family: var(--spoke-font-display);
+  font-weight: var(--spoke-weight-display);
+  font-size: var(--spoke-size-title);
+}
+.plan-offline {
+  margin: 0;
+  color: var(--spoke-ink-soft);
+  font-size: var(--spoke-size-detail);
+}
+.plan-needs { display: flex; flex-direction: column; gap: var(--spoke-gap-row); }
+.plan-need {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  min-height: var(--spoke-tap-min);
+  padding-left: 10px;
+  border: var(--spoke-border) dashed var(--spoke-line-quiet);
+  border-radius: var(--spoke-radius-card);
+  background: var(--spoke-surface);
+}
+.plan-need-label {
+  min-width: 0;
+  padding: 7px 9px;
+  font-weight: var(--spoke-weight-body);
+  overflow-wrap: anywhere;
+}
+.plan-need-label small {
+  color: var(--spoke-ink-faint);
+  font-size: var(--spoke-size-meta);
+  font-weight: var(--spoke-weight-quiet);
+}
+.plan-drop {
+  align-self: stretch;
+  min-height: var(--spoke-tap-min);
+  padding: 0 10px;
+}
+.plan-clarify {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spoke-gap-group);
+  box-shadow: none;
+}
+.plan-clarify-free {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  color: var(--spoke-ink-faint);
+  font-size: var(--spoke-size-meta);
+}
+.plan-clarify-input { display: flex; gap: 6px; }
+.plan-clarify-input input { min-width: 0; flex: 1; }
+.plan-clarify-input .btn { min-height: var(--spoke-tap-min); padding-inline: 12px; }
+.invite-goal {
+  margin: 0;
+  font-family: var(--spoke-font-display);
+  font-weight: var(--spoke-weight-strong);
+  font-size: var(--spoke-size-title);
+  color: var(--spoke-ink);
+}
+
 .start-names { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
 .start-field {
   display: grid;
@@ -2399,6 +2761,9 @@ body { overflow: hidden; }
   color: var(--spoke-ink-soft);
 }
 .start-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   margin-top: 8px;
   min-height: var(--spoke-tap-min);
   padding: 10px 16px;

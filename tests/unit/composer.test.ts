@@ -37,8 +37,13 @@ describe("composer offline payloads", () => {
     expect(payloadFromText("within 15 min", [])).toEqual({
       kind: "scope", dimension: "walk_min", max: 15,
     });
-    expect(payloadFromText("open tomorrow for lunch", [])).toEqual({
-      kind: "text", text: "open tomorrow for lunch",
+    expect(payloadFromText("open tomorrow for lunch", [], {
+      now: new Date("2026-09-03T08:15:30.000Z"),
+      timezone: "Europe/Berlin",
+    })).toEqual({
+      kind: "time",
+      phrase: "open tomorrow for lunch",
+      window: { start: "2026-09-04T12:00:00+02:00", end: "2026-09-04T14:00:00+02:00" },
     });
   });
 });

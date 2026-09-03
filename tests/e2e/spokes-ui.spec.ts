@@ -43,6 +43,7 @@ type MockContext = {
   ok: true;
   revision: number;
   phase: string;
+  goal?: string;
   scope: {
     scopeId: string;
     area: { kind: "circle"; center: { lat: number; lng: number }; radiusM: number };
@@ -598,6 +599,34 @@ test.beforeAll(async () => {
 
 test.afterAll(() => previewServer?.kill("SIGTERM"));
 test.use({ viewport: { width: 1180, height: 900 } });
+
+test("the room header keeps its verbatim goal and an organizer-seeded need is an ordinary row", async ({ page }) => {
+  const goal = "a film after lunch near Sarah's station";
+  const context = fixture({
+    activeNeeds: [
+      {
+        id: "need-seeded",
+        label: "within 10 min walk of Alexanderplatz",
+        ruledOut: 3,
+        wouldReturn: 3,
+        unknown: 0,
+        active: true,
+        visibility: "shared",
+        hardness: "hard",
+        ownerId: "p_org",
+      },
+    ],
+  });
+  context.goal = goal;
+  await mockApi(page, { context, outstanding: [] });
+  await page.goto(`${BASE}/?shim=webmcp#invite=abcdef123456`);
+  await closeDrawer(page);
+
+  await expect(page.getByTestId("room-title")).toHaveText(goal);
+  const seeded = page.getByTestId("need-need-seeded");
+  await expect(seeded).toBeVisible();
+  await expect(seeded).toHaveAttribute("aria-pressed", "true");
+});
 
 test("impasse and pending states protect previews, privacy, map stability, and domain-neutral chrome", async ({ browser }) => {
   const browserContext = await browser.newContext({

@@ -5,6 +5,7 @@ import {
 } from "@webmcp-hackathon/contracts";
 import { diagnostics } from "./diagnostics-store.ts";
 import { reloadIsProvenSafe } from "./surface.ts";
+import { utf8Bytes, wire } from "./wire-store.ts";
 
 export interface RealtimeCallbacks {
   onWelcome(message: {
@@ -119,12 +120,23 @@ export function fetchPageBuild(): Promise<string> {
   if (pageBuildId) return Promise.resolve(pageBuildId);
   pageBuildFetch ??= (async () => {
     for (let attempt = 0; attempt < 5; attempt += 1) {
+      const span = wire.begin({ lane: "http", label: "GET meta" });
       try {
-        const meta = await (await fetch("/api/meta")).json();
+        const response = await fetch("/api/meta");
+        const text = await response.text();
+        const meta = JSON.parse(text);
         pageBuildId = meta.buildId as string;
+        const serverMs = Number(response.headers.get("x-server-ms"));
+        wire.end(span, {
+          outcome: "ok",
+          note: `build ${pageBuildId}${meta.nl === true ? " · nl" : ""}`,
+          bytes: utf8Bytes(text),
+          serverMs: response.headers.has("x-server-ms") && Number.isFinite(serverMs) ? serverMs : undefined,
+        });
         diagnostics.update({ buildId: pageBuildId, nlAvailable: meta.nl === true });
         return pageBuildId;
       } catch {
+        wire.end(span, { outcome: "error", note: "network" });
         await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
       }
     }
@@ -132,6 +144,11 @@ export function fetchPageBuild(): Promise<string> {
     return "";
   })();
   return pageBuildFetch;
+}
+
+/** Frame size in UTF-8 bytes, computed once per frame. */
+function frameOf(raw: MessageEvent): number {
+  return typeof raw.data === "string" ? utf8Bytes(raw.data) : 0;
 }
 
 export function connectRealtime(
@@ -157,6 +174,7 @@ export function connectRealtime(
   const sendViewing = () => {
     if (!welcomed || socket?.readyState !== WebSocket.OPEN) return;
     socket.send(JSON.stringify({ type: "viewing", candidateId: viewing }));
+    wire.mark({ lane: "ws", label: "viewing", dir: "out", detail: { candidateId: viewing } });
   };
   /* Previewing: the place under the pointer or keyboard focus, debounced so
      a sweep across the map sends nothing and a rest sends one frame. */
@@ -169,6 +187,8 @@ export function connectRealtime(
     if (previewSent === previewing) return;
     if (!welcomed || socket?.readyState !== WebSocket.OPEN) return;
     previewSent = previewing;
+    // Pointer traffic: deliberately not on the timeline (it would crowd out
+    // the spans that matter).
     socket.send(JSON.stringify({ type: "previewing", candidateId: previewing }));
   };
 
@@ -177,11 +197,14 @@ export function connectRealtime(
     const proto = window.location.protocol === "https:" ? "wss" : "ws";
     socket = new WebSocket(`${proto}://${window.location.host}/ws`);
     diagnostics.update({ wsState: "connecting" });
+    let connecting: string | null = wire.begin({ lane: "ws", label: "connect", dir: "out" });
 
     socket.onopen = () => {
       welcomed = false;
       lastFrameAt = Date.now();
       diagnostics.update({ wsState: "open", wsStale: false });
+      if (connecting) wire.end(connecting, { outcome: "ok", note: "open" });
+      connecting = null;
       socket!.send(
         JSON.stringify({
           type: "auth",
@@ -190,19 +213,35 @@ export function connectRealtime(
           clientToolContractVersion: TOOL_CONTRACT_VERSION,
         }),
       );
+      // The token itself never reaches the timeline.
+      wire.mark({
+        lane: "ws",
+        label: "auth",
+        dir: "out",
+        detail: { build: pageBuildId ?? "unknown", contract: TOOL_CONTRACT_VERSION },
+      });
     };
     socket.onmessage = (raw) => {
       lastFrameAt = Date.now();
       if (diagnostics.state.wsStale) diagnostics.update({ wsStale: false });
       let message: ServerMessage;
+      const bytes = frameOf(raw);
       try {
         message = JSON.parse(String(raw.data)) as ServerMessage;
       } catch {
-        diagnostics.log("ws: dropped unparseable frame");
+        wire.mark({ lane: "ws", label: "frame", dir: "in", note: "unparseable", outcome: "error", bytes });
         return;
       }
       if (message.type === "welcome") {
         retryAttempt = 0; // healthy connection resets the backoff
+        wire.mark({
+          lane: "ws",
+          label: "welcome",
+          dir: "in",
+          note: `rev ${message.revision} · build ${message.buildId}`,
+          bytes,
+          detail: { buildId: message.buildId, contract: message.toolContractVersion, role: message.role },
+        });
         diagnostics.update({ serverBuildId: message.buildId });
         callbacks.onWelcome(message);
         welcomed = true;
@@ -225,12 +264,48 @@ export function connectRealtime(
           }
         }
       } else if (message.type === "event") {
+        const events = Array.isArray(message.events) ? message.events : [];
+        wire.mark({
+          lane: "ws",
+          label: `event ×${events.length}`,
+          dir: "in",
+          note: `rev ${message.fromRevision ?? "?"}→${message.revision}`,
+          revision: message.revision,
+          fromRevision: message.fromRevision,
+          // The server names the request that caused these events only on
+          // the actor's own socket; the layout joins the frame to that span.
+          correlationId: message.causedBy?.correlationId,
+          bytes,
+          detail: {
+            types: events.map((e) => e.type).join(" "),
+            causedBy: message.causedBy?.correlationId,
+            command: message.causedBy?.command,
+          },
+        });
         callbacks.onEvents(message.revision, message.events, message.fromRevision);
       } else if (message.type === "presence") {
-        callbacks.onPresence(message.present, message.viewing ?? [], message.positions ?? []);
+        const present = Array.isArray(message.present) ? message.present.length : 0;
+        const viewingRows = message.viewing ?? [];
+        wire.mark({
+          lane: "ws",
+          label: "presence",
+          dir: "in",
+          note: `${present} here · ${viewingRows.length} viewing`,
+          bytes,
+        });
+        callbacks.onPresence(message.present, viewingRows, message.positions ?? []);
       } else if (message.type === "lookups") {
         const pending = Array.isArray(message.pending) ? message.pending : [];
-        diagnostics.log(`lookups: ${pending.length} pending${message.reason ? ` (${message.reason.kind})` : ""}`);
+        wire.mark({
+          lane: "ws",
+          label: "lookups",
+          dir: "in",
+          note: `${pending.length} pending${message.reason ? ` · ${message.reason.kind}` : ""}`,
+          bytes,
+          // A label rides on the frame only for shared needs; nothing is
+          // reconstructed from elsewhere.
+          detail: { reason: message.reason?.label },
+        });
         const stages = Array.isArray(message.stages)
           ? message.stages.filter(
               (row): row is { candidateId: string; stage: PipelineStage } =>
@@ -265,30 +340,63 @@ export function connectRealtime(
           reset: message.reset === true,
           reason: message.reason ?? null,
         };
-        diagnostics.log(
-          `pipeline: ${frame.done} of ${frame.total} · ${frame.inFlight.fetch} reading · ${frame.inFlight.process} checking${frame.paused ? ` (${frame.paused})` : ""}`,
-        );
+        wire.mark({
+          lane: "ws",
+          label: "pipeline",
+          dir: "in",
+          note: `${frame.done}/${frame.total} · ${frame.inFlight.fetch} reading · ${frame.inFlight.process} checking${frame.paused ? ` · paused ${frame.paused}` : ""}`,
+          bytes,
+          detail: {
+            outstanding: `${frame.outstanding.fetch} fetch · ${frame.outstanding.process} process`,
+            eta: typeof frame.etaMs === "number" ? `${Math.round(frame.etaMs / 1000)}s` : undefined,
+            stages: Array.isArray(message.stages) ? message.stages.length : undefined,
+          },
+        });
         callbacks.onPipeline(frame);
       } else if (message.type === "facts") {
         const ids = Array.isArray(message.candidateIds) ? message.candidateIds : [];
-        diagnostics.log(`facts: ${ids.length} changed (${message.reason})`);
         const isStage = (v: unknown): v is InteractiveStage =>
           v === "queued" || v === "site" || v === "needs" || v === "photos" || v === "web";
+        const steps = Array.isArray(message.steps)
+          ? message.steps
+              .filter((step): step is { stage: InteractiveStage; ms?: number } => isStage(step?.stage))
+              .map((step) => ({ stage: step.stage, ...(typeof step.ms === "number" ? { ms: step.ms } : {}) }))
+          : [];
+        const costUsd = typeof message.costUsd === "number" ? message.costUsd : null;
+        wire.mark({
+          lane: "ws",
+          label: "facts",
+          dir: "in",
+          note: `${ids.length} changed · ${message.reason}${isStage(message.stage) ? ` · ${message.stage}` : ""}${message.done === true ? " · done" : ""}`,
+          bytes,
+          steps: steps.map((step) => ({ label: step.stage, ms: step.ms })),
+          detail: {
+            costUsd: costUsd === null ? undefined : `$${costUsd.toFixed(4)}`,
+            candidates: ids.length,
+          },
+        });
         callbacks.onFacts(ids, message.reason, {
           stage: isStage(message.stage) ? message.stage : null,
           done: message.done === true,
-          steps: Array.isArray(message.steps)
-            ? message.steps
-                .filter((step): step is { stage: InteractiveStage; ms?: number } => isStage(step?.stage))
-                .map((step) => ({ stage: step.stage, ...(typeof step.ms === "number" ? { ms: step.ms } : {}) }))
-            : [],
-          costUsd: typeof message.costUsd === "number" ? message.costUsd : null,
+          steps,
+          costUsd,
         });
       } else if (message.type === "confirmation") {
-        // Never logged: the nonce is a credential for one page gesture.
+        // The nonce is a credential for one page gesture: it is never put on
+        // the timeline, only that a grant arrived, for what, and for how long.
+        wire.mark({
+          lane: "ws",
+          label: "confirmation",
+          dir: "in",
+          note: `${message.kind} · expires ${Math.round(message.expiresInMs / 1000)}s`,
+          bytes,
+          detail: { subject: message.subjectId },
+        });
         callbacks.onConfirmation(message);
+      } else if (message.type === "ping") {
+        wire.mark({ lane: "ws", label: "ping", dir: "in", bytes });
       } else if (message.type === "error") {
-        diagnostics.log(`ws error: ${message.code}`);
+        wire.mark({ lane: "ws", label: "error", dir: "in", note: message.code, outcome: "error", bytes });
         if (message.code === "upgrade_required") {
           // The server refuses a stale page before any welcome (R17), so the
           // Gate 5 silent reload has to happen here, not on the welcome path.
@@ -299,13 +407,20 @@ export function connectRealtime(
     };
     socket.onclose = (event) => {
       diagnostics.update({ wsState: "closed" });
-      if (closed) return;
-      if (event.code === 4002 || event.code === 4003) {
-        // Dead token: retrying cannot help — the page must re-exchange.
-        diagnostics.log(`ws: unrecoverable close (${event.code}), reconnect stopped`);
+      if (connecting) wire.end(connecting, { outcome: "error", note: `closed before open · code ${event.code}` });
+      connecting = null;
+      if (closed) {
+        wire.mark({ lane: "ws", label: "closed", dir: "in", note: `code ${event.code} · page left` });
         return;
       }
-      setTimeout(connect, reconnectDelayMs(retryAttempt));
+      if (event.code === 4002 || event.code === 4003) {
+        // Dead token: retrying cannot help — the page must re-exchange.
+        wire.mark({ lane: "ws", label: "closed", dir: "in", note: `code ${event.code} · reconnect stopped`, outcome: "error" });
+        return;
+      }
+      const delay = reconnectDelayMs(retryAttempt);
+      wire.mark({ lane: "ws", label: "closed", dir: "in", note: `code ${event.code} · retry in ${(delay / 1000).toFixed(1)}s` });
+      setTimeout(connect, delay);
       retryAttempt += 1;
     };
   };

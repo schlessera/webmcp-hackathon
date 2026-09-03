@@ -243,7 +243,9 @@ describe("R6 mutation idempotency", () => {
     );
     const replay = await commandWithKey(room.tokens.org, key, body);
     expect(first.ok).toBe(true);
-    expect(replay).toEqual(first);
+    // Byte-equivalent domain outcome, plus the additive replay marker.
+    expect(first).not.toHaveProperty("replayed");
+    expect(replay).toEqual({ ...first, replayed: true });
 
     const afterEvents = Number(
       (await room.pool.query("SELECT count(*)::int AS n FROM events WHERE room_id = $1", [room.roomId]))

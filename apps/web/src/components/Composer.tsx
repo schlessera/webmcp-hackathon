@@ -12,6 +12,7 @@ import { nlCondition, nlSay } from "../api.ts";
 import { diagnostics } from "../diagnostics-store.ts";
 import { shouldPreserveNlText } from "../nl-result.ts";
 import { spatial } from "../spatial-store.ts";
+import { wire, type WireStep } from "../wire-store.ts";
 import type {
   ActiveNeed,
   CommandEnvelope,
@@ -52,18 +53,6 @@ const LABEL_TO_KEY = new Map<string, string>(
 
 type Payload = Record<string, unknown>;
 
-/** The offline command still obeys the offset-bearing wire shape. Its offset
- * is the browser's because the fallback has no room-timezone parser. */
-function isoWithLocalOffset(date: Date): string {
-  const offsetMinutes = -date.getTimezoneOffset();
-  const sign = offsetMinutes >= 0 ? "+" : "-";
-  const absolute = Math.abs(offsetMinutes);
-  const two = (value: number) => String(value).padStart(2, "0");
-  return `${date.getFullYear()}-${two(date.getMonth() + 1)}-${two(date.getDate())}`
-    + `T${two(date.getHours())}:${two(date.getMinutes())}:${two(date.getSeconds())}`
-    + `${sign}${two(Math.floor(absolute / 60))}:${two(absolute % 60)}`;
-}
-
 /**
  * Free text → a requirement payload, without an agent. Four protocol-level
  * attempts, then an honest fallback:
@@ -75,13 +64,21 @@ function isoWithLocalOffset(date: Date): string {
  *      place pending, because nothing about it has been checked.
  * There is no domain parsing beyond the labels the server itself supplied.
  */
-export function payloadFromText(text: string, facets: Facet[]): Payload {
+export function payloadFromText(
+  text: string,
+  facets: Facet[],
+  time: { now?: Date; timezone?: string } = {},
+): Payload {
   const parsed = preparse(text, { currency: roomCurrency(facets) });
+  const now = time.now ?? new Date();
+  const timezone = time.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone ?? "UTC";
   if (parsed.preparsedWhole) {
     const payload = parsed.concepts
       .map((concept) => mapPreparsedConcept(concept, {
         currency: roomCurrency(facets),
         transport: ["walk"],
+        now,
+        timezone,
       }))
       .find(Boolean);
     if (payload) return payload;
@@ -119,16 +116,6 @@ export function payloadFromText(text: string, facets: Facet[]): Payload {
     }
   }
 
-  if (t === "open now") {
-    const start = new Date();
-    const end = new Date(start.getTime() + 2 * 60 * 60 * 1000);
-    return {
-      kind: "time",
-      window: { start: isoWithLocalOffset(start), end: isoWithLocalOffset(end) },
-      phrase: text.trim(),
-    };
-  }
-
   return { kind: "text", text: text.trim().slice(0, 200) };
 }
 
@@ -159,12 +146,14 @@ function preparsedPayloads(
   text: string,
   facets: Facet[],
   hasOwnOrigin: boolean,
+  now: Date,
+  timezone: string,
 ): Array<{ payload: Payload; assumed?: string }> | null {
   const currency = roomCurrency(facets);
   const parsed = preparse(text, { currency });
   if (!parsed.preparsedWhole) return null;
   const payloads = parsed.concepts.flatMap((concept) => {
-    const payload = mapPreparsedConcept(concept, { currency, transport: ["walk"] });
+    const payload = mapPreparsedConcept(concept, { currency, transport: ["walk"], now, timezone });
     const assumed = offlineAssumption(concept, currency, hasOwnOrigin);
     return payload ? [{
       payload: payload as Payload,
@@ -210,8 +199,38 @@ interface SayResult {
   actions?: Array<{ tool: string; ok: boolean; effect: string }>;
   partial?: boolean;
   failureCategory?: string;
-  meta?: { route?: { model: string; ms: number }; agent?: { model: string; ms: number; rounds: number } };
+  meta?: {
+    route?: { model: string | null; ms: number; provider?: string };
+    agent?: {
+      model: string;
+      ms: number;
+      rounds: number;
+      provider?: string;
+      /** Every tool call the agent made, reads included; never args or results. */
+      calls?: Array<{ tool: string; round: number; ok: boolean; ms: number }>;
+    };
+  };
   error?: { code: string; message: string };
+}
+
+/** The tiers a turn went through, as timeline sub-steps. */
+function turnSteps(meta: SayResult["meta"]): WireStep[] {
+  const steps: WireStep[] = [];
+  const route = meta?.route;
+  const agent = meta?.agent;
+  if (route && route.model) {
+    steps.push({ label: `route ${route.model}${route.provider ? ` · ${route.provider}` : ""}`, ms: route.ms });
+  }
+  if (agent) {
+    steps.push({
+      label: `agent ${agent.model}${agent.provider ? ` · ${agent.provider}` : ""} · ${agent.rounds} rounds`,
+      ms: agent.ms,
+    });
+    for (const call of agent.calls ?? []) {
+      steps.push({ label: `${call.tool} (round ${call.round})`, ms: call.ms, ok: call.ok });
+    }
+  }
+  return steps;
 }
 
 interface Props {
@@ -220,11 +239,12 @@ interface Props {
   /** In-scope places, for "updating 40 places…". */
   placeCount: number;
   hasOwnOrigin: boolean;
+  timezone: string;
   disabled: boolean;
-  run(type: string, input: Record<string, unknown>): Promise<CommandEnvelope>;
+  run(type: string, input: Record<string, unknown>, signal?: AbortSignal): Promise<CommandEnvelope>;
 }
 
-export function Composer({ facets, activeNeeds, placeCount, hasOwnOrigin, disabled, run }: Props) {
+export function Composer({ facets, activeNeeds, placeCount, hasOwnOrigin, timezone, disabled, run }: Props) {
   const [scope, setScope] = useState<Visibility>("shared");
   const [scopeOpen, setScopeOpen] = useState(false);
   const [text, setText] = useState("");
@@ -338,7 +358,12 @@ export function Composer({ facets, activeNeeds, placeCount, hasOwnOrigin, disabl
   // and the composer offers no way to give it yet.
   // The row exists on the brief from this moment (SPOKES-UI §4, pending):
   // in the person's words until the room brings the real one.
-  const submitPayload = async (payload: Payload | null, said: string, assumed?: string) => {
+  const submitPayload = async (
+    payload: Payload | null,
+    said: string,
+    assumed?: string,
+    signal?: AbortSignal,
+  ) => {
     const localId = spatial.beginPendingNeed(said, scope, assumed);
     const result = await run("SubmitRequirement", {
       visibility: scope,
@@ -351,7 +376,7 @@ export function Composer({ facets, activeNeeds, placeCount, hasOwnOrigin, disabl
         : payload
           ? { payload }
           : {}),
-    });
+    }, signal);
     spatial.settlePendingCommit(localId, result.ok);
     return result;
   };
@@ -373,45 +398,49 @@ export function Composer({ facets, activeNeeds, placeCount, hasOwnOrigin, disabl
     const trimmed = sentence.trim();
     if (!trimmed) return;
     spatial.setAgentBusy(true, "reading");
+    // One agent span per turn; the request and every follow-up command hang
+    // under it through the turn's signal. An agent-private sentence is never
+    // written to the timeline, only that a turn happened.
+    const turn = wire.begin({
+      lane: "agent",
+      label: agentOnly ? "condition" : "say",
+      detail: agentOnly ? { scope: "agent-private" } : { said: trimmed.slice(0, 80), scope },
+    });
+    const turnSignal = wire.child(turn).signal;
     try {
       if (agentOnly) {
-        const result = (await nlCondition(trimmed)) as SayResult & { topic?: string | null };
+        const result = (await nlCondition(trimmed, turnSignal)) as SayResult & { topic?: string | null };
         if (!result.ok) {
-          diagnostics.log(`agent condition refused: ${result.error?.code}`);
+          wire.end(turn, { outcome: "error", note: `refused · ${result.error?.code ?? "error"}` });
           // The declaration still stands; the agent simply holds nothing.
-          void submitPayload(null, saidLabel(trimmed));
+          void submitPayload(null, saidLabel(trimmed), undefined, turnSignal);
         } else {
-          diagnostics.log(`agent holds a condition (${result.meta?.route?.model} ${result.meta?.route?.ms}ms)`);
+          wire.end(turn, { outcome: "ok", note: "held", steps: turnSteps(result.meta) });
           spatial.pushAgentReply({ text: COPY.agentHolds, actions: [], answer: true });
         }
         setText("");
         return;
       }
-      const result = (await nlSay(trimmed, scope, undefined, clarifyOf ?? undefined)) as SayResult;
+      const result = (await nlSay(trimmed, scope, undefined, clarifyOf ?? undefined, turnSignal)) as SayResult;
       const preserveForRetry = shouldPreserveNlText(result);
       if (!result.ok) {
         // R7: a failed question/action may already have committed an earlier
         // step. Never reinterpret the original words as an unrelated need;
         // keep them in the composer and make retry explicit.
-        diagnostics.log(`agent unavailable (${result.error?.code}); text preserved for retry`);
+        wire.end(turn, { outcome: "error", note: result.error?.code ?? "error", detail: { retry: "text preserved" } });
         spatial.pushAgentReply({ text: COPY.agentRetry, actions: [], answer: true });
         return;
       }
-      const route = result.meta?.route;
-      const agent = result.meta?.agent;
-      diagnostics.log(
-        `agent routed "${result.intent}" (${route?.model} ${route?.ms}ms${
-          agent ? `; ${agent.model} ${agent.ms}ms, ${agent.rounds} rounds` : ""
-        })`,
-      );
+      const steps = turnSteps(result.meta);
+      wire.patch(turn, { note: result.intent, steps });
       if (result.intent === "need") {
         spatial.setAgentBusy(true, "applying");
         for (const need of result.needs ?? []) {
-          await submitPayload(need.payload, need.label || need.gist || saidLabel(trimmed), need.assumed);
+          await submitPayload(need.payload, need.label || need.gist || saidLabel(trimmed), need.assumed, turnSignal);
         }
       } else if (result.intent === "ask" || result.intent === "act") {
         for (const need of result.needs ?? []) {
-          await submitPayload(need.payload, need.label || need.gist || saidLabel(trimmed), need.assumed);
+          await submitPayload(need.payload, need.label || need.gist || saidLabel(trimmed), need.assumed, turnSignal);
         }
         spatial.pushAgentReply({
           text: result.reply ?? "",
@@ -420,13 +449,17 @@ export function Composer({ facets, activeNeeds, placeCount, hasOwnOrigin, disabl
         });
         void spatial.refetch();
         if (preserveForRetry) {
-          diagnostics.log(`agent partial (${result.failureCategory ?? "unknown"}); text preserved for retry`);
+          wire.end(turn, {
+            outcome: "error",
+            note: `partial · ${result.failureCategory ?? "unknown"}`,
+            detail: { retry: "text preserved" },
+          });
           return;
         }
       } else if (result.intent === "clarify" && result.clarify) {
         spatial.setAgentBusy(true, "applying");
         for (const need of result.needs ?? []) {
-          await submitPayload(need.payload, need.label || need.gist || saidLabel(trimmed), need.assumed);
+          await submitPayload(need.payload, need.label || need.gist || saidLabel(trimmed), need.assumed, turnSignal);
         }
         spatial.pushAgentReply({
           text: result.clarify.question,
@@ -447,21 +480,25 @@ export function Composer({ facets, activeNeeds, placeCount, hasOwnOrigin, disabl
             : {}),
         });
       }
+      wire.end(turn, { outcome: "ok" });
       setText("");
       setClarifyOf(null);
     } finally {
+      // A turn that threw is closed here; a closed one is left alone.
+      if (wire.isOpen(turn)) wire.end(turn, { outcome: "error", note: "failed" });
       spatial.setAgentBusy(false);
     }
   };
 
   const submitText = () => {
-    const offline = !agentOnly ? preparsedPayloads(text, facets, hasOwnOrigin) : null;
+    const now = new Date();
+    const offline = !agentOnly ? preparsedPayloads(text, facets, hasOwnOrigin, now, timezone) : null;
     if (offline) {
       for (const need of offline) submitPlain(need.payload, saidLabel(text), need.assumed);
       return;
     }
     if (nlAvailable) return void submitSentence(text);
-    submitPlain(agentOnly ? null : payloadFromText(text, facets), saidLabel(text));
+    submitPlain(agentOnly ? null : payloadFromText(text, facets, { now, timezone }), saidLabel(text));
   };
 
   const scopeLabel = SCOPES.find((s) => s.value === scope)!.label;

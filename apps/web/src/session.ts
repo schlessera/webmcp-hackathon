@@ -6,6 +6,8 @@
  * fallback for surfaces where sessionStorage does not survive reload.
  */
 
+import { wire } from "./wire-store.ts";
+
 const TOKEN_KEY = "participantToken";
 const IDENTITY_KEY = "participantIdentity";
 
@@ -61,10 +63,25 @@ export async function establishSession(): Promise<SessionState> {
       error: "No invite in the URL and no stored session. Open an invite link.",
     };
   }
-  const response = await fetch("/api/session/exchange", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ inviteSecret }),
+  // On the timeline as a request with a status; the secret and the token it
+  // buys never leave this function.
+  const span = wire.begin({ lane: "http", label: "POST /api/session/exchange" });
+  let response: Response;
+  try {
+    response = await fetch("/api/session/exchange", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ inviteSecret }),
+    });
+  } catch (err) {
+    wire.end(span, { outcome: "error", note: "network" });
+    throw err;
+  }
+  const serverMs = Number(response.headers.get("x-server-ms"));
+  wire.end(span, {
+    outcome: response.ok ? "ok" : "error",
+    note: String(response.status),
+    serverMs: Number.isFinite(serverMs) && response.headers.has("x-server-ms") ? serverMs : undefined,
   });
   if (!response.ok) {
     return {

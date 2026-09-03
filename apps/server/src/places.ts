@@ -3,12 +3,15 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import {
   AREAS,
+  STEP_CLASSES,
   TRAVEL_SPEED_M_PER_MIN,
   dossierFromTags,
   placeClassFromTags,
+  poolPlaceClasses,
   type AreaDefinition,
   type DossierExtras,
   type ExplorePlacesResult,
+  type PlaceClass,
 } from "@webmcp-hackathon/contracts";
 import { haversineMeters } from "./eligibility.ts";
 
@@ -131,6 +134,7 @@ export function loadSnapshot(areaId: string): AreaSnapshot | null {
 /** Test seam: forget loaded snapshots (a test may swap the file). */
 export function resetSnapshots(): void {
   snapshots.clear();
+  classCounts.clear();
 }
 
 export interface AreaSummary {
@@ -146,6 +150,45 @@ export interface AreaSummary {
   source: string;
   dataAsOf: string | null;
   coverage: SnapshotManifest["coverage"] | null;
+  /** Step classes with at least one snapshot venue in the narrow radius. */
+  classes: AreaClassCount[];
+}
+
+export interface AreaClassCount {
+  key: string;
+  label: string;
+  count: number;
+}
+
+const classCounts = new Map<string, AreaClassCount[]>();
+
+/**
+ * How many snapshot venues of each step class sit inside the area's narrow
+ * radius around its centre. This is what Start shows before a goal is typed
+ * and what the plan preview reports, so both read the same numbers. Computed
+ * once per area (a scan of a few thousand rows) and kept.
+ */
+export function areaClassCounts(areaId: string): AreaClassCount[] {
+  const cached = classCounts.get(areaId);
+  if (cached) return cached;
+  const area = AREAS.find((row) => row.id === areaId);
+  const snapshot = area ? loadSnapshot(area.id) : null;
+  if (!area || !snapshot) {
+    const empty: AreaClassCount[] = [];
+    classCounts.set(areaId, empty);
+    return empty;
+  }
+  const near = snapshot.venues.filter(
+    (venue) =>
+      Math.round(haversineMeters(area.center, venue.location)) <= area.radii.narrow,
+  );
+  const counts = STEP_CLASSES.map((stepClass) => ({
+    key: stepClass.key,
+    label: stepClass.label,
+    count: near.filter((venue) => isPoolVenue(stepClass.members, venue)).length,
+  })).filter((row) => row.count > 0);
+  classCounts.set(areaId, counts);
+  return counts;
 }
 
 /** GET /api/areas — the registry joined with what was measured. */
@@ -164,6 +207,7 @@ export function areaSummaries(): AreaSummary[] {
         source: snapshot.manifest.source,
         dataAsOf: snapshot.manifest.extract.timestamp,
         coverage: snapshot.manifest.coverage,
+        classes: areaClassCounts(area.id),
       };
     }
     const curated = curatedFallbackFor(area.id);
@@ -178,6 +222,7 @@ export function areaSummaries(): AreaSummary[] {
       source: "OpenStreetMap",
       dataAsOf: curated?.manifest.extractTimestamp ?? null,
       coverage: null,
+      classes: [],
     };
   });
 }
@@ -192,9 +237,21 @@ function stableRefOrder(a: LocatedVenue, b: LocatedVenue): number {
   return a.distance - b.distance || (a.ref < b.ref ? -1 : a.ref > b.ref ? 1 : 0);
 }
 
-function isRoomPoolVenue(area: AreaDefinition, venue: SnapshotVenue): boolean {
+/**
+ * The classes a room pools from. A room records its step class as
+ * `scope.category`; a room predating steps, or one whose category the table
+ * does not know, keeps the area's own list, so its pool is unchanged.
+ */
+export function roomPoolClasses(
+  area: AreaDefinition,
+  category?: string | null,
+): readonly PlaceClass[] {
+  return poolPlaceClasses(area.placeClasses, category);
+}
+
+function isPoolVenue(classes: readonly PlaceClass[], venue: SnapshotVenue): boolean {
   const placeClass = venue.placeClass ?? placeClassFromTags(venue.tags);
-  return placeClass !== undefined && area.placeClasses.includes(placeClass);
+  return placeClass !== undefined && (classes as readonly string[]).includes(placeClass);
 }
 
 function gridPoint(
@@ -269,15 +326,16 @@ export function seedFor(
   area: AreaDefinition,
   center: { lat: number; lng: number },
   radiusM: number,
+  classes: readonly PlaceClass[] = area.placeClasses,
 ): Array<SnapshotVenue & { distance: number }> {
   const snapshot = loadSnapshot(area.id);
   if (!snapshot) return [];
   // Whole metres, as the builder measures, so the pool and the coverage
   // numbers the picker shows are cut at exactly the same places.
   const ordered = snapshot.venues
-    // Snapshots hold every named class; rooms still pool only the classes
-    // configured by their area. The tag fallback keeps legacy snapshots valid.
-    .filter((venue) => isRoomPoolVenue(area, venue))
+    // Snapshots hold every named class; a room still pools only the classes
+    // of its step. The tag fallback keeps legacy snapshots valid.
+    .filter((venue) => isPoolVenue(classes, venue))
     .map((v) => ({ ...v, distance: Math.round(haversineMeters(center, v.location)) }))
     .filter((v) => v.distance <= radiusM)
     .sort(stableRefOrder);
@@ -302,12 +360,13 @@ export function fillPlan(
   radiusM: number,
   existingRefs: Iterable<string>,
   batchSize = 50,
+  classes: readonly PlaceClass[] = area.placeClasses,
 ): FillPlan {
   const existing = new Set(existingRefs);
   const ordered = snapshot.venues
-    // Keep incremental room filling on the same area-owned subset as seeding,
-    // even though viewport reads can see every class in the snapshot.
-    .filter((venue) => isRoomPoolVenue(area, venue))
+    // Keep incremental room filling on the same subset as seeding, even
+    // though viewport reads can see every class in the snapshot.
+    .filter((venue) => isPoolVenue(classes, venue))
     .map((venue) => ({
       ...venue,
       distance: Math.round(haversineMeters(center, venue.location)),
@@ -360,15 +419,16 @@ export function candidatesFor(
   roomId: string,
   area: AreaDefinition,
   center: { lat: number; lng: number },
+  classes: readonly PlaceClass[] = area.placeClasses,
 ): CandidateSet | null {
   const snapshot = loadSnapshot(area.id);
   if (!snapshot) return curatedCandidates(roomId, area);
   const observedAt = snapshot.manifest.extract.timestamp;
-  const seed = seedFor(area, center, area.radii.narrow);
+  const seed = seedFor(area, center, area.radii.narrow, classes);
   const candidates = seedsForVenues(roomId, seed, observedAt);
   const focusVenues = snapshot.venues.filter(
     (v) =>
-      isRoomPoolVenue(area, v) &&
+      isPoolVenue(classes, v) &&
       Math.round(haversineMeters(center, v.location)) <= area.radii.wide,
   ).length;
   return {
@@ -427,6 +487,7 @@ export function topUp(
   center: { lat: number; lng: number },
   scopeRadiusM: number,
   existingRefs: Iterable<string>,
+  classes: readonly PlaceClass[] = area.placeClasses,
 ): CandidateSeed[] {
   const venues = fillPlan(
     area,
@@ -435,6 +496,7 @@ export function topUp(
     scopeRadiusM,
     existingRefs,
     Number.MAX_SAFE_INTEGER,
+    classes,
   ).batches[0] ?? [];
   return seedsForVenues(roomId, venues, snapshot.manifest.extract.timestamp);
 }

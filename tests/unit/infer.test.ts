@@ -231,7 +231,7 @@ describe("inference off switches", () => {
     expect(calls).toBe(0);
   });
 
-  it("uses the deployment model, strict schema, low hidden reasoning, and a wider timeout", async () => {
+  it("uses the deployment model, strict schema, global reasoning effort, and a wider timeout", async () => {
     vi.stubEnv("ENRICH_NETWORK", "1");
     vi.stubEnv("INFER", "1");
     vi.stubEnv("LLM_PROVIDER", "openrouter");
@@ -248,7 +248,7 @@ describe("inference off switches", () => {
     await inferAttributes(INPUT);
     expect(wire).toMatchObject({
       model: expect.any(String),
-      reasoning: { effort: "low", exclude: true },
+      reasoning: { effort: "high" },
       provider: { require_parameters: true },
       max_output_tokens: 1_700,
       text: { format: { type: "json_schema", strict: true } },

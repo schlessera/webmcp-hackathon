@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1040" height="680" viewBox="0 0 1040 680" role="img" aria-labelledby="title desc">
+  <title id="title">Gemini 3.8 Flash score versus cost by OpenRouter provider route</title>
+  <desc id="desc">A logarithmic cost chart for a 44-case routing corpus. Google AI Studio Flex low effort scores 90.91 percent for 0.02635 dollars. Standard Google AI Studio low scores 88.64 percent for 0.05522 dollars. Default routing low scores 77.27 percent for 0.06863 dollars. Higher reasoning effort costs more and scores less on all three routes.</desc>
+  <rect width="1040" height="680" fill="#fbfaf7"/>
+  <style>
+    text { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #252a31; }
+    .title { font-size: 25px; font-weight: 700; }
+    .subtitle, .note { font-size: 13px; fill: #626a73; }
+    .axis { font-size: 12px; fill: #626a73; }
+    .label { font-size: 12px; font-weight: 650; fill: #252a31; stroke: none; }
+    .grid { stroke: #d8d9d6; stroke-width: 1; }
+    .curve { fill: none; stroke-width: 3; stroke-linejoin: round; stroke-linecap: round; }
+    .point { stroke: #fbfaf7; stroke-width: 2.5; }
+  </style>
+
+  <text x="70" y="38" class="title">Gemini provider pin: score vs. OpenRouter cost</text>
+  <text x="70" y="61" class="subtitle">44 exact-match cases · strict schema · 1,500-token initial cap · 30 s deadline · failures count as incorrect</text>
+
+  <g>
+    <line x1="110" y1="550" x2="900" y2="550" class="grid"/>
+    <line x1="110" y1="443.3" x2="900" y2="443.3" class="grid"/>
+    <line x1="110" y1="336.7" x2="900" y2="336.7" class="grid"/>
+    <line x1="110" y1="230" x2="900" y2="230" class="grid"/>
+    <line x1="110" y1="123.3" x2="900" y2="123.3" class="grid"/>
+    <text x="98" y="554" text-anchor="end" class="axis">50%</text>
+    <text x="98" y="447.3" text-anchor="end" class="axis">60%</text>
+    <text x="98" y="340.7" text-anchor="end" class="axis">70%</text>
+    <text x="98" y="234" text-anchor="end" class="axis">80%</text>
+    <text x="98" y="127.3" text-anchor="end" class="axis">90%</text>
+  </g>
+
+  <g>
+    <line x1="110" y1="70" x2="110" y2="550" class="grid"/>
+    <line x1="351.6" y1="70" x2="351.6" y2="550" class="grid"/>
+    <line x1="534.4" y1="70" x2="534.4" y2="550" class="grid"/>
+    <line x1="717.2" y1="70" x2="717.2" y2="550" class="grid"/>
+    <line x1="900" y1="70" x2="900" y2="550" class="grid"/>
+    <text x="110" y="572" text-anchor="middle" class="axis">$0.02</text>
+    <text x="351.6" y="572" text-anchor="middle" class="axis">$0.05</text>
+    <text x="534.4" y="572" text-anchor="middle" class="axis">$0.10</text>
+    <text x="717.2" y="572" text-anchor="middle" class="axis">$0.20</text>
+    <text x="900" y="572" text-anchor="middle" class="axis">$0.40</text>
+  </g>
+
+  <line x1="110" y1="550" x2="900" y2="550" stroke="#72777d" stroke-width="1.5"/>
+  <line x1="110" y1="70" x2="110" y2="550" stroke="#72777d" stroke-width="1.5"/>
+  <text x="505" y="600" text-anchor="middle" class="axis">Reported cost for the 44-case run (USD, logarithmic scale)</text>
+  <text x="26" y="310" text-anchor="middle" class="axis" transform="rotate(-90 26 310)">End-to-end exact-match score</text>
+
+  <!-- Curves run low → medium → high effort. -->
+  <polyline points="435.1,259.1 522.5,283.3 664.2,477.3" class="curve" stroke="#23815b" stroke-dasharray="8 6"/>
+  <polyline points="182.7,113.6 381.1,162.2 603.2,186.4" class="curve" stroke="#7651b5"/>
+  <polyline points="377.8,137.8 552.5,162.2 832.6,210.6" class="curve" stroke="#c34d6e"/>
+
+  <g fill="#23815b">
+    <circle cx="435.1" cy="259.1" r="6" class="point"/><text x="423" y="245" text-anchor="end" class="label">low · 77.3% · 6F</text>
+    <circle cx="522.5" cy="283.3" r="6" class="point"/><text x="534" y="302" class="label">medium · 75.0% · 7F</text>
+    <circle cx="664.2" cy="477.3" r="6" class="point"/><text x="652" y="463" text-anchor="end" class="label">high · 56.8% · 17F</text>
+  </g>
+
+  <g fill="#7651b5">
+    <circle cx="182.7" cy="113.6" r="7" class="point"/><text x="194" y="98" class="label">low · 90.9%</text>
+    <circle cx="381.1" cy="162.2" r="6" class="point"/><text x="369" y="181" text-anchor="end" class="label">medium · 86.4% · 1F</text>
+    <circle cx="603.2" cy="186.4" r="6" class="point"/><text x="615" y="205" class="label">high · 84.1% · 3F</text>
+  </g>
+
+  <g fill="#c34d6e">
+    <circle cx="377.8" cy="137.8" r="6" class="point"/><text x="389" y="124" class="label">low · 88.6%</text>
+    <circle cx="552.5" cy="162.2" r="6" class="point"/><text x="564" y="148" class="label">medium · 86.4% · 1F</text>
+    <circle cx="832.6" cy="210.6" r="6" class="point"/><text x="844" y="229" class="label">high · 81.8% · 5F</text>
+  </g>
+
+  <g transform="translate(70 624)">
+    <line x1="0" y1="0" x2="28" y2="0" stroke="#7651b5" stroke-width="3"/><circle cx="14" cy="0" r="5" fill="#7651b5"/><text x="38" y="4" class="axis">Google AI Studio Flex (pinned)</text>
+    <line x1="275" y1="0" x2="303" y2="0" stroke="#c34d6e" stroke-width="3"/><circle cx="289" cy="0" r="5" fill="#c34d6e"/><text x="313" y="4" class="axis">Google AI Studio (pinned)</text>
+    <line x1="530" y1="0" x2="558" y2="0" stroke="#23815b" stroke-width="3" stroke-dasharray="8 6"/><circle cx="544" cy="0" r="5" fill="#23815b"/><text x="568" y="4" class="axis">Original default routing</text>
+  </g>
+  <text x="70" y="660" class="note">Pinned runs use 500 ms pacing and bounded 429 retry. F = terminal failed cases. One live pass; one-case differences are directional.</text>
+</svg>

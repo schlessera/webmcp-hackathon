@@ -108,13 +108,16 @@ async function storedIdempotencyOutcome(
     )
   ).rows[0] as { request_hash: string; response: ToolResult } | undefined;
   if (!row) return null;
-  return row.request_hash === idempotency.requestHash
-    ? row.response
-    : failure(
-        "invalid_input",
-        "Idempotency-Key was already used with a different mutation.",
-        "Generate a new key for a different command body.",
-      );
+  if (row.request_hash !== idempotency.requestHash) {
+    return failure(
+      "invalid_input",
+      "Idempotency-Key was already used with a different mutation.",
+      "Generate a new key for a different command body.",
+    );
+  }
+  // A page retry gets the stored success back marked as a replay, so it can
+  // draw a retry as a retry. The row itself is left as written.
+  return row.response.ok ? { ...row.response, replayed: true } : row.response;
 }
 
 async function rememberNonMutatingOutcome(
@@ -180,11 +183,18 @@ class CommandFailure extends Error {
   }
 }
 
+/** Where a command came from, for the actor's own wire timeline. Never
+ * persisted; it only rides the commit notification. */
+export interface CommandOrigin {
+  correlationId: string;
+}
+
 export async function submitCommand(
   actor: Participant,
   type: string,
   input: unknown,
   idempotency?: CommandIdempotency,
+  origin?: CommandOrigin,
 ): Promise<ToolResult> {
   if (idempotency) {
     const replay = await storedIdempotencyOutcome(pool, actor.id, idempotency);
@@ -454,6 +464,9 @@ export async function submitCommand(
     revision: result.revision,
     storedRevisions: result.storedRevisions,
     confirmations,
+    ...(origin
+      ? { causedBy: { correlationId: origin.correlationId, command: type, actorId: actor.id } }
+      : {}),
   });
   for (const room of result.factRooms) {
     publishFacts(room.roomId, {

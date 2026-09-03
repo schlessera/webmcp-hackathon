@@ -318,7 +318,7 @@ export async function adjudicateCells(
     instructions: ADJUDICATION_PROMPT,
     input: [{ role: "user", content: JSON.stringify(boundedAdjudicationPayload(cells)) }],
     schema: { name: "venue_evidence_adjudication", schema: ADJUDICATION_SCHEMA },
-    reasoning: "none",
+    reasoning: config.llmReasoningEffort,
     maxOutputTokens: 1_200,
     timeoutMs: ADJUDICATION_TIMEOUT_MS,
   });

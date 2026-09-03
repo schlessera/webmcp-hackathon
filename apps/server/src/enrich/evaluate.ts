@@ -432,7 +432,7 @@ async function evaluateBounded(
     instructions: EVALUATE_MATRIX_PROMPT,
     input: [{ role: "user", content: JSON.stringify(input) }],
     schema: { name: "venue_criterion_matrix", schema: EVALUATE_MATRIX_SCHEMA },
-    reasoning: "none",
+    reasoning: config.llmReasoningEffort,
     maxOutputTokens: 4_000,
     timeoutMs: MATRIX_TIMEOUT_MS,
   });

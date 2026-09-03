@@ -27,7 +27,7 @@ import { computeFacetsBundle, labelForRequirement } from "./facets.ts";
 import { IMPASSE_TEXT } from "./impasse.ts";
 import { presentIn } from "./presence.ts";
 import { projectParticipantSummary } from "./projection.ts";
-import { loadSnapshot, type DataSource } from "./places.ts";
+import { loadSnapshot, roomPoolClasses, type DataSource } from "./places.ts";
 import {
   cachedPoolPlan,
   poolFillActive,
@@ -458,7 +458,7 @@ export async function spatialContext(
   return withTransaction(async (client) => {
     const room = (
       await client.query(
-        "SELECT revision, phase, impasse_active, data_source, area_id FROM rooms WHERE id = $1 FOR SHARE",
+        "SELECT revision, phase, impasse_active, data_source, area_id, goal FROM rooms WHERE id = $1 FOR SHARE",
         [actor.roomId],
       )
     ).rows[0];
@@ -662,6 +662,7 @@ export async function spatialContext(
         snapshot,
         scope.area.center,
         scope.area.radiusM,
+        roomPoolClasses(area, scope.category),
       );
       const existingRefs = new Set(inputs.candidates.flatMap((candidate) =>
         candidate.osm_ref ? [candidate.osm_ref] : []
@@ -687,6 +688,7 @@ export async function spatialContext(
       ok: true as const,
       revision: room.revision as number,
       phase: room.phase as string,
+      ...(typeof room.goal === "string" && room.goal ? { goal: room.goal } : {}),
       scope,
       ...(source
         ? {

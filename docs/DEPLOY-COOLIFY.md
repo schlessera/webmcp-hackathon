@@ -23,7 +23,8 @@ outbound proxy variables passed through to the app service.
 | `OPENROUTER_PROVIDERS` | optional | Comma-separated OpenRouter provider slugs to pin, in order (`allow_fallbacks` off). Unset: free routing among endpoints that honour the request. Pin when benchmark runs must be comparable. |
 | `OPENAI_API_KEY` | fallback only | Enables the retained OpenAI Responses backend when `LLM_PROVIDER=openai`, or when no OpenRouter key exists. |
 | `LLM_PROVIDER` | optional | `openrouter` or `openai`. Defaults to OpenRouter when `OPENROUTER_API_KEY` exists, otherwise OpenAI. |
-| `LLM_MODEL` | optional | Default for every LLM job; defaults to `z-ai/glm-5.3-flash`. |
+| `LLM_MODEL` | optional | Default for every LLM job; defaults to `openai/gpt-5.6-luna`. |
+| `LLM_REASONING_EFFORT` | optional | Reasoning effort for every LLM job; defaults to `high`. Accepts `none`, `minimal`, `low`, `medium`, or `high`. |
 | `LLM_MODEL_ROUTE` | optional | Composer understanding/routing model. Empty inherits `LLM_MODEL`. |
 | `LLM_MODEL_JUDGE` | optional | Matrix, inference, adjudication, screening, and built-in-search model. Empty inherits `LLM_MODEL`. |
 | `LLM_MODEL_AGENT` | optional | Participant tool-loop model. Empty inherits `LLM_MODEL`. |
