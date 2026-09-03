@@ -2444,14 +2444,14 @@ test("a two-photo dossier renders the snap band, source credit, authenticated im
           mapRevision: 1,
           images: [
             {
-              url: "/api/places/node%2F24/images/0",
+              url: "/api/places/node/24/images/0",
               width: 960,
               height: 640,
               source: "website",
               pageUrl: "https://place.example/",
             },
             {
-              url: "/api/places/node%2F24/images/1",
+              url: "/api/places/node/24/images/1",
               width: 800,
               height: 600,
               source: "wikidata:Q24",
@@ -2465,7 +2465,7 @@ test("a two-photo dossier renders the snap band, source credit, authenticated im
     }),
   );
   const imageAuth: string[] = [];
-  await page.route("**/api/places/*/images/*", (route) => {
+  await page.route("**/api/places/**/images/*", (route) => {
     imageAuth.push(route.request().headers().authorization ?? "");
     return route.fulfill({
       contentType: "image/webp",
@@ -2535,8 +2535,8 @@ test("the agent tool surface receives a photo count, never a route to the bytes"
           attributes: [],
           mapRevision: 1,
           images: [
-            { url: "/api/places/node%2F24/images/0", width: 960, height: 640, source: "website" },
-            { url: "/api/places/node%2F24/images/1", width: 800, height: 600, source: "wikidata:Q24" },
+            { url: "/api/places/node/24/images/0", width: 960, height: 640, source: "website" },
+            { url: "/api/places/node/24/images/1", width: 800, height: 600, source: "wikidata:Q24" },
           ],
         }],
       }),

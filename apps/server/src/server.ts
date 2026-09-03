@@ -196,11 +196,16 @@ const notAuthenticated = {
   },
 } as const;
 
-app.get("/api/places/:osmRef/images/:idx", async (req, reply) => {
+// The OSM ref rides as two path segments (node/123), never as an encoded
+// slash: proxies in front of the app decode %2F and the route stops matching.
+app.get("/api/places/:kind/:id/images/:idx", async (req, reply) => {
   const actor = await bearer(req);
   if (!actor) return reply.code(401).send(notAuthenticated);
-  const { osmRef, idx: rawIdx } = req.params as { osmRef?: string; idx?: string };
+  const { kind, id, idx: rawIdx } = req.params as { kind?: string; id?: string; idx?: string };
   const idx = Number(rawIdx);
+  const osmRef = kind && id && /^(node|way|relation)$/.test(kind) && /^[A-Za-z0-9_.-]{1,64}$/.test(id)
+    ? `${kind}/${id}`
+    : null;
   if (!osmRef || !Number.isInteger(idx) || idx < 0 || idx >= 3) {
     return reply.code(404).send({ error: "image not found" });
   }

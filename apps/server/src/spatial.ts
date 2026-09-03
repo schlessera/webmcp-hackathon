@@ -574,7 +574,7 @@ export async function inspectCandidates(
         ...(placeImages.length
           ? {
               images: placeImages.map((image) => ({
-                url: `/api/places/${encodeURIComponent(image.osmRef)}/images/${image.idx}`,
+                url: `/api/places/${image.osmRef}/images/${image.idx}`,
                 width: image.width,
                 height: image.height,
                 source: image.source,

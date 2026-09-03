@@ -39,7 +39,7 @@ describe("place images API", () => {
     expect(inspect.body.ok).toBe(true);
     expect(inspect.body.candidates[0].images).toEqual([
       expect.objectContaining({
-        url: `/api/places/${encodeURIComponent(osmRef)}/images/0`,
+        url: `/api/places/${osmRef}/images/0`,
         source: "website",
       }),
     ]);
