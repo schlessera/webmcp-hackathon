@@ -681,7 +681,6 @@ interface LookupCandidateRow {
   osm_ref: string | null;
   name: string;
   category: string;
-  location: { lat: number; lng: number };
   attributes: AttributeLike[];
   extras: {
     description?: { text?: string };
@@ -1005,7 +1004,7 @@ async function runLookupNow(
   const targetById = new Map(targets.map((target) => [target.candidateId, target]));
   const rows = (
     await pool.query(
-      `SELECT id, osm_ref, name, category, location, attributes, extras
+      `SELECT id, osm_ref, name, category, attributes, extras
          FROM candidates WHERE room_id = $1 AND id = ANY($2)`,
       [roomId, wantedIds],
     )
@@ -1051,11 +1050,7 @@ async function runLookupNow(
   const worker = async () => {
     while (cursor < actionable.length) {
       const row = actionable[cursor++];
-      const target = {
-        ...targetById.get(row.id)!,
-        placeName: row.name,
-        location: row.location,
-      };
+      const target = targetById.get(row.id)!;
       const observedAt = new Date().toISOString();
       let current = initialCache.get(row.osm_ref!);
       const evaluation: CandidateEvaluation = {
