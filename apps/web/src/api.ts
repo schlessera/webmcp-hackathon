@@ -123,6 +123,22 @@ async function post(
   }
 }
 
+/** Place images are bearer-protected like every other participant read.
+ * Fetch them as blobs so an `<img>` never makes an unauthenticated request. */
+export async function placeImageBlob(url: string, signal?: AbortSignal): Promise<Blob | null> {
+  const token = currentToken();
+  if (!token) return null;
+  try {
+    const response = await fetch(url, {
+      headers: { authorization: `Bearer ${token}` },
+      signal,
+    });
+    return response.ok ? response.blob() : null;
+  } catch {
+    return null;
+  }
+}
+
 export function syncSession(
   sinceRevision?: number,
   cursor?: string,

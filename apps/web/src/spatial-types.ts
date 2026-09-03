@@ -33,6 +33,7 @@ export interface CandidateSummary {
   walkMin: number;
   /** null when the place has no price band on record. */
   priceLevel: number | null;
+  imageCount?: number;
 }
 
 /** What is askable about the current results (FACETS.md §1). The client
@@ -219,6 +220,15 @@ export interface CandidateDossier {
   description?: { text: string; source: string };
   rating?: { value: number; best: number; count?: number; source: string; label: string };
   awards?: Array<{ label: string; source: string }>;
+  images?: Array<{
+    url: string;
+    width: number;
+    height: number;
+    source: string;
+    credit?: string;
+    license?: string;
+    pageUrl?: string;
+  }>;
   address?: string;
   phone?: string;
   needs?: CandidateNeedVerdict[];
