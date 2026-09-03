@@ -113,22 +113,32 @@
   align-items: center;
   gap: 14px 18px;
 }
-.ld-btn-big {
+/* `.btn` lives in styles.css, which main.tsx imports AFTER the App chain has
+   already pulled in landing.css. Same specificity, later wins — so these two
+   need the `.landing` scope to keep their own size and colour. */
+.landing .ld-btn-big {
   font-family: var(--spoke-font-display);
   font-size: var(--spoke-size-title);
   padding: 12px 22px;
   border-radius: var(--spoke-radius-card);
   box-shadow: var(--spoke-shadow-pop);
 }
-.ld-btn-big:hover { transform: translate(-1px, -1px); box-shadow: 4px 5px 0 var(--spoke-shadow); }
-.ld-btn-big:active { transform: translate(1px, 1px); box-shadow: var(--spoke-shadow-drop); }
+.landing .ld-btn-big:hover { transform: translate(-1px, -1px); box-shadow: 4px 5px 0 var(--spoke-shadow); }
+.landing .ld-btn-big:active { transform: translate(1px, 1px); box-shadow: var(--spoke-shadow-drop); }
+/* Two lines, stacked: what happens if you click, then what to do if someone
+   already clicked for you. Side by side they would read as rival captions. */
+.ld-cta-notes {
+  display: grid;
+  gap: 6px;
+  max-width: 34ch;
+}
 .ld-cta-note {
   margin: 0;
-  max-width: 30ch;
   font-size: var(--spoke-size-detail);
   line-height: 1.4;
-  color: var(--spoke-ink-faint);
+  color: var(--spoke-ink);
 }
+.ld-cta-note-quiet { color: var(--spoke-ink-faint); }
 
 /* The hero plate: the count block's own tilt, at wall size. */
 .ld-hero-fig { margin: 0; min-width: 0; }
@@ -485,14 +495,61 @@
   padding: clamp(28px, 4vw, 52px) 0;
   border-top: var(--spoke-border) solid var(--ld-ink-line);
 }
+/* These six words are what a judge scans for, so they outrank the terms
+   underneath them: h2 at display size, dt at lede, body at read. The mono
+   accent voice stays where it is actually technical — the protocol names in
+   .ld-wire-sub — instead of shrinking the section headings below their own
+   content. */
 .ld-wire-h {
-  margin: 0 0 18px;
+  margin: 0 0 20px;
+  font-family: var(--spoke-font-display);
+  font-weight: var(--spoke-weight-display);
+  font-size: var(--spoke-size-h2);
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  color: var(--spoke-surface);
+  text-wrap: balance;
+  scroll-margin-top: 76px;
+}
+/* What is below, in one line, so a judge can reach a rubric word without
+   scrolling six sections to find it. */
+.ld-jump {
+  margin-top: 22px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+}
+.ld-jump-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 4px 12px;
+  border: var(--spoke-border) solid var(--ld-ink-line);
+  border-radius: var(--spoke-radius-chip);
   font-family: var(--spoke-font-mono);
   font-weight: var(--spoke-weight-strong);
-  font-size: var(--spoke-size-body);
-  letter-spacing: 0.08em;
+  font-size: var(--spoke-size-meta);
+  letter-spacing: 0.04em;
+  color: var(--ld-ink-soft);
+  text-decoration: none;
+  position: relative;
+}
+/* The pill draws at 34px; the target reaches the floor without growing it. */
+.ld-jump-link::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: var(--spoke-tap-min);
+  transform: translateY(-50%);
+}
+.ld-jump-link:hover,
+.ld-jump-link:focus-visible {
+  border-color: var(--ld-ink-accent);
   color: var(--ld-ink-accent);
 }
+
 .ld-wire-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -564,15 +621,22 @@
   margin: 4px 0 8px 16px;
   padding: 4px;
   border: var(--spoke-border) solid var(--ld-ink-line);
-  border-radius: 18px;
+  /* Concentric with the image inside it: the block radius plus this box's
+     own 4px padding, so the two curves stay parallel. */
+  border-radius: calc(var(--spoke-radius-block) + 4px);
   background: var(--ld-ink-well);
 }
-.ld-wire-shot img { display: block; width: 100%; height: auto; border-radius: 14px; }
+.ld-wire-shot img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: var(--spoke-radius-block);
+}
 .ld-facts > div::after { content: ""; display: block; clear: both; }
 .ld-facts dt {
   font-family: var(--spoke-font-display);
   font-weight: var(--spoke-weight-display);
-  font-size: var(--spoke-size-h3);
+  font-size: var(--spoke-size-lede);
   line-height: 1.15;
   letter-spacing: -0.015em;
   color: var(--spoke-surface);
@@ -682,7 +746,7 @@
   text-decoration-thickness: 1px;
 }
 .ld-link-ink:hover { color: var(--spoke-surface); }
-.ld-btn-ink {
+.landing .ld-btn-ink {
   margin-left: auto;
   border-color: var(--spoke-works-pop);
   background: var(--spoke-works-pop);

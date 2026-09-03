@@ -33,6 +33,17 @@ const NEGOTIATION_TOOLS: Array<[string, string]> = [
   ["confirm_agreement", "stages"],
 ];
 
+/* The six sections below the reveal, in reading order. One list drives the
+   jump strip and nothing else; the headings own their own ids. */
+const WIRE_SECTIONS: Array<[string, string]> = [
+  ["ld-w1", "WebMCP leverage"],
+  ["ld-w2", "Execution"],
+  ["ld-w6", "Where the facts come from"],
+  ["ld-w5", "What it does not claim"],
+  ["ld-w3", "Potential impact"],
+  ["ld-w4", "Creativity"],
+];
+
 const SPATIAL_TOOLS: Array<[string, string]> = [
   ["find_landmarks", "read"],
   ["get_spatial_context", "read"],
@@ -164,10 +175,16 @@ export function Landing({ onStart }: Props) {
               >
                 Start a room
               </button>
-              <p className="ld-cta-note">
-                Got a link from someone? Open it. The room is already there,
-                exactly as it stands.
-              </p>
+              <div className="ld-cta-notes">
+                <p className="ld-cta-note">
+                  No account. Pick Berlin or San Francisco, share one link; the
+                  group joins as guests.
+                </p>
+                <p className="ld-cta-note ld-cta-note-quiet">
+                  Got a link from someone? Open it. The room is already there,
+                  exactly as it stands.
+                </p>
+              </div>
             </div>
           </div>
           <figure className="ld-hero-fig">
@@ -504,12 +521,35 @@ export function Landing({ onStart }: Props) {
             lives exactly here: behind the <code>{"{ }"}</code> drawer, never in
             the main interface.
           </p>
+          <nav className="ld-jump" aria-label="What is below">
+            {WIRE_SECTIONS.map(([id, label]) => (
+              <a
+                key={id}
+                className="ld-jump-link"
+                href={`#${id}`}
+                onClick={(event) => {
+                  // The page scrolls inside `.landing`, not the document, and
+                  // native fragment navigation does not reach into a nested
+                  // scroll container: the hash would change and nothing would
+                  // move. Keep the href so the link still opens in a new tab
+                  // and reads as a link, and do the scroll here.
+                  const target = document.getElementById(id);
+                  if (!target) return;
+                  event.preventDefault();
+                  target.scrollIntoView({ block: "start" });
+                  target.focus({ preventScroll: true });
+                }}
+              >
+                {label}
+              </a>
+            ))}
+          </nav>
         </div>
       </section>
 
       <div className="ld-wire">
         <section className="ld-wire-section" aria-labelledby="ld-w1">
-          <h2 className="ld-wire-h" id="ld-w1">
+          <h2 className="ld-wire-h" tabIndex={-1} id="ld-w1">
             WebMCP leverage
           </h2>
           <div className="ld-wire-grid">
@@ -640,7 +680,7 @@ export function Landing({ onStart }: Props) {
         </section>
 
         <section className="ld-wire-section" aria-labelledby="ld-w2">
-          <h2 className="ld-wire-h" id="ld-w2">
+          <h2 className="ld-wire-h" tabIndex={-1} id="ld-w2">
             Execution
           </h2>
           <div className="ld-numbers" role="list">
@@ -650,9 +690,12 @@ export function Landing({ onStart }: Props) {
               <span className="ld-num-s">222 unit · 128 three-user API · 14 browser</span>
             </div>
             <div role="listitem">
-              <span className="ld-num">19</span>
+              <span className="ld-num">22</span>
               <span className="ld-num-l">tools, one command bus</span>
-              <span className="ld-num-s">contract v3, manifest hash checked in CI</span>
+              <span className="ld-num-s">
+                10 negotiation · 12 spatial · contract v3, manifest hash checked
+                in CI
+              </span>
             </div>
             <div role="listitem">
               <span className="ld-num">12,149</span>
@@ -739,90 +782,8 @@ export function Landing({ onStart }: Props) {
           </dl>
         </section>
 
-        <section className="ld-wire-section" aria-labelledby="ld-w3">
-          <h2 className="ld-wire-h" id="ld-w3">
-            Potential impact
-          </h2>
-          <p className="ld-read-ink">
-            Every group decides where to meet, and every group has at least one
-            reason nobody wants to type into the chat. The negotiation layer is
-            domain-blind by construction: it holds needs, effects, stances,
-            consent and agreement, and treats the map as one typed payload. The
-            same room serves a park, an exhibition, a screening, a place to
-            work, or dinner, because no screen names a kind of place and every
-            control comes from what the data can say. The two protocols are
-            written to be lifted out: a negotiation core, a spatial domain, and
-            adapters for whoever holds the facts.
-          </p>
-        </section>
-
-        <section className="ld-wire-section" aria-labelledby="ld-w4">
-          <h2 className="ld-wire-h" id="ld-w4">
-            Creativity
-          </h2>
-          <ul className="ld-list-ink">
-            <li>
-              The map is the shared object, not a results list. Places settle
-              where they stand; the camera is never taken from the user.
-            </li>
-            <li>
-              Press-and-hold as a counterfactual: the room without a need,
-              live, without a mode or a modal.
-            </li>
-            <li>
-              Marks, not glyphs. Works, likely, unsure, unlikely, out, private,
-              veto and busy are drawn with the map&rsquo;s own dots, in fill,
-              border and size, so a row reads without colour.
-            </li>
-            <li>
-              An agent that holds a condition the server never receives, and a
-              room that still counts it.
-            </li>
-            <li>
-              The <code>{"{ }"}</code> drawer: everything protocol-shaped lives
-              behind one small, unstyled-looking handle. This page is that
-              handle, opened.
-            </li>
-          </ul>
-        </section>
-
-        <section className="ld-wire-section" aria-labelledby="ld-w5">
-          <h2 className="ld-wire-h" id="ld-w5">
-            What it does not claim
-          </h2>
-          <ul className="ld-list-ink">
-            <li>
-              No cryptographic secrecy from the operator. Application-private
-              needs are evaluated by the server; small-group inference from
-              observed outcome changes is possible and is documented.
-            </li>
-            <li>
-              The consent nonce binds to a page session, not to a human
-              gesture. It closes blind replay from a bearer token; it does not
-              prove someone clicked.
-            </li>
-            <li>
-              Realtime fan-out and presence are single-process. No claim of
-              horizontal scale.
-            </li>
-            <li>
-              Eleven attribute values in the rehearsed demo room are a labelled
-              curated overlay, <code>curated:demo-2026-08</code>, so the scripted
-              impasse is deterministic. Every other fact is the record&rsquo;s.
-            </li>
-            <li>
-              The website fetcher resolves a host before fetching by name; a
-              DNS-rebinding window remains.
-            </li>
-            <li>
-              Disclosure ladder beyond level zero, transit routing, meeting
-              points and time windows are scoped out and named in the docs.
-            </li>
-          </ul>
-        </section>
-
         <section className="ld-wire-section" aria-labelledby="ld-w6">
-          <h2 className="ld-wire-h" id="ld-w6">
+          <h2 className="ld-wire-h" tabIndex={-1} id="ld-w6">
             Where the facts come from
           </h2>
           <div className="ld-table-wrap">
@@ -867,6 +828,88 @@ export function Landing({ onStart }: Props) {
             on disk and a third of a second a query, and replaced by an
             in-process snapshot that answers in milliseconds.
           </p>
+        </section>
+
+        <section className="ld-wire-section" aria-labelledby="ld-w5">
+          <h2 className="ld-wire-h" tabIndex={-1} id="ld-w5">
+            What it does not claim
+          </h2>
+          <ul className="ld-list-ink">
+            <li>
+              No cryptographic secrecy from the operator. Application-private
+              needs are evaluated by the server; small-group inference from
+              observed outcome changes is possible and is documented.
+            </li>
+            <li>
+              The consent nonce binds to a page session, not to a human
+              gesture. It closes blind replay from a bearer token; it does not
+              prove someone clicked.
+            </li>
+            <li>
+              Realtime fan-out and presence are single-process. No claim of
+              horizontal scale.
+            </li>
+            <li>
+              Eleven attribute values in the rehearsed demo room are a labelled
+              curated overlay, <code>curated:demo-2026-08</code>, so the scripted
+              impasse is deterministic. Every other fact is the record&rsquo;s.
+            </li>
+            <li>
+              The website fetcher resolves a host before fetching by name; a
+              DNS-rebinding window remains.
+            </li>
+            <li>
+              Disclosure ladder beyond level zero, transit routing, meeting
+              points and time windows are scoped out and named in the docs.
+            </li>
+          </ul>
+        </section>
+
+        <section className="ld-wire-section" aria-labelledby="ld-w3">
+          <h2 className="ld-wire-h" tabIndex={-1} id="ld-w3">
+            Potential impact
+          </h2>
+          <p className="ld-read-ink">
+            Every group decides where to meet, and every group has at least one
+            reason nobody wants to type into the chat. The negotiation layer is
+            domain-blind by construction: it holds needs, effects, stances,
+            consent and agreement, and treats the map as one typed payload. The
+            same room serves a park, an exhibition, a screening, a place to
+            work, or dinner, because no screen names a kind of place and every
+            control comes from what the data can say. The two protocols are
+            written to be lifted out: a negotiation core, a spatial domain, and
+            adapters for whoever holds the facts.
+          </p>
+        </section>
+
+        <section className="ld-wire-section" aria-labelledby="ld-w4">
+          <h2 className="ld-wire-h" tabIndex={-1} id="ld-w4">
+            Creativity
+          </h2>
+          <ul className="ld-list-ink">
+            <li>
+              The map is the shared object, not a results list. Places settle
+              where they stand; the camera is never taken from the user.
+            </li>
+            <li>
+              Press-and-hold as a counterfactual: the room without a need,
+              live, without a mode or a modal.
+            </li>
+            <li>
+              Marks, not glyphs. Works, likely, unsure, unlikely, out, private,
+              veto and busy are drawn with the map&rsquo;s own dots, in fill,
+              border and size, so a row reads without colour.
+            </li>
+            <li>
+              An agent that holds a condition the server never receives, and a
+              room that still counts it.
+            </li>
+            <li>
+              The <code>{"{ }"}</code> drawer: everything protocol-shaped lives
+              behind one small, unstyled-looking handle. This page is that
+              handle, opened.
+            </li>
+          </ul>
         </section>
 
         <section className="ld-wire-section ld-wire-links" aria-label="Links">
