@@ -6,6 +6,7 @@
   "scripts": {
     "start": "node src/server.ts",
     "migrate": "node src/migrate.ts",
+    "backfill:blurhash": "node src/backfill-blurhash.ts",
     "reclean:text": "node src/reclean-text.ts",
     "seed": "node src/seed.ts",
     "typecheck": "tsc --noEmit"
@@ -18,6 +19,7 @@
     "@webmcp-hackathon/contracts": "workspace:*",
     "ajv": "^8.17.0",
     "ajv-formats": "^3.0.0",
+    "blurhash": "2.0.5",
     "fastify": "^5.0.0",
     "htmlparser2": "^12.0.0",
     "pg": "^8.13.0",

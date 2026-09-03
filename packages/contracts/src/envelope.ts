@@ -195,6 +195,9 @@ export interface CandidateSummary {
   priceLevel: number | null;
   /** Image count only. Agent-facing context never receives image URLs. */
   imageCount?: number;
+  /** The first stored image, only once its placeholder is available. The URL
+   * is always the server's same-origin image route. */
+  image?: { url: string; width: number; height: number; blurhash: string };
 }
 
 /** One participant's PUBLIC stance on a proposal. A stance the viewer may not
@@ -461,6 +464,7 @@ export interface CandidateDossier {
     url: string;
     width: number;
     height: number;
+    blurhash?: string;
     source: string;
     credit?: string;
     license?: string;

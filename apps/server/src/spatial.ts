@@ -42,7 +42,7 @@ import {
 import { lookupPending } from "./enrich/progress.ts";
 import { pool } from "./db.ts";
 import { refinementView } from "./refine/worker.ts";
-import { loadImageCounts, loadPlaceImages } from "./enrich/images.ts";
+import { loadImageSummaries, loadPlaceImages } from "./enrich/images.ts";
 import {
   adjudicateLikelyForRoom,
 } from "./enrich/adjudication-runner.ts";
@@ -186,7 +186,7 @@ export async function spatialContext(
       disposition: string;
       visibility: string;
     }>;
-    const imageCounts = await loadImageCounts(
+    const imageSummaries = await loadImageSummaries(
       client,
       inputs.candidates.flatMap((candidate) =>
         candidate.osm_ref ? [candidate.osm_ref] : [],
@@ -339,6 +339,7 @@ export async function spatialContext(
       participants,
       candidates: rows.map((r) => {
         const why = whyFor(r, actor.id);
+        const imageSummary = r.ref ? imageSummaries.get(r.ref) : undefined;
         return {
           candidateId: r.candidateId,
           ...(r.ref ? { ref: r.ref } : {}),
@@ -354,7 +355,17 @@ export async function spatialContext(
           // null passes through: a phantom 0 would put mass at the bottom of
           // every price reading.
           priceLevel: r.priceLevel,
-          imageCount: r.ref ? (imageCounts.get(r.ref) ?? 0) : 0,
+          imageCount: imageSummary?.count ?? 0,
+          ...(r.ref && imageSummary?.first
+            ? {
+                image: {
+                  url: `/api/places/${r.ref}/images/0`,
+                  width: imageSummary.first.width,
+                  height: imageSummary.first.height,
+                  blurhash: imageSummary.first.blurhash,
+                },
+              }
+            : {}),
         };
       }),
       proposals: proposalViews,
@@ -599,6 +610,7 @@ export async function inspectCandidates(
                 url: `/api/places/${image.osmRef}/images/${image.idx}`,
                 width: image.width,
                 height: image.height,
+                ...(image.blurhash ? { blurhash: image.blurhash } : {}),
                 source: image.source,
                 ...(image.credit ? { credit: image.credit } : {}),
                 ...(image.license ? { license: image.license } : {}),
