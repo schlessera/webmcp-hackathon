@@ -238,6 +238,14 @@ Inference is completely off when `ENRICH_NETWORK=0`, when
 and write no inference cache entry. Menu image reading remains a separate
 smart-tier job.
 
+Each validated claim also stores a bounded adjudication window: at most 1,200
+characters containing its evidence span plus up to 400 normalized characters
+on either side, a page title capped at 160 characters, and at most six
+publisher names capped at 120 characters each. This is the only surrounding
+page prose that survives evaluation. It lives on the claim inside
+`enrichments.inferred`, so the existing 30-day pruning and independent 64-entry
+question/time partitions still bound it.
+
 ### Evidence never regresses on re-read
 
 `saveInferences` resolves each `(OSM ref, criterion)` monotonically. A fresh
@@ -327,6 +335,50 @@ labels are never stored there. A dossier recovers the label only from a
 viewer-authorized matching requirement. Any web-derived fact shown to a reader
 carries a visible, clickable `sourceUrl`; uncited web output does not qualify
 as reader-facing evidence.
+
+### Focused adjudication
+
+Adjudication is one fast-tier second read of likely evidence, not another
+matrix sweep. A cell supplies its criterion, evidence and ±400-character
+window, page title, URL, captured Open Graph/schema publisher names, and the
+place name/category. Fresh page/proxy cache text is preferred when the current
+lookup has it; otherwise the stored window is used without refetching. The
+payload is tightened to roughly 1,500 input tokens by shrinking surrounding
+context only, uses `reasoning: "none"`, and has a two-second model timeout.
+
+| focused result | stored result |
+|---|---|
+| `yes`/`no`, `explicit: true`, publisher `venue` or `chain` validated by the server | `verified_true` / `verified_false`, confidence **0.75**, source `adjudicated:<host>`, quote shown as the note |
+| `yes`/`no`, publisher `third_party` | same direction as `likely_true` / `likely_false`, confidence **0.69** |
+| `unclear`, invalid quote, or unproved `venue`/`chain` label | fact unchanged |
+
+The server accepts a model's `venue`/`chain` publisher only when either the
+evidence and OSM website share a registrable domain or the captured
+`og:site_name`/schema.org `name` matches the place/brand. This admits chain
+publishing without pretending every differently hosted page is first-party.
+The returned quote must remain a verbatim span of the supplied context.
+
+Every result, including an `unclear` cache marker, is written by
+`saveInferences` and `resolveInference`. A successful first-party result may
+flip a likely fact but cannot downgrade or reverse an already verified one.
+The cache record stores the SHA-256 evidence hash, not another text key, and is
+fresh for 30 days for that `(place, criterion, evidence hash)`. Concurrent
+in-process triggers also share an in-flight guard.
+
+There are two triggers. `inspect_candidates` and **Look again** chain the
+focused read after normal lookup, put all likely active rows for the opened
+place(s) in one call, show the existing busy state, and wait at most three
+seconds. The continuous worker also runs it whenever the room's in-scope
+`matching + likely` count is at most 20, nearest walk time first and in batches
+of at most eight places; need changes wake that check immediately.
+
+Adjudication consumes the refinement worker's existing per-room model-call
+bucket. It does not create a second budget. At the configured fast-tier rates,
+a target call of about 1,500 input tokens and 100–300 output tokens is roughly
+**$0.0003–$0.0004**, below the **$0.001** target; the hard model timeout is two
+seconds. Each attempted batch emits one content-free structured line:
+`{"msg":"adjudication batch","roomId":"…","cells":1,"verdicts":{"yes":1,"no":0,"unclear":0},"costUsd":0.0003,"latencyMs":900}`.
+Failures use zero verdict counts and add `"outcome":"error"`.
 
 ### Residual exposure: venue-authored text
 
