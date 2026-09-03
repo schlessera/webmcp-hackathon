@@ -854,7 +854,7 @@ export function App() {
       )}
 
       <Header
-        title={settled && committedId ? candidateName(committedId) : null}
+        title={settled && committedId ? candidateName(committedId) : context?.goal ?? null}
         subtitle={subtitle}
         participants={participants}
         meId={id.participantId}
