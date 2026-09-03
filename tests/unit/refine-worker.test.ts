@@ -12,6 +12,7 @@ import {
   refineQueryShaping,
   refinementTickDelay,
   REFINE_IDLE_TICK_MS,
+  REFINE_SEARCH_CONCURRENCY,
   REFINE_TICK_MS,
   resetRefinement,
   startRefinement,
@@ -200,7 +201,15 @@ describe("continuous refinement queue", () => {
   it("keeps 12 places in one batch and searches once per place for all criteria", async () => {
     const criterionA = { id: "a", kind: "key" as const, key: "a", label: "first words" };
     const criterionB = { id: "b", kind: "key" as const, key: "b", label: "second words" };
-    const provider = vi.fn(async () => []);
+    let active = 0;
+    let peak = 0;
+    const provider = vi.fn(async () => {
+      active += 1;
+      peak = Math.max(peak, active);
+      await new Promise((resolve) => setTimeout(resolve, 2));
+      active -= 1;
+      return [];
+    });
     const requests = Array.from({ length: 12 }, (_, index) => ({
       candidateId: `p${index}`,
       osmRef: `node/${index}`,
@@ -218,10 +227,31 @@ describe("continuous refinement queue", () => {
     }, provider, { queryShaping: "shaped" });
     expect(responses).toHaveLength(12);
     expect(provider).toHaveBeenCalledTimes(12);
+    expect(peak).toBe(REFINE_SEARCH_CONCURRENCY);
     for (const [query, opts] of provider.mock.calls) {
       expect(query).toMatch(/^Place \d+ Berlin first words second words$/);
       expect(opts).toBeUndefined();
     }
+  });
+
+  it("drops a cuisine-only item before lookup progress is announced", () => {
+    const value = inputs();
+    value.candidates = [value.candidates[0]];
+    value.candidates[0].attributes = attributes();
+    value.requirements = [{
+      id: "cuisine-need",
+      owner_id: "p",
+      visibility: "shared",
+      hardness: "hard",
+      payload: { kind: "inclusion", key: "cuisine", values: ["italian"] },
+      withdrawn: false,
+      active: true,
+    }];
+    expect(buildRefinementQueue(
+      value,
+      { evaluated: new Map(), providerChecked: new Set() },
+      "room",
+    )).toEqual([]);
   });
 
   it("uses a venue domain only when its site had no usable text", () => {

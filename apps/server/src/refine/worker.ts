@@ -84,6 +84,34 @@ const HOUR_MS = 60 * 60_000;
 const STALE_MS = 7 * 24 * 60 * 60_000;
 const TEXT_TTL_MS = 10 * 60_000;
 const TEXT_CACHE_CAP = 500;
+export const REFINE_SEARCH_CONCURRENCY = 4;
+
+class AsyncLimiter {
+  private active = 0;
+  private readonly waiting: Array<() => void> = [];
+
+  constructor(private readonly limit: number) {}
+
+  async use<T>(work: () => Promise<T>): Promise<T> {
+    if (this.active >= this.limit) {
+      await new Promise<void>((resolve) => this.waiting.push(resolve));
+    } else {
+      this.active += 1;
+    }
+    try {
+      return await work();
+    } finally {
+      this.active -= 1;
+      const next = this.waiting.shift();
+      if (next) {
+        this.active += 1;
+        next();
+      }
+    }
+  }
+}
+
+const refinementSearchLimiter = new AsyncLimiter(REFINE_SEARCH_CONCURRENCY);
 
 function positiveInt(value: string | undefined, fallback: number): number {
   const parsed = Number(value);
@@ -495,10 +523,10 @@ export async function searchRefinementPlaces(
     const domains = refinementSearchDomains(request, policy.domainRule);
     let results: SearchResult[] = [];
     try {
-      results = await provider(
+      results = await refinementSearchLimiter.use(() => provider(
         buildRefinementQuery(request, area, policy.queryShaping ?? refineQueryShaping()),
         domains ? { domains } : undefined,
-      );
+      ));
     } catch {
       results = [];
     }
@@ -729,7 +757,7 @@ export async function runRefinementTick(
       searchClaims = (await Promise.all(searchRequests.map(async (request) => {
         const domains = refinementSearchDomains(request, options.domainRule);
         try {
-          return await combinedSearch({
+          return await refinementSearchLimiter.use(() => combinedSearch({
             candidateId: request.candidateId,
             osmRef: request.osmRef,
             name: request.name,
@@ -740,7 +768,7 @@ export async function runRefinementTick(
             criteria: request.searchCriteria,
             source: domains ? "domain_search" : "open_web_search",
             ...(domains ? { domains } : {}),
-          });
+          }));
         } catch {
           return [];
         }
