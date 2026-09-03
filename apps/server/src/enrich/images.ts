@@ -41,6 +41,12 @@ export interface ProcessedImage {
   ttlMs?: number;
 }
 
+export interface DownloadedImage {
+  bytes: Buffer;
+  /** Source freshness, already clamped to the server's storage policy. */
+  ttlMs: number;
+}
+
 export interface StoredPlaceImage extends ProcessedImage {
   osmRef: string;
   idx: number;
@@ -156,13 +162,14 @@ export function cacheTtlMs(cacheControl: string): number {
   return Math.min(IMAGE_TTL_MS, Math.max(MIN_IMAGE_TTL_MS, shortest));
 }
 
-export async function downloadPlaceImage(
+/** Fetch and bound source bytes. Decoding is a separate pipeline stage. */
+export async function fetchPlaceImageBytes(
   candidate: ImageCandidate,
   fetchImpl: FetchLike = outboundFetchFor("venue-image", {
     maxBytes: MAX_IMAGE_DOWNLOAD_BYTES,
     timeoutMs: IMAGE_TIMEOUT_MS,
   }),
-): Promise<ProcessedImage> {
+): Promise<DownloadedImage> {
   const target = new URL(candidate.url);
   if (target.protocol !== "http:" && target.protocol !== "https:") {
     throw new Error("not a fetchable image URL");
@@ -183,7 +190,7 @@ export async function downloadPlaceImage(
   );
   if (!response.ok) {
     await response.body?.cancel();
-    throw new Error(`HTTP ${response.status}`);
+    throw Object.assign(new Error(`HTTP ${response.status}`), { status: response.status });
   }
   const cacheControl = (response.headers.get("cache-control") ?? "").toLowerCase();
   if (/(?:^|,)\s*(?:no-store|no-cache|private)(?:\s|,|$)/.test(cacheControl)) {
@@ -193,13 +200,27 @@ export async function downloadPlaceImage(
   // A shorter freshness hint shortens our copy rather than refusing it: almost
   // every real image host sends an hour or a day, and treating that as a
   // prohibition would leave the band permanently empty.
+  return {
+    bytes: await readBoundedImageBody(response),
+    ttlMs: cacheTtlMs(cacheControl),
+  };
+}
+
+export async function downloadPlaceImage(
+  candidate: ImageCandidate,
+  fetchImpl: FetchLike = outboundFetchFor("venue-image", {
+    maxBytes: MAX_IMAGE_DOWNLOAD_BYTES,
+    timeoutMs: IMAGE_TIMEOUT_MS,
+  }),
+): Promise<ProcessedImage> {
+  const downloaded = await fetchPlaceImageBytes(candidate, fetchImpl);
   const image = await resizePlaceImage(
-    await readBoundedImageBody(response),
+    downloaded.bytes,
     candidate.imagePolicy
       ? { width: candidate.imagePolicy.minimumWidth, height: candidate.imagePolicy.minimumHeight }
       : undefined,
   );
-  return { ...image, ttlMs: cacheTtlMs(cacheControl) };
+  return { ...image, ttlMs: downloaded.ttlMs };
 }
 
 export async function imageRefreshDue(
@@ -311,6 +332,14 @@ interface ExistingImage {
   expires_at: Date;
 }
 
+export interface RefreshPlaceImageStages {
+  prepare(candidate: ImageCandidate): Promise<ProcessedImage>;
+  classify(
+    placeName: string,
+    images: Array<{ bytes: Uint8Array }>,
+  ): ReturnType<typeof classifyPlaceImages>;
+}
+
 /** One place at a time is already bounded by the enrichment semaphore.
  * Curated candidates are tried first. Site candidates are cache-gated before
  * download, transformed once, then classified together in one vision call. */
@@ -326,6 +355,7 @@ export async function refreshPlaceImages(
   /** Counted by the caller on the routed Commons fetch, reported on the log
    * line so the per-place geosearch volume is visible in production. */
   imageWork: { commonsApiCalls?: number } = {},
+  stages?: RefreshPlaceImageStages,
 ): Promise<number> {
   const unique = [
     ...new Map(candidates.map((candidate) => [candidate.url, candidate])).values(),
@@ -347,7 +377,10 @@ export async function refreshPlaceImages(
   for (const candidate of curated) {
     if (stored.length >= MAX_IMAGE_CANDIDATES) break;
     try {
-      stored.push({ candidate, image: await downloadPlaceImage(candidate, fetchImpl) });
+      stored.push({
+        candidate,
+        image: await (stages?.prepare(candidate) ?? downloadPlaceImage(candidate, fetchImpl)),
+      });
     } catch {
       failures += 1;
     }
@@ -381,7 +414,7 @@ export async function refreshPlaceImages(
         }
       }
       try {
-        const image = await downloadPlaceImage(candidate, fetchImpl);
+        const image = await (stages?.prepare(candidate) ?? downloadPlaceImage(candidate, fetchImpl));
         if (cached) approved.set(candidate.url, image);
         else pending.push({ candidate, image });
       } catch {
@@ -392,7 +425,9 @@ export async function refreshPlaceImages(
     if (pending.length > 0) {
       visionImagesIn = pending.length;
       try {
-        const classified = await classifyPlaceImages(placeName, pending.map(({ image }) => image));
+        const classified = stages
+          ? await stages.classify(placeName, pending.map(({ image }) => image))
+          : await classifyPlaceImages(placeName, pending.map(({ image }) => image));
         visionModel = classified.model;
         visionDurationMs = classified.durationMs;
         visionInputTokens = classified.inputTokens;

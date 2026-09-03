@@ -48,6 +48,8 @@ type EnqueueOptions = {
   };
 };
 
+type EnqueueListener = (item: PipelineItem) => void;
+
 function poolForKind(item: PipelineItem, route?: OutboundRoute): PoolName {
   if (item.kind === "fetch.search") return "search";
   if (item.kind === "fetch.site" || item.kind === "fetch.asset") return route ?? "direct";
@@ -88,6 +90,7 @@ export class PipelineScheduler {
   private readonly batches = new Map<string, PipelineItem[]>();
   private readonly roomEpochs = new Map<string, number>();
   private readonly routeCompletions: Record<OutboundRoute, number> = { direct: 0, proxy: 0 };
+  private readonly enqueueListeners = new Set<EnqueueListener>();
 
   constructor(options: SchedulerOptions = {}) {
     this.pools = options.pools ?? createPipelinePools();
@@ -139,6 +142,7 @@ export class PipelineScheduler {
     };
     const queued = this.queue.enqueue(planned, execute, options.present === false ? 1 : 4);
     if (queued.inserted) {
+      for (const listener of this.enqueueListeners) listener(planned);
       this.volume.enqueue(planned);
       this.frames.update(planned, "queued", options.reason);
       this.wake();
@@ -181,6 +185,9 @@ export class PipelineScheduler {
       options.present === false ? 1 : 4,
     );
     if (queued.inserted) {
+      for (const entry of items) {
+        for (const listener of this.enqueueListeners) listener(entry as PipelineItem);
+      }
       this.batches.set(representative.dedupeKey, items as PipelineItem[]);
       if (!options.buffered) {
         for (const entry of items) {
@@ -207,6 +214,12 @@ export class PipelineScheduler {
   /** Called by the outbound gate release path or tests; it never polls. */
   notifyHostGateReleased(_host: string): void {
     this.wake();
+  }
+
+  /** Process-local diagnostics seam for scripted tests and live measurement. */
+  onEnqueue(listener: EnqueueListener): () => void {
+    this.enqueueListeners.add(listener);
+    return () => this.enqueueListeners.delete(listener);
   }
 
   needsChanged(roomId: string, needsEpoch: number, activeCriterionIds: Set<string>): PipelineItem[] {

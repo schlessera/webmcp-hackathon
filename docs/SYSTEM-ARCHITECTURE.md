@@ -85,6 +85,13 @@ same-priority proxy retry for a block-shaped result.
 The scheduler and its progress volume are process-local. The socket-holding
 process emits the room frame; no cross-process counter is claimed in Phase A.
 
+Asset materialisation no longer rides inside the site-fetch slot when the
+pipeline is enabled. Only an on-demand place detail can schedule it: image
+bytes use the route-selected proxy/direct pool, Sharp decode/resize uses the
+image-decode pool, and one per-place classifier batch uses the vision pool.
+Background refinement and room warming schedule none of those three stages.
+The legacy default-off loop retains its original combined lookup semaphore.
+
 ### Realtime transport
 
 The application, not ChatGPT, is the realtime bus. Browser clients receive live

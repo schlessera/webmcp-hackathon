@@ -23,10 +23,13 @@ export async function resetApiCacheState(
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 let serverSequence = 0;
+const worktreePortBase = 44_000 +
+  (createHash("sha256").update(repoRoot).digest().readUInt16BE(0) % 16) * 1_024;
 
 /** Give each Vitest worker a disjoint slice of the test port range. Random
  * selection allowed two parallel suites to choose the same port; worse, a
- * readiness probe could then succeed against the other suite's server. */
+ * readiness probe could then succeed against the other suite's server. The
+ * worktree-derived block also isolates concurrent branch lanes. */
 function nextServerPort(): number {
   const rawWorkerId = process.env.VITEST_POOL_ID ?? process.env.VITEST_WORKER_ID;
   const parsedWorkerId = Number(rawWorkerId);
@@ -34,7 +37,7 @@ function nextServerPort(): number {
     ? parsedWorkerId
     : process.pid;
   const workerLane = (workerId - 1) % 32;
-  const port = 42_000 + workerLane * 32 + serverSequence;
+  const port = worktreePortBase + workerLane * 32 + serverSequence;
   serverSequence = (serverSequence + 1) % 32;
   return port;
 }

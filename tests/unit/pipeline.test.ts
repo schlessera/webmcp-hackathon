@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { createRequire } from "node:module";
 import type { Criterion, PipelineMessage } from "@webmcp-hackathon/contracts";
+import { config } from "../../apps/server/src/config.ts";
 import { setTransport } from "../../apps/server/src/nl/openai.ts";
 import {
   resetOutboundStateForTests,
@@ -19,13 +21,21 @@ import {
 } from "../../apps/server/src/pipeline/queue.ts";
 import {
   PipelineScheduler,
+  pipelineScheduler,
   type DispatchResult,
 } from "../../apps/server/src/pipeline/scheduler.ts";
+import { refreshAssetsThroughPipeline } from "../../apps/server/src/pipeline/stages/assets.ts";
 import { judge } from "../../apps/server/src/pipeline/stages/judge.ts";
+import {
+  searchRefinementPlaces,
+  type RefinementSearchRequest,
+} from "../../apps/server/src/refine/worker.ts";
 import {
   PipelineVolumeModel,
   Rfc6298Estimator,
 } from "../../apps/server/src/pipeline/volume.ts";
+
+const sharp = createRequire(new URL("../../apps/server/package.json", import.meta.url))("sharp");
 
 const criterion = (id = "wifi"): Criterion => ({ id, kind: "key", key: id, label: id });
 
@@ -66,9 +76,186 @@ afterEach(() => {
   setTransport(null);
   setOutboundTransportForTests(null);
   resetOutboundStateForTests();
+  pipelineScheduler.reset();
 });
 
 describe("phase A pipeline", () => {
+  it("refills fetch.search continuously instead of waiting behind the slow request", async () => {
+    vi.useFakeTimers();
+    vi.stubEnv("PIPELINE", "1");
+    const finished: string[] = [];
+    const requests = Array.from({ length: 8 }, (_, index): RefinementSearchRequest => ({
+      candidateId: `search-${index}`,
+      osmRef: `node/search-${index}`,
+      name: `Place ${index}`,
+      category: "cafe",
+      siteTextUsable: false,
+      criteria: [criterion()],
+      searchCriteria: [criterion()],
+    }));
+    const job = searchRefinementPlaces(
+      requests,
+      { city: "Berlin", label: "Berlin", countryCode: "DE" },
+      async (query) => {
+        const index = Number(/Place (\d+)/.exec(query)?.[1] ?? 0);
+        await new Promise((resolve) => setTimeout(resolve, index === 0 ? 5_000 : 100));
+        finished.push(String(index));
+        return [];
+      },
+      { pipeline: { roomId: "search-room", needsEpoch: 1 } },
+    );
+
+    await vi.advanceTimersByTimeAsync(4_999);
+    expect(finished).toHaveLength(7);
+    await vi.advanceTimersByTimeAsync(1);
+    await expect(job).resolves.toHaveLength(8);
+    expect(pipelineScheduler.pools.search.maxInFlight).toBe(4);
+  });
+
+  it("never contributes a private need to a pipeline search query", async () => {
+    vi.stubEnv("PIPELINE", "1");
+    const privateNeed: Criterion = {
+      id: "q:private",
+      kind: "question",
+      label: "private-zebra-741",
+      text: "private-zebra-741 needs a quiet courtyard",
+    };
+    const queries: string[] = [];
+    await searchRefinementPlaces([{
+      candidateId: "private-search",
+      osmRef: "node/private-search",
+      name: "Public place name",
+      category: "cafe",
+      siteTextUsable: false,
+      criteria: [criterion("wifi"), privateNeed],
+      searchCriteria: [criterion("wifi")],
+    }], { city: "Berlin", label: "Berlin", countryCode: "DE" }, async (query) => {
+      queries.push(query);
+      return [];
+    }, { pipeline: { roomId: "private-room", needsEpoch: 1 } });
+    expect(queries).toEqual(["Public place name Berlin wifi"]);
+    expect(queries.join(" ")).not.toContain("private-zebra-741");
+  });
+
+  it("shares the llm-matrix budget between judge and adjudicate cells", async () => {
+    const scheduler = new PipelineScheduler({
+      pools: createPipelinePools({ direct: 1, proxy: 1, search: 1, "llm-matrix": 2, vision: 1, "image-decode": 1 }),
+      hostGateOpen: () => true,
+    });
+    const releases = [controlled(), controlled(), controlled()];
+    const started: string[] = [];
+    const jobs = ["process.judge", "process.adjudicate", "process.adjudicate"].map((kind, index) => {
+      const pipelineItem = item(`matrix-${index}`, {
+        kind: kind as "process.judge" | "process.adjudicate",
+        host: undefined,
+        purpose: undefined,
+      });
+      return scheduler.enqueue(pipelineItem, async () => {
+        started.push(kind);
+        await releases[index].promise;
+        return { value: index, actualRoute: "direct" };
+      });
+    });
+    await vi.waitFor(() => expect(started).toHaveLength(2));
+    expect(started).toEqual(["process.judge", "process.adjudicate"]);
+    expect(scheduler.pools["llm-matrix"].inFlight).toBe(2);
+    releases[0].resolve(0);
+    await vi.waitFor(() => expect(started).toHaveLength(3));
+    releases[1].resolve(1);
+    releases[2].resolve(2);
+    await Promise.all(jobs);
+    expect(scheduler.pools["llm-matrix"].maxInFlight).toBe(2);
+  });
+
+  it("keeps direct site occupancy full while a slow proxied asset downloads", async () => {
+    const scheduler = new PipelineScheduler({
+      pools: createPipelinePools({ direct: 4, proxy: 1, search: 1, "llm-matrix": 1, vision: 1, "image-decode": 1 }),
+      routeFor: (_host, purpose) => purpose === "image-cdn" ? "proxy" : "direct",
+      hostGateOpen: () => true,
+    });
+    const assetRelease = controlled();
+    const siteReleases = Array.from({ length: 4 }, () => controlled());
+    const asset = item("asset", {
+      kind: "fetch.asset",
+      purpose: "image-cdn",
+      intent: "background",
+      priority: 4,
+    });
+    const assetJob = scheduler.enqueue(asset, async (route) => {
+      await assetRelease.promise;
+      return { value: 1, actualRoute: route ?? "proxy" };
+    });
+    const siteJobs = siteReleases.map((release, index) => scheduler.enqueue(item(`site-${index}`), async (route) => {
+      await release.promise;
+      return { value: 1, actualRoute: route ?? "direct" };
+    }));
+    await vi.waitFor(() => expect(scheduler.pools.proxy.inFlight).toBe(1));
+    await vi.waitFor(() => expect(scheduler.pools.direct.inFlight).toBe(4));
+    expect(scheduler.pools.direct.maxInFlight).toBe(4);
+    assetRelease.resolve(1);
+    for (const release of siteReleases) release.resolve(1);
+    await Promise.all([assetJob, ...siteJobs]);
+  });
+
+  it("enqueues decode and vision only for interactive asset materialisation", async () => {
+    const scheduler = new PipelineScheduler({
+      pools: createPipelinePools({ direct: 2, proxy: 1, search: 1, "llm-matrix": 1, vision: 1, "image-decode": 2 }),
+      routeFor: () => "direct",
+      hostGateOpen: () => true,
+    });
+    const kinds: string[] = [];
+    scheduler.onEnqueue((entry) => kinds.push(entry.kind));
+    const png = await sharp({
+      create: { width: 640, height: 480, channels: 3, background: "navy" },
+    }).png().toBuffer();
+    const client = {
+      query: async () => ({ rows: [], rowCount: 1 }),
+      release: () => undefined,
+    };
+    const db = { query: client.query, connect: async () => client };
+    const base = {
+      db: db as never,
+      roomId: "asset-room",
+      candidateId: "asset-place",
+      osmRef: "node/asset-place",
+      placeName: "Asset place",
+      candidates: [{
+        url: "https://93.184.216.34/place.png",
+        source: "web:place.example",
+        pageUrl: "https://place.example/",
+        imagePolicy: {
+          class: "structured" as const,
+          minimumWidth: 480,
+          minimumHeight: 320,
+          confidenceThreshold: 0.6,
+        },
+      }],
+      fetchForRoute: () => async (url: string | URL) => String(url).endsWith("/robots.txt")
+        ? new Response("", { status: 404 })
+        : new Response(png, { headers: { "cache-control": "max-age=86400" } }),
+      scheduler,
+    };
+    await refreshAssetsThroughPipeline({ ...base, intent: "background" });
+    expect(kinds).toEqual([]);
+    const previousKey = config.openaiApiKey;
+    config.openaiApiKey = "scripted";
+    setTransport(async () => ({
+      output: [{
+        type: "message",
+        content: [{
+          type: "output_text",
+          text: JSON.stringify({ images: [{ kind: "venue_exterior", confidence: 0.9 }] }),
+        }],
+      }],
+    }));
+    try {
+      await refreshAssetsThroughPipeline({ ...base, intent: "interactive" });
+    } finally {
+      config.openaiApiKey = previousKey;
+    }
+    expect(kinds).toEqual(["fetch.asset", "process.decode", "process.vision"]);
+  });
+
   it("continuously refills an eight-slot pool when short tasks settle", async () => {
     vi.useFakeTimers();
     const pool = new PipelinePool("proxy", 8);

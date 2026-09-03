@@ -601,6 +601,21 @@ full room stops only that room's fetch admissions until a matrix drains it.
 Matrix cells wait no more than 300 ms for a rectangle of at most eight places
 by five criteria, while priority-zero work closes its batch immediately.
 
+| Stage | Unit | Pool | Wired trigger |
+|---|---|---|---|
+| `fetch.site` | place | proxy or direct | refinement and focused/background lookup |
+| `fetch.search` | place with all open criteria | search | unresolved refinement cells; query text still comes only from shared searchable criteria |
+| `fetch.asset` | place and image URL | proxy or direct | on-demand place detail only, at priority 4 |
+| `process.judge` | place and criterion | matrix | ready site/search evidence |
+| `process.adjudicate` | place and criterion | matrix | proactive or focused likely-claim review, sharing the judge limit |
+| `process.decode` | place and image URL | image decode | after an on-demand asset fetch only |
+| `process.vision` | place and image batch | vision | after on-demand website-image decoding only |
+
+The background sweep never schedules asset, decode or vision work. Opening a
+place detail schedules that chain when its image cache is due. Raw download,
+Sharp decode/resize and the classifier are separate admissions, so none can
+hold a site-lookup semaphore while waiting on another kind of work.
+
 The named pools are independently and continuously refilled: proxy 8, direct
 4, search 4, matrix 2, vision 1 and image decode 2. The proxy limit is tunable
 from 8–12 with `POOL_PROXY`; the other `POOL_*` variables tune their matching
@@ -636,8 +651,9 @@ observed more than seven days ago, then unknown keys from the remaining
 vocabulary. A place already being looked up is skipped.
 
 One tick takes at most 12 places. It reads each place's site at most once and
-reuses selected homepage and menu prose from the durable seven-day page cache
-(with a small in-process hot set). That prose is never logged, put in a
+reuses selected homepage and menu prose from the durable seven-day page cache.
+The legacy loop also has a small in-process hot set; `PIPELINE=1` bypasses it
+because the ready-buffer already owns transient evidence. That prose is never logged, put in a
 dossier, shown to a participant, or sent in a realtime frame. One matrix
 evaluation covers the batch's whole open criterion set. For each place whose
 site material leaves criteria unanswered, one search covers all of those

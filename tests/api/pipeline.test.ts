@@ -54,7 +54,7 @@ describe("PIPELINE=1 over HTTP, WebSocket, and PostgreSQL", () => {
         [
           candidate.id,
           `pipeline/${room.roomId}/${candidate.name.toLowerCase()}`,
-          JSON.stringify({ website: `https://${candidate.name.toLowerCase()}.example` }),
+          JSON.stringify({ website: `https://${candidate.name.toLowerCase()}.example/${room.roomId}` }),
           JSON.stringify(KNOWN_ATTRIBUTES),
           index + 1,
         ],
@@ -107,6 +107,20 @@ describe("PIPELINE=1 over HTTP, WebSocket, and PostgreSQL", () => {
     expect(pipelineFrames().some((frame) =>
       frame.outstanding.process + frame.inFlight.process > 0
     )).toBe(true);
+  });
+
+  it("keeps vision and decode out of the sweep and enqueues both when a place opens", async () => {
+    expect(countLog("pipeline-enqueue process.vision")).toBe(0);
+    expect(countLog("pipeline-enqueue process.decode")).toBe(0);
+    const response = await apiPost<{ ok: boolean }>(
+      server.baseUrl,
+      "/api/spatial/inspect",
+      room.tokens.org,
+      { candidateIds: [candidateId] },
+    );
+    expect(response.body.ok).toBe(true);
+    await waitFor(() => countLog("pipeline-enqueue process.decode") > 0, 8_000, () => server.logs());
+    await waitFor(() => countLog("pipeline-enqueue process.vision") > 0, 8_000, () => server.logs());
   });
 
   it("does one fresh judgement and zero fetches for warm-page Look again", async () => {

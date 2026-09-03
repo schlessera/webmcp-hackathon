@@ -64,7 +64,11 @@ import {
   outboundFetch,
   proxyEnabled,
   type OutboundPurpose,
+  type OutboundRoute,
 } from "../net/outbound.ts";
+import { pipelineDedupeKey } from "../pipeline/queue.ts";
+import { pipelineScheduler, type DispatchResult } from "../pipeline/scheduler.ts";
+import { refreshAssetsThroughPipeline } from "../pipeline/stages/assets.ts";
 
 /**
  * The enrichment layer (docs/ENRICHMENT-SOURCES.md): what the server looks
@@ -345,6 +349,26 @@ function imageFetch(target: LookupTarget): FetchLike {
     }
     return request(false);
   };
+}
+
+/** A scheduled asset attempt uses the pool's route; outbound remains
+ * authoritative and may still move a proxy attempt to direct via its breaker. */
+function pipelineImageFetch(
+  target: LookupTarget,
+  route: OutboundRoute,
+  purpose: OutboundPurpose,
+): FetchLike {
+  if (injectedFetch) return fetchImpl;
+  return (url, init = {}) => outboundFetch(url, {
+    ...init,
+    purpose,
+    ...(route === "direct" ? { direct: true } : {
+      country: target.countryCode,
+      session: target.session,
+    }),
+    maxBytes: 6 * 1024 * 1024,
+    timeoutMs: 20_000,
+  });
 }
 
 /** The website reader validates DNS before invoking its transport. For the
@@ -774,6 +798,8 @@ export interface LookupPass {
   enrichment: Enrichment | null;
   /** Server-private evaluator text, normally served from the seven-day page cache. */
   pageText?: WebsiteTransientText;
+  /** Pass-local image URLs. They are never persisted in enrichment JSON. */
+  imageCandidates?: ImageCandidate[];
 }
 
 export type LookupIntent = "interactive" | "background";
@@ -782,19 +808,21 @@ async function lookup(
   db: pg.Pool,
   target: LookupTarget,
   intent: LookupIntent | boolean = "background",
+  scheduledRoute?: OutboundRoute,
 ): Promise<LookupPass> {
   const force = intent === true || intent === "interactive";
+  const pipelinePath = process.env.PIPELINE === "1";
   const passTarget: LookupTarget = {
     ...target,
     session: target.session ?? randomUUID().replace(/-/g, "").slice(0, 16),
-    ...(force ? { direct: true } : {}),
+    ...(scheduledRoute ? { direct: scheduledRoute === "direct" } : force ? { direct: true } : {}),
   };
   const initial = (await loadCached(db, [target.osmRef])).get(target.osmRef);
-  const initialImagesDue = await imageRefreshDue(
-    db,
-    target.osmRef,
-    force ? FORCE_STALE_MS : undefined,
-  );
+  const initialImagesDue = pipelinePath ? false : await imageRefreshDue(
+      db,
+      target.osmRef,
+      force ? FORCE_STALE_MS : undefined,
+    );
   if (!Object.values(dueProviders(target, initial, force)).some(Boolean) && !initialImagesDue) {
     const pageText = await cachedPageText(db, target, initial);
     return { enrichment: initial ?? null, ...(pageText ? { pageText } : {}) };
@@ -802,13 +830,13 @@ async function lookup(
 
   // X4: queue before acquiring the cross-process lease. A bounded waiter can
   // never consume lease lifetime while another lookup owns all network slots.
-  const completed = await lookupSlots.use(async () => {
+  const work = async (): Promise<LookupPass> => {
     const beforeLease = (await loadCached(db, [target.osmRef])).get(target.osmRef);
-    const beforeLeaseImagesDue = await imageRefreshDue(
-      db,
-      target.osmRef,
-      force ? FORCE_STALE_MS : undefined,
-    );
+    const beforeLeaseImagesDue = pipelinePath ? false : await imageRefreshDue(
+        db,
+        target.osmRef,
+        force ? FORCE_STALE_MS : undefined,
+      );
     if (!Object.values(dueProviders(target, beforeLease, force)).some(Boolean) && !beforeLeaseImagesDue) {
       const pageText = await cachedPageText(db, target, beforeLease);
       return { enrichment: beforeLease ?? null, ...(pageText ? { pageText } : {}) };
@@ -822,11 +850,11 @@ async function lookup(
     try {
       const current = (await loadCached(db, [target.osmRef])).get(target.osmRef);
       const attempted = dueProviders(target, current, force);
-      const attemptedImages = await imageRefreshDue(
-        db,
-        target.osmRef,
-        force ? FORCE_STALE_MS : undefined,
-      );
+      const attemptedImages = pipelinePath ? false : await imageRefreshDue(
+          db,
+          target.osmRef,
+          force ? FORCE_STALE_MS : undefined,
+        );
       if (!attempted.website && !attempted.wikidata && !attemptedImages) {
         const pageText = await cachedPageText(db, target, current);
         return { enrichment: current ?? null, ...(pageText ? { pageText } : {}) };
@@ -893,13 +921,17 @@ async function lookup(
       return {
         enrichment: finalEnrichment ?? null,
         ...(pageText ? { pageText } : {}),
+        ...(pipelinePath && site.facts?.imageCandidates?.length
+          ? { imageCandidates: site.facts.imageCandidates }
+          : {}),
       };
     } finally {
       // Offline mode deliberately does not advance provider freshness, but it
       // must still yield the cross-process lease immediately.
       await releaseLease(db, target.osmRef, owner);
     }
-  });
+  };
+  const completed = pipelinePath ? await work() : await lookupSlots.use(work);
   // A full queue is load shedding, not a failed fact read: return stale data.
   if (completed !== undefined) return completed;
   const pageText = await cachedPageText(db, target, initial);
@@ -913,8 +945,9 @@ export function readRefinementSource(
   target: LookupTarget,
   countryCode?: string,
   intent: LookupIntent = "background",
+  scheduledRoute?: OutboundRoute,
 ): Promise<LookupPass> {
-  return lookup(db, { ...target, ...(countryCode ? { countryCode } : {}) }, intent);
+  return lookup(db, { ...target, ...(countryCode ? { countryCode } : {}) }, intent, scheduledRoute);
 }
 
 /**
@@ -977,6 +1010,93 @@ export interface LookupNowOptions {
 
 /** A forced lookup re-reads a provider only when its last read is older than this. */
 export const FORCE_STALE_MS = 10 * 60_000;
+
+async function scheduledLookup(
+  db: pg.Pool,
+  roomId: string,
+  candidateId: string,
+  target: RoomLookupTarget,
+  intent: LookupIntent,
+  reason?: LookupNowOptions["reason"],
+): Promise<LookupPass> {
+  let host: string | undefined;
+  try {
+    host = target.website ? new URL(target.website).hostname.toLowerCase() : undefined;
+  } catch {
+    host = undefined;
+  }
+  const base = {
+    roomId,
+    candidateId,
+    osmRef: target.osmRef,
+    kind: "fetch.site" as const,
+    criteria: [],
+    priority: intent === "interactive" ? 0 as const : 3 as const,
+    intent,
+    ...(host ? { host, purpose: "venue-site" as const } : {}),
+    needsEpoch: 0,
+    enqueuedAt: Date.now(),
+  };
+  return pipelineScheduler.enqueue(
+    { ...base, dedupeKey: pipelineDedupeKey(base) },
+    async (route): Promise<DispatchResult<LookupPass>> => ({
+      value: await lookup(db, target, intent, route),
+      actualRoute: route ?? "direct",
+    }),
+    { reason, present: intent === "interactive" },
+  );
+}
+
+async function refreshPipelineImages(
+  db: pg.Pool,
+  roomId: string,
+  row: LookupCandidateRow,
+  target: RoomLookupTarget,
+  current: Enrichment | undefined,
+  passCandidates: ImageCandidate[],
+): Promise<void> {
+  if (!(await imageRefreshDue(db, target.osmRef, FORCE_STALE_MS))) return;
+  const passTarget: LookupTarget = {
+    ...target,
+    session: target.session ?? randomUUID().replace(/-/g, "").slice(0, 16),
+    direct: true,
+  };
+  const imageWork = { commonsApiCalls: 0 };
+  const routedWikiFetch = wikiFetch();
+  const countedWikiFetch: FetchLike = (url, init) => {
+    try {
+      const candidateUrl = new URL(url);
+      if (candidateUrl.hostname === "commons.wikimedia.org" && candidateUrl.pathname === "/w/api.php") {
+        imageWork.commonsApiCalls += 1;
+      }
+    } catch {
+      /* the called fetch path owns invalid-URL handling */
+    }
+    return routedWikiFetch(url, init);
+  };
+  const websiteCandidates = passCandidates.length > 0
+    ? passCandidates
+    : target.website
+      ? await fetchInjectedWebsiteImageCandidates(db, passTarget)
+      : [];
+  const candidates = await imageCandidatesFor(
+    passTarget,
+    current,
+    websiteCandidates,
+    countedWikiFetch,
+  );
+  await refreshAssetsThroughPipeline({
+    db,
+    roomId,
+    candidateId: row.id,
+    osmRef: target.osmRef,
+    placeName: target.placeName ?? row.name,
+    candidates,
+    intent: "interactive",
+    imageWork,
+    fetchForRoute: (route, purpose) => pipelineImageFetch(passTarget, route, purpose),
+  });
+}
 
 interface LookupCandidateRow {
   id: string;
@@ -1432,13 +1552,28 @@ async function runLookupNow(
       evaluations.set(row.id, evaluation);
       try {
         let transientText: WebsiteTransientText | undefined;
+        let passCandidates: ImageCandidate[] = [];
 
         // Provider freshness is independent: lookup retries only the due leg,
         // retains last-known-good facts, and preserves a failed leg's TTL.
         if (hasLookupSource(target)) {
-          const pass = await lookup(pool, target, intent);
+          const pass = process.env.PIPELINE === "1"
+            ? await scheduledLookup(pool, roomId, row.id, target, intent, options.reason)
+            : await lookup(pool, target, intent);
           current = pass.enrichment ?? undefined;
           transientText = pass.pageText;
+          passCandidates = pass.imageCandidates ?? [];
+        }
+        if (process.env.PIPELINE === "1" && intent === "interactive") {
+          await refreshPipelineImages(
+            pool,
+            roomId,
+            row,
+            target,
+            current,
+            passCandidates,
+          );
+          current = (await loadCached(pool, [row.osm_ref!])).get(row.osm_ref!);
         }
         evaluation.current = current;
         evaluation.base = applyGuesses(
@@ -1457,7 +1592,11 @@ async function runLookupNow(
     }
   };
   await Promise.all(
-    Array.from({ length: Math.min(WARM_CONCURRENCY, actionable.length) }, () => worker()),
+    Array.from({
+      length: process.env.PIPELINE === "1"
+        ? actionable.length
+        : Math.min(WARM_CONCURRENCY, actionable.length),
+    }, () => worker()),
   );
 
   const criteria = new Map(activeCriteria);

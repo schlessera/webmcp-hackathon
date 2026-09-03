@@ -64,6 +64,7 @@ const app = Fastify({
   logger: { level: process.env.LOG_LEVEL ?? "info" },
   disableRequestLogging: true,
 });
+export { app };
 startOutboundDiagnosticLogging((fields, message) => app.log.info(fields, message));
 
 // HTTP payloads negotiate Brotli or gzip. This onSend-based plugin is

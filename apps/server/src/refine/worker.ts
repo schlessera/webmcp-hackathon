@@ -531,7 +531,13 @@ async function planPipelineRoom(roomId: string): Promise<void> {
   if (!state || state.stopped || pipelinePlanning.has(roomId)) return;
   pipelinePlanning.add(roomId);
   try {
-    const inputs = await loadEligibilityInputs(pool, roomId);
+    let inputs = await loadEligibilityInputs(pool, roomId);
+    const proactive = await adjudicateLikelyForRoom(pool, roomId, {
+      mode: "proactive",
+      inputs,
+      consumeModelCall: consumeRefinementModelCall,
+    });
+    if (proactive.changed.length > 0) inputs = await loadEligibilityInputs(pool, roomId);
     pipelineScheduler.needsChanged(
       roomId,
       state.cursorEpoch,
@@ -596,6 +602,7 @@ async function planPipelineRoom(roomId: string): Promise<void> {
             Date.now(),
             placeInfo.countryCode,
             "background",
+            route,
           ),
           actualRoute: route ?? "direct",
         }),
@@ -698,6 +705,12 @@ export interface RefinementSearchPolicy {
   domainRule?: RefineDomainRule;
   cacheDb?: Pick<pg.Pool, "query"> | Pick<pg.PoolClient, "query">;
   providerName?: "tavily" | "openai";
+  /** Scheduler context is supplied only by the PIPELINE=1 refinement path. */
+  pipeline?: {
+    roomId: string;
+    needsEpoch: number;
+    priority?: PipelineItem["priority"];
+  };
 }
 
 export interface RefinementTickOptions extends RefinementSearchPolicy {
@@ -762,7 +775,11 @@ export async function searchRefinementPlaces(
   provider = search,
   policy: RefinementSearchPolicy = {},
 ): Promise<RefinementSearchResponse[]> {
-  return Promise.all(requests.filter((request) => request.searchCriteria.length > 0).map(async (request) => {
+  const wanted = requests.filter((request) => request.searchCriteria.length > 0);
+  const one = async (
+    request: RefinementSearchRequest,
+    scheduled: boolean,
+  ): Promise<RefinementSearchResponse> => {
     const domains = refinementSearchDomains(request, policy.domainRule);
     const query = buildRefinementQuery(request, area);
     const providerName = policy.providerName ?? searchProviderId();
@@ -793,10 +810,8 @@ export async function searchRefinementPlaces(
     }
     let results: SearchResult[] = [];
     try {
-      results = await refinementSearchLimiter.use(() => provider(
-        query,
-        domains ? { domains } : undefined,
-      ));
+      const run = () => provider(query, domains ? { domains } : undefined);
+      results = await (scheduled ? run() : refinementSearchLimiter.use(run));
     } catch {
       results = [];
     }
@@ -816,7 +831,48 @@ export async function searchRefinementPlaces(
       cacheQuery: query,
       ...(domains ? { cacheDomains: domains } : {}),
     };
-  }));
+  };
+  if (!pipelineEnabled() || !policy.pipeline) return Promise.all(wanted.map((request) => one(request, false)));
+  const scheduled = wanted.map((request) => {
+    const base = {
+      roomId: policy.pipeline!.roomId,
+      candidateId: request.candidateId,
+      osmRef: request.osmRef,
+      kind: "fetch.search" as const,
+      // The item carries every open cell. Only searchCriteria reaches the
+      // query builder; private cells therefore remain useful for returned
+      // snippets without contributing a byte of query text.
+      criteria: request.criteria,
+      priority: policy.pipeline!.priority ?? 1,
+      intent: "background" as const,
+      needsEpoch: policy.pipeline!.needsEpoch,
+      enqueuedAt: Date.now(),
+    };
+    const item = { ...base, dedupeKey: pipelineDedupeKey(base) };
+    return pipelineScheduler.enqueue(
+      item,
+      async (): Promise<DispatchResult<RefinementSearchResponse>> => ({
+        value: await one(request, true),
+        actualRoute: "direct",
+      }),
+      { present: presentIn(policy.pipeline!.roomId).size > 0 },
+    );
+  });
+  return new Promise<RefinementSearchResponse[]>((resolve, reject) => {
+    if (scheduled.length === 0) {
+      resolve([]);
+      return;
+    }
+    const results: RefinementSearchResponse[] = new Array(scheduled.length);
+    let remaining = scheduled.length;
+    scheduled.forEach((job, index) => {
+      void job.then((result) => {
+        results[index] = result;
+        remaining -= 1;
+        if (remaining === 0) resolve(results);
+      }, reject);
+    });
+  });
 }
 
 function modelCalls(places: number, criteria: number): number {
@@ -997,6 +1053,10 @@ async function dispatchPipelineBatch(cells: Array<ReadyCell<PipelineReadyValue>>
         reason,
       },
     );
+    await adjudicateLikelyForRoom(pool, roomId, {
+      mode: "proactive",
+      consumeModelCall: consumeRefinementModelCall,
+    });
     for (const cell of live) finishPipelineCell(cell.value, undefined, delay);
   } catch (error) {
     for (const cell of live) finishPipelineCell(cell.value, error);
@@ -1040,17 +1100,18 @@ async function preparePlace(
   now: number,
   countryCode?: string,
   intent: "interactive" | "background" = "background",
+  scheduledRoute?: "direct" | "proxy",
 ): Promise<PreparedPlace> {
   const candidate = item.candidate;
   const target = lookupTargetOf(candidate);
   let enrichment = cached.get(candidate.osm_ref!);
-  let text = cachedText(candidate.osm_ref!, now);
+  let text = pipelineEnabled() ? undefined : cachedText(candidate.osm_ref!, now);
   if (!text && target && (target.website || target.wikidata)) {
-    const pass = await readRefinementSource(pool, target, countryCode, intent);
+    const pass = await readRefinementSource(pool, target, countryCode, intent, scheduledRoute);
     enrichment = pass.enrichment ?? enrichment;
     if (pass.pageText) {
       text = pass.pageText;
-      rememberText(candidate.osm_ref!, pass.pageText, now);
+      if (!pipelineEnabled()) rememberText(candidate.osm_ref!, pass.pageText, now);
     }
   }
   return {
@@ -1102,13 +1163,15 @@ export async function runRefinementTick(
   if (!refinementEnabled()) return REFINE_TICK_MS;
   const state = stateFor(roomId);
   let inputs = await loadEligibilityInputs(pool, roomId);
-  const proactive = await adjudicateLikelyForRoom(pool, roomId, {
-    mode: "proactive",
-    inputs,
-    now,
-    consumeModelCall: consumeRefinementModelCall,
-  });
-  if (proactive.changed.length > 0) inputs = await loadEligibilityInputs(pool, roomId);
+  if (!options.pipelineManaged) {
+    const proactive = await adjudicateLikelyForRoom(pool, roomId, {
+      mode: "proactive",
+      inputs,
+      now,
+      consumeModelCall: consumeRefinementModelCall,
+    });
+    if (proactive.changed.length > 0) inputs = await loadEligibilityInputs(pool, roomId);
+  }
   const signature = criteriaSignature(inputs);
   if (signature !== state.criteriaKey) {
     state.criteriaKey = signature;
@@ -1286,7 +1349,14 @@ export async function runRefinementTick(
         searchRequests,
         placeInfo,
         search,
-        { ...options, cacheDb: pool, providerName },
+        {
+          ...options,
+          cacheDb: pool,
+          providerName,
+          ...(options.pipelineManaged ? {
+            pipeline: { roomId, needsEpoch: epoch, priority: batch[0]?.tier ?? 1 },
+          } : {}),
+        },
       )).map((entry) => ({
         ...entry,
         prepared: preparedById.get(entry.candidateId)!,
@@ -1422,12 +1492,14 @@ export async function runRefinementTick(
         : []
     );
     await publishInferenceChanges(pool, roomId, changed, "inference");
-    await adjudicateLikelyForRoom(pool, roomId, {
-      mode: "proactive",
-      inputs: refreshed,
-      now,
-      consumeModelCall: consumeRefinementModelCall,
-    });
+    if (!options.pipelineManaged) {
+      await adjudicateLikelyForRoom(pool, roomId, {
+        mode: "proactive",
+        inputs: refreshed,
+        now,
+        consumeModelCall: consumeRefinementModelCall,
+      });
+    }
     logTick(roomId, {
       places: batch.length,
       criteria: criteria.length,
