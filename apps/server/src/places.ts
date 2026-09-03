@@ -466,16 +466,26 @@ export function explorePlaces(
     .sort((a, b) => (a.ref < b.ref ? -1 : a.ref > b.ref ? 1 : 0));
   return {
     ok: true,
-    places: matches.slice(0, capped).map((venue) => ({
-      ref: venue.ref,
-      name: venue.name,
-      location: venue.location,
-      category: venue.placeClass ?? dossierFromTags(
-        venue.tags,
-        snapshot.manifest.extract.timestamp,
-      ).category,
-    })),
+    places: matches.slice(0, capped).map((venue) => exploreView(snapshot, venue)),
     truncated: matches.length > capped,
+  };
+}
+
+/** One snapshot venue as the page sees it, before the room's own rows are
+ * matched in. The category is the venue's place class, never a domain word
+ * chosen here. */
+export function exploreView(
+  snapshot: AreaSnapshot,
+  venue: SnapshotVenue,
+): ExplorePlacesResult["places"][number] {
+  return {
+    ref: venue.ref,
+    name: venue.name,
+    location: venue.location,
+    category: venue.placeClass ?? dossierFromTags(
+      venue.tags,
+      snapshot.manifest.extract.timestamp,
+    ).category,
   };
 }
 

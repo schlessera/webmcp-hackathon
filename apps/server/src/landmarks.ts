@@ -112,6 +112,46 @@ export function findLandmarks(areaId: string, query: string): LandmarkMatch[] {
     }));
 }
 
+/** Entrances and single stops orient nobody; they crowd out what does. */
+const CLUTTER_KINDS = new Set(["subway_entrance", "stop"]);
+
+/**
+ * The landmarks inside a viewport, nearest the middle first — the optional
+ * orientation layer the map draws behind the room's own places. Same rows the
+ * distance referents resolve against, so what a viewer sees named on the map
+ * is exactly what they can measure a need from.
+ */
+export interface LandmarkInView extends SnapshotLandmark {
+  kindLabel: string;
+}
+
+export function landmarksInView(
+  areaId: string,
+  [south, west, north, east]: [number, number, number, number],
+  limit = 80,
+): LandmarkInView[] {
+  const middle = { lat: (south + north) / 2, lng: (west + east) / 2 };
+  return rowsFor(areaId)
+    .filter(
+      (row) =>
+        !CLUTTER_KINDS.has(row.kind) &&
+        row.location.lat >= south &&
+        row.location.lat <= north &&
+        row.location.lng >= west &&
+        row.location.lng <= east,
+    )
+    .map((row) => ({
+      row,
+      distance: distanceMeters(middle, row.location),
+    }))
+    .sort((a, b) => a.distance - b.distance || a.row.id.localeCompare(b.row.id))
+    .slice(0, Math.max(0, limit))
+    .map(({ row }) => ({
+      ...row,
+      kindLabel: KIND_LABELS[row.kind] ?? row.kind.replace(/_/g, " "),
+    }));
+}
+
 export function landmarkById(areaId: string, landmarkId: string): LandmarkMatch | undefined {
   const row = rowsFor(areaId).find((landmark) => landmark.id === landmarkId);
   return row && {

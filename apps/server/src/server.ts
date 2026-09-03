@@ -38,11 +38,14 @@ import { syncSession } from "./sync.ts";
 import {
   areaSummaries,
   explorePlaces,
+  exploreView,
   loadSnapshot,
+  type AreaSnapshot,
   type ExploreBbox,
 } from "./places.ts";
+import { searchSnapshot } from "./place-search.ts";
 import { haversineMeters } from "./eligibility.ts";
-import { findRoomLandmarks } from "./landmarks.ts";
+import { findRoomLandmarks, landmarksInView } from "./landmarks.ts";
 import { createRoom } from "./rooms.ts";
 import { inspectCandidates, lookUpPlaces, prepareNavigation, spatialContext } from "./spatial.ts";
 import { attachWebSocket } from "./ws.ts";
@@ -411,25 +414,101 @@ app.get("/api/rooms/:id/places", async (req, reply) => {
     return { ok: true as const, places: [], truncated: false };
   }
   const result = explorePlaces(area, snapshot, bbox, 600);
-  const refs = result.places.map((place) => place.ref);
-  const existing = refs.length
-    ? (
-        await pool.query(
-          "SELECT id, osm_ref FROM candidates WHERE room_id = $1 AND osm_ref = ANY($2)",
-          [roomId, refs],
-        )
-      ).rows as Array<{ id: string; osm_ref: string }>
-    : [];
-  const candidateByRef = new Map(existing.map((row) => [row.osm_ref, row.id]));
   logRead(req, actor.id, "ExplorePlaces", true);
+  return { ...result, places: await withCandidateIds(roomId, result.places) };
+});
+
+/** Mark the places a room already holds, so the page draws each one once. */
+async function withCandidateIds<T extends { ref: string }>(
+  roomId: string,
+  places: T[],
+): Promise<Array<T & { candidateId?: string }>> {
+  if (places.length === 0) return places;
+  const rows = (
+    await pool.query(
+      "SELECT id, osm_ref FROM candidates WHERE room_id = $1 AND osm_ref = ANY($2)",
+      [roomId, places.map((place) => place.ref)],
+    )
+  ).rows as Array<{ id: string; osm_ref: string }>;
+  const candidateByRef = new Map(rows.map((row) => [row.osm_ref, row.id]));
+  return places.map((place) => {
+    const candidateId = candidateByRef.get(place.ref);
+    return candidateId ? { ...place, candidateId } : place;
+  });
+}
+
+/**
+ * Find a place by name in the room area's snapshot: the box at the top of the
+ * map. In-process over rows already in memory — the same source the explore
+ * layer draws, so a hit is always a place the room can actually bring in.
+ */
+app.get("/api/rooms/:id/places/search", async (req, reply) => {
+  const actor = await bearer(req);
+  if (!actor) return reply.code(401).send(notAuthenticated);
+  const roomId = (req.params as { id?: string }).id;
+  if (!roomId || roomId !== actor.roomId) {
+    return reply.code(404).send({ error: "Room not found." });
+  }
+  const query = (req.query as { q?: unknown }).q;
+  if (typeof query !== "string" || query.trim().length === 0 || query.length > 100) {
+    return reply.code(400).send({ error: "q must be a 1-100 character place name." });
+  }
+  const near = parseLatLng((req.query as { near?: unknown }).near);
+  const snapshot = await roomSnapshot(roomId);
+  if (!snapshot) return { ok: true as const, places: [], truncated: false };
+  const { venues, truncated } = searchSnapshot(snapshot, query.trim(), {
+    ...(near ? { near } : {}),
+    limit: 8,
+  });
+  const places = venues.map((venue) => exploreView(snapshot, venue));
+  logRead(req, actor.id, "SearchPlaces", true);
+  return { ok: true as const, places: await withCandidateIds(roomId, places), truncated };
+});
+
+/**
+ * The landmarks in a viewport: the optional orientation layer under the
+ * room's own places. Snapshot rows, in process, like every other map read.
+ */
+app.get("/api/rooms/:id/landmarks", async (req, reply) => {
+  const actor = await bearer(req);
+  if (!actor) return reply.code(401).send(notAuthenticated);
+  const roomId = (req.params as { id?: string }).id;
+  if (!roomId || roomId !== actor.roomId) {
+    return reply.code(404).send({ error: "Room not found." });
+  }
+  const bbox = parseExploreBbox((req.query as { bbox?: unknown }).bbox);
+  if (!bbox) {
+    return reply.code(400).send({ error: "bbox must be south,west,north,east." });
+  }
+  const areaId = await roomAreaId(roomId);
+  logRead(req, actor.id, "ViewLandmarks", true);
   return {
-    ...result,
-    places: result.places.map((place) => {
-      const candidateId = candidateByRef.get(place.ref);
-      return candidateId ? { ...place, candidateId } : place;
-    }),
+    ok: true as const,
+    landmarks: areaId ? landmarksInView(areaId, bbox, 80) : [],
   };
 });
+
+/** The registered area a room draws from, or null when it names none. */
+async function roomAreaId(roomId: string): Promise<string | null> {
+  const room = (
+    await pool.query("SELECT area_id FROM rooms WHERE id = $1", [roomId])
+  ).rows[0] as { area_id: string | null } | undefined;
+  return (room?.area_id ? areaById(room.area_id)?.id : null) ?? null;
+}
+
+/** The area snapshot behind a room, or null when its area ships none. */
+async function roomSnapshot(roomId: string): Promise<AreaSnapshot | null> {
+  const areaId = await roomAreaId(roomId);
+  return areaId ? loadSnapshot(areaId) : null;
+}
+
+function parseLatLng(value: unknown): { lat: number; lng: number } | null {
+  if (typeof value !== "string") return null;
+  const [lat, lng] = value.split(",").map(Number);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
+  return { lat, lng };
+}
 
 function parseExploreBbox(value: unknown): ExploreBbox | null {
   if (typeof value !== "string") return null;
