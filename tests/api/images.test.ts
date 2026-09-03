@@ -5,7 +5,9 @@ let server: TestServer;
 let room: TestRoom;
 let otherRoom: TestRoom;
 let candidateId: string;
+let warmCandidateId: string;
 let osmRef: string;
+let warmOsmRef: string;
 
 beforeAll(async () => {
   server = await startServer({
@@ -15,16 +17,36 @@ beforeAll(async () => {
   room = await createTestRoom(server.baseUrl);
   otherRoom = await createTestRoom(server.baseUrl);
   candidateId = `place_a_${room.roomId.slice("room_test_".length)}`;
+  warmCandidateId = `place_b_${room.roomId.slice("room_test_".length)}`;
   osmRef = `node/image-${room.roomId}`;
+  warmOsmRef = `node/warm-image-${room.roomId}`;
   await room.pool.query(
     "UPDATE candidates SET osm_ref = $2, extras = $3::jsonb WHERE id = $1",
-    [candidateId, osmRef, JSON.stringify({ website: "https://93.184.216.34/place" })],
+    [candidateId, osmRef, JSON.stringify({ website: "https://93.184.216.34/cold" })],
+  );
+  await room.pool.query(
+    "UPDATE candidates SET osm_ref = $2, extras = $3::jsonb WHERE id = $1",
+    [warmCandidateId, warmOsmRef, JSON.stringify({ website: "https://93.184.216.34/warm" })],
+  );
+  await room.pool.query(
+    `INSERT INTO enrichments
+       (osm_ref, fetched_at, expires_at, website,
+        website_status, website_fetched_at, website_expires_at,
+        image_fetched_at, image_expires_at)
+     VALUES ($1, now(), now() + interval '7 days', $2, 'ok', now(),
+             now() + interval '7 days', now() - interval '8 days', now() - interval '1 day')`,
+    [warmOsmRef, JSON.stringify({
+      url: "https://93.184.216.34/warm",
+      host: "93.184.216.34",
+      fetchedAt: new Date().toISOString(),
+      types: [],
+    })],
   );
 });
 
 afterAll(async () => {
-  await room.pool.query("DELETE FROM place_images WHERE osm_ref = $1", [osmRef]);
-  await room.pool.query("DELETE FROM enrichments WHERE osm_ref = $1", [osmRef]);
+  await room.pool.query("DELETE FROM place_images WHERE osm_ref = ANY($1)", [[osmRef, warmOsmRef]]);
+  await room.pool.query("DELETE FROM enrichments WHERE osm_ref = ANY($1)", [[osmRef, warmOsmRef]]);
   await room.cleanup();
   await otherRoom.cleanup();
   await server.stop();
@@ -40,9 +62,14 @@ describe("place images API", () => {
     expect(inspect.body.candidates[0].images).toEqual([
       expect.objectContaining({
         url: `/api/places/${osmRef}/images/0`,
-        source: "website",
+        source: "web:93.184.216.34",
       }),
     ]);
+
+    const stored = (
+      await room.pool.query("SELECT website FROM enrichments WHERE osm_ref = $1", [osmRef])
+    ).rows[0].website;
+    expect(stored).not.toHaveProperty("imageCandidates");
 
     const context = await apiPost<{
       candidates: Array<{ candidateId: string; imageCount?: number }>;
@@ -72,5 +99,24 @@ describe("place images API", () => {
     expect(await unchanged.text()).toBe("");
 
     expect((await fetch(url)).status).toBe(401);
+  });
+
+  it("harvests a warm site's homepage once per image refresh TTL", async () => {
+    const inspect = () => apiPost<{
+      ok: boolean;
+      candidates: Array<{ images?: Array<{ url: string; source: string }> }>;
+    }>(server.baseUrl, "/api/spatial/inspect", room.tokens.org, {
+      candidateIds: [warmCandidateId],
+    });
+
+    const first = await inspect();
+    expect(first.body.candidates[0].images).toEqual([
+      expect.objectContaining({
+        url: `/api/places/${encodeURIComponent(warmOsmRef)}/images/0`,
+        source: "web:93.184.216.34",
+      }),
+    ]);
+    await inspect();
+    expect(server.logs().match(/image-fixture homepage-get \/warm/g) ?? []).toHaveLength(1);
   });
 });

@@ -10,8 +10,8 @@ import { lookup as resolveHost } from "node:dns/promises";
  * visible page text is held in memory for the current inference pass, but it
  * is returned separately from WebFacts and is never persisted. Stored data
  * remains parsed facts, a few URLs and a one-line description; robots.txt is
- * honoured; at most two requests per venue (homepage, then the menu page);
- * the User-Agent names the project.
+ * honoured; a normal facts read makes at most two content requests (homepage,
+ * then the menu page); the User-Agent names the project.
  *
  * Shaped by two surveys of the pool venues' sites (2026-09-02, 160 sites by
  * hand, then 1,400 across four slices — docs/research/enrichment-crawl-…):
@@ -58,7 +58,7 @@ export interface WebFacts {
 
 export interface WebsiteImageCandidate {
   url: string;
-  source: "website";
+  source: `web:${string}`;
   pageUrl: string;
 }
 
@@ -70,6 +70,7 @@ const TIMEOUT_MS = 8000;
 const MAX_HTML = 1_500_000;
 const MAX_REDIRECTS = 5;
 export const MAX_PAGE_TEXT = 6_000;
+export const MAX_IMAGE_CANDIDATE_HTML_BYTES = 512 * 1024;
 
 const FOOD_TYPES = /Restaurant|Cafe|CoffeeShop|Bar|Pub|Bakery|Brewery|Winery|FoodEstablishment|IceCreamShop|FastFood|Distillery/;
 const BUSINESS_TYPES = /LocalBusiness|Organization|Store|EntertainmentBusiness|LodgingBusiness|Hotel/;
@@ -449,7 +450,8 @@ export function extractImageCandidates(html: string, pageUrl: string): WebsiteIm
   }
   if (largest) add(largest.raw);
 
-  return candidates.slice(0, 12).map((url) => ({ url, source: "website", pageUrl }));
+  const source: `web:${string}` = `web:${new URL(pageUrl).host}`;
+  return candidates.slice(0, 12).map((url) => ({ url, source, pageUrl }));
 }
 
 /** `\b` is ASCII-only in JavaScript: "Menü" never ends on a word boundary.
@@ -639,6 +641,37 @@ export function parseWebsite(html: string, url: string, fetchedAt: string): WebF
 
 const headers = { "user-agent": ENRICH_USER_AGENT, accept: "text/html,application/xhtml+xml,application/pdf;q=0.5" };
 
+/** Read only the beginning of a homepage. Reaching the limit is success: the
+ * metadata we need belongs in the head, so cancel the remainder instead of
+ * buffering or rejecting the whole document. */
+export async function readBoundedHtmlBody(
+  response: Response,
+  maxBytes = MAX_IMAGE_CANDIDATE_HTML_BYTES,
+): Promise<string> {
+  if (!response.body || maxBytes <= 0) return "";
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    while (size < maxBytes) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const remaining = maxBytes - size;
+      if (value.byteLength >= remaining) {
+        chunks.push(value.subarray(0, remaining));
+        size += remaining;
+        await reader.cancel();
+        break;
+      }
+      chunks.push(value);
+      size += value.byteLength;
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return Buffer.concat(chunks.map((chunk) => Buffer.from(chunk)), size).toString("utf8");
+}
+
 export async function fetchAllowed(target: URL, fetchImpl: FetchLike, timeoutMs = TIMEOUT_MS): Promise<boolean> {
   const robots = await fetchPublic(new URL("/robots.txt", target.origin), {
     headers,
@@ -647,6 +680,56 @@ export async function fetchAllowed(target: URL, fetchImpl: FetchLike, timeoutMs 
   if (!robots || !robots.ok) return true;
   const text = (await robots.text()).slice(0, 100_000);
   return robotsAllows(text, target.pathname || "/");
+}
+
+const isHtmlResponse = (response: Response): boolean =>
+  /(?:text\/html|application\/(?:xhtml\+xml|xml)|text\/xml)/i.test(
+    response.headers.get("content-type") ?? "",
+  );
+
+/** A lightweight second chance for image refreshes whose durable website
+ * facts predate image extraction. It shares the normal website network
+ * boundary, but reads only a bounded homepage prefix and parses no facts. */
+export async function fetchWebsiteImageCandidates(
+  url: string,
+  fetchImpl: FetchLike = fetch,
+): Promise<WebsiteImageCandidate[]> {
+  let target: URL;
+  try {
+    target = new URL(url);
+    if (target.protocol !== "http:" && target.protocol !== "https:") throw new Error("scheme");
+  } catch {
+    return [];
+  }
+  try {
+    if (!(await fetchAllowed(target, fetchImpl))) return [];
+
+    // HEAD is advisory. Sites commonly reject it, so only a successful HEAD
+    // can rule the GET out. A large declared document is still useful because
+    // the GET below stops after its first 512 KiB.
+    const head = await fetchPublic(target, {
+      method: "HEAD",
+      headers,
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    }, fetchImpl).catch(() => null);
+    if (head?.ok) {
+      const type = head.headers.get("content-type");
+      if (type && !isHtmlResponse(head)) return [];
+      const declaredHeader = head.headers.get("content-length");
+      const declared = declaredHeader === null ? undefined : Number(declaredHeader);
+      if (Number.isFinite(declared) && declared === 0) return [];
+    }
+
+    const response = await fetchPublic(target, {
+      headers,
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    }, fetchImpl);
+    if (!response.ok || !isHtmlResponse(response)) return [];
+    const html = await readBoundedHtmlBody(response);
+    return extractImageCandidates(html, response.url || target.toString());
+  } catch {
+    return [];
+  }
 }
 
 /**

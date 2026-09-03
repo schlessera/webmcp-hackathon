@@ -193,7 +193,7 @@ function PlacePhoto({ image, alt }: { image: DossierImage; alt: string }) {
 }
 
 function photoCredit(image: DossierImage): string {
-  if (image.source === "website") return COPY.photoFromPlaceSite;
+  if (image.source.startsWith("web:")) return COPY.photoFromPlaceSite;
   if (image.license) {
     return COPY.photoCredit(image.credit ?? "Wikimedia Commons", image.license);
   }

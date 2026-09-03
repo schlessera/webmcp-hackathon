@@ -11,6 +11,7 @@ import { candidatesFor, type DataSource } from "./places.ts";
 import { pool } from "./db.ts";
 import { warmEnrichments } from "./enrich/index.ts";
 import { startPoolFill } from "./pool-fill.ts";
+import { warmTargetsFor } from "./candidate-write.ts";
 
 /**
  * Room creation from the area picker: one organizer, up to five members,
@@ -159,12 +160,7 @@ export async function createRoom(input: CreateRoomInput): Promise<CreateRoomResu
   warmEnrichments(
     pool,
     roomId,
-    set.candidates.flatMap((c) => {
-      const extras = (c.extras ?? {}) as { website?: string; wikidata?: string };
-      return c.osmRef && (extras.website || extras.wikidata)
-        ? [{ candidateId: c.id, osmRef: c.osmRef, ...(extras.website ? { website: extras.website } : {}), ...(extras.wikidata ? { wikidata: extras.wikidata } : {}) }]
-        : [];
-    }),
+    warmTargetsFor(set.candidates),
   );
   // Creation returns after the deterministic seed. The rest of the current
   // scope circle arrives under the ordinary room write lock in the background.

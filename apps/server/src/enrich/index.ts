@@ -11,6 +11,7 @@ import {
   type LookupsMessage,
 } from "@webmcp-hackathon/contracts";
 import {
+  fetchWebsiteImageCandidates,
   fetchWebsiteFacts,
   type FetchLike,
   type WebFacts,
@@ -72,7 +73,7 @@ import { notifyCommit } from "../commit-notifications.ts";
 export interface Enrichment {
   osmRef: string;
   fetchedAt: string;
-  website: WebFacts | null;
+  website: PersistedWebFacts | null;
   wikidata: WikiFacts | null;
   inferred?: Record<string, StoredCriterionInference>;
   inferredAt?: string | null;
@@ -83,6 +84,9 @@ export interface Enrichment {
     wikidata: ProviderFetchState;
   };
 }
+
+/** The durable website JSONB shape intentionally cannot carry image URLs. */
+export type PersistedWebFacts = Omit<WebFacts, "imageCandidates">;
 
 export type StoredCriterionInference =
   | StoredInference
@@ -165,12 +169,34 @@ function fetchInjectedWebsiteFacts(url: string) {
   });
 }
 
+function fetchInjectedWebsiteImageCandidates(url: string) {
+  if (!injectedFetch) return fetchWebsiteImageCandidates(url, fetchImpl);
+  let original: URL;
+  try {
+    original = new URL(url);
+  } catch {
+    return fetchWebsiteImageCandidates(url, fetchImpl);
+  }
+  const safe = new URL(original);
+  safe.hostname = "93.184.216.34";
+  return fetchWebsiteImageCandidates(safe.toString(), (requested, init) => {
+    const translated = new URL(requested);
+    translated.hostname = original.hostname;
+    translated.port = original.port;
+    return fetchImpl(translated.toString(), init);
+  }).then((candidates) => candidates.map((candidate) => ({
+    ...candidate,
+    source: `web:${original.host}` as const,
+    pageUrl: original.toString(),
+  })));
+}
+
 const lookupNowInFlight = new Map<string, Promise<string[]>>();
 interface Row {
   osm_ref: string;
   fetched_at: Date;
   expires_at: Date;
-  website: WebFacts | null;
+  website: PersistedWebFacts | null;
   wikidata: WikiFacts | null;
   inferred: Record<string, StoredCriterionInference>;
   inferred_at: Date | null;
@@ -338,6 +364,7 @@ function commonsFilename(raw: string | undefined): string | undefined {
 async function imageCandidatesFor(
   target: LookupTarget,
   enrichment: Enrichment | undefined,
+  websiteCandidates: ImageCandidate[],
 ): Promise<ImageCandidate[]> {
   const pageUrl = `https://www.openstreetmap.org/${target.osmRef}`;
   const out: ImageCandidate[] = [];
@@ -373,9 +400,7 @@ async function imageCandidatesFor(
     );
     if (image) out.push(image);
   }
-  for (const candidate of enrichment?.website?.imageCandidates ?? []) {
-    out.push(candidate);
-  }
+  out.push(...websiteCandidates);
   return [...new Map(out.map((candidate) => [candidate.url, candidate])).values()];
 }
 
@@ -404,6 +429,11 @@ async function persistProviderResults(
   site: { facts: WebFacts | null; error?: string },
   wiki: { facts: WikiFacts | null; error?: string },
 ): Promise<void> {
+  // Image URLs are deliberately pass-local. Strip them at the only website
+  // JSON serialization boundary so stale URLs can never enter `website`.
+  const persistedSiteFacts: PersistedWebFacts | null = site.facts
+    ? (({ imageCandidates: _imageCandidates, ...facts }) => facts)(site.facts)
+    : null;
   const client = await db.connect();
   try {
     await client.query("BEGIN");
@@ -418,7 +448,7 @@ async function persistProviderResults(
          WHERE osm_ref = $1 AND lease_owner = $6`,
         [
           target.osmRef,
-          site.facts ? JSON.stringify(site.facts) : null,
+          persistedSiteFacts ? JSON.stringify(persistedSiteFacts) : null,
           !site.error,
           String(site.error ? TTL_FAIL_MS : TTL_OK_MS),
           site.error ?? null,
@@ -452,9 +482,7 @@ async function persistProviderResults(
            COALESCE(website_expires_at, 'infinity'::timestamptz),
            COALESCE(wikidata_expires_at, 'infinity'::timestamptz)
          ),
-         error = NULLIF(concat_ws('; ', website_error, wikidata_error), ''),
-         lease_owner = NULL,
-         lease_expires_at = NULL
+         error = NULLIF(concat_ws('; ', website_error, wikidata_error), '')
        WHERE osm_ref = $1 AND lease_owner = $2`,
       [target.osmRef, owner],
     );
@@ -513,7 +541,7 @@ async function lookup(db: pg.Pool, target: LookupTarget, force = false): Promise
     try {
       const current = (await loadCached(db, [target.osmRef])).get(target.osmRef);
       const attempted = dueProviders(target, current, force);
-      const attemptedImages = attempted.website || attempted.wikidata || await imageRefreshDue(
+      const attemptedImages = await imageRefreshDue(
         db,
         target.osmRef,
         force ? FORCE_STALE_MS : undefined,
@@ -524,13 +552,17 @@ async function lookup(db: pg.Pool, target: LookupTarget, force = false): Promise
 
       const noSite: WebsiteFetchResult = { facts: null };
       const noWiki: { facts: WikiFacts | null; error?: string } = { facts: null };
-      const [site, wiki] = await Promise.all([
+      const harvestWebsiteImages = attemptedImages && Boolean(target.website) && !attempted.website;
+      const [site, wiki, harvestedWebsiteCandidates] = await Promise.all([
         attempted.website
           ? fetchInjectedWebsiteFacts(target.website!)
           : Promise.resolve(noSite),
         attempted.wikidata
           ? fetchWikidataFacts(target.wikidata!, fetchImpl)
           : Promise.resolve(noWiki),
+        harvestWebsiteImages
+          ? fetchInjectedWebsiteImageCandidates(target.website!)
+          : Promise.resolve([]),
       ]);
       // A menu that is a picture gets read (menu-reader.ts); the bytes are
       // never stored, the claims are.
@@ -548,7 +580,11 @@ async function lookup(db: pg.Pool, target: LookupTarget, force = false): Promise
         await refreshPlaceImages(
           db,
           target.osmRef,
-          await imageCandidatesFor(target, refreshed),
+          await imageCandidatesFor(
+            target,
+            refreshed,
+            site.facts?.imageCandidates ?? harvestedWebsiteCandidates,
+          ),
           fetchImpl,
         );
       }

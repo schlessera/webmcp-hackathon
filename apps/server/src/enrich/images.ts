@@ -38,6 +38,7 @@ export interface StoredPlaceImage extends ProcessedImage {
 }
 
 export const MAX_IMAGE_CANDIDATES = 3;
+export const MAX_IMAGE_ATTEMPTS = 6;
 export const MAX_IMAGE_DOWNLOAD_BYTES = 6 * 1024 * 1024;
 export const MAX_STORED_IMAGE_BYTES = 200 * 1024;
 export const IMAGE_TIMEOUT_MS = 10_000;
@@ -200,9 +201,9 @@ export async function imagesRefreshDue(
   return new Set(rows.filter((row) => row.due).map((row) => row.osm_ref));
 }
 
-/** One place at a time is already bounded by the enrichment semaphore. Its
- * three candidates are deliberately downloaded sequentially, preserving that
- * global network bound rather than multiplying it by three. */
+/** One place at a time is already bounded by the enrichment semaphore. Walk
+ * precedence order sequentially until three images work, with a six-attempt
+ * ceiling so broken site candidates cannot multiply the global network load. */
 export async function refreshPlaceImages(
   db: pg.Pool,
   osmRef: string,
@@ -211,10 +212,11 @@ export async function refreshPlaceImages(
 ): Promise<number> {
   const unique = [
     ...new Map(candidates.map((candidate) => [candidate.url, candidate])).values(),
-  ].slice(0, MAX_IMAGE_CANDIDATES);
+  ].slice(0, MAX_IMAGE_ATTEMPTS);
   const stored: Array<{ candidate: ImageCandidate; image: ProcessedImage }> = [];
   let failures = 0;
   for (const candidate of unique) {
+    if (stored.length >= MAX_IMAGE_CANDIDATES) break;
     try {
       stored.push({ candidate, image: await downloadPlaceImage(candidate, fetchImpl) });
     } catch {

@@ -8,7 +8,12 @@ import {
   readBoundedImageBody,
   resizePlaceImage,
 } from "../../apps/server/src/enrich/images.ts";
-import { extractImageCandidates } from "../../apps/server/src/enrich/website.ts";
+import {
+  MAX_IMAGE_CANDIDATE_HTML_BYTES,
+  extractImageCandidates,
+  fetchWebsiteImageCandidates,
+  readBoundedHtmlBody,
+} from "../../apps/server/src/enrich/website.ts";
 import { parseCommonsImageInfo } from "../../apps/server/src/enrich/wikidata.ts";
 import { dossierFromTags, KEPT_TAGS } from "../../packages/contracts/src/dossier.ts";
 
@@ -32,6 +37,16 @@ describe("place image candidate extraction", () => {
     expect(extractImageCandidates(html, "https://place.example/")).toEqual([]);
   });
 
+  it("labels website candidates with the homepage host", () => {
+    expect(extractImageCandidates(
+      '<meta property="og:image" content="https://cdn.example/photo.jpg">',
+      "https://www.place.example/about",
+    )[0]).toMatchObject({
+      source: "web:www.place.example",
+      pageUrl: "https://www.place.example/about",
+    });
+  });
+
   it("keeps both OSM image tags as server lookup inputs", () => {
     expect(KEPT_TAGS).toEqual(expect.arrayContaining(["image", "wikimedia_commons"]));
     expect(dossierFromTags({
@@ -46,6 +61,42 @@ describe("place image candidate extraction", () => {
 });
 
 describe("place image network and transform boundary", () => {
+  it("stops a candidate-only homepage read at 512 KB", async () => {
+    let cancelled = false;
+    const chunk = new Uint8Array(128 * 1024).fill(97);
+    const response = new Response(new ReadableStream({
+      pull(controller) {
+        controller.enqueue(chunk);
+      },
+      cancel() {
+        cancelled = true;
+      },
+    }));
+    const html = await readBoundedHtmlBody(response);
+    expect(Buffer.byteLength(html)).toBe(MAX_IMAGE_CANDIDATE_HTML_BYTES);
+    expect(cancelled).toBe(true);
+  });
+
+  it("falls back to the bounded GET when HEAD is unsupported", async () => {
+    const methods: string[] = [];
+    const candidates = await fetchWebsiteImageCandidates(
+      "https://93.184.216.34/place",
+      async (url, init) => {
+        if (url.endsWith("/robots.txt")) return new Response("", { status: 404 });
+        methods.push(init?.method ?? "GET");
+        if (init?.method === "HEAD") return new Response(null, { status: 405 });
+        return new Response('<meta property="og:image" content="/photo.jpg">', {
+          headers: { "content-type": "text/html" },
+        });
+      },
+    );
+    expect(methods).toEqual(["HEAD", "GET"]);
+    expect(candidates).toEqual([expect.objectContaining({
+      url: "https://93.184.216.34/photo.jpg",
+      source: "web:93.184.216.34",
+    })]);
+  });
+
   it("rejects a declared body over six megabytes", async () => {
     const response = new Response("small", {
       headers: { "content-length": String(MAX_IMAGE_DOWNLOAD_BYTES + 1) },
@@ -56,7 +107,7 @@ describe("place image network and transform boundary", () => {
   it("rejects decoded non-image bytes even when a response claims image/png", async () => {
     await expect(downloadPlaceImage({
       url: "https://93.184.216.34/not-really.png",
-      source: "website",
+      source: "web:place.example",
       pageUrl: "https://place.example/",
     }, async (url) => url.endsWith("/robots.txt")
       ? new Response("", { status: 404 })
@@ -68,7 +119,7 @@ describe("place image network and transform boundary", () => {
     let calls = 0;
     await expect(downloadPlaceImage({
       url: "http://127.0.0.1/private.png",
-      source: "website",
+      source: "web:place.example",
       pageUrl: "https://place.example/",
     }, async () => {
       calls += 1;
@@ -80,7 +131,7 @@ describe("place image network and transform boundary", () => {
   it("rejects a response whose cache policy forbids the seven-day store", async () => {
     await expect(downloadPlaceImage({
       url: "https://93.184.216.34/photo.png",
-      source: "website",
+      source: "web:place.example",
       pageUrl: "https://place.example/",
     }, async (url) => url.endsWith("/robots.txt")
       ? new Response("", { status: 404 })
