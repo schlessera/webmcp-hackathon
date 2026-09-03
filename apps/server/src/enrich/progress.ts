@@ -8,6 +8,8 @@ type ProgressListener = (roomId: string, message: LookupsMessage) => void;
 type FactsListener = (roomId: string, message: FactsMessage) => void;
 
 interface RoomProgress {
+  /** The last frame sent for this room, so a timer never repeats it. */
+  lastSent?: string;
   counts: Map<string, number>;
   batches: Map<symbol, { ids: string[]; reason?: LookupReason; deadlineAt: number }>;
   timer?: ReturnType<typeof setTimeout>;
@@ -83,17 +85,32 @@ function armWatchdog(roomId: string, room: RoomProgress, now: number): void {
   }, Math.max(0, deadlineAt - now));
 }
 
-function schedule(roomId: string): void {
+function emit(roomId: string): void {
+  const room = state(roomId);
+  const message = currentLookups(roomId);
+  const encoded = JSON.stringify(message);
+  if (room.lastSent !== encoded) {
+    room.lastSent = encoded;
+    for (const listener of progressListeners) listener(roomId, message);
+  }
+  if (message.pending.length === 0) rooms.delete(roomId);
+}
+
+/**
+ * Coalesce: the first change in a quiet room goes out at once, so a lookup
+ * that lives 300 ms is still seen as pending; later changes wait for the
+ * timer, and the clearing frame always follows.
+ */
+function schedule(roomId: string, immediate = false): void {
   const room = state(roomId);
   const now = Date.now();
   sweepExpired(room, now);
   armWatchdog(roomId, room, now);
   if (room.timer) return;
+  if (immediate) emit(roomId);
   room.timer = setTimeout(() => {
     room.timer = undefined;
-    const message = currentLookups(roomId);
-    for (const listener of progressListeners) listener(roomId, message);
-    if (message.pending.length === 0) rooms.delete(roomId);
+    emit(roomId);
   }, LOOKUP_COALESCE_MS);
 }
 
@@ -112,8 +129,9 @@ export function beginLookups(
     reason,
     deadlineAt: Date.now() + LOOKUP_DEADLINE_MS,
   });
+  const wasQuiet = room.counts.size === 0;
   for (const id of ids) room.counts.set(id, (room.counts.get(id) ?? 0) + 1);
-  schedule(roomId);
+  schedule(roomId, wasQuiet);
   let ended = false;
   return () => {
     if (ended) return;

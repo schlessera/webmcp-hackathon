@@ -337,10 +337,11 @@ app.post("/api/spatial/inspect", async (req) => {
 app.post("/api/spatial/lookup", async (req, reply) => {
   const actor = await bearer(req);
   if (!actor) return notAuthenticated;
-  const body = (req.body ?? {}) as { candidateIds?: string[]; keys?: string[] };
+  const body = (req.body ?? {}) as { candidateIds?: string[]; keys?: string[]; force?: boolean };
   // Held before validation: the compiled guard narrows `body` to its required
   // properties only, which would drop the optional `keys` from the type.
   const keys = body.keys;
+  const force = body.force === true;
   if (!validateLookupInput(body)) {
     return invalidInput(
       "candidateIds must be 1-3 candidate ID strings and keys, when present, 1-6 attribute keys.",
@@ -351,7 +352,7 @@ app.post("/api/spatial/lookup", async (req, reply) => {
     reply.header("retry-after", "10");
     return reply.code(429).send({ ok: false, error: LOOKUP_RATE_LIMIT_ERROR });
   }
-  const result = await lookUpPlaces(actor, body.candidateIds!, keys);
+  const result = await lookUpPlaces(actor, body.candidateIds!, keys, force);
   logRead(req, actor.id, "LookUpPlaces", result.ok);
   return result;
 });

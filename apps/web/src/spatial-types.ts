@@ -210,6 +210,8 @@ export interface CandidateDossier {
   needs?: CandidateNeedVerdict[];
   /** The server is looking this place up right now. */
   lookupPending?: boolean;
+  /** When the server last looked this place up, ISO time; absent when never. */
+  lookedUpAt?: string;
 }
 
 /** The room's pool of places as it stands (contracts PoolView). */

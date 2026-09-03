@@ -245,6 +245,15 @@ export const COPY = {
   agentBusy: "your agent is on it",
   agentReading: "reading what you said…",
   lookingUp: "looking it up…",
+  lookAgain: "Look again",
+  /** After a lookup the reader asked for: what it changed, in facts. */
+  lookedUpJustNow: (changed: number) =>
+    changed === 0
+      ? "looked up just now · nothing new"
+      : `looked up just now · ${changed} ${changed === 1 ? "fact" : "facts"} changed`,
+  /** Beside the button while the last lookup is recent. */
+  lookedUpAgo: (minutes: number) =>
+    minutes <= 0 ? "looked up just now" : `looked up ${minutes} min ago`,
   readingRecord: "reading the record…",
   recordRead: "what the record says",
   pendingAgentOnly: "a condition your agent holds",

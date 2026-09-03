@@ -297,6 +297,91 @@ describe("need-triggered lookup and realtime facts", () => {
     ).toMatchObject({ host: "93.184.216.34" });
   });
 
+  it("force re-runs inference over stored answers and re-reads a site only past ten minutes", async () => {
+    vi.stubEnv("ENRICH_NETWORK", "1");
+    vi.stubEnv("INFER", "1");
+    vi.stubEnv("OPENAI_API_KEY", "test");
+    const candidateId = `place_c_${room.roomId.slice("room_test_".length)}`;
+    const osmRef = `node/force-${room.roomId}`;
+    const website = "https://93.184.216.34/force-site";
+    await room.pool.query(
+      `UPDATE candidates SET osm_ref = $2,
+         extras = $3::jsonb,
+         attributes = '[{"key":"delivery","status":"unknown","source":"osm:delivery","confidence":0}]'::jsonb
+       WHERE id = $1`,
+      [candidateId, osmRef, JSON.stringify({ website, description: { text: "We deliver across the district every evening." } })],
+    );
+    let siteFetches = 0;
+    setEnrichFetch(async (url) => {
+      if (url.endsWith("/robots.txt")) return new Response("", { status: 200 });
+      siteFetches += 1;
+      return new Response("<html></html>", { status: 200, headers: { "content-type": "text/html" } });
+    });
+    let modelCalls = 0;
+    setTransport(async () => {
+      modelCalls += 1;
+      const claims =
+        modelCalls === 1
+          ? []
+          : [{ key: "delivery", lean: "yes", confidence: 0.9, evidence: "deliver across the district every evening", evidenceSource: "description_website", value: null }];
+      return { output: [{ type: "message", content: [{ type: "output_text", text: JSON.stringify({ claims }) }] }] };
+    });
+    const target = { candidateId, osmRef, website };
+
+    // First pass: the site is read, the model abstains, the omission is stored.
+    await lookupNow(room.pool, room.roomId, [target], { keys: ["delivery"] });
+    expect(siteFetches).toBe(1);
+    expect(modelCalls).toBe(1);
+
+    // Plain again: everything is cached, nothing runs.
+    await lookupNow(room.pool, room.roomId, [target], { keys: ["delivery"] });
+    expect(siteFetches).toBe(1);
+    expect(modelCalls).toBe(1);
+
+    // Force, minutes after a good read: the site stays cached, inference
+    // runs again and its answer replaces the stored omission.
+    await lookupNow(room.pool, room.roomId, [target], { keys: ["delivery"], force: true });
+    expect(siteFetches).toBe(1);
+    expect(modelCalls).toBe(2);
+    const stored = (await room.pool.query("SELECT inferred FROM enrichments WHERE osm_ref = $1", [osmRef])).rows[0];
+    expect(stored.inferred.delivery).toMatchObject({ lean: "yes", source: expect.stringMatching(/^infer:/) });
+
+    // Force once the last good read is older than ten minutes: the site is
+    // read again inside its seven-day TTL.
+    await room.pool.query(
+      "UPDATE enrichments SET website_fetched_at = now() - interval '11 minutes' WHERE osm_ref = $1",
+      [osmRef],
+    );
+    await lookupNow(room.pool, room.roomId, [target], { keys: ["delivery"], force: true });
+    expect(siteFetches).toBe(2);
+    expect(modelCalls).toBe(3);
+
+    // A failed read keeps its retry TTL even under force.
+    setEnrichFetch(async (url) => {
+      if (url.endsWith("/robots.txt")) return new Response("", { status: 200 });
+      siteFetches += 1;
+      throw new Error("site down");
+    });
+    await room.pool.query(
+      "UPDATE enrichments SET website_fetched_at = now() - interval '11 minutes' WHERE osm_ref = $1",
+      [osmRef],
+    );
+    await lookupNow(room.pool, room.roomId, [target], { keys: ["delivery"], force: true });
+    expect(siteFetches).toBe(3);
+    await lookupNow(room.pool, room.roomId, [target], { keys: ["delivery"], force: true });
+    expect(siteFetches).toBe(3);
+
+    // The wire accepts force and the dossier says when it was looked up.
+    const viaRoute = await apiPost<{ ok: boolean; candidates?: Array<{ lookedUpAt?: string }> }>(
+      server.baseUrl,
+      "/api/spatial/lookup",
+      room.tokens.org,
+      { candidateIds: [candidateId], keys: ["delivery"], force: true },
+    );
+    expect(viaRoute.body.ok).toBe(true);
+    expect(typeof viaRoute.body.candidates?.[0]?.lookedUpAt).toBe("string");
+  });
+
   it("keeps a failed website fetch on its one-hour TTL when inference lands", async () => {
     vi.stubEnv("ENRICH_NETWORK", "1");
     vi.stubEnv("INFER", "1");

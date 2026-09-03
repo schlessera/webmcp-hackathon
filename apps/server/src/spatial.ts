@@ -470,6 +470,7 @@ export async function inspectCandidates(
         ...(r.extras?.phone ? { phone: String(r.extras.phone) } : {}),
         needs: needsFor(r.id as string),
         lookupPending: lookupPending(actor.roomId, r.id as string),
+        ...(lookedUpAtOf(enrichment) ? { lookedUpAt: lookedUpAtOf(enrichment) } : {}),
         ...(view.links.length ? { links: view.links } : {}),
         ...(view.description ? { description: view.description } : {}),
         ...(view.rating ? { rating: view.rating } : {}),
@@ -482,10 +483,22 @@ export async function inspectCandidates(
 
 /** Start an explicit lookup and return the dossiers exactly as they stand.
  * The work is fire-and-forget: a failed source/model never fails this read. */
+/** The later of the provider read and the inference, as the panel's "looked
+ * up N min ago"; undefined when nothing was ever looked up. */
+function lookedUpAtOf(enrichment: { fetchedAt?: string; inferredAt?: string | null } | undefined): string | undefined {
+  if (!enrichment) return undefined;
+  const times = [enrichment.fetchedAt, enrichment.inferredAt]
+    .filter((t): t is string => Boolean(t))
+    .map((t) => new Date(t).getTime())
+    .filter((t) => Number.isFinite(t));
+  return times.length ? new Date(Math.max(...times)).toISOString() : undefined;
+}
+
 export async function lookUpPlaces(
   actor: Participant,
   candidateIds: string[],
   keys?: string[],
+  force = false,
 ): Promise<InspectCandidatesResponse> {
   const rows = (
     await pool.query(
@@ -500,6 +513,7 @@ export async function lookUpPlaces(
   void lookupNow(pool, actor.roomId, targets, {
     keys,
     reason: { kind: "place" },
+    force,
   }).catch(() => {
     /* explicit lookups are advisory and never turn a read into a failure */
   });

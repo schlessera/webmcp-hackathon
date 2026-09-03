@@ -236,11 +236,22 @@ const lookupSlots = new BoundedSemaphore(
 const expired = (state: ProviderFetchState | undefined, now: number): boolean =>
   !state?.expiresAt || new Date(state.expiresAt).getTime() <= now;
 
-function dueProviders(target: LookupTarget, cached: Enrichment | undefined) {
+/** Under force: a good read older than FORCE_STALE_MS is due again; a failed
+ * read keeps its retry TTL (a site that was down a minute ago is not asked
+ * again just because someone pressed the button twice). */
+const dueUnderForce = (state: ProviderFetchState | undefined, now: number): boolean => {
+  if (expired(state, now)) return true;
+  if (state?.status === "error") return false;
+  const fetched = state?.fetchedAt ? new Date(state.fetchedAt).getTime() : 0;
+  return now - fetched >= FORCE_STALE_MS;
+};
+
+function dueProviders(target: LookupTarget, cached: Enrichment | undefined, force = false) {
   const now = Date.now();
+  const due = force ? dueUnderForce : expired;
   return {
-    website: Boolean(target.website) && expired(cached?.providerStatus?.website, now),
-    wikidata: Boolean(target.wikidata) && expired(cached?.providerStatus?.wikidata, now),
+    website: Boolean(target.website) && due(cached?.providerStatus?.website, now),
+    wikidata: Boolean(target.wikidata) && due(cached?.providerStatus?.wikidata, now),
   };
 }
 
@@ -340,15 +351,15 @@ async function releaseLease(db: pg.Pool, osmRef: string, owner: string): Promise
   );
 }
 
-async function lookup(db: pg.Pool, target: LookupTarget): Promise<Enrichment | null> {
+async function lookup(db: pg.Pool, target: LookupTarget, force = false): Promise<Enrichment | null> {
   const initial = (await loadCached(db, [target.osmRef])).get(target.osmRef);
-  if (!Object.values(dueProviders(target, initial)).some(Boolean)) return initial ?? null;
+  if (!Object.values(dueProviders(target, initial, force)).some(Boolean)) return initial ?? null;
 
   // X4: queue before acquiring the cross-process lease. A bounded waiter can
   // never consume lease lifetime while another lookup owns all network slots.
   const completed = await lookupSlots.use(async () => {
     const beforeLease = (await loadCached(db, [target.osmRef])).get(target.osmRef);
-    if (!Object.values(dueProviders(target, beforeLease)).some(Boolean)) {
+    if (!Object.values(dueProviders(target, beforeLease, force)).some(Boolean)) {
       return beforeLease ?? null;
     }
     const owner = randomUUID();
@@ -357,7 +368,7 @@ async function lookup(db: pg.Pool, target: LookupTarget): Promise<Enrichment | n
     if (!(await acquireLease(db, target.osmRef, owner))) return beforeLease ?? null;
     try {
       const current = (await loadCached(db, [target.osmRef])).get(target.osmRef);
-      const attempted = dueProviders(target, current);
+      const attempted = dueProviders(target, current, force);
       if (!attempted.website && !attempted.wikidata) return current ?? null;
 
       const none = { facts: null, error: undefined as string | undefined };
@@ -430,7 +441,18 @@ export interface RoomLookupTarget extends LookupTarget {
 export interface LookupNowOptions {
   keys?: string[];
   reason?: NonNullable<LookupsMessage["reason"]>;
+  /**
+   * "Look again": a provider whose last good read is older than
+   * FORCE_STALE_MS is read again inside its success TTL, and inference runs
+   * again for every requested key that is still unknown on the record,
+   * replacing what was inferred before. A provider's failure TTL, the
+   * robots and network rules, and the per-participant budget all still hold.
+   */
+  force?: boolean;
 }
+
+/** A forced lookup re-reads a provider only when its last read is older than this. */
+export const FORCE_STALE_MS = 10 * 60_000;
 
 interface LookupCandidateRow {
   id: string;
@@ -557,7 +579,7 @@ export function lookupNow(
     .filter((key) => (INFERABLE_KEYS as readonly string[]).includes(key))
     .sort();
   const keyFor = (target: RoomLookupTarget) =>
-    JSON.stringify([roomId, target.candidateId, keys]);
+    JSON.stringify([roomId, target.candidateId, keys, options.force === true]);
   const existingJobs: Promise<string[]>[] = [];
   const fresh: RoomLookupTarget[] = [];
   for (const target of tracked) {
@@ -629,7 +651,7 @@ async function runLookupNow(
         // Provider freshness is independent: lookup retries only the due leg,
         // retains last-known-good facts, and preserves a failed leg's TTL.
         if (target.website || target.wikidata) {
-          await lookup(pool, target);
+          await lookup(pool, target, options.force === true);
           current = (await loadCached(pool, [row.osm_ref!])).get(row.osm_ref!);
         }
 
@@ -642,9 +664,13 @@ async function runLookupNow(
             ),
             observedAt,
           );
+          // Only slots the record leaves unknown are ever inferred. Without
+          // force, a key inferred (or found unsupported) before is left
+          // alone; with force every requested key is asked again and the
+          // stored answer for it replaced.
           const unknown = requested.filter((key) => {
             if (base.find((attribute) => attribute.key === key)?.status !== "unknown") return false;
-            return !current?.inferred?.[key];
+            return options.force === true || !current?.inferred?.[key];
           });
           if (unknown.length > 0) {
             const claims = await inferAttributes({

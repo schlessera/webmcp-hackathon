@@ -14,29 +14,35 @@ afterEach(() => {
 });
 
 describe("lookup progress", () => {
-  it("coalesces changes to at most one frame per 250 ms and sends an empty clear", () => {
+  it("emits the first add of a quiet room at once, then coalesces to one frame per 250 ms and sends an empty clear", () => {
     vi.useFakeTimers();
     const frames: unknown[] = [];
     const off = onLookupProgress((roomId, message) => frames.push({ roomId, ...message }));
     try {
+      // A lookup that lives 300 ms must be seen as pending: the first add goes
+      // out immediately, later changes wait for the window.
       const endA = beginLookups("room_1", ["a", "b"], { kind: "need", label: "step-free access" });
+      expect(frames).toEqual([
+        { roomId: "room_1", type: "lookups", pending: ["a", "b"], reason: { kind: "need", label: "step-free access" } },
+      ]);
       const endB = beginLookups("room_1", ["b", "c"], { kind: "place" });
       endA();
-      expect(frames).toEqual([]);
+      expect(frames).toHaveLength(1);
       vi.advanceTimersByTime(LOOKUP_COALESCE_MS);
-      expect(frames).toEqual([
+      expect(frames).toHaveLength(2);
+      expect(frames[1]).toEqual(
         { roomId: "room_1", type: "lookups", pending: ["b", "c"], reason: { kind: "place" } },
-      ]);
+      );
 
       // Many changes in the next window still yield one frame.
       const endD = beginLookups("room_1", ["d"]);
       endD();
       endB();
       vi.advanceTimersByTime(LOOKUP_COALESCE_MS - 1);
-      expect(frames).toHaveLength(1);
-      vi.advanceTimersByTime(1);
       expect(frames).toHaveLength(2);
-      expect(frames[1]).toEqual({ roomId: "room_1", type: "lookups", pending: [] });
+      vi.advanceTimersByTime(1);
+      expect(frames).toHaveLength(3);
+      expect(frames[2]).toEqual({ roomId: "room_1", type: "lookups", pending: [] });
     } finally {
       off();
     }

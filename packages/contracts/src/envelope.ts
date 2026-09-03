@@ -429,6 +429,9 @@ export interface CandidateDossier {
   needs?: CandidateNeedVerdict[];
   /** Places the server is looking up right now include this one. */
   lookupPending?: boolean;
+  /** When the server last looked this place up (site, Wikidata or an
+   * inference), ISO time; absent when it never has. */
+  lookedUpAt?: string;
   mapRevision: number;
 }
 

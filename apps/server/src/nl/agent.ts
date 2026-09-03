@@ -243,7 +243,7 @@ async function execute(
       // The agent spends from the same per-participant budget as the route:
       // a tool-calling loop is exactly the caller the budget exists to bound.
       if (!consumeLookupToken(actor.id)) return { ok: false, error: LOOKUP_RATE_LIMIT_ERROR };
-      const result = await lookUpPlaces(actor, ids, keys);
+      const result = await lookUpPlaces(actor, ids, keys, args.force === true);
       if (!result.ok) return result;
       return { ok: true, candidates: result.candidates.map(compactDossier) };
     }

@@ -104,6 +104,12 @@ export const LOOK_UP_PLACES_INPUT = Type.Object(
         maxItems: 6,
       }),
     ),
+    force: Type.Optional(
+      Type.Boolean({
+        description:
+          "Look again: re-read the site and Wikidata when older than ten minutes, re-run inference for the keys.",
+      }),
+    ),
   },
   { additionalProperties: false },
 );

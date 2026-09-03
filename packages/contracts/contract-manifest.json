@@ -1,6 +1,6 @@
 {
   "toolContractVersion": "3",
-  "sha256": "8a6249de73af839e6e2d815d986558b966e1ae990d6bbaaf5a1cc659f129ab61",
+  "sha256": "8932d0bf6404bed308b609368c8770288d02647209793c23dcae4219aeec9d1a",
   "manifest": {
     "capabilityManifest": {
       "agreement": {
@@ -1531,6 +1531,9 @@
                         "lng"
                       ],
                       "type": "object"
+                    },
+                    "lookedUpAt": {
+                      "type": "string"
                     },
                     "lookupPending": {
                       "anyOf": [
@@ -5151,6 +5154,10 @@
               "maxItems": 3,
               "minItems": 1,
               "type": "array"
+            },
+            "force": {
+              "description": "Look again: re-read the site and Wikidata when older than ten minutes, re-run inference for the keys.",
+              "type": "boolean"
             },
             "keys": {
               "items": {

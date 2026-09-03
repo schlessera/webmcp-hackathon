@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ATTRIBUTE_LABELS, PRICE_LEVEL_EUR } from "@webmcp-hackathon/contracts";
 import { spatialInspectRaw, spatialLookupRaw } from "../api.ts";
 import type {
@@ -136,6 +136,25 @@ interface Props {
   run(type: string, input: Record<string, unknown>): Promise<CommandEnvelope>;
 }
 
+/** One line per fact — status, source, value, note — so a re-read can say
+ * how many facts a lookup changed without trusting a count from anywhere. */
+function factSignatures(dossier: CandidateDossier | null): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const a of dossier?.attributes ?? []) {
+    out.set(a.key, [a.status, a.source, a.value ?? "", a.note ?? ""].join("|"));
+  }
+  return out;
+}
+
+function countChanged(before: Map<string, string> | null, after: Map<string, string>): number {
+  if (!before) return 0;
+  let changed = 0;
+  for (const [key, signature] of after) {
+    if (before.get(key) !== signature) changed += 1;
+  }
+  return changed;
+}
+
 export function PlaceDetails({
   candidate,
   proposal,
@@ -167,6 +186,16 @@ export function PlaceDetails({
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
+  /* "Look it up" (force): asked → running while the server says so →
+     done with what it changed. The outcome is a diff of the dossier's
+     facts before and after, so the line never claims more than the rows
+     show. Client-side state only. */
+  const [lookupPhase, setLookupPhase] = useState<"idle" | "asked" | "running" | "done">("idle");
+  const [lookupChanged, setLookupChanged] = useState(0);
+  const [refreshNonce, setRefreshNonce] = useState(0);
+  const factsBefore = useRef<Map<string, string> | null>(null);
+  const awaitingDiff = useRef(false);
+
   useEffect(() => {
     let cancelled = false;
     void (async () => {
@@ -174,18 +203,47 @@ export function PlaceDetails({
         candidateIds: [candidate.candidateId],
       })) as { ok?: boolean; candidates?: CandidateDossier[] };
       if (!cancelled && result.ok && result.candidates?.[0]) {
-        setDossier(result.candidates[0]);
+        const next = result.candidates[0];
+        setDossier(next);
+        if (awaitingDiff.current) {
+          awaitingDiff.current = false;
+          setLookupChanged(countChanged(factsBefore.current, factSignatures(next)));
+          setLookupPhase("done");
+        }
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [candidate.candidateId, factsNonce, needSignature]);
+  }, [candidate.candidateId, factsNonce, needSignature, refreshNonce]);
   // A different place: the old dossier must not read as this one's.
   useEffect(() => {
     setDossier(null);
+    setLookupPhase("idle");
+    setLookupChanged(0);
+    factsBefore.current = null;
+    awaitingDiff.current = false;
   }, [candidate.candidateId]);
   const lookingUp = busy || dossier?.lookupPending === true;
+
+  useEffect(() => {
+    if (lookupPhase === "asked" && lookingUp) setLookupPhase("running");
+    if (lookupPhase === "running" && !lookingUp) {
+      // The server is done: re-read once and settle on what changed.
+      awaitingDiff.current = true;
+      setRefreshNonce((n) => n + 1);
+    }
+  }, [lookingUp, lookupPhase]);
+  useEffect(() => {
+    // A lookup nobody ever started (offline server, budget spent) must not
+    // leave the button stuck on "Asked": settle as nothing new after 8 s.
+    if (lookupPhase !== "asked") return;
+    const timer = window.setTimeout(() => {
+      awaitingDiff.current = true;
+      setRefreshNonce((n) => n + 1);
+    }, 8_000);
+    return () => window.clearTimeout(timer);
+  }, [lookupPhase]);
 
   const eligible = candidate.eligibility === "eligible";
   const verdictState =
@@ -323,12 +381,16 @@ export function PlaceDetails({
     .join(" · ");
   const hours = hoursLines(dossier?.hours ?? []);
   const whereWhen = dossier && (dossier.address || dossier.phone || hours.length > 0);
-  const [lookupAsked, setLookupAsked] = useState(false);
-  useEffect(() => setLookupAsked(false), [candidate.candidateId]);
   const askLookup = () => {
-    setLookupAsked(true);
-    void spatialLookupRaw({ candidateIds: [candidate.candidateId] });
+    factsBefore.current = factSignatures(dossier);
+    setLookupPhase("asked");
+    void spatialLookupRaw({ candidateIds: [candidate.candidateId], force: true });
   };
+  const minutesSinceLookup = dossier?.lookedUpAt
+    ? Math.floor((Date.now() - new Date(dossier.lookedUpAt).getTime()) / 60_000)
+    : null;
+  const recentlyLookedUp =
+    lookupPhase === "done" || (minutesSinceLookup !== null && minutesSinceLookup < 10);
 
   return (
     <aside className="details" data-testid="place-details" aria-label={candidate.name}>
@@ -340,14 +402,27 @@ export function PlaceDetails({
         {/* Ask the room's server to look this place up now; what lands
             arrives on the facts frame and updates the rows in place. */}
         {negotiable && (
-          <button
-            className="btn-text tap-wide"
-            data-testid="details-lookup-btn"
-            disabled={lookingUp || lookupAsked}
-            onClick={askLookup}
-          >
-            {lookingUp ? "Looking it up" : lookupAsked ? "Asked" : "Look it up"}
-          </button>
+          <>
+            {recentlyLookedUp && lookupPhase !== "done" && minutesSinceLookup !== null && (
+              <span className="details-lookup-ago" data-testid="details-lookup-ago">
+                {COPY.lookedUpAgo(minutesSinceLookup)}
+              </span>
+            )}
+            <button
+              className="btn-text tap-wide"
+              data-testid="details-lookup-btn"
+              disabled={lookingUp || lookupPhase === "asked"}
+              onClick={askLookup}
+            >
+              {lookingUp
+                ? "Looking it up"
+                : lookupPhase === "asked"
+                  ? "Asked"
+                  : recentlyLookedUp
+                    ? COPY.lookAgain
+                    : "Look it up"}
+            </button>
+          </>
         )}
       </div>
 
@@ -374,6 +449,8 @@ export function PlaceDetails({
                 <i className="busy-ring line-busy" aria-hidden="true" />
                 {lookingUp ? COPY.lookingUp : COPY.readingRecord}
               </>
+            ) : lookupPhase === "done" ? (
+              COPY.lookedUpJustNow(lookupChanged)
             ) : (
               COPY.recordRead
             )}

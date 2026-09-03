@@ -2342,6 +2342,11 @@ body { overflow: hidden; }
 
 /* ── Place details, rebuilt (2026-09-03) ───────────────────────────────── */
 .details-nav-spacer { flex: 1; }
+.details-lookup-ago {
+  font-size: var(--spoke-size-meta);
+  color: var(--spoke-ink-soft);
+  white-space: nowrap;
+}
 /* Text buttons in the nav reach the 44px floor sideways too (W9). */
 .tap-wide { min-width: var(--spoke-tap-min); }
 .btn-text:disabled { text-decoration: none; color: var(--spoke-ink-soft); cursor: default; }

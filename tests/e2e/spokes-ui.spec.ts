@@ -264,6 +264,8 @@ function applyEligibility(
 }
 
 type MockState = {
+  /** The last lookup the page asked for (force flag included). */
+  lastLookup?: { candidateIds: string[]; force?: boolean };
   context: MockContext;
   outstanding: Array<Record<string, unknown>>;
   audit?: string[];
@@ -368,6 +370,16 @@ async function mockApi(page: Page, state: MockState) {
       ok: true,
       revision: state.context.revision,
       candidates: dataset.venues.filter((venue) => ids.includes(venue.candidateId)),
+    });
+  });
+  await page.route("**/api/spatial/lookup", (route) => {
+    recordRequest(route.request());
+    const body = route.request().postDataJSON() as { candidateIds: string[]; force?: boolean };
+    state.lastLookup = body;
+    return respond(route, {
+      ok: true,
+      revision: state.context.revision,
+      candidates: dataset.venues.filter((venue) => body.candidateIds.includes(venue.candidateId)),
     });
   });
   await page.route("**/api/spatial/navigation", (route) => {
@@ -1420,6 +1432,18 @@ test("place details read the server's verdicts, address and hours, and say when 
   socket.send({ type: "lookups", pending: [] });
   await expect(details.getByTestId("details-lookup")).toHaveText("what the record says");
   await expect(details.getByTestId("details-lookup-btn")).toHaveText("Look it up");
+
+  // Pressing the button forces a fresh lookup: the dot wears the busy ring
+  // while the server says so, and afterwards the line says what changed.
+  await details.getByTestId("details-lookup-btn").click();
+  await expect.poll(() => state.lastLookup?.force).toBe(true);
+  socket.send({ type: "lookups", pending: ["place_24"], reason: { kind: "place" } });
+  await expect(page.getByTestId("pin-place_24")).toHaveAttribute("data-busy", "true");
+  await expect(details.getByTestId("details-lookup")).toHaveAttribute("data-state", "busy");
+  socket.send({ type: "lookups", pending: [] });
+  await expect(page.getByTestId("pin-place_24")).not.toHaveAttribute("data-busy", "true");
+  await expect(details.getByTestId("details-lookup")).toHaveText("looked up just now · nothing new");
+  await expect(details.getByTestId("details-lookup-btn")).toHaveText("Look again");
 
   // The roster opens on tap and names everyone with their presence.
   await details.getByTestId("details-close").click();
