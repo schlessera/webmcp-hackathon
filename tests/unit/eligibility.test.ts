@@ -43,6 +43,7 @@ const dataset = JSON.parse(readFileSync(datasetPath, "utf8")) as {
 
 const candidates: CandidateRow[] = dataset.venues.map((v) => ({
   id: v.candidateId,
+  map_revision: 0,
   name: v.name,
   category: v.category,
   price_level: v.priceLevel,
@@ -86,6 +87,26 @@ const eligibleIds = (rows: ReturnType<typeof classifyAll>) =>
   rows.filter((r) => r.eligibility === "eligible").map((r) => r.candidateId);
 
 describe("eligibility against the Berlin Mitte dataset", () => {
+  it("does not treat absent map revisions as a current private verdict", () => {
+    const candidate = { ...candidates[0] };
+    delete (candidate as Partial<typeof candidate>).map_revision;
+    const need: RequirementRow = {
+      id: "req_private_missing_revision",
+      owner_id: "p_private",
+      visibility: "agent-private",
+      hardness: "hard",
+      payload: null,
+      withdrawn: false,
+    };
+    const rows = classifyAll(
+      [candidate],
+      [need],
+      [{ owner_id: "p_private", candidate_id: candidate.id, verdict: "unacceptable" }],
+      null,
+    );
+    expect(rows[0].eligibility).toBe("uncertain");
+  });
+
   it("demo requirement set yields 0 eligible at 800 m and 4 at 1400 m", () => {
     const at800 = classifyAll(candidates, demoRequirements(), [], scopeAt(800));
     expect(eligibleIds(at800)).toEqual([]);
@@ -367,8 +388,13 @@ describe("minimal conflict set and adjustments", () => {
     expect(screeningPending(two, [declaration], [])).toBe(true);
     const verdicts = two.map((c) => ({
       owner_id: "p_joe", candidate_id: c.id, verdict: "acceptable",
+      screened_map_revision: c.map_revision,
     }));
     expect(screeningPending(two, [declaration], verdicts)).toBe(false);
+    expect(screeningPending(two, [declaration], [
+      { ...verdicts[0], screened_map_revision: verdicts[0].screened_map_revision - 1 },
+      verdicts[1],
+    ])).toBe(true);
     expect(
       screeningPending(two, [declaration], [
         { ...verdicts[0], verdict: "needs_info" }, verdicts[1],

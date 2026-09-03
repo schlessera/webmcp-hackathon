@@ -158,17 +158,18 @@ describe("AttestAttribute", () => {
     // Resolve the whole pool first so the post-bump request is specifically
     // for the changed place rather than sharing a ten-item page with older
     // missing verdicts.
-    const ids = (
-      await room.pool.query("SELECT id FROM candidates WHERE room_id = $1 ORDER BY id", [
+    const candidates = (
+      await room.pool.query("SELECT id, map_revision FROM candidates WHERE room_id = $1 ORDER BY id", [
         room.roomId,
       ])
-    ).rows.map((row) => row.id as string);
-    for (let offset = 0; offset < ids.length; offset += 10) {
+    ).rows as Array<{ id: string; map_revision: number }>;
+    for (let offset = 0; offset < candidates.length; offset += 10) {
       const screened = await command(room.tokens.joe, "EvaluateCandidates", {
         baseRevision: rev,
-        verdicts: ids.slice(offset, offset + 10).map((candidateId) => ({
-          candidateId,
-          verdict: candidateId === grill() ? "unacceptable" : "acceptable",
+        verdicts: candidates.slice(offset, offset + 10).map((candidate) => ({
+          candidateId: candidate.id,
+          verdict: candidate.id === grill() ? "unacceptable" : "acceptable",
+          screenedMapRevision: Number(candidate.map_revision),
         })),
       });
       expect(screened.body.ok).toBe(true);
@@ -209,7 +210,11 @@ describe("AttestAttribute", () => {
 
     const fresh = await command(room.tokens.joe, "EvaluateCandidates", {
       baseRevision: rev,
-      verdicts: [{ candidateId: grill(), verdict: "acceptable" }],
+      verdicts: [{
+        candidateId: grill(),
+        verdict: "acceptable",
+        screenedMapRevision: after.body.candidates[0].mapRevision,
+      }],
     });
     expect(fresh.body.ok).toBe(true);
     rev = fresh.body.revision!;

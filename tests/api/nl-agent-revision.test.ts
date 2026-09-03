@@ -4,6 +4,7 @@ import { submitCommand } from "../../apps/server/src/engine.ts";
 import { runAgent } from "../../apps/server/src/nl/agent.ts";
 import { hold, release } from "../../apps/server/src/nl/holder.ts";
 import { setTransport } from "../../apps/server/src/nl/openai.ts";
+import { screen } from "../../apps/server/src/nl/screening.ts";
 import {
   createTestRoom,
   startServer,
@@ -130,11 +131,12 @@ describe("R3 page-held screening invalidation", () => {
       readyState: "ready",
     };
     const candidateIds = (
-      await room.pool.query("SELECT id FROM candidates WHERE room_id = $1 ORDER BY id", [
+      await room.pool.query("SELECT id, map_revision FROM candidates WHERE room_id = $1 ORDER BY id", [
         room.roomId,
       ])
-    ).rows.map((row) => row.id as string);
-    const changedId = candidateIds[0];
+    ).rows as Array<{ id: string; map_revision: number }>;
+    const ids = candidateIds.map((row) => row.id);
+    const changedId = ids[0];
     let revision = Number(
       (await room.pool.query("SELECT revision FROM rooms WHERE id = $1", [room.roomId])).rows[0]
         .revision,
@@ -154,7 +156,11 @@ describe("R3 page-held screening invalidation", () => {
 
     const first = await submitCommand(joe, "EvaluateCandidates", {
       baseRevision: revision,
-      verdicts: candidateIds.map((candidateId) => ({ candidateId, verdict: "acceptable" })),
+      verdicts: candidateIds.map((candidate) => ({
+        candidateId: candidate.id,
+        verdict: "acceptable",
+        screenedMapRevision: Number(candidate.map_revision),
+      })),
     });
     expect(first.ok).toBe(true);
     if (!first.ok) return;
@@ -215,6 +221,98 @@ describe("R3 page-held screening invalidation", () => {
     }
     expect(screeningCalls).toBeGreaterThan(0);
     expect(refreshed).toBe(true);
+  });
+
+  it("does not stamp a verdict as current when facts change while screening", async () => {
+    const joe: Participant = {
+      id: participantId("joe"), roomId: room.roomId, displayName: "Joe",
+      role: "member", readyState: "contributing",
+    };
+    const sarah: Participant = {
+      id: participantId("sarah"), roomId: room.roomId, displayName: "Sarah",
+      role: "member", readyState: "ready",
+    };
+    const candidateId = (
+      await room.pool.query("SELECT id FROM candidates WHERE room_id = $1 ORDER BY id LIMIT 1", [room.roomId])
+    ).rows[0].id as string;
+    let modelStarted!: () => void;
+    let releaseModel!: () => void;
+    const started = new Promise<void>((resolve) => (modelStarted = resolve));
+    const released = new Promise<void>((resolve) => (releaseModel = resolve));
+    setTransport(async () => {
+      modelStarted();
+      await released;
+      return {
+        output: [{
+          type: "message",
+          content: [{
+            type: "output_text",
+            text: JSON.stringify({ verdicts: [{ candidateId, verdict: "unacceptable" }] }),
+          }],
+        }],
+      };
+    });
+
+    const screening = screen(joe, "a private condition", [candidateId]);
+    await started;
+    const revision = Number(
+      (await room.pool.query("SELECT revision FROM rooms WHERE id = $1", [room.roomId])).rows[0].revision,
+    );
+    const changed = await submitCommand(sarah, "AttestAttribute", {
+      baseRevision: revision,
+      candidateId,
+      key: "outdoor-seating",
+      status: "verified_true",
+      confidence: 0.9,
+      note: "checked while screening was running",
+    });
+    expect(changed.ok).toBe(true);
+    releaseModel();
+
+    const outcome = await screening;
+    expect(outcome.screened).toBe(0);
+    const row = (
+      await room.pool.query(
+        `SELECT v.screened_map_revision, c.map_revision
+           FROM candidates c
+           LEFT JOIN verdicts v ON v.room_id = c.room_id
+            AND v.candidate_id = c.id AND v.owner_id = $2
+          WHERE c.room_id = $1 AND c.id = $3`,
+        [room.roomId, joe.id, candidateId],
+      )
+    ).rows[0];
+    expect(Number(row.screened_map_revision)).toBeLessThan(Number(row.map_revision));
+  });
+
+  it("records an explicitly old screened map revision as stale", async () => {
+    const joe: Participant = {
+      id: participantId("joe"), roomId: room.roomId, displayName: "Joe",
+      role: "member", readyState: "contributing",
+    };
+    const candidate = (
+      await room.pool.query(
+        "SELECT id, map_revision FROM candidates WHERE room_id = $1 ORDER BY id LIMIT 1",
+        [room.roomId],
+      )
+    ).rows[0] as { id: string; map_revision: number };
+    const revision = Number(
+      (await room.pool.query("SELECT revision FROM rooms WHERE id = $1", [room.roomId])).rows[0].revision,
+    );
+    const screenedMapRevision = Number(candidate.map_revision) - 1;
+    const result = await submitCommand(joe, "EvaluateCandidates", {
+      baseRevision: revision,
+      verdicts: [{ candidateId: candidate.id, verdict: "unacceptable", screenedMapRevision }],
+    });
+    expect(result.ok).toBe(true);
+    const stored = (
+      await room.pool.query(
+        `SELECT screened_map_revision FROM verdicts
+          WHERE room_id = $1 AND owner_id = $2 AND candidate_id = $3`,
+        [room.roomId, joe.id, candidate.id],
+      )
+    ).rows[0];
+    expect(Number(stored.screened_map_revision)).toBe(screenedMapRevision);
+    expect(Number(stored.screened_map_revision)).toBeLessThan(Number(candidate.map_revision));
   });
 });
 

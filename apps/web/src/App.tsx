@@ -7,7 +7,7 @@ import {
   useSyncExternalStore,
 } from "react";
 import type { ProjectedEvent } from "@webmcp-hackathon/contracts";
-import { submitCommand, syncSession } from "./api.ts";
+import { newIdempotencyKey, submitCommand, syncSession } from "./api.ts";
 import {
   clearSession,
   establishSession,
@@ -468,6 +468,7 @@ export function App() {
       input: Record<string, unknown>,
       signal?: AbortSignal,
       retried = false,
+      idempotencyKey = newIdempotencyKey(),
     ): Promise<CommandEnvelope> => {
       const requestedArea = input.area as
         | { center?: { lat?: unknown; lng?: unknown } }
@@ -485,7 +486,7 @@ export function App() {
         // (spread after) wins — agents carry revision discipline themselves.
         baseRevision: revisionWatermarks.knownRoomRevision,
         ...input,
-      }, signal)) as CommandEnvelope;
+      }, signal, idempotencyKey)) as CommandEnvelope;
       // A gesture that lost the race to someone else's commit is retried once
       // against the caught-up room: the person's intent ("works for me") does
       // not go stale the way an agent's plan does, and asking them to click
@@ -498,7 +499,9 @@ export function App() {
         !("baseRevision" in input)
       ) {
         await catchUpRef.current?.();
-        return run(type, input, signal, true);
+        // X3: catching up changes the HTTP attempt, not the user's logical
+        // gesture. Reusing the key makes an ambiguous first outcome safe.
+        return run(type, input, signal, true, idempotencyKey);
       }
       if (result.ok && result.revision !== undefined) {
         // R5: HTTP proves only the room head. projectedThroughRevision moves

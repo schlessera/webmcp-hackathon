@@ -278,19 +278,30 @@ test("demo trajectory through the product UI", async () => {
   // Peer response bodies and websocket frames may carry only the effect of
   // Joe's private condition, never its predicate key/expectation pair.
   const syncBody = async (page: Page) => {
-    const response = page.waitForResponse(
-      (candidate) =>
-        candidate.url().endsWith("/api/sync") &&
-        candidate.request().method() === "POST",
-    );
-    const tool = page.evaluate(async () => {
-      const shim = (window as never as {
-        __webmcpTestShim: { executeTool(name: string, args: string): Promise<unknown> };
-      }).__webmcpTestShim;
-      await shim.executeTool("sync_session", '{"sinceRevision":0}');
-    });
-    const [networkResponse] = await Promise.all([response, tool]);
-    return networkResponse.text();
+    const pages: string[] = [];
+    let input: { sinceRevision?: number; cursor?: string } = { sinceRevision: 0 };
+    for (;;) {
+      const response = page.waitForResponse(
+        (candidate) =>
+          candidate.url().endsWith("/api/sync") &&
+          candidate.request().method() === "POST",
+      );
+      const tool = page.evaluate(async (args) => {
+        const shim = (window as never as {
+          __webmcpTestShim: { executeTool(name: string, args: string): Promise<unknown> };
+        }).__webmcpTestShim;
+        await shim.executeTool("sync_session", JSON.stringify(args));
+      }, input);
+      const [networkResponse] = await Promise.all([response, tool]);
+      const text = await networkResponse.text();
+      pages.push(text);
+      const result = JSON.parse(text) as {
+        delta?: { truncated?: boolean; cursor?: string };
+      };
+      if (!result.delta?.truncated || !result.delta.cursor) break;
+      input = { cursor: result.delta.cursor };
+    }
+    return pages.join("\n");
   };
   const privacyBodies = {
     org: await syncBody(pages.org),

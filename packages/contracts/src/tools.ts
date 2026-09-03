@@ -18,8 +18,9 @@ import {
 /**
  * WebMCP tool surface — INTERACTION-AND-BINDING.md §2.3: the full static
  * 19-tool surface (9 negotiation + 10 spatial), registered once at page load.
- * Names ≤30 chars, descriptions ≤500 chars, results ≤1.5K chars. All schemas
- * additionalProperties: false. v1 names carry no version suffix.
+ * Names ≤30 chars, descriptions ≤500 chars, results ≤1.5K chars except the
+ * additive 8K sync allowance. All schemas additionalProperties: false. v1
+ * names carry no version suffix.
  * ConfirmPrivateRequest and CommitAgreement are deliberately NOT bound to
  * tools: consequential steps are confirmed by the human in the page UI.
  */
@@ -165,7 +166,8 @@ const negotiationTools: ToolDefinition[] = [
       "Return bulk screening verdicts (acceptable / unacceptable / needs_info) " +
       "for candidates against your agent-private requirement. Use when your " +
       "outstanding list carries an evaluation_request. Verdicts are recorded " +
-      "disposition-only: the room never learns your reason. Up to 10 per call.",
+      "disposition-only: the room never learns your reason. Include each " +
+      "dossier's mapRevision; old revisions stay stale. Up to 10 per call.",
     inputSchema: EvaluateCandidatesInput,
     annotations: {},
   },
@@ -325,6 +327,10 @@ export const BUDGETS = {
   toolDescriptionMax: 500,
   paramDescriptionMax: 150,
   resultMax: 1500,
+  // X1: sync carries the first-connection protocol manifest and lossless
+  // delta pages. This additive per-tool allowance keeps those contractual
+  // fields outside the generic structural compactor.
+  syncResultMax: 8000,
   effectMax: 200,
   briefMax: 400,
   noteMax: 200,

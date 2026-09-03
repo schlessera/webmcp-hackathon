@@ -1,6 +1,6 @@
 import { participantById, type Participant } from "../auth.ts";
 import { pool } from "../db.ts";
-import { onCommit } from "../engine.ts";
+import { onCommit } from "../commit-notifications.ts";
 import { held, heldFor } from "./held-registry.ts";
 import { screen } from "./screening.ts";
 

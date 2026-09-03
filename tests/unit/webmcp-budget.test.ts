@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { BUDGETS, TOOLS } from "@webmcp-hackathon/contracts";
-import { submitCommand, syncSessionRaw } from "../../apps/web/src/api.ts";
+import {
+  BUDGETS,
+  CAPABILITY_MANIFEST,
+  TOOLS,
+} from "@webmcp-hackathon/contracts";
+import { nlSay, submitCommand, syncSessionRaw } from "../../apps/web/src/api.ts";
 import { encodeToolResult } from "../../apps/web/src/webmcp.ts";
 
 const long = "quoted \\\"provider text\\\" and participant text ".repeat(80);
@@ -33,17 +37,6 @@ function worstCaseError(tool: string) {
   return {
     ok: false,
     error: { code: "invalid_input", message: `${tool}: ${long}`, recovery: long },
-    delta: {
-      fromRevision: 0,
-      truncated: true,
-      events: Array.from({ length: 50 }, (_, revision) => ({
-        revision,
-        type: "requirement_submitted",
-        level: "full",
-        text: long,
-        payload: { note: long },
-      })),
-    },
   };
 }
 
@@ -71,6 +64,59 @@ describe("WebMCP result budgets", () => {
         }
       }
     }
+  });
+
+  it("keeps a paged sync cursor, every claimed event, and the complete first-connect manifest", () => {
+    const events = Array.from({ length: 3 }, (_, index) => ({
+      revision: index + 11,
+      type: "requirement_submitted",
+      level: "full",
+      text: `A participant added need ${index}. ${"detail ".repeat(45)}`,
+      payload: { note: `need ${index}` },
+    }));
+    const fixture = {
+      ok: true,
+      revision: 20,
+      buildId: "build-test",
+      toolContractVersion: "3",
+      phase: "gathering",
+      identity: { participantId: "p_me", displayName: "Me", role: "member" },
+      manifest: CAPABILITY_MANIFEST,
+      brief: "Three changes are ready to review.",
+      delta: {
+        fromRevision: 10,
+        events,
+        truncated: true,
+        throughRevision: 13,
+        cursor: "d1.first-omitted-revision-14",
+      },
+      outstanding: [],
+      participants: [
+        {
+          participantId: "p_me",
+          displayName: "Me",
+          role: "member",
+          readyState: "contributing",
+          arrived: true,
+          present: true,
+        },
+      ],
+      lastSyncedRevision: 10,
+    };
+
+    const encoded = encodeToolResult(fixture, BUDGETS.syncResultMax);
+    const text = encoded.content[0].text;
+    const parsed = JSON.parse(text) as typeof fixture;
+
+    expect(text.length).toBeLessThanOrEqual(BUDGETS.syncResultMax);
+    expect(parsed.delta.cursor).toBe(fixture.delta.cursor);
+    expect(parsed.delta.events).toHaveLength(events.length);
+    expect(parsed.delta.events).toEqual(events);
+    expect(parsed.manifest.attributeVocabulary).toEqual(
+      CAPABILITY_MANIFEST.attributeVocabulary,
+    );
+    expect(parsed.participants).toEqual(fixture.participants);
+    expect(parsed.lastSyncedRevision).toBe(10);
   });
 });
 
@@ -106,8 +152,58 @@ describe("WebMCP cancellation", () => {
     controller.abort();
     const result = await pending as { ok: false; error: { code: string } };
     const headers = requestHeaders as Record<string, string>;
-    expect(headers["idempotency-key"]).toBe(headers["x-correlation-id"]);
+    expect(headers["idempotency-key"]).toMatch(/^i_/);
+    expect(headers["idempotency-key"]).not.toBe(headers["x-correlation-id"]);
     expect(result.error.code).toBe("temporarily_unavailable");
+  });
+
+  it("reuses one idempotency key across HTTP attempts of a logical mutation", async () => {
+    vi.stubGlobal("sessionStorage", { getItem: () => "token" });
+    const attempts: Array<Record<string, string>> = [];
+    vi.stubGlobal("fetch", vi.fn(async (_path: string, options?: RequestInit) => {
+      attempts.push(options?.headers as Record<string, string>);
+      return { json: async () => ({ ok: true, revision: 2, outstanding: [] }) };
+    }));
+
+    const logicalKey = "mutation-one-logical-key";
+    await submitCommand("SetReadyState", { baseRevision: 1, state: "ready" }, undefined, logicalKey);
+    await submitCommand("SetReadyState", { baseRevision: 1, state: "ready" }, undefined, logicalKey);
+
+    expect(attempts[0]["idempotency-key"]).toBe(logicalKey);
+    expect(attempts[1]["idempotency-key"]).toBe(logicalKey);
+    expect(attempts[0]["x-correlation-id"]).not.toBe(attempts[1]["x-correlation-id"]);
+  });
+
+  it("retains the hidden key when a WebMCP transport result is ambiguous", async () => {
+    vi.stubGlobal("sessionStorage", { getItem: () => "token" });
+    const attempts: Array<Record<string, string>> = [];
+    vi.stubGlobal("fetch", vi.fn(async (_path: string, options?: RequestInit) => {
+      attempts.push(options?.headers as Record<string, string>);
+      if (attempts.length === 1) throw new TypeError("connection reset");
+      return { json: async () => ({ ok: true, revision: 2, outstanding: [] }) };
+    }));
+
+    const input = { baseRevision: 1, state: "ready" };
+    await submitCommand("SetReadyState", input);
+    await submitCommand("SetReadyState", input);
+
+    expect(attempts[1]["idempotency-key"]).toBe(attempts[0]["idempotency-key"]);
+    expect(attempts[1]["x-correlation-id"]).not.toBe(attempts[0]["x-correlation-id"]);
+  });
+
+  it("keys a natural-language request as one side-effecting turn", async () => {
+    vi.stubGlobal("sessionStorage", { getItem: () => "token" });
+    let requestHeaders: Record<string, string> | undefined;
+    vi.stubGlobal("fetch", vi.fn(async (_path: string, options?: RequestInit) => {
+      requestHeaders = options?.headers as Record<string, string>;
+      return { json: async () => ({ ok: true, intent: "ask", reply: "Done." }) };
+    }));
+
+    await nlSay("What changed?", "shared");
+    expect(requestHeaders?.["idempotency-key"]).toMatch(/^i_/);
+    expect(requestHeaders?.["idempotency-key"]).not.toBe(
+      requestHeaders?.["x-correlation-id"],
+    );
   });
 });
 

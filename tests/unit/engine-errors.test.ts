@@ -29,7 +29,7 @@ describe("unexpected command failures", () => {
       error: {
         code: "temporarily_unavailable",
         message: "The command could not be completed.",
-        recovery: "Retry with the same idempotency key; if it continues, resync the room.",
+        recovery: "Sync the room to check the outcome before deciding whether to try again.",
       },
     });
     expect(logged).toHaveBeenCalledWith("command engine failed:", expect.any(Error));

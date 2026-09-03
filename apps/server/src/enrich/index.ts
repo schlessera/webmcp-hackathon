@@ -17,6 +17,7 @@ import { applyAttestations, loadAttestations } from "../attestations.ts";
 import { bumpCandidateMapRevisions } from "../candidate-revisions.ts";
 import { withTransaction } from "../db.ts";
 import { beginLookups, publishFacts } from "./progress.ts";
+import { notifyCommit } from "../commit-notifications.ts";
 
 /**
  * The enrichment layer (docs/ENRICHMENT-SOURCES.md): what the server looks
@@ -71,6 +72,7 @@ const TTL_INFER_MS = 7 * 24 * 60 * 60 * 1000;
 const TTL_OMITTED_MS = 24 * 60 * 60 * 1000;
 const WARM_CONCURRENCY = 4;
 export const ON_DEMAND_CONCURRENCY = 4;
+export const ON_DEMAND_MAX_WAITERS = 32;
 const LEASE_MS = 2 * 60 * 1000;
 
 const OFFLINE = "ENRICH_NETWORK=0";
@@ -187,27 +189,49 @@ export async function loadCached(
   return new Map(rows.map((r) => [r.osm_ref, rowToEnrichment(r)]));
 }
 
-class Semaphore {
+export class BoundedSemaphore {
   private active = 0;
   private readonly waiting: Array<() => void> = [];
+  private readonly limit: number;
+  private readonly maxWaiting: number;
 
-  async use<T>(work: () => Promise<T>): Promise<T> {
-    if (this.active >= ON_DEMAND_CONCURRENCY) {
+  constructor(limit: number, maxWaiting: number) {
+    this.limit = limit;
+    this.maxWaiting = maxWaiting;
+  }
+
+  async use<T>(work: () => Promise<T>): Promise<T | undefined> {
+    if (this.active >= this.limit || this.waiting.length > 0) {
+      if (this.waiting.length >= this.maxWaiting) return undefined;
       await new Promise<void>((resolve) => this.waiting.push(resolve));
+    } else {
+      this.active += 1;
     }
-    this.active += 1;
     try {
       return await work();
     } finally {
-      this.active -= 1;
-      this.waiting.shift()?.();
+      this.release();
+    }
+  }
+
+  private release(): void {
+    this.active -= 1;
+    // X4: reserve every newly free counter for an already queued waiter
+    // before resolving it. Re-checking here, synchronously, prevents a fresh
+    // caller from observing spare capacity and barging past the queue.
+    while (this.active < this.limit && this.waiting.length > 0) {
+      this.active += 1;
+      this.waiting.shift()!();
     }
   }
 }
 
 // R9: one process-wide bound covers every on-demand caller, including the
 // page-held screening loop. Database leases provide cross-process dedupe.
-const lookupSlots = new Semaphore();
+const lookupSlots = new BoundedSemaphore(
+  ON_DEMAND_CONCURRENCY,
+  ON_DEMAND_MAX_WAITERS,
+);
 
 const expired = (state: ProviderFetchState | undefined, now: number): boolean =>
   !state?.expiresAt || new Date(state.expiresAt).getTime() <= now;
@@ -320,16 +344,22 @@ async function lookup(db: pg.Pool, target: LookupTarget): Promise<Enrichment | n
   const initial = (await loadCached(db, [target.osmRef])).get(target.osmRef);
   if (!Object.values(dueProviders(target, initial)).some(Boolean)) return initial ?? null;
 
-  const owner = randomUUID();
-  // R11: this lease is visible to every server process and is acquired in a
-  // short statement; no pool client or room lock is held during the network.
-  if (!(await acquireLease(db, target.osmRef, owner))) return initial ?? null;
-  try {
-    const current = (await loadCached(db, [target.osmRef])).get(target.osmRef);
-    const attempted = dueProviders(target, current);
-    if (!attempted.website && !attempted.wikidata) return current ?? null;
+  // X4: queue before acquiring the cross-process lease. A bounded waiter can
+  // never consume lease lifetime while another lookup owns all network slots.
+  const completed = await lookupSlots.use(async () => {
+    const beforeLease = (await loadCached(db, [target.osmRef])).get(target.osmRef);
+    if (!Object.values(dueProviders(target, beforeLease)).some(Boolean)) {
+      return beforeLease ?? null;
+    }
+    const owner = randomUUID();
+    // R11: this lease is visible to every server process and is acquired in a
+    // short statement; no pool client or room lock is held during the network.
+    if (!(await acquireLease(db, target.osmRef, owner))) return beforeLease ?? null;
+    try {
+      const current = (await loadCached(db, [target.osmRef])).get(target.osmRef);
+      const attempted = dueProviders(target, current);
+      if (!attempted.website && !attempted.wikidata) return current ?? null;
 
-    await lookupSlots.use(async () => {
       const none = { facts: null, error: undefined as string | undefined };
       const [site, wiki] = await Promise.all([
         attempted.website
@@ -339,24 +369,26 @@ async function lookup(db: pg.Pool, target: LookupTarget): Promise<Enrichment | n
           ? fetchWikidataFacts(target.wikidata!, fetchImpl)
           : Promise.resolve(none),
       ]);
-    // A menu that is a picture gets read (menu-reader.ts); the bytes are
-    // never stored, the claims are.
-    if (site.facts && "menuFile" in site && site.menuFile && menuReaderEnabled()) {
-      try {
-        const reading = await readMenu(site.menuFile);
-        if (reading) site.facts.menuReading = reading;
-      } catch {
-        /* an unread menu is still a menu link */
+      // A menu that is a picture gets read (menu-reader.ts); the bytes are
+      // never stored, the claims are.
+      if (site.facts && "menuFile" in site && site.menuFile && menuReaderEnabled()) {
+        try {
+          const reading = await readMenu(site.menuFile);
+          if (reading) site.facts.menuReading = reading;
+        } catch {
+          /* an unread menu is still a menu link */
+        }
       }
-    }
       await persistProviderResults(db, target, owner, attempted, site, wiki);
-    });
-    return (await loadCached(db, [target.osmRef])).get(target.osmRef) ?? null;
-  } finally {
-    // Offline mode deliberately does not advance provider freshness, but it
-    // must still yield the cross-process lease immediately.
-    await releaseLease(db, target.osmRef, owner);
-  }
+      return (await loadCached(db, [target.osmRef])).get(target.osmRef) ?? null;
+    } finally {
+      // Offline mode deliberately does not advance provider freshness, but it
+      // must still yield the cross-process lease immediately.
+      await releaseLease(db, target.osmRef, owner);
+    }
+  });
+  // A full queue is load shedding, not a failed fact read: return stale data.
+  return completed === undefined ? initial ?? null : completed;
 }
 
 /**
@@ -377,8 +409,8 @@ export async function ensureEnrichments(
   if (stale.length === 0) return found;
 
   const jobs = stale.map((target) => lookup(db, target));
-  // R9: the request waits only for its remaining budget. Jobs that already
-  // hold a lease continue through the same bounded queue and populate cache.
+  // R9/X4: the request waits only for its remaining budget. Jobs admitted to
+  // the bounded queue continue and populate cache; queued jobs hold no lease.
   let timer: ReturnType<typeof setTimeout> | undefined;
   await Promise.race([
     Promise.allSettled(jobs),
@@ -664,8 +696,8 @@ async function runLookupNow(
       return { roomId, revision, storedRevisions, confirmations: [] };
     });
     if (notification) {
-      // Dynamic import avoids a top-level enrich -> engine -> enrich cycle.
-      const { notifyCommit } = await import("../engine.ts");
+      // X7: the registry is cycle-free, so the committed revision enters the
+      // ordered broadcast queue synchronously before a later command can.
       notifyCommit(notification);
     }
     publishFacts(roomId, {

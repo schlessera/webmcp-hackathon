@@ -1,6 +1,5 @@
 import type { Participant } from "../auth.ts";
 import { config } from "../config.ts";
-import { pool } from "../db.ts";
 import { submitCommand } from "../engine.ts";
 import { inspectCandidates } from "../spatial.ts";
 import { parseJson, respond } from "./openai.ts";
@@ -43,11 +42,6 @@ export interface ScreeningOutcome {
   ms: number;
 }
 
-async function currentRevision(roomId: string): Promise<number> {
-  const row = (await pool.query("SELECT revision FROM rooms WHERE id = $1", [roomId])).rows[0];
-  return Number(row?.revision ?? 0);
-}
-
 export async function screen(
   actor: Participant,
   condition: string,
@@ -61,6 +55,9 @@ export async function screen(
   const dossiers = await inspectCandidates(actor, ids);
   if (!dossiers.ok) return { screened: 0, unacceptable: 0, ms: Date.now() - started };
 
+  const mapRevisions = new Map(
+    dossiers.candidates.map((d) => [d.candidateId, d.mapRevision]),
+  );
   const rows = dossiers.candidates.map((d) => ({
     candidateId: d.candidateId,
     name: d.name,
@@ -98,8 +95,14 @@ export async function screen(
   }
   if (!isCurrent()) return { screened: 0, unacceptable: 0, ms: Date.now() - started };
   const result = await submitCommand(actor, "EvaluateCandidates", {
-    baseRevision: await currentRevision(actor.roomId),
-    verdicts,
+    // X2: the dossier revision is the state the model actually judged. A
+    // lookup/attestation that commits after this read makes baseRevision
+    // stale instead of silently rebasing the verdict onto newer facts.
+    baseRevision: dossiers.revision,
+    verdicts: verdicts.map((verdict) => ({
+      ...verdict,
+      screenedMapRevision: mapRevisions.get(verdict.candidateId),
+    })),
   });
   return {
     screened: result.ok ? verdicts.length : 0,

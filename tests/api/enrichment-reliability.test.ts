@@ -172,6 +172,17 @@ describe("R9 inspect enrichment bounds", () => {
     const work = ensureEnrichments(room.pool, targets, 3000);
     await reachedLimit;
     expect(maximum).toBe(ON_DEMAND_CONCURRENCY);
+    const leased = Number(
+      (
+        await room.pool.query(
+          `SELECT count(*)::int AS count FROM enrichments
+            WHERE osm_ref = ANY($1) AND lease_owner IS NOT NULL`,
+          [targets.map((target) => target.osmRef)],
+        )
+      ).rows[0].count,
+    );
+    // X4: queued jobs must not spend their two-minute lease while waiting.
+    expect(leased).toBe(ON_DEMAND_CONCURRENCY);
     release();
     await work;
     expect(maximum).toBe(ON_DEMAND_CONCURRENCY);

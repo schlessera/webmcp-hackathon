@@ -153,17 +153,39 @@ function withOmissionMarker(value: unknown, omitted: OmittedCounts): Record<stri
 }
 
 /**
- * R15: every registered tool crosses this single structural budget boundary.
- * It never slices serialized JSON, preserves the shared error object, and
- * reports what it omitted before returning one valid JSON text block.
+ * R15/X1: every registered tool crosses this single declared-budget boundary.
+ * It never slices serialized JSON. Generic results are structurally compacted;
+ * protocol pages must arrive complete because their cursor describes content.
  */
 export function encodeToolResult(
   value: unknown,
-  maxChars = BUDGETS.resultMax,
+  maxChars: number = BUDGETS.resultMax,
 ): { content: Array<{ type: "text"; text: string }> } {
   const raw = JSON.stringify(value ?? null);
   if (raw.length <= maxChars) {
     return { content: [{ type: "text", text: raw }] };
+  }
+  const root = value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+  if (root && ("delta" in root || "manifest" in root)) {
+    // X1: these fields are protocol state, not optional presentation detail.
+    // A valid server page is budgeted before it reaches this boundary. If a
+    // malformed/legacy response still exceeds the allowance, fail explicitly
+    // rather than claiming that deleted revisions or manifest fields arrived.
+    return {
+      content: [{
+        type: "text",
+        text: JSON.stringify({
+          ok: false,
+          error: {
+            code: "temporarily_unavailable",
+            message: "The protocol page exceeded this tool's result allowance.",
+            recovery: "Call sync_session again from the last fully consumed revision.",
+          },
+        }),
+      }],
+    };
   }
   for (const limits of [
     { arrayItems: 8, objectFields: 20, stringCharacters: 240, depth: 7 },
@@ -445,7 +467,13 @@ export function registerWebMcpTools(): void {
             // pass the raw JSON string form.
             const parsed = typeof args === "string" ? safeParse(args) : args;
             const result = await executeTool(tool.name, parsed, options?.signal);
-            return encodeToolResult(result);
+            return encodeToolResult(
+              result,
+              tool.name === "sync_session" ||
+                (result !== null && typeof result === "object" && "delta" in result)
+                ? BUDGETS.syncResultMax
+                : BUDGETS.resultMax,
+            );
           },
         });
         diagnostics.log(`registered tool ${tool.name}`);

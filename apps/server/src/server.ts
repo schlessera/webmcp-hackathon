@@ -454,6 +454,58 @@ function correlationId(req: { headers: Record<string, unknown> }): string {
   return String(req.headers["x-correlation-id"] ?? "none");
 }
 
+async function runIdempotentNlTurn(
+  participantId: string,
+  key: string,
+  requestHash: string,
+  work: () => Promise<unknown>,
+): Promise<unknown> {
+  const client = await pool.connect();
+  // X3: a session advisory lock serializes duplicate turns before either can
+  // call the model or commit actions. The completed response remains durable
+  // in the existing participant-scoped idempotency table for ten minutes.
+  await client.query("SELECT pg_advisory_lock(hashtext($1), hashtext($2))", [
+    participantId,
+    key,
+  ]);
+  try {
+    await client.query(
+      `DELETE FROM command_idempotency
+        WHERE participant_id = $1 AND idempotency_key = $2 AND expires_at <= now()`,
+      [participantId, key],
+    );
+    const stored = (
+      await client.query(
+        `SELECT request_hash, response FROM command_idempotency
+          WHERE participant_id = $1 AND idempotency_key = $2`,
+        [participantId, key],
+      )
+    ).rows[0] as { request_hash: string; response: unknown } | undefined;
+    if (stored) {
+      return stored.request_hash === requestHash
+        ? stored.response
+        : invalidInput(
+            "Idempotency-Key was already used with a different natural-language turn.",
+            "Use a new key for different words or visibility.",
+          );
+    }
+    const result = await work();
+    await client.query(
+      `INSERT INTO command_idempotency
+         (participant_id, idempotency_key, request_hash, response, expires_at)
+       VALUES ($1, $2, $3, $4, now() + interval '10 minutes')`,
+      [participantId, key, requestHash, result],
+    );
+    return result;
+  } finally {
+    await client.query("SELECT pg_advisory_unlock(hashtext($1), hashtext($2))", [
+      participantId,
+      key,
+    ]);
+    client.release();
+  }
+}
+
 /**
  * The natural-language surface (docs/NL-AGENT.md). Page-only routes: an
  * agent on the WebMCP side has its own language model and needs none of
@@ -484,54 +536,71 @@ app.post("/api/nl/say", async (req) => {
   const text = sentence(req.body);
   if (!text) return invalidInput("text must be 1-300 characters.", "Say it in a sentence.");
   const scope = String((req.body as { scope?: unknown })?.scope ?? "shared");
-  const started = Date.now();
-  try {
-    const context = await spatialContext(actor);
-    if (!context.ok) return context;
-    const routed = await say(text, scope, context);
-    let result: Record<string, unknown>;
-    if (routed.intent === "ask" || routed.intent === "act") {
-      const outcome = await runAgent(actor, text, heldFor(actor.id));
-      result = {
-        ok: true,
-        intent: routed.intent,
-        reply: outcome.reply,
-        actions: outcome.actions,
-        // R7: additive page-private fields preserve already committed steps
-        // and tell the composer to retain the person's words for retry.
-        ...(outcome.partial
-          ? { partial: true, failureCategory: outcome.failureCategory }
-          : {}),
-        meta: { route: routed.meta, agent: outcome.meta },
-      };
-    } else {
-      result = {
-        ok: true,
-        intent: routed.intent,
-        needs: routed.needs,
-        reply: routed.reply,
-        meta: { route: routed.meta },
-      };
-    }
-    req.log.info(
-      {
-        correlationId: correlationId(req),
-        participantId: actor.id,
-        command: "NlSay",
-        intent: routed.intent,
-        ms: Date.now() - started,
-        outcome: "ok",
-      },
-      "command executed",
+  const rawKey = req.headers["idempotency-key"];
+  if (
+    rawKey !== undefined &&
+    (typeof rawKey !== "string" || rawKey.length < 1 || rawKey.length > 128)
+  ) {
+    return invalidInput(
+      "Idempotency-Key must be a 1-128 character header value.",
+      "Reuse one key only for retries of the same turn.",
     );
-    return result;
-  } catch (err) {
-    req.log.warn(
-      { correlationId: correlationId(req), participantId: actor.id, command: "NlSay", err: String(err) },
-      "agent failed",
-    );
-    return agentUnavailable;
   }
+  const execute = async (): Promise<unknown> => {
+    const started = Date.now();
+    try {
+      const context = await spatialContext(actor);
+      if (!context.ok) return context;
+      const routed = await say(text, scope, context);
+      let result: Record<string, unknown>;
+      if (routed.intent === "ask" || routed.intent === "act") {
+        const outcome = await runAgent(actor, text, heldFor(actor.id));
+        result = {
+          ok: true,
+          intent: routed.intent,
+          reply: outcome.reply,
+          actions: outcome.actions,
+          // R7: additive page-private fields preserve already committed steps
+          // and tell the composer to retain the person's words for retry.
+          ...(outcome.partial
+            ? { partial: true, failureCategory: outcome.failureCategory }
+            : {}),
+          meta: { route: routed.meta, agent: outcome.meta },
+        };
+      } else {
+        result = {
+          ok: true,
+          intent: routed.intent,
+          needs: routed.needs,
+          reply: routed.reply,
+          meta: { route: routed.meta },
+        };
+      }
+      req.log.info(
+        {
+          correlationId: correlationId(req),
+          participantId: actor.id,
+          command: "NlSay",
+          intent: routed.intent,
+          ms: Date.now() - started,
+          outcome: "ok",
+        },
+        "command executed",
+      );
+      return result;
+    } catch (err) {
+      req.log.warn(
+        { correlationId: correlationId(req), participantId: actor.id, command: "NlSay", err: String(err) },
+        "agent failed",
+      );
+      return agentUnavailable;
+    }
+  };
+  if (!rawKey || typeof rawKey !== "string") return execute();
+  const requestHash = createHash("sha256")
+    .update(stableJson({ route: "/api/nl/say", body: req.body }))
+    .digest("hex");
+  return runIdempotentNlTurn(actor.id, rawKey, requestHash, execute);
 });
 
 app.post("/api/nl/condition", async (req) => {

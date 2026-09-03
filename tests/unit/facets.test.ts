@@ -40,6 +40,7 @@ const dataset = JSON.parse(readFileSync(datasetPath, "utf8")) as {
 
 const candidates: CandidateRow[] = dataset.venues.map((v) => ({
   id: v.candidateId,
+  map_revision: 0,
   name: v.name,
   category: v.category,
   price_level: v.priceLevel,
@@ -301,6 +302,7 @@ describe("the privacy boundary: effects are public, contents are not", () => {
           owner_id: "p_joe",
           candidate_id: c.id,
           verdict: i === 0 ? "unacceptable" : "acceptable",
+          screened_map_revision: c.map_revision,
         })),
         scope: scopeAt(800),
       },
