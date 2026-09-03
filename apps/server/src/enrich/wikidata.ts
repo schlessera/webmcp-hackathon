@@ -9,6 +9,7 @@
 import type { FetchLike } from "./website.ts";
 import { outboundFetchFor } from "../net/outbound.ts";
 import { config } from "../config.ts";
+import { cleanInlineText, cleanSummary, truncateText } from "./text.ts";
 
 export interface WikiFacts {
   id: string;
@@ -75,7 +76,7 @@ export function parseEntity(id: string, doc: unknown, fetchedAt: string): WikiFa
   const entity = ((doc as { entities?: Record<string, Entity> })?.entities ?? {})[id] ?? {};
   const facts: WikiFacts = { id, fetchedAt, awards: [], cuisineItems: [] };
   const desc = entity.descriptions?.en?.value ?? entity.descriptions?.de?.value;
-  if (desc) facts.description = desc.slice(0, 300);
+  if (desc) facts.description = cleanSummary(desc, 300);
   const site = (entity.claims?.P856 ?? []).map(stringValue).find(Boolean);
   if (site) facts.website = site;
   const wp = entity.sitelinks?.enwiki ?? entity.sitelinks?.dewiki;
@@ -95,15 +96,7 @@ export function parseEntity(id: string, doc: unknown, fetchedAt: string): WikiFa
 }
 
 function metadataText(value: unknown): string | undefined {
-  if (typeof value !== "string") return undefined;
-  const text = value
-    .replace(/<[^>]*>/g, " ")
-    .replace(/&nbsp;/gi, " ")
-    .replace(/&amp;/gi, "&")
-    .replace(/&quot;/gi, '"')
-    .replace(/&#(?:39|x27);/gi, "'")
-    .replace(/\s+/g, " ")
-    .trim();
+  const text = cleanInlineText(value);
   return text || undefined;
 }
 
@@ -135,8 +128,8 @@ export function parseCommonsImageInfo(
     url,
     pageUrl,
     source,
-    license: license.slice(0, 80),
-    ...(credit ? { credit: credit.slice(0, 180) } : {}),
+    license: truncateText(license, 80),
+    ...(credit ? { credit: truncateText(credit, 180) } : {}),
   };
 }
 

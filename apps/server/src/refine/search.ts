@@ -9,6 +9,7 @@ import {
   type MatrixEvidenceBucket,
 } from "../enrich/evaluate.ts";
 import { normalizeEvidence, sanitizeInferenceNote } from "../enrich/infer.ts";
+import { cleanInlineText, cleanSummary, cleanTitle } from "../enrich/text.ts";
 import { parseJson, respond, type Reply } from "../nl/openai.ts";
 
 export interface SearchResult {
@@ -262,14 +263,14 @@ export function citedSpans(
     const existing = found.get(url);
     // Several markers can follow one statement; keep the fullest reading.
     if (existing && existing.snippet.length >= before.length) continue;
-    found.set(url, { url, title: citation.title?.trim() || url, snippet: before });
+    found.set(url, { url, title: cleanTitle(citation.title) || url, snippet: before });
   }
   if (found.size === 0) {
     // An answer with no positioned annotation still carries its sources.
     const whole = readableSpan(text);
     for (const citation of citations) {
       const url = safeHttpUrl(citation.url);
-      if (url && whole) found.set(url, { url, title: citation.title?.trim() || url, snippet: whole });
+      if (url && whole) found.set(url, { url, title: cleanTitle(citation.title) || url, snippet: whole });
     }
   }
   return [...found.values()];
@@ -278,13 +279,12 @@ export function citedSpans(
 /** Citation markers and emphasis are the model's own punctuation, not the
  * source's words; a span carrying them can never be quoted back verbatim. */
 function readableSpan(raw: string): string {
-  const cleaned = raw
+  const withoutCitationMarkup = raw
     .replace(/\(\[[^\]]*\]\([^)]*\)\)/g, " ")
     .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
-    .replace(/[*_`#]/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-  return cleaned.length >= 12 ? cleaned.slice(0, 1_200) : "";
+    .replace(/[*_`#]/g, "");
+  const cleaned = cleanSummary(withoutCitationMarkup, 1_200);
+  return cleaned.length >= 12 ? cleaned : "";
 }
 
 export const openAiSearchProvider: SearchProvider = {
@@ -355,12 +355,12 @@ export const tavilySearchProvider: SearchProvider = {
         if (typeof result.url !== "string" || typeof result.content !== "string") return [];
         const url = safeHttpUrl(result.url);
         if (!url) return [];
-        const snippet = result.content.replace(/\s+/g, " ").trim().slice(0, 2_000);
+        const snippet = cleanSummary(result.content, 2_000);
         if (!snippet) return [];
         return [{
           url,
-          title: typeof result.title === "string" && result.title.trim()
-            ? result.title.trim()
+          title: cleanInlineText(result.title)
+            ? cleanTitle(result.title)
             : url,
           snippet,
         }];
@@ -389,5 +389,9 @@ export function search(
   const provider = injectedProvider ?? (
     process.env.SEARCH_PROVIDER === "tavily" ? tavilySearchProvider : openAiSearchProvider
   );
-  return provider.search(query, opts);
+  return provider.search(query, opts).then((results) => results.map((result) => ({
+    ...result,
+    title: cleanTitle(result.title) || result.url,
+    snippet: cleanSummary(result.snippet, 2_000),
+  })).filter((result) => Boolean(result.snippet)));
 }

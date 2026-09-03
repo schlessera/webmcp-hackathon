@@ -1,5 +1,6 @@
 import { config } from "../config.ts";
 import { parseJson, respond } from "../nl/openai.ts";
+import { cleanInlineText, cleanSummary } from "./text.ts";
 
 /**
  * Reading a menu that is a picture (docs/ENRICHMENT-SOURCES.md, S2 "reading
@@ -114,7 +115,7 @@ export function readingFromAnswer(answer: unknown, model: string, readAt: string
       key: c.key,
       lean: c.lean,
       confidence: Math.min(READING_CONFIDENCE_CAP, Math.max(0.05, confidence)),
-      evidence: String(c.evidence ?? "").slice(0, 80),
+      evidence: cleanSummary(c.evidence, 80),
     });
   }
   const price = Number(a.priceLevel);
@@ -122,9 +123,9 @@ export function readingFromAnswer(answer: unknown, model: string, readAt: string
     model,
     readAt,
     legible: a.legible,
-    language: typeof a.language === "string" ? a.language.slice(0, 12) : null,
+    language: typeof a.language === "string" ? cleanSummary(a.language, 12) : null,
     items: Math.max(0, Math.round(Number(a.items) || 0)),
-    cuisine: (Array.isArray(a.cuisine) ? a.cuisine : []).map(String).map((s) => s.trim().toLowerCase()).filter(Boolean).slice(0, 3),
+    cuisine: (Array.isArray(a.cuisine) ? a.cuisine : []).map(cleanInlineText).map((s) => s.toLowerCase()).filter(Boolean).slice(0, 3),
     priceLevel: Number.isInteger(price) && price >= 1 && price <= 4 ? price : null,
     claims: a.legible ? claims : [],
   };

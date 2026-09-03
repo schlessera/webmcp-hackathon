@@ -94,6 +94,27 @@ path; transport failures and malformed or missing cells are not answers. The
 existing three-search-attempt cap per place and criterion per UTC day remains
 the negative-result backstop.
 
+## Text hygiene
+
+Every string leaving website, Wikidata, Commons, menu and search extraction
+passes through the one cleaner in `apps/server/src/enrich/text.ts`. It uses an
+HTML parser rather than tag-shaped regular expressions, drops executable and
+page-chrome subtrees, preserves block and line-break boundaries, fully decodes
+HTML entities without reparsing decoded text as markup, normalizes whitespace
+and zero-width characters, and emits NFC Unicode without folding smart quotes
+or dashes. Compact descriptions are cut only at word boundaries and marked
+with an ellipsis; page titles also lose a publisher suffix when the declared
+site name or a repeated title part identifies it as chrome.
+
+The same representation is used at every persistence and presentation
+boundary: page-cache text, structured descriptions, search snippets, image
+credits, inference notes, evidence contexts and adjudication quotes. Evidence
+validation cleans both the source and proposed span identically before its
+whole-span test, so removing markup cannot silently discard an otherwise valid
+claim. The bounded `reclean:text` maintenance command applies these rules to
+older enrichment and page-cache rows; clean rows compare equal and are not
+rewritten on a second pass.
+
 Outbound diagnostics keep a rolling 24-hour in-memory ring, aggregated by host
 and actual route with attempts, proxy-versus-target failures, target status,
 latency percentiles and decoded bytes. A stable hash sends ten percent of

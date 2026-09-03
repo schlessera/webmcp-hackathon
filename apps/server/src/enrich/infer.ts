@@ -6,6 +6,7 @@ import {
 } from "@webmcp-hackathon/contracts";
 import { config } from "../config.ts";
 import { parseJson, respond } from "../nl/openai.ts";
+import { cleanEvidenceText, hasWholeTextSpan } from "./text.ts";
 
 /**
  * Evidence-bounded inference (PLAN D4). The model may only lean on a closed
@@ -125,17 +126,12 @@ interface DraftClaim {
 
 /** Collapse whitespace runs to one ASCII space before substring comparison. */
 export function normalizeEvidence(text: string): string {
-  return text.replace(/\s+/g, " ").trim();
+  return cleanEvidenceText(text);
 }
 
 /** Evidence is display/context data, never markup or an instruction channel. */
 export function sanitizeInferenceNote(text: string): string {
-  return normalizeEvidence(
-    text
-      .replace(/<[^>]*>/g, " ")
-      .replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]/g, " ")
-      .replace(/[`{}\[\]<>]/g, " "),
-  );
+  return cleanEvidenceText(text);
 }
 
 function evidencePools(input: InferInput): Record<EvidenceSource, string[]> {
@@ -154,23 +150,10 @@ function evidencePools(input: InferInput): Record<EvidenceSource, string[]> {
   };
 }
 
-const WORD_CHARACTER = /[\p{L}\p{N}]/u;
 const WORDS = /[\p{L}\p{N}]+/gu;
 
 function hasWholeSpan(text: string, evidence: string): boolean {
-  const haystack = text.toLocaleLowerCase();
-  const needle = evidence.toLocaleLowerCase();
-  let from = 0;
-  for (;;) {
-    const at = haystack.indexOf(needle, from);
-    if (at < 0) return false;
-    const before = haystack.slice(0, at);
-    const after = haystack.slice(at + needle.length);
-    const leftIsWord = WORD_CHARACTER.test([...before].at(-1) ?? "");
-    const rightIsWord = WORD_CHARACTER.test([...after][0] ?? "");
-    if (!leftIsWord && !rightIsWord) return true;
-    from = at + 1;
-  }
+  return hasWholeTextSpan(text, evidence);
 }
 
 function echoesAttributeQuestion(key: InferableKey, evidence: string): boolean {
