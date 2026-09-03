@@ -1,6 +1,6 @@
 export interface NlResultState {
   ok: boolean;
-  intent?: "need" | "ask" | "act" | "unclear";
+  intent?: "need" | "ask" | "act" | "clarify" | "unclear";
   partial?: boolean;
 }
 

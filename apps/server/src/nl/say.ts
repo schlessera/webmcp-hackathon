@@ -1,5 +1,5 @@
-import Ajv from "ajv";
-import addFormats from "ajv-formats";
+import AjvModule from "ajv";
+import addFormatsModule from "ajv-formats";
 import {
   ATTRIBUTE_LABELS,
   ATTRIBUTE_VOCABULARY,
@@ -100,6 +100,13 @@ const SCHEMA = {
     },
   },
 };
+
+// CJS/ESM interop: ajv publishes CJS; under Node ESM the class may sit on
+// .default depending on the loader (mirrors engine.ts).
+const Ajv = ((AjvModule as never as { default?: unknown }).default ??
+  AjvModule) as typeof AjvModule.default;
+const addFormats = ((addFormatsModule as never as { default?: unknown })
+  .default ?? addFormatsModule) as typeof addFormatsModule.default;
 
 const payloadAjv = new Ajv({ strict: false });
 addFormats(payloadAjv);
