@@ -1,7 +1,7 @@
 import type { Static } from "@sinclair/typebox";
 import type { RequirementPayload } from "./commands.ts";
 import { ATTRIBUTE_LABELS, ATTRIBUTE_VOCABULARY } from "./manifest.ts";
-import { windowLabel } from "./hours.ts";
+import { windowLabel, windowSpanText } from "./hours.ts";
 
 /** One independently answerable fact about one place. */
 export type Criterion =
@@ -106,7 +106,7 @@ export function criterionFor(
     const phrase = payload.phrase?.trim().replace(/\s+/g, " ");
     const label = context
       ? windowLabel(payload.window, context.timezone, context.now)
-      : phrase || `open ${payload.window.start}–${payload.window.end}`;
+      : phrase || `open ${windowSpanText(payload.window)}`;
     return { id, kind: "key", key: id, label };
   }
   if ((payload.kind === "inclusion" || payload.kind === "exclusion") && payload.key === "cuisine") {

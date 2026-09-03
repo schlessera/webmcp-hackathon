@@ -24,6 +24,7 @@ import {
   implies,
   normalizeCuisineTokens,
   parseOpeningHours,
+  windowSpanText,
 } from "@webmcp-hackathon/contracts";
 import { pool, withTransaction } from "./db.ts";
 import type { Participant } from "./auth.ts";
@@ -2061,7 +2062,7 @@ function summarizePayload(payload: Record<string, unknown>): string {
       const window = payload.window as { start?: string; end?: string } | undefined;
       if (typeof payload.phrase === "string") return payload.phrase;
       return window?.start && window.end
-        ? `open ${window.start}–${window.end}`
+        ? `open ${windowSpanText({ start: window.start, end: window.end })}`
         : "open at the requested time";
     }
     case "text":

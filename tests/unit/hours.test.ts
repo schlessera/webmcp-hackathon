@@ -4,6 +4,8 @@ import {
   coversWindow,
   openNow,
   windowLabel,
+  windowSegments,
+  windowSpanText,
   type DossierHours,
 } from "../../packages/contracts/src/index.ts";
 
@@ -71,5 +73,30 @@ describe("window labels and current status", () => {
     expect(openNow(hours, "Europe/Berlin", new Date("2026-09-01T23:30:00+02:00")))
       .toEqual({ open: false });
     expect(openNow([], "Europe/Berlin", now)).toBeNull();
+  });
+  it("reads a window off its own offset so no label ever shows a timestamp", () => {
+    // The fallback every reader-facing label uses when no area clock is at
+    // hand. It must never leak the ISO string into the page (CLAUDE.md 6).
+    expect(windowSpanText({
+      start: "2026-09-04T12:00:00+02:00", end: "2026-09-04T14:00:00+02:00",
+    })).toBe("Fri 12:00–14:00");
+    expect(windowSpanText({
+      start: "2026-09-05T22:00:00+02:00", end: "2026-09-06T02:00:00+02:00",
+    })).toBe("Sat 22:00–Sun 02:00");
+    expect(windowSpanText({ start: "nonsense", end: "also nonsense" }))
+      .toBe("the requested time");
+  });
+
+  it("resolves the window to civil cells once, not once per place", () => {
+    // A room asks one window of its whole pool, so the Intl work is hoisted
+    // and memoized; doing it per candidate cost ~1s per 1,400 places.
+    const window = { start: "2026-09-02T12:00:00+02:00", end: "2026-09-02T14:00:00+02:00" };
+    expect(windowSegments(window, "Europe/Berlin"))
+      .toEqual([{ day: "wed", start: 12 * 60, end: 14 * 60 }]);
+    expect(windowSegments(window, "Europe/Berlin"))
+      .toBe(windowSegments(window, "Europe/Berlin"));
+    // A different area reads the same instant as different civil cells.
+    expect(windowSegments(window, "America/Los_Angeles"))
+      .toEqual([{ day: "wed", start: 3 * 60, end: 5 * 60 }]);
   });
 });

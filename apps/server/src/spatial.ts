@@ -468,9 +468,13 @@ export async function inspectCandidates(
         ? r.hours as CandidateDossier["hours"]
         : null;
       const siteHours = parseOpeningHours(enrichment?.website?.hours?.join("; "));
-      const rawHoursClaim = Array.isArray(r.attributes) && r.attributes.some((attribute) =>
-        attribute?.key === "hours" && typeof attribute.value === "string" && attribute.value.length > 0,
-      );
+      const rawHoursClaim = Array.isArray(r.attributes) &&
+        (r.attributes as Array<{ key?: string; value?: unknown }>).some(
+          (attribute) =>
+            attribute?.key === "hours" &&
+            typeof attribute.value === "string" &&
+            attribute.value.length > 0,
+        );
       const siteHoursClaim = enrichment?.website?.hours?.some((rule) => rule.trim().length > 0) === true;
       const hasHoursClaim = Boolean(recordHours || siteHours || rawHoursClaim || siteHoursClaim);
       const current = recordHours || siteHours
