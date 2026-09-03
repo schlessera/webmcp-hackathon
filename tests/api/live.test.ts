@@ -193,6 +193,81 @@ describe("look_up_places route and dossier privacy", () => {
 });
 
 describe("need-triggered lookup and realtime facts", () => {
+  it("a forced lookup validates a claim from transient page text without persisting that page", async () => {
+    vi.stubEnv("ENRICH_NETWORK", "1");
+    vi.stubEnv("INFER", "1");
+    vi.stubEnv("OPENAI_API_KEY", "test");
+    const candidateId = `place_b_${room.roomId.slice("room_test_".length)}`;
+    const osmRef = `node/transient-${room.roomId}`;
+    const website = "https://transient.example/";
+    const marker = "TRANSIENT-PAGE-MARKER";
+    await room.pool.query(
+      `UPDATE candidates SET osm_ref = $2, extras = $3::jsonb,
+         attributes = '[{"key":"dog-friendly","status":"unknown","source":"osm:dog","confidence":0}]'::jsonb
+       WHERE id = $1`,
+      [candidateId, osmRef, JSON.stringify({ website })],
+    );
+    setEnrichFetch(async (url) => {
+      if (url.endsWith("/robots.txt")) return new Response("", { status: 404 });
+      return new Response(
+        `<html><body><p>${marker} DOGS ARE WELCOME throughout our courtyard.</p></body></html>`,
+        { status: 200, headers: { "content-type": "text/html" } },
+      );
+    });
+    let modelInput: Record<string, unknown> | undefined;
+    setTransport(async (body) => {
+      const message = (body.input as Array<{ content: string }>)[0];
+      modelInput = JSON.parse(message.content) as Record<string, unknown>;
+      return {
+        output: [{
+          type: "message",
+          content: [{
+            type: "output_text",
+            text: JSON.stringify({
+              claims: [{
+                key: "dog-friendly",
+                lean: "yes",
+                confidence: 0.9,
+                evidence: "dogs are welcome throughout",
+                evidenceSource: "description_website",
+                value: null,
+              }],
+            }),
+          }],
+        }],
+      };
+    });
+
+    await lookupNow(room.pool, room.roomId, [{ candidateId, osmRef, website }], {
+      keys: ["dog-friendly"],
+      force: true,
+    });
+
+    expect(modelInput).toMatchObject({
+      texts: [expect.objectContaining({
+        source: "web",
+        text: expect.stringContaining(`${marker} DOGS ARE WELCOME throughout our courtyard.`),
+      })],
+    });
+    const stored = (
+      await room.pool.query(
+        `SELECT website, inferred, row_to_json(enrichments)::text AS serialized
+           FROM enrichments WHERE osm_ref = $1`,
+        [osmRef],
+      )
+    ).rows[0];
+    expect(stored.inferred["dog-friendly"]).toMatchObject({
+      lean: "yes",
+      confidence: 0.6,
+      evidence: "dogs are welcome throughout",
+      source: expect.stringMatching(/^infer:/),
+    });
+    expect(stored.website).not.toHaveProperty("pageText");
+    expect(stored.website).not.toHaveProperty("homepage");
+    expect(stored.website).not.toHaveProperty("menu");
+    expect(stored.serialized).not.toContain(marker);
+  });
+
   it("deduplicates concurrent lookup work by room, candidate and key set", async () => {
     vi.stubEnv("ENRICH_NETWORK", "1");
     vi.stubEnv("INFER", "1");

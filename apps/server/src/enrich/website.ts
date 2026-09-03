@@ -6,11 +6,12 @@ import { lookup as resolveHost } from "node:dns/promises";
  * The one intermediary-free source there is: what the venue publishes about
  * itself, explicitly for machines, as schema.org JSON-LD — cuisine, price
  * range, hours, a menu, a rating it chose to show, accessibility features —
- * and, for machines only by accident, the links in its navigation. Text
- * stays the venue's copyright, so nothing is stored beyond the parsed facts,
- * a few URLs and a one-line description; robots.txt is honoured; at most
- * two requests per venue (homepage, then the menu page); the User-Agent
- * names the project.
+ * and, for machines only by accident, the links in its navigation. Selected
+ * visible page text is held in memory for the current inference pass, but it
+ * is returned separately from WebFacts and is never persisted. Stored data
+ * remains parsed facts, a few URLs and a one-line description; robots.txt is
+ * honoured; at most two requests per venue (homepage, then the menu page);
+ * the User-Agent names the project.
  *
  * Shaped by two surveys of the pool venues' sites (2026-09-02, 160 sites by
  * hand, then 1,400 across four slices — docs/research/enrichment-crawl-…):
@@ -59,6 +60,7 @@ const UA =
 const TIMEOUT_MS = 8000;
 const MAX_HTML = 1_500_000;
 const MAX_REDIRECTS = 5;
+export const MAX_PAGE_TEXT = 6_000;
 
 const FOOD_TYPES = /Restaurant|Cafe|CoffeeShop|Bar|Pub|Bakery|Brewery|Winery|FoodEstablishment|IceCreamShop|FastFood|Distillery/;
 const BUSINESS_TYPES = /LocalBusiness|Organization|Store|EntertainmentBusiness|LodgingBusiness|Hotel/;
@@ -263,8 +265,75 @@ function decodeEntities(s: string): string {
   return s
     .replace(/&amp;/g, "&").replace(/&#0?38;/g, "&").replace(/&nbsp;/g, " ")
     .replace(/&uuml;/g, "ü").replace(/&Uuml;/g, "Ü").replace(/&auml;/g, "ä").replace(/&ouml;/g, "ö")
-    .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n)))
-    .replace(/&quot;/g, '"').replace(/&#x27;|&apos;/g, "'");
+    .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#x27;|&apos;/g, "'")
+    .replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCodePoint(Number.parseInt(n, 16)))
+    .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n)));
+}
+
+function attributeOf(attributes: string, name: string): string | undefined {
+  const match = new RegExp(`(?:^|\\s)${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s>]+))`, "i")
+    .exec(attributes);
+  return match?.[1] ?? match?.[2] ?? match?.[3];
+}
+
+function visibleFragment(fragment: string): string {
+  return decodeEntities(fragment.replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ").trim();
+}
+
+/**
+ * The bounded prose made available to inference for this pass only. This is
+ * deliberately narrower than a generic HTML-to-text conversion: title, meta
+ * description, headings, paragraphs, list items, and the direct text of layout
+ * containers that hold a whole clause, with page chrome and executable/style
+ * content removed first.
+ */
+export function extractVisibleText(html: string, max = MAX_PAGE_TEXT): string {
+  const stripped = html
+    .replace(/<!--[\s\S]*?-->/g, " ")
+    .replace(/<(script|style|nav|footer)\b[^>]*>[\s\S]*?<\/\1>/gi, " ");
+  const pieces: string[] = [];
+  const seen = new Set<string>();
+  const add = (raw: string | undefined) => {
+    if (!raw) return;
+    const text = visibleFragment(raw);
+    if (!text || seen.has(text)) return;
+    seen.add(text);
+    pieces.push(text);
+  };
+
+  add(/<title\b[^>]*>([\s\S]*?)<\/title>/i.exec(stripped)?.[1]);
+  for (const meta of stripped.matchAll(/<meta\b([^>]*)>/gi)) {
+    const kind = (attributeOf(meta[1], "name") ?? attributeOf(meta[1], "property") ?? "")
+      .toLocaleLowerCase();
+    if (kind === "description" || kind === "og:description") {
+      add(attributeOf(meta[1], "content"));
+    }
+  }
+  for (const element of stripped.matchAll(/<(h[1-6]|p|li)\b([^>]*)>([\s\S]*?)<\/\1>/gi)) {
+    if (hiddenAttributes(element[2])) continue;
+    add(element[3]);
+  }
+  // Plenty of venue sites write their one descriptive sentence straight into a
+  // layout container rather than a paragraph, and the pass above cannot see it.
+  // Take only a container's DIRECT text — the run before its first child tag —
+  // so a wrapper around real paragraphs contributes nothing and cannot
+  // duplicate them. Require a whole clause, which also keeps timestamps,
+  // opening times and one-word chrome out.
+  for (const element of stripped.matchAll(
+    /<(div|section|article|td|dd|blockquote|figcaption)\b([^>]*)>([^<]+)/gi,
+  )) {
+    if (hiddenAttributes(element[2])) continue;
+    const direct = visibleFragment(element[3]);
+    if (direct.length < 12 || !/\s/.test(direct)) continue;
+    add(element[3]);
+  }
+  return clip(pieces.join("\n"), Math.max(0, max));
+}
+
+function hiddenAttributes(attributes: string): boolean {
+  return (
+    /\bhidden(?:\s|=|$)/i.test(attributes) || /aria-hidden\s*=\s*["']?true/i.test(attributes)
+  );
 }
 
 /** Every `<a href>` with its visible text, entities decoded, tags stripped. */
@@ -504,12 +573,23 @@ export interface MenuFile {
   contentType: string;
   bytes: Uint8Array;
 }
+export interface WebsiteTransientText {
+  homepage?: string;
+  menu?: string;
+}
+export interface WebsiteFetchResult {
+  facts: WebFacts | null;
+  error?: string;
+  menuFile?: MenuFile;
+  /** In-memory evidence for the caller's current lookup pass; never WebFacts. */
+  pageText?: WebsiteTransientText;
+}
 const MAX_MENU_FILE = 4_000_000;
 
 export async function fetchWebsiteFacts(
   url: string,
   fetchImpl: FetchLike = fetch,
-): Promise<{ facts: WebFacts | null; error?: string; menuFile?: MenuFile }> {
+): Promise<WebsiteFetchResult> {
   let target: URL;
   try {
     target = new URL(url);
@@ -527,9 +607,18 @@ export async function fetchWebsiteFacts(
     const type = res.headers.get("content-type") ?? "";
     if (!/html|xml/.test(type)) return { facts: null, error: `not HTML (${type.split(";")[0]})` };
     const html = (await res.text()).slice(0, MAX_HTML);
+    const homepageText = extractVisibleText(html);
     const facts = parseWebsite(html, res.url || target.toString(), new Date().toISOString());
-    const menuFile = facts.menuUrl ? await followMenu(facts, fetchImpl) : undefined;
-    return { facts, ...(menuFile ? { menuFile } : {}) };
+    const followed = facts.menuUrl ? await followMenu(facts, fetchImpl) : undefined;
+    const pageText = {
+      ...(homepageText ? { homepage: homepageText } : {}),
+      ...(followed?.text ? { menu: followed.text } : {}),
+    };
+    return {
+      facts,
+      ...(followed?.menuFile ? { menuFile: followed.menuFile } : {}),
+      ...(Object.keys(pageText).length > 0 ? { pageText } : {}),
+    };
   } catch (err) {
     const e = err as Error & { cause?: { message?: string } };
     return { facts: null, error: `${e?.name ?? "Error"}: ${e?.cause?.message ?? e?.message ?? String(err)}`.slice(0, 120) };
@@ -539,7 +628,10 @@ export async function fetchWebsiteFacts(
 /** The second request: what the menu link leads to, and what it mentions.
  * Returns the file when the menu turns out to be a picture, so the caller
  * can have it read. */
-async function followMenu(facts: WebFacts, fetchImpl: FetchLike): Promise<MenuFile | undefined> {
+async function followMenu(
+  facts: WebFacts,
+  fetchImpl: FetchLike,
+): Promise<{ menuFile?: MenuFile; text?: string } | undefined> {
   try {
     const menu = new URL(facts.menuUrl!);
     // Same origin was already cleared by robots; a third-party host gets its own check.
@@ -562,18 +654,21 @@ async function followMenu(facts: WebFacts, fetchImpl: FetchLike): Promise<MenuFi
     if (/pdf/.test(type)) {
       facts.menuKind = "pdf";
       facts.menuFileUrl = fileUrl;
-      return await fileOf("pdf", fileUrl, type, res);
+      const menuFile = await fileOf("pdf", fileUrl, type, res);
+      return menuFile ? { menuFile } : undefined;
     }
     if (/^image\//.test(type)) {
       facts.menuKind = "image";
       facts.menuFileUrl = fileUrl;
-      return await fileOf("image", fileUrl, type, res);
+      const menuFile = await fileOf("image", fileUrl, type, res);
+      return menuFile ? { menuFile } : undefined;
     }
     if (!/html|xml|text/.test(type)) {
       facts.menuKind = "other";
       return undefined;
     }
     const html = (await res.text()).slice(0, MAX_HTML);
+    const text = extractVisibleText(html);
     const mentions = scanMenuMentions(html);
     if (mentions.length) facts.menuMentions = mentions;
     // A menu page with almost no text and a big picture: the picture is the menu.
@@ -583,11 +678,14 @@ async function followMenu(facts: WebFacts, fetchImpl: FetchLike): Promise<MenuFi
       facts.menuFileUrl = picture;
       const img = await fetchPublic(new URL(picture), { headers: { ...headers, accept: "image/*" }, signal: AbortSignal.timeout(TIMEOUT_MS) }, fetchImpl).catch(() => null);
       const imgType = img?.headers.get("content-type") ?? "";
-      if (img?.ok && /^image\//.test(imgType)) return await fileOf("image", picture, imgType, img);
-      return undefined;
+      if (img?.ok && /^image\//.test(imgType)) {
+        const menuFile = await fileOf("image", picture, imgType, img);
+        return { ...(text ? { text } : {}), ...(menuFile ? { menuFile } : {}) };
+      }
+      return text ? { text } : undefined;
     }
     facts.menuKind = "html";
-    return undefined;
+    return text ? { text } : undefined;
   } catch {
     /* the homepage facts stand; the menu page is a bonus */
     return undefined;

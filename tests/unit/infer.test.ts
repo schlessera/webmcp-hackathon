@@ -9,6 +9,7 @@ import {
   sanitizeInferenceNote,
   type InferInput,
 } from "../../apps/server/src/enrich/infer.ts";
+import { inferenceTexts } from "../../apps/server/src/enrich/index.ts";
 import { setTransport } from "../../apps/server/src/nl/openai.ts";
 
 const INPUT: InferInput = {
@@ -86,6 +87,21 @@ describe("inference answer validation", () => {
         "model-test",
       ),
     ).toEqual([expect.objectContaining({ key: "dog-friendly", evidence: "Dogs are welcome" })]);
+  });
+
+  it("matches a span case-insensitively after normalising whitespace", () => {
+    const input: InferInput = {
+      ...INPUT,
+      texts: [{ source: "web", text: "DOGS ARE\n\tWELCOME throughout the courtyard." }],
+      keys: ["dog-friendly"],
+    };
+    expect(
+      claimsFromAnswer(
+        answer([claim("dog-friendly", "dogs are welcome")]),
+        input,
+        "model-test",
+      ),
+    ).toEqual([expect.objectContaining({ evidence: "dogs are welcome" })]);
   });
 
   it("strips markup and control characters before evidence becomes a stored note", () => {
@@ -234,5 +250,47 @@ describe("inference off switches", () => {
       text: { format: { type: "json_schema", strict: true } },
     });
     expect(timeout).toBe(12_000);
+  });
+});
+
+describe("transient text plumbing", () => {
+  it("passes one-fetch homepage and menu text into the shipped inference request", async () => {
+    vi.stubEnv("ENRICH_NETWORK", "1");
+    vi.stubEnv("INFER", "1");
+    vi.stubEnv("OPENAI_API_KEY", "test");
+    const texts = inferenceTexts(
+      {
+        id: "place-1",
+        osm_ref: "node/1",
+        name: "Transient Café",
+        category: "cafe",
+        attributes: [],
+        extras: null,
+      },
+      undefined,
+      {
+        homepage: "Dogs are welcome throughout our courtyard.",
+        menu: "Vegan mushroom dumplings with herbs.",
+      },
+    );
+    let payload: Record<string, unknown> | undefined;
+    setTransport(async (body) => {
+      payload = JSON.parse((body.input as Array<{ content: string }>)[0].content) as Record<string, unknown>;
+      return {
+        output: [{ type: "message", content: [{ type: "output_text", text: JSON.stringify(answer([])) }] }],
+      };
+    });
+    await inferAttributes({
+      name: "Transient Café",
+      category: "cafe",
+      texts,
+      keys: ["dog-friendly", "vegan-options"],
+    });
+    expect(payload).toMatchObject({
+      texts: [
+        { source: "web", text: "Dogs are welcome throughout our courtyard." },
+        { source: "menu", text: "Vegan mushroom dumplings with herbs." },
+      ],
+    });
   });
 });

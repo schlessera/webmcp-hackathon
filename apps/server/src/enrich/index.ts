@@ -2,7 +2,13 @@ import { randomUUID } from "node:crypto";
 import type pg from "pg";
 import { normalizeStatus, type DossierLink, type LookupsMessage } from "@webmcp-hackathon/contracts";
 import { createHash } from "node:crypto";
-import { fetchWebsiteFacts, type FetchLike, type WebFacts } from "./website.ts";
+import {
+  fetchWebsiteFacts,
+  type FetchLike,
+  type WebFacts,
+  type WebsiteFetchResult,
+  type WebsiteTransientText,
+} from "./website.ts";
 import { fetchWikidataFacts, type WikiFacts } from "./wikidata.ts";
 import { menuReaderEnabled, readMenu } from "./menu-reader.ts";
 import {
@@ -35,7 +41,8 @@ import { notifyCommit } from "../commit-notifications.ts";
  *   `osm:*`, `curated:*` and `agent:*`, so the ledger can say where each
  *   fact came from.
  * - Everything stored is a parsed fact, a URL or a one-line description;
- *   no page text, no review text.
+ *   page text exists only on the fresh lookup's in-memory return path to
+ *   inference, never in Enrichment, a dossier or a log.
  */
 
 export interface Enrichment {
@@ -351,38 +358,51 @@ async function releaseLease(db: pg.Pool, osmRef: string, owner: string): Promise
   );
 }
 
-async function lookup(db: pg.Pool, target: LookupTarget, force = false): Promise<Enrichment | null> {
+interface LookupPass {
+  enrichment: Enrichment | null;
+  /** Present only when this call fetched the website successfully. */
+  pageText?: WebsiteTransientText;
+}
+
+async function lookup(db: pg.Pool, target: LookupTarget, force = false): Promise<LookupPass> {
   const initial = (await loadCached(db, [target.osmRef])).get(target.osmRef);
-  if (!Object.values(dueProviders(target, initial, force)).some(Boolean)) return initial ?? null;
+  if (!Object.values(dueProviders(target, initial, force)).some(Boolean)) {
+    return { enrichment: initial ?? null };
+  }
 
   // X4: queue before acquiring the cross-process lease. A bounded waiter can
   // never consume lease lifetime while another lookup owns all network slots.
   const completed = await lookupSlots.use(async () => {
     const beforeLease = (await loadCached(db, [target.osmRef])).get(target.osmRef);
     if (!Object.values(dueProviders(target, beforeLease, force)).some(Boolean)) {
-      return beforeLease ?? null;
+      return { enrichment: beforeLease ?? null };
     }
     const owner = randomUUID();
     // R11: this lease is visible to every server process and is acquired in a
     // short statement; no pool client or room lock is held during the network.
-    if (!(await acquireLease(db, target.osmRef, owner))) return beforeLease ?? null;
+    if (!(await acquireLease(db, target.osmRef, owner))) {
+      return { enrichment: beforeLease ?? null };
+    }
     try {
       const current = (await loadCached(db, [target.osmRef])).get(target.osmRef);
       const attempted = dueProviders(target, current, force);
-      if (!attempted.website && !attempted.wikidata) return current ?? null;
+      if (!attempted.website && !attempted.wikidata) {
+        return { enrichment: current ?? null };
+      }
 
-      const none = { facts: null, error: undefined as string | undefined };
+      const noSite: WebsiteFetchResult = { facts: null };
+      const noWiki: { facts: WikiFacts | null; error?: string } = { facts: null };
       const [site, wiki] = await Promise.all([
         attempted.website
           ? fetchInjectedWebsiteFacts(target.website!)
-          : Promise.resolve(none),
+          : Promise.resolve(noSite),
         attempted.wikidata
           ? fetchWikidataFacts(target.wikidata!, fetchImpl)
-          : Promise.resolve(none),
+          : Promise.resolve(noWiki),
       ]);
       // A menu that is a picture gets read (menu-reader.ts); the bytes are
       // never stored, the claims are.
-      if (site.facts && "menuFile" in site && site.menuFile && menuReaderEnabled()) {
+      if (site.facts && site.menuFile && menuReaderEnabled()) {
         try {
           const reading = await readMenu(site.menuFile);
           if (reading) site.facts.menuReading = reading;
@@ -391,7 +411,10 @@ async function lookup(db: pg.Pool, target: LookupTarget, force = false): Promise
         }
       }
       await persistProviderResults(db, target, owner, attempted, site, wiki);
-      return (await loadCached(db, [target.osmRef])).get(target.osmRef) ?? null;
+      return {
+        enrichment: (await loadCached(db, [target.osmRef])).get(target.osmRef) ?? null,
+        ...(site.pageText ? { pageText: site.pageText } : {}),
+      };
     } finally {
       // Offline mode deliberately does not advance provider freshness, but it
       // must still yield the cross-process lease immediately.
@@ -399,7 +422,7 @@ async function lookup(db: pg.Pool, target: LookupTarget, force = false): Promise
     }
   });
   // A full queue is load shedding, not a failed fact read: return stale data.
-  return completed === undefined ? initial ?? null : completed;
+  return completed === undefined ? { enrichment: initial ?? null } : completed;
 }
 
 /**
@@ -491,12 +514,17 @@ export function stableAttributeHash(attributes: AttributeLike[]): string {
   return createHash("sha256").update(JSON.stringify(factual)).digest("hex");
 }
 
-function inferenceTexts(row: LookupCandidateRow, enrichment: Enrichment | undefined) {
+export function inferenceTexts(
+  row: LookupCandidateRow,
+  enrichment: Enrichment | undefined,
+  transient?: WebsiteTransientText,
+) {
   const texts: Array<{ source: "osm" | "web" | "menu" | "wikidata"; text: string }> = [];
   const osmDescription = row.extras?.description?.text;
   if (osmDescription) texts.push({ source: "osm", text: osmDescription });
   const web = enrichment?.website;
   if (web?.description) texts.push({ source: "web", text: web.description });
+  if (transient?.homepage) texts.push({ source: "web", text: transient.homepage });
   if (web) {
     // Only what the place itself wrote may serve as evidence. Facts the
     // server already parsed into slots (price band, wheelchair, hours) are
@@ -513,6 +541,7 @@ function inferenceTexts(row: LookupCandidateRow, enrichment: Enrichment | undefi
     ].filter(Boolean);
     if (menu.length) texts.push({ source: "menu", text: menu.join(". ") });
   }
+  if (transient?.menu) texts.push({ source: "menu", text: transient.menu });
   if (enrichment?.wikidata?.description) {
     texts.push({ source: "wikidata", text: enrichment.wikidata.description });
   }
@@ -646,13 +675,15 @@ async function runLookupNow(
       const observedAt = new Date().toISOString();
       try {
         let current = (await loadCached(pool, [row.osm_ref!])).get(row.osm_ref!);
+        let transientText: WebsiteTransientText | undefined;
         const before = stableAttributeHash(mergedForLookup(row, current, attestations, observedAt));
 
         // Provider freshness is independent: lookup retries only the due leg,
         // retains last-known-good facts, and preserves a failed leg's TTL.
         if (target.website || target.wikidata) {
-          await lookup(pool, target, options.force === true);
-          current = (await loadCached(pool, [row.osm_ref!])).get(row.osm_ref!);
+          const pass = await lookup(pool, target, options.force === true);
+          current = pass.enrichment ?? undefined;
+          transientText = pass.pageText;
         }
 
         if (inferenceEnabled() && requested.length > 0) {
@@ -677,7 +708,7 @@ async function runLookupNow(
               name: row.name,
               category: row.category,
               cuisine: cuisineTokens(base),
-              texts: inferenceTexts(row, current),
+              texts: inferenceTexts(row, current, transientText),
               keys: unknown,
             });
             await saveInferences(pool, row.osm_ref!, claims, unknown, observedAt);
