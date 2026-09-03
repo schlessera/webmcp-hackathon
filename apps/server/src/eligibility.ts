@@ -4,13 +4,18 @@ import {
   ATTRIBUTE_LABELS,
   PRICE_LEVEL_EUR,
   DISH_TOKENS,
+  areaById,
+  coversWindow,
   criterionFor,
   implies,
   isVerified,
   leans,
   normalizeCuisineTokens,
   normalizeStatus,
+  parseOpeningHours,
   questionKey,
+  windowSpan,
+  type DossierHours,
 } from "@webmcp-hackathon/contracts";
 import { applyAttestations, loadAttestations } from "./attestations.ts";
 import { applyEnrichmentAttributes, loadCached } from "./enrich/index.ts";
@@ -71,6 +76,10 @@ export interface CandidateRow {
     confidence?: number;
     attestedBy?: string;
   }>;
+  /** Parsed OSM hours stored with the candidate record. */
+  hours?: DossierHours[];
+  /** Cached structured hours published by the place's own site. */
+  website_hours?: string[];
   extras?: { website?: string; wikidata?: string } | null;
 }
 export interface RequirementRow {
@@ -86,6 +95,8 @@ export interface RequirementRow {
     max?: number;
     values?: string[];
     text?: string;
+    window?: { start?: string; end?: string };
+    phrase?: string;
     perPersonMax?: { amount: number; currency: string };
   } | null;
   withdrawn: boolean;
@@ -270,6 +281,10 @@ export interface EligibilityInputs {
   requirements: RequirementRow[];
   verdicts: VerdictRow[];
   scope: ScopeState | null;
+  /** IANA timezone from the room's AreaDefinition. */
+  timezone?: string;
+  /** One read-time clock shared by labels and dossier projections. */
+  now?: Date;
 }
 
 /**
@@ -281,7 +296,7 @@ export async function loadEligibilityInputs(
   q: pg.PoolClient | pg.Pool,
   roomId: string,
 ): Promise<EligibilityInputs> {
-  const [candidates, requirements, verdicts, scope, attestations] = await Promise.all([
+  const [candidates, requirements, verdicts, scope, attestations, room] = await Promise.all([
     q.query("SELECT * FROM candidates WHERE room_id = $1 ORDER BY id", [roomId]),
     q.query(
       "SELECT * FROM requirements WHERE room_id = $1 AND NOT withdrawn",
@@ -290,6 +305,7 @@ export async function loadEligibilityInputs(
     q.query("SELECT * FROM verdicts WHERE room_id = $1", [roomId]),
     loadScope(q, roomId),
     loadAttestations(q, roomId),
+    q.query("SELECT area_id FROM rooms WHERE id = $1", [roomId]),
   ]);
   const center = scope?.area?.center;
   const refs = (candidates.rows as CandidateRow[]).map((c) => c.osm_ref).filter((r): r is string => Boolean(r));
@@ -300,11 +316,14 @@ export async function loadEligibilityInputs(
     candidates: (candidates.rows as CandidateRow[]).map((c) => ({
       ...c,
       attributes: mergedAttributes(c, enrichments.get(c.osm_ref ?? ""), attestations),
+      website_hours: enrichments.get(c.osm_ref ?? "")?.website?.hours,
       walk_min: walkMinutesFrom(center, c.location, c.walk_min),
     })),
     requirements: requirements.rows as RequirementRow[],
     verdicts: verdicts.rows as VerdictRow[],
     scope,
+    timezone: areaById(room.rows[0]?.area_id as string)?.timezone ?? "UTC",
+    now: new Date(),
   };
 }
 
@@ -344,9 +363,14 @@ export async function computeEligibility(
   q: pg.PoolClient | pg.Pool,
   roomId: string,
 ): Promise<CandidateEligibility[]> {
-  const { candidates, requirements, verdicts, scope } =
-    await loadEligibilityInputs(q, roomId);
-  return classifyAll(candidates, requirements, verdicts, scope);
+  const inputs = await loadEligibilityInputs(q, roomId);
+  return classifyAll(
+    inputs.candidates,
+    inputs.requirements,
+    inputs.verdicts,
+    inputs.scope,
+    inputs.timezone,
+  );
 }
 
 export function classifyAll(
@@ -354,8 +378,9 @@ export function classifyAll(
   requirements: RequirementRow[],
   verdicts: VerdictRow[],
   scope: ScopeState | null,
+  timezone = "UTC",
 ): CandidateEligibility[] {
-  return candidates.map((c) => classify(c, requirements, verdicts, scope));
+  return candidates.map((c) => classify(c, requirements, verdicts, scope, timezone));
 }
 
 function classify(
@@ -363,6 +388,7 @@ function classify(
   requirements: RequirementRow[],
   verdicts: VerdictRow[],
   scope: ScopeState | null,
+  timezone: string,
 ): CandidateEligibility {
   const pending: EligibilityReason[] = [];
   const satisfied: EligibilityReason[] = [];
@@ -486,6 +512,48 @@ function classify(
             text: "estimated cost above the shared budget",
           });
         }
+        break;
+      }
+      case "time": {
+        const start = p.window?.start;
+        const end = p.window?.end;
+        if (typeof start !== "string" || typeof end !== "string") {
+          pending.push({ ...owner, text: "opening time not known" });
+          break;
+        }
+        const window = { start, end };
+        const span = windowSpan(window, timezone);
+        const hoursAttr = candidate.attributes.find((a) => a.key === "hours");
+        const verified =
+          hoursAttr?.status === "verified_true" &&
+          hoursAttr.source === "osm:opening_hours" &&
+          (candidate.hours?.length ?? 0) > 0;
+        if (verified) {
+          const coverage = coversWindow(candidate.hours!, window, timezone);
+          if (coverage === "covered") {
+            satisfied.push({ ...owner, text: `open ${span}` });
+          } else if (coverage === "uncovered") {
+            return excluded(candidate, { ...owner, text: `closed ${span}` });
+          } else {
+            pending.push({ ...owner, text: `is it open ${span}?` });
+          }
+          break;
+        }
+
+        const siteHours = parseOpeningHours(candidate.website_hours?.join("; "));
+        if (siteHours) {
+          const coverage = coversWindow(siteHours, window, timezone);
+          if (coverage !== "unknown") {
+            likely.push({
+              ...owner,
+              lean: coverage === "covered",
+              confidence: 0.6,
+              text: coverage === "covered" ? `likely open ${span}` : `likely closed ${span}`,
+            });
+            break;
+          }
+        }
+        pending.push({ ...owner, text: `is it open ${span}?` });
         break;
       }
       case "text": {

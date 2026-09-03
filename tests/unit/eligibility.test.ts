@@ -273,6 +273,53 @@ describe("eligibility against the Berlin Mitte dataset", () => {
     expect(whyFor(rows[0], "p_org")).toContain("somewhere the kids can run");
   });
 
+  it("classifies time windows by verified, site-only, and missing hours", () => {
+    const time = req({
+      kind: "time",
+      window: {
+        start: "2026-09-04T12:00:00+02:00",
+        end: "2026-09-04T14:00:00+02:00",
+      },
+    } as never);
+    const base = candidates[0];
+    const rows = classifyAll(
+      [
+        {
+          ...base,
+          id: "time_verified_yes",
+          hours: [{ day: "fri", open: "11:00", close: "15:00" }],
+          attributes: [{ key: "hours", status: "verified_true", source: "osm:opening_hours" }],
+        },
+        {
+          ...base,
+          id: "time_verified_no",
+          hours: [{ day: "fri", open: "11:00", close: "13:00" }],
+          attributes: [{ key: "hours", status: "verified_true", source: "osm:opening_hours" }],
+        },
+        {
+          ...base,
+          id: "time_site",
+          hours: [],
+          website_hours: ["Fr 11:00-15:00"],
+          attributes: [{ key: "hours", status: "likely_true", source: "web:example.test" }],
+        },
+        { ...base, id: "time_unknown", hours: [], attributes: [] },
+      ],
+      [time],
+      [],
+      null,
+      "Europe/Berlin",
+    );
+    const by = Object.fromEntries(rows.map((row) => [row.candidateId, row]));
+    expect(by.time_verified_yes.eligibility).toBe("eligible");
+    expect(whyFor(by.time_verified_yes, "p_org")).toBe("open Fri 12:00–14:00");
+    expect(by.time_verified_no.eligibility).toBe("excluded");
+    expect(whyFor(by.time_verified_no, "p_org")).toBe("closed Fri 12:00–14:00");
+    expect(by.time_site).toMatchObject({ eligibility: "likely", confidence: 0.6 });
+    expect(by.time_unknown.eligibility).toBe("uncertain");
+    expect(whyFor(by.time_unknown, "p_org")).toBe("is it open Fri 12:00–14:00?");
+  });
+
   it("reads likely, unlikely, unknown, and attested evidence for a question criterion", () => {
     const text = "somewhere the kids can run";
     const key = questionKey(text);

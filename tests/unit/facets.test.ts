@@ -387,3 +387,52 @@ describe("free text needs", () => {
     expect(bundle.facets.some((facet) => facet.key === need.criterionId)).toBe(false);
   });
 });
+
+describe("time needs", () => {
+  const window = {
+    start: "2026-09-04T12:00:00+02:00",
+    end: "2026-09-04T14:00:00+02:00",
+  };
+  const timeNeed = () => req({ kind: "time", window } as never);
+  const base = candidates[0];
+  const timed: CandidateRow[] = [
+    {
+      ...base, id: "t_yes", hours: [{ day: "fri", open: "11:00", close: "15:00" }],
+      attributes: [{ key: "hours", status: "verified_true", source: "osm:opening_hours" }],
+    },
+    {
+      ...base, id: "t_no", hours: [{ day: "fri", open: "11:00", close: "13:00" }],
+      attributes: [{ key: "hours", status: "verified_true", source: "osm:opening_hours" }],
+    },
+    { ...base, id: "t_likely", hours: [], website_hours: ["Fr 11:00-15:00"], attributes: [] },
+    { ...base, id: "t_unlikely", hours: [], website_hours: ["Fr 08:00-11:00"], attributes: [] },
+    { ...base, id: "t_unknown", hours: [], attributes: [] },
+  ];
+  const inputs = (requirements: RequirementRow[]): EligibilityInputs => ({
+    candidates: timed,
+    requirements,
+    verdicts: [],
+    scope: null,
+    timezone: "Europe/Berlin",
+    now: new Date("2026-09-03T10:00:00+02:00"),
+  });
+
+  it("appears only for an active time need and its disjoint buckets sum to the set", () => {
+    const need = timeNeed();
+    const bundle = computeFacetsBundle(inputs([need]), "p_org");
+    const criterionId = `open:${window.start}-${window.end}`;
+    const facet = bundle.facets.find((item) => item.key === criterionId)!;
+    expect(facet).toMatchObject({
+      type: "temporal",
+      label: "open tomorrow 12:00–14:00 (Fri)",
+      counts: { yes: 1, likely: 1, unlikely: 1, no: 1, unknown: 1 },
+    });
+    expect(Object.values(facet.counts).reduce((sum, count) => sum + (count ?? 0), 0))
+      .toBe(bundle.total);
+    expect(bundle.activeNeeds[0].criterionId).toBe(criterionId);
+
+    const inactive = computeFacetsBundle(inputs([{ ...need, active: false }]), "p_org");
+    expect(inactive.facets.some((item) => item.type === "temporal")).toBe(false);
+    expect(computeFacets(timed, null).some((item) => item.type === "temporal")).toBe(false);
+  });
+});

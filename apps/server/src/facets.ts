@@ -12,6 +12,7 @@ import {
   criterionFor,
   implies,
   normalizeCuisineTokens,
+  windowLabel,
 } from "@webmcp-hackathon/contracts";
 import {
   classifyAll,
@@ -75,7 +76,7 @@ const eligibleCount = (
   requirements: RequirementRow[],
   inputs: EligibilityInputs,
 ) =>
-  classifyAll(candidates, requirements, inputs.verdicts, inputs.scope).filter(
+  classifyAll(candidates, requirements, inputs.verdicts, inputs.scope, inputs.timezone).filter(
     (r) => r.eligibility === "eligible",
   ).length;
 
@@ -95,7 +96,7 @@ export function computeFacetsBundle(
   );
   const active = effective.filter(isActive);
   const matching = eligibleCount(candidates, active, inputs);
-  const likely = classifyAll(candidates, active, inputs.verdicts, inputs.scope).filter(
+  const likely = classifyAll(candidates, active, inputs.verdicts, inputs.scope, inputs.timezone).filter(
     (r) => r.eligibility === "likely",
   ).length;
 
@@ -115,17 +116,18 @@ export function computeFacetsBundle(
       [{ ...req, active: true }],
       inputs.verdicts,
       inputs.scope,
+      inputs.timezone,
     );
     const ruledOut = alone.filter((r) => r.eligibility === "excluded").length;
 
     if (req.owner_id === viewerId || req.visibility === "shared") {
       const suppressed = req.id === suppressRequirementId;
       const stillActive = isActive(req) && !suppressed;
-      const criterion = criterionFor(req.payload as never);
+      const criterion = criterionFor(req.payload as never, criterionContext(inputs));
       activeNeeds.push({
         id: req.id,
         ...(criterion ? { criterionId: criterion.id } : {}),
-        label: labelForRequirement(req, req.owner_id === viewerId),
+        label: labelForRequirement(req, req.owner_id === viewerId, criterionContext(inputs)),
         ruledOut,
         unknown: alone.filter(
           (r) =>
@@ -167,10 +169,70 @@ export function computeFacetsBundle(
     total: candidates.length,
     matching,
     likely,
-    facets: computeFacets(candidates, inputs.scope),
+    facets: [
+      ...computeFacets(candidates, inputs.scope),
+      ...temporalFacets(
+        candidates,
+        active.filter((req) => req.owner_id === viewerId || req.visibility === "shared"),
+        inputs,
+      ),
+    ],
     activeNeeds,
     privateEffects,
   };
+}
+
+function criterionContext(inputs: EligibilityInputs): { timezone: string; now: Date } {
+  return {
+    timezone: inputs.timezone ?? "UTC",
+    // Direct pure-function callers that do not use temporal needs need no
+    // clock. A temporal caller supplies one; the epoch fallback is stable.
+    now: inputs.now ?? new Date(0),
+  };
+}
+
+function temporalFacets(
+  candidates: CandidateRow[],
+  requirements: RequirementRow[],
+  inputs: EligibilityInputs,
+): Facet[] {
+  const facets = new Map<string, Facet>();
+  for (const requirement of requirements) {
+    if (requirement.payload?.kind !== "time") continue;
+    const criterion = criterionFor(requirement.payload as never, criterionContext(inputs));
+    if (!criterion || facets.has(criterion.id)) continue;
+    const rows = classifyAll(
+      candidates,
+      [{ ...requirement, hardness: "hard", active: true }],
+      inputs.verdicts,
+      null,
+      inputs.timezone,
+    );
+    const counts: NonNullable<Facet["counts"]> = {
+      yes: 0,
+      likely: 0,
+      unlikely: 0,
+      no: 0,
+      unknown: 0,
+    };
+    for (const row of rows) {
+      const bucket = row.eligibility === "eligible"
+        ? "yes"
+        : row.eligibility === "excluded"
+          ? "no"
+          : row.eligibility === "uncertain"
+            ? "unknown"
+            : row.eligibility;
+      counts[bucket] = (counts[bucket] ?? 0) + 1;
+    }
+    facets.set(criterion.id, {
+      key: criterion.id,
+      label: criterion.label,
+      type: "temporal",
+      counts,
+    });
+  }
+  return [...facets.values()];
 }
 
 /** FACETS.md §1. Order is render order: booleans by yes-count, then the
@@ -361,6 +423,7 @@ function humanize(value: string): string {
 export function labelForRequirement(
   req: RequirementRow,
   ownedByViewer: boolean,
+  context?: { timezone: string; now: Date },
 ): string {
   const p = req.payload;
   if (!p) {
@@ -382,6 +445,14 @@ export function labelForRequirement(
       return b.currency === "EUR"
         ? `budget €${b.amount}`
         : `budget ${b.amount} ${b.currency}`;
+    }
+    case "time": {
+      const start = p.window?.start;
+      const end = p.window?.end;
+      if (typeof start === "string" && typeof end === "string" && context) {
+        return windowLabel({ start, end }, context.timezone, context.now);
+      }
+      return p.phrase?.trim() || "open at the requested time";
     }
     case "exclusion":
       return `avoid ${(p.values ?? []).join(", ")}`;

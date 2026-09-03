@@ -867,6 +867,10 @@ async function runLookupNow(
   for (const evaluation of evaluations.values()) {
     if (!evaluation.base || !evaluation.texts) continue;
     const openCriteria = [...criteria.values()].filter((criterion) => {
+      // A time window is a deterministic predicate over structured hours.
+      // Fetching the site may supply those hours, but prose/model inference
+      // must never manufacture an answer to an `open:*` criterion.
+      if (criterion.kind === "key" && criterion.key.startsWith("open:")) return false;
       const key = criterion.kind === "key" ? criterion.key : criterion.id;
       const attr = evaluation.base!.find((attribute) => attribute.key === key);
       if (attr && attr.status !== "unknown") return false;

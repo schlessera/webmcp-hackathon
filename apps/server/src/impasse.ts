@@ -79,6 +79,7 @@ export function minimalConflictSet(
   requirements: RequirementRow[],
   verdicts: VerdictRow[],
   scope: ScopeState | null,
+  timezone = "UTC",
 ): RequirementRow[] {
   const hard = requirements
     .filter((r) => r.hardness === "hard" && !r.withdrawn)
@@ -88,7 +89,7 @@ export function minimalConflictSet(
         b.id.localeCompare(a.id),
     );
   const infeasibleWith = (set: RequirementRow[]) =>
-    eligibleCount(classifyAll(candidates, set, verdicts, scope)) === 0;
+    eligibleCount(classifyAll(candidates, set, verdicts, scope, timezone)) === 0;
 
   let set = [...hard];
   for (const req of hard) {
@@ -108,6 +109,7 @@ export function generateAdjustments(
   scope: ScopeState | null,
   conflictSet: RequirementRow[],
   organizerId: string,
+  timezone = "UTC",
 ): AdjustmentDraft[] {
   const drafts: AdjustmentDraft[] = [];
 
@@ -125,7 +127,7 @@ export function generateAdjustments(
         area: { ...scope.area, radiusM: radius },
       };
       const gain = eligibleCount(
-        classifyAll(candidates, requirements, verdicts, widened),
+        classifyAll(candidates, requirements, verdicts, widened, timezone),
       );
       if (!best || gain > best.gain) best = { radius, gain };
       if (gain >= 3) break;
@@ -168,6 +170,7 @@ export function generateAdjustments(
           requirements.map((r) => (r.id === req.id ? relaxed : r)),
           verdicts,
           scope,
+          timezone,
         ),
       );
       if (gain > 0) {
@@ -195,6 +198,7 @@ export function generateAdjustments(
           requirements.filter((r) => r.id !== req.id),
           verdicts,
           scope,
+          timezone,
         ),
       );
       if (gain > 0) {
@@ -285,6 +289,7 @@ export async function impasseBracket(
     requirementRows,
     verdictRows,
     scope,
+    inputs.timezone,
   );
   const drafts = generateAdjustments(
     candidateRows,
@@ -293,6 +298,7 @@ export async function impasseBracket(
     scope,
     conflict,
     await organizerOf(client, roomId),
+    inputs.timezone,
   );
 
   // Regeneration discipline: while the impasse stands, every
