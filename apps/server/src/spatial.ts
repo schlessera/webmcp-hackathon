@@ -354,9 +354,10 @@ export async function inspectCandidates(
       const rows: NonNullable<CandidateDossier["needs"]> = [];
       const peerPrivate: NeedVerdict[] = [];
       for (const requirement of inputs.requirements) {
+        if (requirement.active === false) continue;
         const classified = classifyAll(
           [candidate],
-          [{ ...requirement, active: true, hardness: "hard" }],
+          [requirement],
           inputs.verdicts,
           null,
         )[0];

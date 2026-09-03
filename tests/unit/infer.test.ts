@@ -4,6 +4,7 @@ import {
   claimsFromAnswer,
   inferAttributes,
   INFERENCE_CONFIDENCE_CAPS,
+  INFERENCE_SCHEMA,
   type InferInput,
 } from "../../apps/server/src/enrich/infer.ts";
 import { setTransport } from "../../apps/server/src/nl/openai.ts";
@@ -29,6 +30,62 @@ afterEach(() => {
 });
 
 describe("inference answer validation", () => {
+  const claim = (key: string, evidence: string, evidenceSource = "description_website") => ({
+    key,
+    lean: "yes",
+    confidence: 0.8,
+    evidence,
+    evidenceSource,
+    value: null,
+  });
+
+  it("publishes the 12-character evidence floor in the strict schema", () => {
+    expect(INFERENCE_SCHEMA.properties.claims.items.properties.evidence.minLength).toBe(12);
+  });
+
+  it.each([
+    ["a span shorter than 12 characters", claim("dog-friendly", "Dogs are")],
+    ["one word even when it is long enough", claim("dog-friendly", "courtyardlongword")],
+    ["a span embedded inside a larger word", claim("dog-friendly", "calm courtyard")],
+  ])("rejects %s", (_case, draft) => {
+    const input: InferInput = {
+      ...INPUT,
+      texts: [{ source: "web", text: "Dogs are welcome beside a calm courtyardside courtyardlongword." }],
+      keys: ["dog-friendly"],
+    };
+    expect(claimsFromAnswer(answer([draft]), input, "model-test")).toEqual([]);
+  });
+
+  it.each([
+    [
+      "the attribute key",
+      claim("wheelchair-accessible", "wheelchair-accessible"),
+      "The venue says wheelchair-accessible on its page.",
+    ],
+    [
+      "the human-readable attribute label",
+      claim("vegetarian-options", "vegetarian options"),
+      "The page repeats vegetarian options without venue evidence.",
+    ],
+  ])("rejects evidence copied from %s", (_case, draft, text) => {
+    const input: InferInput = {
+      ...INPUT,
+      texts: [{ source: "web", text }],
+      keys: [String(draft.key)],
+    };
+    expect(claimsFromAnswer(answer([draft]), input, "model-test")).toEqual([]);
+  });
+
+  it("accepts a sufficiently long multi-word span at whole-word boundaries", () => {
+    expect(
+      claimsFromAnswer(
+        answer([claim("dog-friendly", "Dogs are welcome")]),
+        INPUT,
+        "model-test",
+      ),
+    ).toEqual([expect.objectContaining({ key: "dog-friendly", evidence: "Dogs are welcome" })]);
+  });
+
   it("drops non-verbatim spans, wrong source buckets, unrequested keys and keys outside the vocabulary", () => {
     const claims = claimsFromAnswer(
       answer([
@@ -50,7 +107,7 @@ describe("inference answer validation", () => {
     const claims = claimsFromAnswer(
       answer([
         { key: "dog-friendly", lean: "yes", confidence: 0.99, evidence: "Quiet Garden Café", evidenceSource: "name_category", value: null },
-        { key: "wheelchair-accessible", lean: "yes", confidence: 0.99, evidence: "step-free access", evidenceSource: "description_website", value: null },
+        { key: "wheelchair-accessible", lean: "yes", confidence: 0.99, evidence: "calm courtyard", evidenceSource: "description_website", value: null },
         { key: "vegan-options", lean: "yes", confidence: 0.99, evidence: "Vegan bowl (VG)", evidenceSource: "menu", value: null },
         { key: "price-level", lean: "yes", confidence: 0.5, evidence: "Gluten-free cake", evidenceSource: "menu", value: 5 },
       ]),

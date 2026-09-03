@@ -1,4 +1,5 @@
 import {
+  ATTRIBUTE_LABELS,
   ATTRIBUTE_VOCABULARY,
   graded,
   type AttributeStatus,
@@ -64,7 +65,7 @@ export const INFERENCE_SCHEMA = {
           key: { type: "string", enum: [...INFERABLE_KEYS] },
           lean: { type: "string", enum: ["yes", "no"] },
           confidence: { type: "number", minimum: 0, maximum: 1 },
-          evidence: { type: "string", minLength: 1, maxLength: 240 },
+          evidence: { type: "string", minLength: 12, maxLength: 240 },
           evidenceSource: {
             type: "string",
             enum: ["name_category", "description_website", "menu"],
@@ -116,6 +117,29 @@ function evidencePools(input: InferInput): Record<EvidenceSource, string[]> {
   };
 }
 
+const WORD_CHARACTER = /[\p{L}\p{N}]/u;
+const WORDS = /[\p{L}\p{N}]+/gu;
+
+function hasWholeSpan(text: string, evidence: string): boolean {
+  let from = 0;
+  for (;;) {
+    const at = text.indexOf(evidence, from);
+    if (at < 0) return false;
+    const before = text.slice(0, at);
+    const after = text.slice(at + evidence.length);
+    const leftIsWord = WORD_CHARACTER.test([...before].at(-1) ?? "");
+    const rightIsWord = WORD_CHARACTER.test([...after][0] ?? "");
+    if (!leftIsWord && !rightIsWord) return true;
+    from = at + 1;
+  }
+}
+
+function echoesAttributeQuestion(key: InferableKey, evidence: string): boolean {
+  const needle = evidence.toLocaleLowerCase();
+  const label = ATTRIBUTE_LABELS[key]?.toLocaleLowerCase() ?? "";
+  return key.toLocaleLowerCase().includes(needle) || label.includes(needle);
+}
+
 export function inferenceEnabled(): boolean {
   return (
     process.env.ENRICH_NETWORK !== "0" &&
@@ -148,7 +172,9 @@ export function claimsFromAnswer(
     const evidenceSource = String(raw.evidenceSource ?? "") as EvidenceSource;
     if (!(evidenceSource in INFERENCE_CONFIDENCE_CAPS)) continue;
     const evidence = normalizeEvidence(String(raw.evidence ?? ""));
-    if (!evidence || !pools[evidenceSource].some((text) => text.includes(evidence))) continue;
+    if (evidence.length < 12 || (evidence.match(WORDS)?.length ?? 0) < 2) continue;
+    if (echoesAttributeQuestion(key as InferableKey, evidence)) continue;
+    if (!pools[evidenceSource].some((text) => hasWholeSpan(text, evidence))) continue;
     const rawConfidence = Number(raw.confidence);
     if (!Number.isFinite(rawConfidence) || rawConfidence <= 0) continue;
     const confidence = Math.min(rawConfidence, INFERENCE_CONFIDENCE_CAPS[evidenceSource]);

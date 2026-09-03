@@ -129,6 +129,37 @@ describe("look_up_places route and dossier privacy", () => {
     expect(owner.body.candidates[0].needs.filter((need) => need.private === true)).toEqual([
       { private: true, verdict: "no" },
     ]);
+
+    const organizerPrivateId = String(
+      (
+        await room.pool.query(
+          `SELECT id FROM requirements
+            WHERE room_id = $1 AND owner_id = $2 AND visibility = 'application-private'
+            ORDER BY created_at_revision DESC LIMIT 1`,
+          [room.roomId, room.participantIds.org],
+        )
+      ).rows[0].id,
+    );
+    expect(
+      await command(room.tokens.org, "SetRequirementActive", {
+        requirementId: organizerPrivateId,
+        active: false,
+      }),
+    ).toMatchObject({ ok: true });
+    const afterSetAside = await apiPost<{
+      candidates: Array<{ needs: Array<Record<string, unknown>> }>;
+    }>(server.baseUrl, "/api/spatial/inspect", room.tokens.joe, { candidateIds: [candidateId] });
+    expect(afterSetAside.body.candidates[0].needs.filter((need) => need.private === true)).toEqual([
+      { private: true, verdict: "unknown" },
+    ]);
+    const organizerView = await apiPost<{
+      candidates: Array<{ needs: Array<Record<string, unknown>> }>;
+    }>(server.baseUrl, "/api/spatial/inspect", room.tokens.org, { candidateIds: [candidateId] });
+    expect(
+      organizerView.body.candidates[0].needs.some(
+        (need) => need.requirementId === organizerPrivateId,
+      ),
+    ).toBe(false);
   });
 
   it("limits each participant to a six-token lookup bucket per minute", async () => {
