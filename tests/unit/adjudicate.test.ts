@@ -59,7 +59,7 @@ function result(
   publisher: "venue" | "chain" | "third_party" | "unknown",
   quote = verdict === "unclear" ? "" : "Hunde sind in allen Restaurants von HANS IM GLÜCK herzlich willkommen",
 ) {
-  return { results: [{ cell: 0, verdict, explicit, publisher, quote }] };
+  return { results: [{ verdict, explicit, publisher, quote }] };
 }
 
 describe("focused evidence adjudication", () => {
@@ -67,7 +67,7 @@ describe("focused evidence adjudication", () => {
     expect(ADJUDICATION_SCHEMA.additionalProperties).toBe(false);
     expect(ADJUDICATION_SCHEMA.properties.results.items.additionalProperties).toBe(false);
     expect(ADJUDICATION_SCHEMA.properties.results.items.required).toEqual([
-      "cell", "verdict", "explicit", "publisher", "quote",
+      "verdict", "explicit", "publisher", "quote",
     ]);
     expect(ADJUDICATION_PROMPT).toContain("single evidence span");
   });
@@ -153,11 +153,11 @@ describe("focused evidence adjudication", () => {
 
   it("scriptedly adjudicates five representative cells", () => {
     const fixtures = [
-      { evidence: "Dogs are welcome at all HANS IM GLÜCK restaurants", verdict: "yes" as const, publisher: "chain" as const, expected: "verified_true", own: true },
-      { evidence: "This is a completely smoke-free restaurant", verdict: "no" as const, publisher: "venue" as const, expected: "verified_false", own: true },
-      { evidence: "Reviewers praise the sheltered outdoor terrace", verdict: "yes" as const, publisher: "third_party" as const, expected: "likely_true", own: false },
-      { evidence: "This restaurant does not offer delivery", verdict: "no" as const, publisher: "third_party" as const, expected: "likely_false", own: false },
-      { evidence: "Ask our team about connectivity options", verdict: "unclear" as const, publisher: "unknown" as const, expected: "likely_true", own: false },
+      { criterionId: "dog-friendly", label: "dogs welcome", evidence: "Dogs are welcome at all HANS IM GLÜCK restaurants", verdict: "yes" as const, publisher: "chain" as const, expected: "verified_true", own: true },
+      { criterionId: "smoking", label: "smoking allowed", evidence: "This is a completely smoke-free restaurant", verdict: "no" as const, publisher: "venue" as const, expected: "verified_false", own: true },
+      { criterionId: "outdoor-seating", label: "outdoor seating", evidence: "Reviewers praise the sheltered outdoor terrace", verdict: "yes" as const, publisher: "third_party" as const, expected: "likely_true", own: false },
+      { criterionId: "delivery", label: "delivery", evidence: "This restaurant does not offer delivery", verdict: "no" as const, publisher: "third_party" as const, expected: "likely_false", own: false },
+      { criterionId: "wifi", label: "free wifi", evidence: "Ask our team about connectivity options", verdict: "unclear" as const, publisher: "unknown" as const, expected: "likely_true", own: false },
     ];
     const cells = fixtures.map((fixture, index) => {
       const url = fixture.own
@@ -167,6 +167,8 @@ describe("focused evidence adjudication", () => {
       const base = cell();
       return cell({
         candidateId: `sample-${index}`,
+        criterionId: fixture.criterionId,
+        criterion: { kind: "key", label: fixture.label },
         evidence: fixture.evidence,
         context: `Context before. ${fixture.evidence}. Context after.`,
         url,
@@ -182,8 +184,7 @@ describe("focused evidence adjudication", () => {
       });
     });
     const outcomes = adjudicationOutcomesFromAnswer({
-      results: fixtures.map((fixture, index) => ({
-        cell: index,
+      results: fixtures.map((fixture) => ({
         verdict: fixture.verdict,
         explicit: fixture.verdict !== "unclear",
         publisher: fixture.publisher,

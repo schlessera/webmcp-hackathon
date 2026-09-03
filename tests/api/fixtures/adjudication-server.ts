@@ -12,8 +12,7 @@ setTransport(async (body) => {
         content: [{
           type: "output_text",
           text: JSON.stringify({
-            results: input.cells.map((cell, index) => ({
-              cell: index,
+            results: input.cells.map((cell) => ({
               verdict: "yes",
               explicit: true,
               publisher: "chain",

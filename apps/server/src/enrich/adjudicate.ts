@@ -41,7 +41,6 @@ export interface AdjudicationCell {
 }
 
 export interface AdjudicationDraft {
-  cell: number;
   verdict: AdjudicationVerdict;
   explicit: boolean;
   publisher: Publisher;
@@ -66,9 +65,8 @@ export const ADJUDICATION_SCHEMA = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["cell", "verdict", "explicit", "publisher", "quote"],
+        required: ["verdict", "explicit", "publisher", "quote"],
         properties: {
-          cell: { type: "integer", minimum: 0 },
           verdict: { type: "string", enum: ["yes", "no", "unclear"] },
           explicit: { type: "boolean" },
           publisher: {
@@ -84,7 +82,7 @@ export const ADJUDICATION_SCHEMA = {
 
 export const ADJUDICATION_PROMPT = [
   "Re-read each single evidence span in its nearby page context for the stated planning criterion.",
-  "Return exactly one result for every numbered cell. Judge only that cell; do not use outside knowledge.",
+  "Return exactly one result for every numbered cell, in the same order. Judge only that cell; do not use outside knowledge.",
   "verdict=yes or verdict=no only when the context directly answers the criterion. Use verdict=unclear for ambiguity, silence, or merely related wording.",
   "explicit=true only when the quoted words state the answer outright rather than requiring an inference.",
   "publisher=venue when the page speaks as that individual place, chain when it speaks as the place's brand or chain, third_party when another publisher describes it, and unknown when authorship is not established.",
@@ -272,10 +270,9 @@ export function adjudicationOutcomesFromAnswer(
   if (!Array.isArray(drafts)) return [];
   const seen = new Set<number>();
   const outcomes: AdjudicationOutcome[] = [];
-  for (const raw of drafts as Array<Partial<AdjudicationDraft>>) {
-    if (!raw || typeof raw !== "object" || !Number.isInteger(raw.cell)) continue;
-    const index = Number(raw.cell);
-    if (seen.has(index) || index < 0 || index >= cells.length) continue;
+  for (const [index, raw] of (drafts as Array<Partial<AdjudicationDraft>>).entries()) {
+    if (!raw || typeof raw !== "object" || index >= cells.length) continue;
+    if (seen.has(index)) continue;
     seen.add(index);
     if (raw.verdict !== "yes" && raw.verdict !== "no" && raw.verdict !== "unclear") continue;
     if (typeof raw.explicit !== "boolean") continue;
@@ -287,7 +284,7 @@ export function adjudicationOutcomesFromAnswer(
     const quote = sanitizeInferenceNote(String(raw.quote ?? ""));
     if (raw.verdict !== "unclear" && (!quote || !hasWholeSpan(cell.context, quote))) continue;
     const publisher = validatedPublisher(raw.publisher, cell);
-    const draft = { ...raw, cell: index, quote } as AdjudicationDraft;
+    const draft = { ...raw, quote } as AdjudicationDraft;
     outcomes.push({
       ...draft,
       candidateId: cell.candidateId,
