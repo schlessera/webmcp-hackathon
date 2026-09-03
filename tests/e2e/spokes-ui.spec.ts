@@ -67,11 +67,15 @@ type MockContext = {
   feasibility: {
     state: "feasible" | "fragile" | "infeasible" | "uncertain";
     eligible: number;
+    likely?: number;
     uncertain: number;
+    unlikely?: number;
     excluded: number;
   };
   total: number;
   matching: number;
+  /** Places a guess says would work (§8.2). Absent in most fixtures. */
+  likely?: number;
   candidates: Candidate[];
   facets: Array<Record<string, unknown>>;
   activeNeeds: Need[];
@@ -3160,4 +3164,93 @@ test("the suggestion pills scroll sideways only, never up and down", async ({ br
   await expect(row).toHaveAttribute("data-overflow", "left");
   expect(await row.evaluate((el) => el.scrollLeft)).toBeGreaterThan(0);
   await browserContext.close();
+});
+
+test("the big number counts likely places with the confirmed ones and the subline breaks it down", async ({ page }) => {
+  // The default eligible ids sit outside an 800m scope, so name the places
+  // this fixture wants counted.
+  const context = fixture({
+    eligibleIds: ["place_1", "place_2"],
+    uncertainIds: ["place_4", "place_5", "place_6"],
+    revision: 41,
+  });
+  // Three in-scope places the room only has a guess about.
+  const guessed = context.candidates
+    .filter(
+      (candidate) =>
+        candidate.eligibility === "excluded" &&
+        haversineMeters(center, candidate.location) <= context.scope.area.radiusM,
+    )
+    .slice(0, 3);
+  for (const candidate of guessed) {
+    candidate.eligibility = "likely";
+    candidate.why = "a word on the menu says so";
+  }
+  context.likely = guessed.length;
+  context.feasibility.likely = guessed.length;
+  context.feasibility.excluded -= guessed.length;
+  context.activeNeeds = [
+    {
+      id: "need-veg",
+      label: "vegetarian options",
+      ruledOut: 6,
+      wouldReturn: 3,
+      unknown: 2,
+      active: true,
+      visibility: "shared",
+      hardness: "hard",
+      ownerId: "p_org",
+    },
+  ];
+  await mockApi(page, { context, outstanding: [] });
+  const socket = await scriptedSocket(page, 41);
+  await page.goto(`${BASE}/#invite=deadbeef`);
+  await socket.welcomed;
+
+  // Two confirmed and three likely: the room is told five still work, and the
+  // subline says which part of the five is a guess.
+  await expect(page.getByTestId("count-number")).toHaveText("5");
+  await expect(page.getByTestId("count-block")).toHaveAttribute("data-state", "works");
+  await expect(page.getByTestId("count-block")).toContainText(
+    `of ${context.total} · 3 of them likely · 3 unsure`,
+  );
+  // The header and the brief's live region say the same number.
+  await expect(page.getByTestId("room-subtitle")).toContainText("5 still work");
+  await expect(page.locator("#brief-preview-count")).toHaveText("5 still work");
+});
+
+test("a room with only guesses left is not an impasse", async ({ page }) => {
+  const context = fixture({ eligibleIds: [], revision: 42 });
+  const guessed = context.candidates
+    .filter(
+      (candidate) => haversineMeters(center, candidate.location) <= context.scope.area.radiusM,
+    )
+    .slice(0, 2);
+  for (const candidate of guessed) candidate.eligibility = "likely";
+  context.likely = guessed.length;
+  context.feasibility.likely = guessed.length;
+  context.feasibility.excluded -= guessed.length;
+  context.activeNeeds = [
+    {
+      id: "need-veg",
+      label: "vegetarian options",
+      ruledOut: 19,
+      wouldReturn: 4,
+      unknown: 0,
+      active: true,
+      visibility: "shared",
+      hardness: "hard",
+      ownerId: "p_org",
+    },
+  ];
+  await mockApi(page, { context, outstanding: [] });
+  const socket = await scriptedSocket(page, 42);
+  await page.goto(`${BASE}/#invite=deadbeef`);
+  await socket.welcomed;
+
+  // Nothing is confirmed, but two places are likely: the block counts them
+  // and keeps its works colour rather than turning unsure.
+  await expect(page.getByTestId("count-number")).toHaveText("2");
+  await expect(page.getByTestId("count-block")).toHaveAttribute("data-state", "works");
+  await expect(page.getByTestId("count-block")).toContainText("2 of them likely");
 });

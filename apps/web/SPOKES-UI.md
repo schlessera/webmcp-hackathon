@@ -209,8 +209,15 @@ Top-left, 14px inset, rotated −2°, `--spoke-radius-block`, `--spoke-shadow-li
 ```
 6            ← 30px display, 800
 still work   ← 11px, two lines
-of 34 · 3 unsure   ← 10px mono
+of 34 · 4 of them likely · 3 unsure   ← 10px mono
 ```
+
+The big number is confirmed plus likely: a guess with a reason is an option
+the room can act on. The subline breaks that number down ("4 of them likely"),
+and unsure and unlikely stay counted apart from it. The wire keeps
+`matching` eligible-only (SPATIAL-PROTOCOL §8.2); the sum is a display
+decision, made in the client. The delta chip stays on the eligible-only
+base, so its `+3` and `−19` are about confirmed gain and loss.
 
 - Normal: `--spoke-works` fill, cream text.
 - Impasse (0): `--spoke-unsure` fill.

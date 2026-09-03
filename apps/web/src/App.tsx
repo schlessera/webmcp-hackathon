@@ -611,10 +611,13 @@ export function App() {
   useEffect(() => {
     const pending = pendingOrigin.current;
     if (!pending || !rawContext || rawContext.revision < pending.revision) return;
-    const delta = rawContext.matching - pending.before;
+    /* Counted the way the map counts (CLAUDE.md "Graded evidence"):
+       confirmed plus likely. */
+    const worksNow = rawContext.matching + (rawContext.likely ?? 0);
+    const delta = worksNow - pending.before;
     const signed = delta > 0 ? `, +${delta}` : delta < 0 ? `, −${Math.abs(delta)}` : "";
     setOriginAnnouncement(
-      `Starting point updated. ${rawContext.matching} ${stillWorkVerb(rawContext.matching)}${signed}.`,
+      `Starting point updated. ${worksNow} ${stillWorkVerb(worksNow)}${signed}.`,
     );
     pendingOrigin.current = null;
   }, [rawContext]);
@@ -626,7 +629,8 @@ export function App() {
       label?: string,
       announce = true,
     ): Promise<boolean> => {
-      const before = spatial.state.context?.matching ?? 0;
+      const before =
+        (spatial.state.context?.matching ?? 0) + (spatial.state.context?.likely ?? 0);
       if (announce) {
         pendingOrigin.current = { before, revision: Number.POSITIVE_INFINITY };
       }
@@ -791,7 +795,10 @@ export function App() {
   const settled = committedId !== null;
   const impasse = context?.impasse?.active === true;
   const shown = spatialState.preview ?? context;
-  const matching = shown?.matching ?? 0;
+  /* The header, the brief's live count and the map's big number all say the
+     same thing: confirmed plus likely (user decision, 2026-09-03). The wire's
+     `matching` stays eligible-only. */
+  const works = (shown?.matching ?? 0) + (shown?.likely ?? 0);
   const busySet = new Set(spatialState.busy);
   const pendingNeeds = spatialState.pendingNeeds;
 
@@ -829,7 +836,7 @@ export function App() {
           : activeNeeds.length === 0
             ? { text: `${numberWord(here)} in the room`, tone: "quiet" }
             : {
-                text: `${numberWord(here)} in the room · ${matching} ${stillWorkVerb(matching)}`,
+                text: `${numberWord(here)} in the room · ${works} ${stillWorkVerb(works)}`,
                 tone: "quiet",
               };
 
@@ -986,7 +993,7 @@ export function App() {
               pendingNeeds={pendingNeeds}
               busyCount={busySet.size}
               noPlaces={context !== null && context.candidates.length === 0}
-              matching={matching}
+              works={works}
               onToggle={toggleNeed}
               onHoldStart={(n) => spatial.startPreview(n.id)}
               onHoldEnd={() => spatial.endPreview()}

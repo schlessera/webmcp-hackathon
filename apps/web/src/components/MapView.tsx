@@ -1657,11 +1657,14 @@ export function MapView({
   const matching = shown.matching;
   const total = shown.total;
   const unsure = shown.feasibility.uncertain;
-  /* Guesses are counted apart (§8.2): "4 likely" beside "3 unsure", never
-     folded into the big number. */
   const likely = shown.likely ?? 0;
   const unlikely = shown.feasibility.unlikely ?? 0;
-  const guessed = `${likely > 0 ? ` · ${likely} likely` : ""}${unsure > 0 ? ` · ${unsure} unsure` : ""}${
+  /* What the room is told still works: confirmed plus likely (user decision,
+     2026-09-03). `matching` keeps the wire's eligible-only meaning — a guess
+     still never rules a place out and never makes a room feasible. The
+     subline breaks the number down rather than adding to it. */
+  const works = matching + likely;
+  const guessed = `${likely > 0 ? ` · ${likely} of them likely` : ""}${unsure > 0 ? ` · ${unsure} unsure` : ""}${
     unlikely > 0 ? ` · ${unlikely} unlikely` : ""
   }`;
   const statedNeeds = context.activeNeeds.filter((n) => n.active);
@@ -1752,9 +1755,9 @@ export function MapView({
     ? "settled"
     : preNeed
       ? "pre"
-      : matching === 0 && (unsure === 0 || declared)
+      : works === 0 && (unsure === 0 || declared)
         ? "impasse"
-        : matching === 0
+        : works === 0
           ? "pending"
           : "works";
 
@@ -2439,11 +2442,11 @@ export function MapView({
         ) : (
           <>
             <div className="count-head">
-              <span className="count-number" data-testid="count-number">{matching}</span>
+              <span className="count-number" data-testid="count-number">{works}</span>
               <span className="count-label">
-                {stillWorkVerb(matching).split(" ")[0]}
+                {stillWorkVerb(works).split(" ")[0]}
                 <br />
-                {stillWorkVerb(matching).split(" ")[1]}
+                {stillWorkVerb(works).split(" ")[1]}
               </span>
             </div>
             <div className="count-sub">

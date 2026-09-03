@@ -461,11 +461,17 @@ per candidate, over every active hard need:
 precedence: excluded > unlikely > uncertain > likely > eligible
 ```
 
-`likely` and `unlikely` are drawn (dashed mark), counted ("6 still work ·
-4 likely · 3 unsure") and explained ("vegan options likely") apart from
-eligible and excluded, never folded in. `matching` and the impasse
-arithmetic count `eligible` only: a guess never makes a room feasible and
-never rules a place out. The candidate's `confidence` travels on the wire.
+`likely` and `unlikely` are drawn (dashed mark) and explained ("vegan
+options likely") apart from eligible and excluded. `matching`, the impasse
+arithmetic and the relaxation deltas count `eligible` only: a guess never
+makes a room feasible and never rules a place out. The candidate's
+`confidence` travels on the wire.
+
+Display differs from the wire, deliberately. The client's big number is
+`matching + likely` — a guess with a reason is an option the room can act on
+— and the subline breaks it down ("of 34 · 4 of them likely · 3 unsure").
+The sum is computed in the client; no field on the wire carries it, and
+`matching` keeps its eligible-only meaning for every other consumer.
 
 Precedence of sources when a dossier is read: the record (`osm:*`,
 `curated:*`), then looked-up facts (`web:*`, `wikidata:*`) into open slots,

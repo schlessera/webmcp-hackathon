@@ -47,19 +47,22 @@ The count block is the single most-read element. Always **absolute, never
 percentage**, and always paired with the total on second line.
 
 ```
-6            of 34 · 3 unsure
+6            of 34 · 4 of them likely · 3 unsure
 still work
 ```
 
 - 0 → the block turns `--spoke-unsure` and reads `0 / still work`, with the
   subline naming the collision: "two needs collide".
 - 1 → "1 still works" (verb agrees).
+- The big number counts confirmed places **and** likely ones: a guess with a
+  reason is still an option the room can act on. The subline breaks that
+  number down — "4 of them likely" is part of the six, never an addition to
+  it. **likely** and **unlikely** are the only words for a guess; never
+  "probably", "maybe", "estimated". A guess is drawn dashed.
 - Unknowns are counted separately and never folded into the total:
   "3 unsure" means the data is missing, **not** that the place failed.
-- Guesses are counted apart too: "4 likely" means a guess with a reason
-  (a word on the menu, the kind of place) says these would work. **likely**
-  and **unlikely** are the only words for a guess; never "probably",
-  "maybe", "estimated". A guess is drawn dashed.
+- Unlikely places are counted apart as well: "2 unlikely" reads beside the
+  total, and a guess leaning against a need never rules a place out.
 
 ## Deltas
 
@@ -68,6 +71,10 @@ Always signed, always relative to the current set, never a percentage.
 - `−19` a need ruled out 19 places
 - `+3` relaxing this would bring back 3
 - `34→15` in a history row
+
+Deltas count confirmed places only, while the big number also counts likely
+ones. The room computes what a need ruled out and what relaxing it would
+bring back on verified evidence alone, so a guess never moves a delta.
 
 Phrase the offer as a consequence, not an instruction:
 "**+3** if 'step-free' went optional" — not "Relax step-free to see more".
