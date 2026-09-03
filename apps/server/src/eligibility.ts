@@ -1,6 +1,17 @@
 import type pg from "pg";
 import type { Feasibility } from "@webmcp-hackathon/contracts";
-import { ATTRIBUTE_LABELS, PRICE_LEVEL_EUR, leans, isVerified, normalizeStatus } from "@webmcp-hackathon/contracts";
+import {
+  ATTRIBUTE_LABELS,
+  PRICE_LEVEL_EUR,
+  DISH_TOKENS,
+  criterionFor,
+  implies,
+  isVerified,
+  leans,
+  normalizeCuisineTokens,
+  normalizeStatus,
+  questionKey,
+} from "@webmcp-hackathon/contracts";
 import { applyAttestations, loadAttestations } from "./attestations.ts";
 import { applyEnrichmentAttributes, loadCached } from "./enrich/index.ts";
 import { applyInferredAttributes } from "./enrich/infer.ts";
@@ -21,15 +32,12 @@ const labelOf = (key: string | undefined): string =>
  *   confidences it rests on — counted and drawn apart, never folded in;
  * - budget compares perPersonMax against the PRICE_LEVEL_EUR band for the
  *   candidate's price level;
- * - cuisine exclusions match the candidate's cuisine attribute value
- *   (tokenized on ';' — OSM multi-values like "pizza;italian"), falling back
- *   to its category; cuisine inclusions require a verified cuisine token
- *   among the wanted values, and a place with no cuisine on record is
- *   uncertain, never excluded;
+ * - cuisine predicates normalize OSM multi-values and use the sourced
+ *   implication taxonomy. Implications may add a place but never rule one
+ *   out; missing cuisine evidence stays uncertain;
  * - agent-private declarations consult recorded screening verdicts:
  *   unacceptable -> excluded, missing/needs_info -> uncertain;
- * - free-text needs are unverifiable by construction: every candidate is
- *   pending against one, and none is excluded;
+ * - free-text needs read the stable question criterion in the dossier;
  * - inactive requirements (set aside by their owner) are skipped entirely;
  * - soft requirements never exclude.
  *
@@ -56,6 +64,7 @@ export interface CandidateRow {
   location: { lat: number; lng: number };
   attributes: Array<{
     key: string;
+    label?: string;
     status: string;
     value?: string | number;
     source?: string;
@@ -124,6 +133,8 @@ export interface CandidateEligibility {
   uncertainReasons?: EligibilityReason[];
   /** Present when likely / unlikely: the guesses it rests on (§8.2). */
   likelyReasons?: EligibilityReason[];
+  /** Reader-facing positive evidence used by eligible rows. */
+  satisfiedReasons?: EligibilityReason[];
   /** Present when likely / unlikely: product of the confidences of those guesses. */
   confidence?: number;
   walkMin: number;
@@ -167,7 +178,53 @@ export function whyFor(row: CandidateEligibility, viewerId: string): string {
     if (hasHiddenPrivate) parts.push(PRIVATE_PENDING);
     return parts.join("; ").slice(0, 120);
   }
+  const satisfied = (row.satisfiedReasons ?? [])
+    .filter((r) => r.shared || r.ownerId === viewerId)
+    .map((r) => r.text);
+  if (satisfied.length > 0) return [...new Set(satisfied)].join("; ").slice(0, 120);
   return "clears every need on record";
+}
+
+/**
+ * A cuisine token as a reader sees it. A dish is a common noun and stays
+ * lowercase ("serves pizza"); a token that names a people or a place keeps
+ * its capital ("Italian", "Middle Eastern") — sentence case, CLAUDE.md 12.
+ */
+function humanizeCuisine(value: string): string {
+  const words = value.replace(/[_-]+/g, " ").trim();
+  if (DISH_TOKENS.has(value)) return words;
+  return words.replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+interface CuisineHit {
+  token: string;
+  wanted: string;
+  confidence: number;
+  exact: boolean;
+}
+
+function cuisineHit(tokens: string[], values: string[] | undefined): CuisineHit | null {
+  const wanted = normalizeCuisineTokens(values ?? []);
+  for (const token of tokens) {
+    if (wanted.includes(token)) return { token, wanted: token, confidence: 1, exact: true };
+  }
+  let best: CuisineHit | null = null;
+  for (const token of tokens) {
+    for (const implication of implies(token)) {
+      if (!wanted.includes(implication.cuisine)) continue;
+      if (!best || implication.confidence > best.confidence) {
+        best = { token, wanted: implication.cuisine, confidence: implication.confidence, exact: false };
+      }
+    }
+  }
+  return best;
+}
+
+function cuisineEvidence(hit: CuisineHit, likely = false): string {
+  const wanted = humanizeCuisine(hit.wanted);
+  return hit.exact
+    ? `serves ${wanted}`
+    : `serves ${humanizeCuisine(hit.token)}, which is ${likely ? "likely" : "usually"} ${wanted}`;
 }
 
 export function haversineMeters(
@@ -305,6 +362,7 @@ function classify(
   scope: ScopeState | null,
 ): CandidateEligibility {
   const pending: EligibilityReason[] = [];
+  const satisfied: EligibilityReason[] = [];
   // Guesses this place rests on (§8.2): each with its lean and confidence.
   const likely: Array<EligibilityReason & { lean: boolean; confidence: number }> = [];
 
@@ -428,9 +486,36 @@ function classify(
         break;
       }
       case "text": {
-        // Nothing has been checked against free text, so nothing may pass on
-        // it and nothing may be ruled out by it.
-        pending.push({ ...owner, text: `"${p.text}" unverified` });
+        // A stored text payload carries its sentence; without one there is no
+        // question to ask, so the place stays uncertain rather than passing.
+        if (typeof p.text !== "string" || !p.text.trim()) {
+          pending.push({ ...owner, text: "unevaluated requirement" });
+          break;
+        }
+        const criterion = criterionFor(p as never);
+        const attr = candidate.attributes.find((a) => a.key === questionKey(p.text as string));
+        const status = attr?.status ?? "unknown";
+        const label = criterion?.label ?? p.text.trim();
+        const lean = leans(status);
+        if (lean === null) {
+          pending.push({ ...owner, text: `${label} not known` });
+        } else {
+          // A question is verified only by a person's attestation. Inference
+          // and web evidence remain likely even if malformed stored data says
+          // verified, so a model can never silently acquire decisive force.
+          const attested = Boolean(attr?.attestedBy);
+          if (isVerified(status) && attested) {
+            if (lean) satisfied.push({ ...owner, text: label });
+            else return excluded(candidate, { ...owner, text: `${label} is not confirmed` });
+          } else {
+            likely.push({
+              ...owner,
+              lean,
+              confidence: attr?.confidence ?? 0.5,
+              text: `${label} ${lean ? "likely" : "unlikely"}`,
+            });
+          }
+        }
         break;
       }
       case "inclusion": {
@@ -439,43 +524,68 @@ function classify(
           const known = attr?.status === "verified_true" || attr?.status === "likely_true";
           const tokens =
             known && typeof attr?.value === "string"
-              ? attr.value.split(";").map((t) => t.trim()).filter(Boolean)
+              ? normalizeCuisineTokens(attr.value)
               : [];
+          const hit = cuisineHit(tokens, p.values);
+          const wanted = normalizeCuisineTokens(p.values ?? []).map(humanizeCuisine).join(" or ");
           if (tokens.length === 0) {
-            pending.push({ ...owner, text: "cuisine not on record" });
-          } else if (!tokens.some((t) => p.values?.includes(t))) {
+            pending.push({ ...owner, text: "cuisine not known" });
+          } else if (!hit) {
             if (attr?.status === "likely_true") {
-              likely.push({ ...owner, lean: false, confidence: attr.confidence ?? 0.5, text: `probably not ${(p.values ?? []).join(" or ")}` });
+              likely.push({
+                ...owner,
+                lean: false,
+                confidence: attr.confidence ?? 0.5,
+                text: `likely does not serve ${wanted || "the requested cuisine"}`,
+              });
             } else {
-              return excluded(candidate, { ...owner, text: `not ${(p.values ?? []).join(" or ")}` });
+              return excluded(candidate, { ...owner, text: `does not serve ${wanted || "the requested cuisine"}` });
             }
-          } else if (attr?.status === "likely_true") {
-            likely.push({ ...owner, lean: true, confidence: attr.confidence ?? 0.5, text: `probably ${(p.values ?? []).join(" or ")}` });
+          } else if (attr?.status === "likely_true" || (!hit.exact && hit.confidence < 0.7)) {
+            likely.push({
+              ...owner,
+              lean: true,
+              confidence: attr?.status === "likely_true"
+                ? (attr.confidence ?? 0.5) * hit.confidence
+                : hit.confidence,
+              text: attr?.status === "likely_true"
+                ? `likely serves ${humanizeCuisine(hit.wanted)}`
+                : cuisineEvidence(hit, true),
+            });
+          } else {
+            satisfied.push({ ...owner, text: cuisineEvidence(hit) });
           }
         } else {
-          pending.push({ ...owner, text: "cuisine not on record" });
+          pending.push({ ...owner, text: "cuisine not known" });
         }
         break;
       }
       case "exclusion": {
         if (p.key === "cuisine") {
           const attr = candidate.attributes.find((a) => a.key === "cuisine");
-          // OSM cuisine tags are multi-valued ("pizza;italian"): match per
-          // token, never against the raw joined string.
           const tokens =
             typeof attr?.value === "string"
-              ? attr.value.split(";").map((t) => t.trim()).filter(Boolean)
-              : [candidate.category];
-          const hit = tokens.find((t) => p.values?.includes(t));
+              ? normalizeCuisineTokens(attr.value)
+              : normalizeCuisineTokens(candidate.category);
+          const hit = cuisineHit(tokens, p.values);
           if (hit) {
-            if (attr?.status === "likely_true") {
-              likely.push({ ...owner, lean: false, confidence: attr.confidence ?? 0.5, text: `probably ${hit}` });
+            if (attr?.status === "likely_true" || !hit.exact) {
+              // An implication may add a place to a set but must never rule
+              // one out. Even high-confidence implied exclusions stay unlikely.
+              likely.push({
+                ...owner,
+                lean: false,
+                confidence: (attr?.status === "likely_true" ? attr.confidence ?? 0.5 : 1) * hit.confidence,
+                text: attr?.status === "likely_true"
+                  ? `likely serves ${humanizeCuisine(hit.wanted)}`
+                  : cuisineEvidence(hit),
+              });
             } else {
-              return excluded(candidate, { ...owner, text: `excluded ${hit}` });
+              return excluded(candidate, { ...owner, text: cuisineEvidence(hit) });
             }
           }
         } else {
-          pending.push({ ...owner, text: "cuisine not on record" });
+          pending.push({ ...owner, text: "cuisine not known" });
         }
         break;
       }
@@ -512,7 +622,11 @@ function classify(
       confidence: product(likely),
     };
   }
-  return { ...base(candidate), eligibility: "eligible" };
+  return {
+    ...base(candidate),
+    eligibility: "eligible",
+    ...(satisfied.length ? { satisfiedReasons: satisfied } : {}),
+  };
 }
 
 const strip = (l: EligibilityReason & { lean: boolean; confidence: number }): EligibilityReason => ({

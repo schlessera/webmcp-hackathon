@@ -105,6 +105,20 @@ describe("say: draft → payloads", () => {
     ]);
   });
 
+  it("accepts a case-varied cuisine value published through taxonomy implications", async () => {
+    scripted({
+      intent: "need",
+      reply: null,
+      needs: [
+        { kind: "inclusion", attributeKey: null, expect: null, amountEur: null, walkMin: null, excludeValues: [], includeValues: ["Italian"], text: null, topic: null, gist: "italian" },
+      ],
+    });
+    const out = await say("Italian", "shared", context);
+    expect(out.needs[0].payload).toEqual({
+      kind: "inclusion", key: "cuisine", values: ["italian"], lifetime: "session",
+    });
+  });
+
   it("a need intent with nothing usable reads as unclear; ask and act carry no needs", async () => {
     scripted({ intent: "need", reply: null, needs: [] });
     expect((await say("hmm", "shared", context)).intent).toBe("unclear");

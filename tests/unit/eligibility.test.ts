@@ -17,6 +17,7 @@ import {
   minimalConflictSet,
   screeningPending,
 } from "../../apps/server/src/impasse.ts";
+import { questionKey } from "../../packages/contracts/src/criteria.ts";
 
 /** Lane 1 additions: deterministic eligibility + impasse math, incl. the real
  * Berlin Mitte dataset the demo ships. */
@@ -159,7 +160,7 @@ describe("eligibility against the Berlin Mitte dataset", () => {
       null,
     );
     expect(rows[0].eligibility).toBe("excluded");
-    expect(whyFor(rows[0], "p_peer")).toBe("excluded italian");
+    expect(whyFor(rows[0], "p_peer")).toBe("serves Italian");
   });
 
   it("cuisine exclusion matches individual tokens of multi-valued OSM tags", () => {
@@ -178,7 +179,7 @@ describe("eligibility against the Berlin Mitte dataset", () => {
       null,
     );
     expect(rows[0].eligibility).toBe("excluded");
-    expect(whyFor(rows[0], "p_peer")).toBe("excluded italian");
+    expect(whyFor(rows[0], "p_peer")).toBe("serves Italian");
   });
 
   it("cuisine inclusion: a verified match passes, a verified mismatch is ruled out, no record is unsure", () => {
@@ -198,9 +199,45 @@ describe("eligibility against the Berlin Mitte dataset", () => {
     const by = Object.fromEntries(rows.map((r) => [r.candidateId, r]));
     expect(by.c_match.eligibility).toBe("eligible");
     expect(by.c_miss.eligibility).toBe("excluded");
-    expect(whyFor(by.c_miss, "p_peer")).toBe("not asian");
+    expect(whyFor(by.c_miss, "p_peer")).toBe("does not serve Asian");
     expect(by.c_none.eligibility).toBe("uncertain");
-    expect(whyFor(by.c_none, "p_peer")).toBe("cuisine not on record");
+    expect(whyFor(by.c_none, "p_peer")).toBe("cuisine not known");
+  });
+
+  it("uses cuisine implications to add places but never to exclude them", () => {
+    const pizza: CandidateRow = {
+      ...candidates[0], id: "c_pizza", category: "restaurant",
+      attributes: [{ key: "cuisine", status: "verified_true", value: "pizza" }],
+    };
+    const included = classifyAll(
+      [pizza],
+      [req({ kind: "inclusion", key: "cuisine", values: ["italian"], lifetime: "session" } as never)],
+      [], null,
+    )[0];
+    expect(included.eligibility).toBe("eligible");
+    expect(whyFor(included, "p_peer")).toBe("serves pizza, which is usually Italian");
+
+    const avoided = classifyAll(
+      [pizza],
+      [req({ kind: "exclusion", key: "cuisine", values: ["italian"], lifetime: "session" } as never)],
+      [], null,
+    )[0];
+    expect(avoided.eligibility).toBe("unlikely");
+    expect(whyFor(avoided, "p_peer")).toBe("serves pizza, which is usually Italian");
+  });
+
+  it("keeps a below-threshold cuisine implication likely", () => {
+    const curry: CandidateRow = {
+      ...candidates[0], id: "c_curry", category: "restaurant",
+      attributes: [{ key: "cuisine", status: "verified_true", value: "curry" }],
+    };
+    const row = classifyAll(
+      [curry],
+      [req({ kind: "inclusion", key: "cuisine", values: ["indian"], lifetime: "session" } as never)],
+      [], null,
+    )[0];
+    expect(row).toMatchObject({ eligibility: "likely", confidence: 0.6 });
+    expect(whyFor(row, "p_peer")).toBe("serves curry, which is likely Indian");
   });
 
   it("application-private exclusions never cite content in peer why-strings; owners see their own", () => {
@@ -225,7 +262,7 @@ describe("eligibility against the Berlin Mitte dataset", () => {
     }
   });
 
-  it("free text is unverifiable by construction: everything pending, nothing ruled out", () => {
+  it("a free-text question stays pending until its criterion has evidence", () => {
     const rows = classifyAll(
       candidates,
       [req({ kind: "text", text: "somewhere the kids can run" } as never)],
@@ -234,6 +271,33 @@ describe("eligibility against the Berlin Mitte dataset", () => {
     );
     expect(rows.every((r) => r.eligibility === "uncertain")).toBe(true);
     expect(whyFor(rows[0], "p_org")).toContain("somewhere the kids can run");
+  });
+
+  it("reads likely, unlikely, unknown, and attested evidence for a question criterion", () => {
+    const text = "somewhere the kids can run";
+    const key = questionKey(text);
+    const mk = (id: string, attributes: CandidateRow["attributes"]): CandidateRow => ({
+      ...candidates[0], id, attributes,
+    });
+    const rows = classifyAll(
+      [
+        mk("q_yes", [{ key, status: "likely_true", confidence: 0.55, source: "infer:model" }]),
+        mk("q_no", [{ key, status: "likely_false", confidence: 0.5, source: "web:search" }]),
+        mk("q_unknown", []),
+        mk("q_attested", [{ key, status: "verified_true", confidence: 0.9, source: "agent:p_sarah", attestedBy: "p_sarah" }]),
+      ],
+      [req({ kind: "text", text } as never)],
+      [], null,
+    );
+    const by = Object.fromEntries(rows.map((row) => [row.candidateId, row]));
+    expect(by.q_yes).toMatchObject({ eligibility: "likely", confidence: 0.55 });
+    expect(whyFor(by.q_yes, "p_peer")).toBe("somewhere the kids can run likely");
+    expect(by.q_no).toMatchObject({ eligibility: "unlikely", confidence: 0.5 });
+    expect(whyFor(by.q_no, "p_peer")).toBe("somewhere the kids can run unlikely");
+    expect(by.q_unknown.eligibility).toBe("uncertain");
+    expect(whyFor(by.q_unknown, "p_peer")).toBe("somewhere the kids can run not known");
+    expect(by.q_attested.eligibility).toBe("eligible");
+    expect(whyFor(by.q_attested, "p_peer")).toBe(text);
   });
 
   it("a need its owner set aside classifies nothing", () => {
