@@ -111,7 +111,12 @@ in sync results and spatial context is a summary row:
   "candidateId": "place_42", "name": "Garden Cafe Window",
   "eligibility": "eligible" | "uncertain" | "excluded",
   "why": "meets all shared requirements; 1 private screen pending", // redacted per §7
-  "walkMin": 6, "priceLevel": 2
+  "walkMin": 6, "priceLevel": 2, "imageCount": 1,
+  "image": {
+    "url": "/api/places/node/42/images/0",
+    "width": 960, "height": 640,
+    "blurhash": "LGF=X50Dx@x]G^IaM|-nyCRnaLt5"
+  }
 }
 ```
 
@@ -120,6 +125,10 @@ most 60 characters. Consumers MUST fall back to the structured `eligibility`
 state when it is absent. This is a backward-compatible payload reduction.
 Ordinary HTTP context responses also use content negotiation for gzip and
 Brotli; compression changes transport bytes, not the JSON contract.
+`image` is optional and is the same-origin `idx = 0` image only. It is omitted
+when the place has no image or that row has not received a blurhash yet;
+`imageCount` remains authoritative in either case. Agent projections keep the
+count and drop `image`.
 
 ## 5. Domain payloads for negotiation objects
 
@@ -211,6 +220,25 @@ map.
 The categorical hints an agent-private owner may reveal, one enum value, no
 free text: `dietary`, `accessibility`, `budget`, `distance`, `time`,
 `personal-history`, `atmosphere`, `other`.
+
+### 5.7 Candidate image payload measurement
+
+Measured 2026-09-03 from a serialized, completed 343-place Berlin context
+(compact JSON, no whitespace). The existing valid image cache supplied 76
+first images, or 22.16% coverage. A serialized `image` object was 110–115
+bytes (112.79 bytes mean); including its property name and separator added
+121.79 bytes per carrying candidate on average.
+
+| Coverage | Images | Uncompressed delta | Gzip delta |
+|---|---:|---:|---:|
+| Measured | 76 / 343 (22.16%) | 9,256 B | 2,881 B |
+| Every place | 343 / 343 | 41,813 B | 10,725 B |
+
+The measured coverage is below the +25 KB uncompressed target. The every-place
+case is not: it exceeds the target by 16,213 bytes (using 25 × 1,024 bytes).
+The worst-case row was measured by serializing the same real context with a
+same-origin route and a distinct valid 4 × 3 blurhash on every candidate, not
+by multiplying an average row size.
 
 ## 6. Spatial commands
 
