@@ -1,10 +1,11 @@
-import type React from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { PROTOCOL_VERSIONS, TOOL_CONTRACT_VERSION } from "@webmcp-hackathon/contracts";
 import { diagnostics, type DiagnosticsState } from "../diagnostics-store.ts";
 import type { SessionIdentity } from "../session.ts";
 import type { CommandEnvelope, SpatialContext } from "../spatial-types.ts";
 import type { LookupReason, PendingNeed } from "../spatial-store.ts";
 import { COPY } from "../ui/copy.ts";
+import { currentToken } from "../session.ts";
 
 /**
  * The `{ }` drawer.
@@ -42,7 +43,7 @@ function Section({
 }: {
   title: string;
   open?: boolean;
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   // The reader's own choice outlives the drawer (store, not DOM): a fold
   // closed before the drawer was dismissed is still closed when it returns.
@@ -75,6 +76,24 @@ export function Drawer({
   onClose,
   run,
 }: Props) {
+  const [lookups, setLookups] = useState<Array<Record<string, unknown>>>([]);
+  useEffect(() => {
+    const token = currentToken();
+    if (!token) return;
+    const controller = new AbortController();
+    void fetch("/api/diag/outbound", {
+      headers: { authorization: `Bearer ${token}` },
+      signal: controller.signal,
+    }).then(async (response) => {
+      if (!response.ok) return;
+      const body = await response.json() as { rows?: Array<Record<string, unknown>> };
+      setLookups((body.rows ?? []).slice(0, 20));
+    }).catch(() => {
+      /* Diagnostics are optional; the rest of the drawer remains useful. */
+    });
+    return () => controller.abort();
+  }, []);
+
   return (
     <div className="drawer" data-testid="diagnostics" role="dialog" aria-label="Under the hood">
       <button className="drawer-scrim" aria-label="Close" onClick={onClose} />
@@ -207,6 +226,12 @@ export function Drawer({
           <Section title="what crossed the wire" open>
             <pre className="drawer-log" data-testid="diag-log">
               {diagnostics.lines.join("\n")}
+            </pre>
+          </Section>
+
+          <Section title="Lookups">
+            <pre className="drawer-json" data-testid="diag-outbound">
+              {lookups.length ? JSON.stringify(lookups, null, 1) : "no outbound rows"}
             </pre>
           </Section>
 

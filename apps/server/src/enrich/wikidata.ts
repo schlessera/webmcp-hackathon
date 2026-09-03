@@ -7,6 +7,8 @@
  */
 
 import type { FetchLike } from "./website.ts";
+import { outboundFetchFor } from "../net/outbound.ts";
+import { config } from "../config.ts";
 
 export interface WikiFacts {
   id: string;
@@ -32,8 +34,7 @@ export interface CommonsImageCandidate {
   credit?: string;
 }
 
-const UA =
-  "spokes-enrich/0.1 (+https://github.com/schlessera/webmcp-hackathon; alain.schlesser@gmail.com)";
+const UA = config.identifyingUserAgent;
 const TIMEOUT_MS = 8000;
 
 /** The awards worth naming without a second lookup. */
@@ -132,7 +133,11 @@ export function parseCommonsImageInfo(
 export async function resolveCommonsImage(
   file: string,
   source: string,
-  fetchImpl: FetchLike = fetch,
+  fetchImpl: FetchLike = outboundFetchFor("commons", {
+    direct: true,
+    maxBytes: 2 * 1024 * 1024,
+    timeoutMs: 10_000,
+  }),
 ): Promise<CommonsImageCandidate | null> {
   const title = file.replace(/^File:/i, "").trim();
   if (!title || /^Category:/i.test(title)) return null;
@@ -148,7 +153,10 @@ export async function resolveCommonsImage(
       headers: { "user-agent": UA, accept: "application/json" },
       signal: AbortSignal.timeout(10_000),
     });
-    if (!response.ok) return null;
+    if (!response.ok) {
+      await response.body?.cancel();
+      return null;
+    }
     return parseCommonsImageInfo(await response.json(), source);
   } catch {
     return null;
@@ -157,7 +165,11 @@ export async function resolveCommonsImage(
 
 export async function fetchWikidataFacts(
   id: string,
-  fetchImpl: FetchLike = fetch,
+  fetchImpl: FetchLike = outboundFetchFor("wikidata", {
+    direct: true,
+    maxBytes: 4 * 1024 * 1024,
+    timeoutMs: TIMEOUT_MS,
+  }),
 ): Promise<{ facts: WikiFacts | null; error?: string }> {
   if (!/^Q\d{1,12}$/.test(id)) return { facts: null, error: "not a Wikidata id" };
   try {
@@ -165,7 +177,10 @@ export async function fetchWikidataFacts(
       headers: { "user-agent": UA, accept: "application/json" },
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
-    if (!res.ok) return { facts: null, error: `HTTP ${res.status}` };
+    if (!res.ok) {
+      await res.body?.cancel();
+      return { facts: null, error: `HTTP ${res.status}` };
+    }
     const facts = parseEntity(id, await res.json(), new Date().toISOString());
     if (facts.commonsFile) {
       const image = await resolveCommonsImage(facts.commonsFile, `wikidata:${id}`, fetchImpl);

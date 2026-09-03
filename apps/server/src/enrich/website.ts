@@ -1,4 +1,6 @@
 import { lookup as resolveHost } from "node:dns/promises";
+import { config } from "../config.ts";
+import { outboundFetchFor } from "../net/outbound.ts";
 
 /**
  * A place's own website as a source (docs/ENRICHMENT-SOURCES.md, S2).
@@ -65,7 +67,7 @@ export interface WebsiteImageCandidate {
 export type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
 
 export const ENRICH_USER_AGENT =
-  "spokes-enrich/0.2 (+https://github.com/schlessera/webmcp-hackathon; reads what a venue publishes about itself)";
+  config.identifyingUserAgent;
 const TIMEOUT_MS = 8000;
 const MAX_HTML = 1_500_000;
 const MAX_REDIRECTS = 5;
@@ -677,8 +679,12 @@ export async function fetchAllowed(target: URL, fetchImpl: FetchLike, timeoutMs 
     headers,
     signal: AbortSignal.timeout(timeoutMs),
   }, fetchImpl).catch(() => null);
-  if (!robots || !robots.ok) return true;
-  const text = (await robots.text()).slice(0, 100_000);
+  if (!robots) return true;
+  if (!robots.ok) {
+    await robots.body?.cancel();
+    return true;
+  }
+  const text = await readBoundedHtmlBody(robots, 100_000);
   return robotsAllows(text, target.pathname || "/");
 }
 
@@ -692,7 +698,10 @@ const isHtmlResponse = (response: Response): boolean =>
  * boundary, but reads only a bounded homepage prefix and parses no facts. */
 export async function fetchWebsiteImageCandidates(
   url: string,
-  fetchImpl: FetchLike = fetch,
+  fetchImpl: FetchLike = outboundFetchFor("venue-site", {
+    maxBytes: MAX_HTML,
+    timeoutMs: TIMEOUT_MS,
+  }),
 ): Promise<WebsiteImageCandidate[]> {
   let target: URL;
   try {
@@ -724,7 +733,10 @@ export async function fetchWebsiteImageCandidates(
       headers,
       signal: AbortSignal.timeout(TIMEOUT_MS),
     }, fetchImpl);
-    if (!response.ok || !isHtmlResponse(response)) return [];
+    if (!response.ok || !isHtmlResponse(response)) {
+      await response.body?.cancel();
+      return [];
+    }
     const html = await readBoundedHtmlBody(response);
     return extractImageCandidates(html, response.url || target.toString());
   } catch {
@@ -758,7 +770,10 @@ const MAX_MENU_FILE = 4_000_000;
 
 export async function fetchWebsiteFacts(
   url: string,
-  fetchImpl: FetchLike = fetch,
+  fetchImpl: FetchLike = outboundFetchFor("venue-site", {
+    maxBytes: MAX_HTML,
+    timeoutMs: TIMEOUT_MS,
+  }),
 ): Promise<WebsiteFetchResult> {
   let target: URL;
   try {
@@ -773,10 +788,16 @@ export async function fetchWebsiteFacts(
       headers,
       signal: AbortSignal.timeout(TIMEOUT_MS),
     }, fetchImpl);
-    if (!res.ok) return { facts: null, error: `HTTP ${res.status}` };
+    if (!res.ok) {
+      await res.body?.cancel();
+      return { facts: null, error: `HTTP ${res.status}` };
+    }
     const type = res.headers.get("content-type") ?? "";
-    if (!/html|xml/.test(type)) return { facts: null, error: `not HTML (${type.split(";")[0]})` };
-    const html = (await res.text()).slice(0, MAX_HTML);
+    if (!/html|xml/.test(type)) {
+      await res.body?.cancel();
+      return { facts: null, error: `not HTML (${type.split(";")[0]})` };
+    }
+    const html = await readBoundedHtmlBody(res, MAX_HTML);
     const homepageText = extractVisibleText(html);
     const facts = parseWebsite(html, res.url || target.toString(), new Date().toISOString());
     const followed = facts.menuUrl ? await followMenu(facts, fetchImpl) : undefined;
@@ -807,7 +828,10 @@ async function followMenu(
     // Same origin was already cleared by robots; a third-party host gets its own check.
     if (menu.host !== new URL(facts.url).host && !(await fetchAllowed(menu, fetchImpl))) return undefined;
     const res = await fetchPublic(menu, { headers, signal: AbortSignal.timeout(TIMEOUT_MS) }, fetchImpl);
-    if (!res.ok) return undefined;
+    if (!res.ok) {
+      await res.body?.cancel();
+      return undefined;
+    }
     // A redirect that lands on the homepage or another site is not the menu.
     if (res.url) {
       const landed = new URL(res.url);
@@ -816,6 +840,7 @@ async function followMenu(
       const backHome = landed.host === home.host && landed.pathname.replace(/\/$/, "") === home.pathname.replace(/\/$/, "") && !landed.hash;
       if (offSite || backHome) {
         facts.menuUrl = undefined;
+        await res.body?.cancel();
         return undefined;
       }
     }
@@ -835,9 +860,10 @@ async function followMenu(
     }
     if (!/html|xml|text/.test(type)) {
       facts.menuKind = "other";
+      await res.body?.cancel();
       return undefined;
     }
-    const html = (await res.text()).slice(0, MAX_HTML);
+    const html = await readBoundedHtmlBody(res, MAX_HTML);
     const text = extractVisibleText(html);
     const mentions = scanMenuMentions(html);
     if (mentions.length) facts.menuMentions = mentions;

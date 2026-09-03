@@ -661,13 +661,14 @@ async function preparePlace(
   item: RefinementQueueItem,
   cached: Map<string, Enrichment>,
   now: number,
+  countryCode?: string,
 ): Promise<PreparedPlace> {
   const candidate = item.candidate;
   const target = lookupTargetOf(candidate);
   let enrichment = cached.get(candidate.osm_ref!);
   let text = cachedText(candidate.osm_ref!, now);
   if (!text && target && (target.website || target.wikidata)) {
-    const pass = await readRefinementSource(pool, target);
+    const pass = await readRefinementSource(pool, target, countryCode);
     enrichment = pass.enrichment ?? enrichment;
     if (pass.pageText) {
       text = pass.pageText;
@@ -785,8 +786,11 @@ export async function runRefinementTick(
   );
   try {
     const refs = batch.map((item) => item.candidate.osm_ref!).filter(Boolean);
+    const placeInfo = await roomPlace(roomId);
     const cached = await loadCached(pool, refs);
-    const prepared = await Promise.all(batch.map((item) => preparePlace(item, cached, now)));
+    const prepared = await Promise.all(batch.map((item) =>
+      preparePlace(item, cached, now, placeInfo.countryCode)
+    ));
     // Cells the model genuinely answered (a claim or an explicit abstention);
     // only those are cached, everything else is re-queued (C3).
     const answeredCells = new Set<string>();
@@ -809,7 +813,6 @@ export async function runRefinementTick(
       openByCandidate.get(claim.candidateId)?.has(claim.criterionId)
     );
     const firstCells = new Set(firstClaims.map((claim) => `${claim.candidateId}\u0000${claim.criterionId}`));
-    const placeInfo = await roomPlace(roomId);
     const wanted: RefinementSearchRequest[] = [];
     const searchedCells = new Set<string>();
     const active = activeCriteria(inputs);

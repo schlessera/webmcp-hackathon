@@ -3,6 +3,7 @@ import type pg from "pg";
 import {
   ATTRIBUTE_LABELS,
   ATTRIBUTE_VOCABULARY,
+  areaById,
   criterionFor,
   graded,
   normalizeStatus,
@@ -49,6 +50,11 @@ import { bumpCandidateMapRevisions } from "../candidate-revisions.ts";
 import { withTransaction } from "../db.ts";
 import { beginLookups, publishFacts } from "./progress.ts";
 import { notifyCommit } from "../commit-notifications.ts";
+import {
+  outboundFetch,
+  proxyEnabled,
+  type OutboundPurpose,
+} from "../net/outbound.ts";
 
 /**
  * The enrichment layer (docs/ENRICHMENT-SOURCES.md): what the server looks
@@ -122,6 +128,10 @@ export interface LookupTarget {
   wikidata?: string;
   image?: string;
   wikimediaCommons?: string;
+  /** Area targeting for venue traffic; never removed by a retry. */
+  countryCode?: string;
+  /** Opaque per-pass sticky identity shared by site, menu and image legs. */
+  session?: string;
 }
 
 /** A successful lookup is good for a week; a failed one is retried after an hour. */
@@ -132,8 +142,9 @@ const TTL_OMITTED_MS = 24 * 60 * 60 * 1000;
 export const INFERENCE_PRUNE_DAYS = 30;
 export const MAX_QUESTION_INFERENCES = 64;
 export const SEARCH_ATTEMPT_CAP = 3;
-const WARM_CONCURRENCY = 4;
-export const ON_DEMAND_CONCURRENCY = 4;
+const LOOKUP_CONCURRENCY = proxyEnabled() ? 12 : 4;
+const WARM_CONCURRENCY = LOOKUP_CONCURRENCY;
+export const ON_DEMAND_CONCURRENCY = LOOKUP_CONCURRENCY;
 export const ON_DEMAND_MAX_WAITERS = 32;
 const LEASE_MS = 2 * 60 * 1000;
 
@@ -148,11 +159,65 @@ export function setEnrichFetch(f: FetchLike | null): void {
   fetchImpl = f ?? (process.env.ENRICH_NETWORK === "0" ? offline : fetch);
 }
 
+function purposeForVenueRequest(
+  url: string,
+  homeUrl: string,
+  init: RequestInit | undefined,
+): OutboundPurpose {
+  const target = new URL(url);
+  if (target.pathname === "/robots.txt") return "robots";
+  const accept = new Headers(init?.headers).get("accept") ?? "";
+  if (/image/i.test(accept)) return "venue-image";
+  return target.toString() === new URL(homeUrl).toString() ? "venue-site" : "venue-menu";
+}
+
+function liveVenueFetch(target: LookupTarget): FetchLike {
+  return (url, init = {}) => {
+    const purpose = purposeForVenueRequest(url, target.website!, init);
+    return outboundFetch(url, {
+      ...init,
+      purpose,
+      country: target.countryCode,
+      session: target.session,
+      maxBytes: purpose === "venue-image" ? 6 * 1024 * 1024 : 1_500_000,
+      timeoutMs: purpose === "venue-image" ? 10_000 : 20_000,
+    });
+  };
+}
+
+const liveWikiFetch: FetchLike = (url, init = {}) => outboundFetch(url, {
+  ...init,
+  purpose: url.includes("commons.wikimedia.org") ? "commons" : "wikidata",
+  direct: true,
+  maxBytes: 4 * 1024 * 1024,
+  timeoutMs: 10_000,
+});
+
+function wikiFetch(): FetchLike {
+  return injectedFetch ? fetchImpl : liveWikiFetch;
+}
+
+function imageFetch(target: LookupTarget): FetchLike {
+  if (injectedFetch) return fetchImpl;
+  return (url, init = {}) => {
+    const hostname = new URL(url).hostname.toLowerCase();
+    const commons = hostname === "upload.wikimedia.org" || hostname.endsWith(".wikimedia.org");
+    return outboundFetch(url, {
+      ...init,
+      purpose: commons ? "commons" : "image-cdn",
+      ...(commons ? { direct: true } : { country: target.countryCode, session: target.session }),
+      maxBytes: 6 * 1024 * 1024,
+      timeoutMs: 20_000,
+    });
+  };
+}
+
 /** The website reader validates DNS before invoking its transport. For the
  * injected test transport there is no network to protect, so resolve against
  * a public numeric placeholder and translate requests back for the fixture. */
-function fetchInjectedWebsiteFacts(url: string) {
-  if (!injectedFetch) return fetchWebsiteFacts(url, fetchImpl);
+function fetchInjectedWebsiteFacts(target: LookupTarget) {
+  const url = target.website!;
+  if (!injectedFetch) return fetchWebsiteFacts(url, liveVenueFetch(target));
   let original: URL;
   try {
     original = new URL(url);
@@ -169,8 +234,9 @@ function fetchInjectedWebsiteFacts(url: string) {
   });
 }
 
-function fetchInjectedWebsiteImageCandidates(url: string) {
-  if (!injectedFetch) return fetchWebsiteImageCandidates(url, fetchImpl);
+function fetchInjectedWebsiteImageCandidates(target: LookupTarget) {
+  const url = target.website!;
+  if (!injectedFetch) return fetchWebsiteImageCandidates(url, liveVenueFetch(target));
   let original: URL;
   try {
     original = new URL(url);
@@ -370,7 +436,7 @@ async function imageCandidatesFor(
   const out: ImageCandidate[] = [];
   const osmImageFile = commonsFilename(target.image);
   if (osmImageFile) {
-    const image = await resolveCommonsImage(osmImageFile, "osm:image", fetchImpl);
+    const image = await resolveCommonsImage(osmImageFile, "osm:image", wikiFetch());
     if (image) out.push(image);
   } else if (target.image) {
     try {
@@ -387,7 +453,7 @@ async function imageCandidatesFor(
     const image = await resolveCommonsImage(
       commonsFile,
       "osm:wikimedia_commons",
-      fetchImpl,
+      wikiFetch(),
     );
     if (image) out.push(image);
   }
@@ -396,7 +462,7 @@ async function imageCandidatesFor(
     const image = await resolveCommonsImage(
       enrichment.wikidata.commonsFile,
       `wikidata:${enrichment.wikidata.id}`,
-      fetchImpl,
+      wikiFetch(),
     );
     if (image) out.push(image);
   }
@@ -510,6 +576,10 @@ export interface LookupPass {
 }
 
 async function lookup(db: pg.Pool, target: LookupTarget, force = false): Promise<LookupPass> {
+  const passTarget: LookupTarget = {
+    ...target,
+    session: target.session ?? randomUUID().replace(/-/g, "").slice(0, 16),
+  };
   const initial = (await loadCached(db, [target.osmRef])).get(target.osmRef);
   const initialImagesDue = await imageRefreshDue(
     db,
@@ -555,13 +625,13 @@ async function lookup(db: pg.Pool, target: LookupTarget, force = false): Promise
       const harvestWebsiteImages = attemptedImages && Boolean(target.website) && !attempted.website;
       const [site, wiki, harvestedWebsiteCandidates] = await Promise.all([
         attempted.website
-          ? fetchInjectedWebsiteFacts(target.website!)
+          ? fetchInjectedWebsiteFacts(passTarget)
           : Promise.resolve(noSite),
         attempted.wikidata
-          ? fetchWikidataFacts(target.wikidata!, fetchImpl)
+          ? fetchWikidataFacts(target.wikidata!, wikiFetch())
           : Promise.resolve(noWiki),
         harvestWebsiteImages
-          ? fetchInjectedWebsiteImageCandidates(target.website!)
+          ? fetchInjectedWebsiteImageCandidates(passTarget)
           : Promise.resolve([]),
       ]);
       // A menu that is a picture gets read (menu-reader.ts); the bytes are
@@ -581,11 +651,11 @@ async function lookup(db: pg.Pool, target: LookupTarget, force = false): Promise
           db,
           target.osmRef,
           await imageCandidatesFor(
-            target,
+            passTarget,
             refreshed,
             site.facts?.imageCandidates ?? harvestedWebsiteCandidates,
           ),
-          fetchImpl,
+          imageFetch(passTarget),
         );
       }
       return {
@@ -607,8 +677,9 @@ async function lookup(db: pg.Pool, target: LookupTarget, force = false): Promise
 export function readRefinementSource(
   db: pg.Pool,
   target: LookupTarget,
+  countryCode?: string,
 ): Promise<LookupPass> {
-  return lookup(db, target, true);
+  return lookup(db, { ...target, ...(countryCode ? { countryCode } : {}) }, true);
 }
 
 /**
@@ -993,14 +1064,20 @@ async function runLookupNow(
   options: LookupNowOptions,
 ): Promise<string[]> {
   const wantedIds = [...new Set(targets.map((target) => target.candidateId))];
-  const targetById = new Map(targets.map((target) => [target.candidateId, target]));
-  const rows = (
-    await pool.query(
+  const [candidateRows, roomArea] = await Promise.all([
+    pool.query(
       `SELECT id, osm_ref, name, category, attributes, extras
          FROM candidates WHERE room_id = $1 AND id = ANY($2)`,
       [roomId, wantedIds],
-    )
-  ).rows as LookupCandidateRow[];
+    ),
+    pool.query("SELECT area_id FROM rooms WHERE id = $1", [roomId]),
+  ]);
+  const countryCode = areaById(String(roomArea.rows[0]?.area_id ?? ""))?.countryCode;
+  const targetById = new Map(targets.map((target) => [target.candidateId, {
+    ...target,
+    ...(countryCode ? { countryCode } : {}),
+  }]));
+  const rows = candidateRows.rows as LookupCandidateRow[];
   const actionable = rows.filter((row) => {
     const target = targetById.get(row.id);
     return Boolean(row.osm_ref && (target && hasLookupSource(target) || inferenceEnabled()));

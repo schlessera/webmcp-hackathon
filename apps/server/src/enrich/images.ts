@@ -1,5 +1,6 @@
 import type pg from "pg";
 import sharp from "sharp";
+import { outboundFetchFor } from "../net/outbound.ts";
 import {
   ENRICH_USER_AGENT,
   fetchAllowed,
@@ -122,7 +123,10 @@ export function cacheTtlMs(cacheControl: string): number {
 
 export async function downloadPlaceImage(
   candidate: ImageCandidate,
-  fetchImpl: FetchLike = fetch,
+  fetchImpl: FetchLike = outboundFetchFor("venue-image", {
+    maxBytes: MAX_IMAGE_DOWNLOAD_BYTES,
+    timeoutMs: IMAGE_TIMEOUT_MS,
+  }),
 ): Promise<ProcessedImage> {
   const target = new URL(candidate.url);
   if (target.protocol !== "http:" && target.protocol !== "https:") {
@@ -139,9 +143,13 @@ export async function downloadPlaceImage(
     },
     fetchImpl,
   );
-  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  if (!response.ok) {
+    await response.body?.cancel();
+    throw new Error(`HTTP ${response.status}`);
+  }
   const cacheControl = (response.headers.get("cache-control") ?? "").toLowerCase();
   if (/(?:^|,)\s*(?:no-store|no-cache|private)(?:\s|,|$)/.test(cacheControl)) {
+    await response.body?.cancel();
     throw new Error("source response forbids shared caching");
   }
   // A shorter freshness hint shortens our copy rather than refusing it: almost
@@ -208,7 +216,10 @@ export async function refreshPlaceImages(
   db: pg.Pool,
   osmRef: string,
   candidates: ImageCandidate[],
-  fetchImpl: FetchLike = fetch,
+  fetchImpl: FetchLike = outboundFetchFor("venue-image", {
+    maxBytes: MAX_IMAGE_DOWNLOAD_BYTES,
+    timeoutMs: IMAGE_TIMEOUT_MS,
+  }),
 ): Promise<number> {
   const unique = [
     ...new Map(candidates.map((candidate) => [candidate.url, candidate])).values(),
