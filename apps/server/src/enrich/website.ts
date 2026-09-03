@@ -451,18 +451,37 @@ export function extractImageCandidates(html: string, pageUrl: string): WebsiteIm
         "og:image:type"
     );
   const ogDeclaredType = ogType ? attributeOf(ogType[1], "content") : undefined;
+  const companionMeta = (wanted: string): string | undefined => {
+    for (const meta of html.matchAll(/<meta\b([^>]*)>/gi)) {
+      const key = (attributeOf(meta[1], "property") ?? attributeOf(meta[1], "name") ?? "")
+        .toLowerCase();
+      if (key === wanted) return attributeOf(meta[1], "content");
+    }
+    return undefined;
+  };
+  const ogAlt = companionMeta("og:image:alt");
+  const twitterAlt = companionMeta("twitter:image:alt");
 
   for (const meta of html.matchAll(/<meta\b([^>]*)>/gi)) {
     const attrs = meta[1];
     const key = (attributeOf(attrs, "property") ?? attributeOf(attrs, "name") ?? "").toLowerCase();
     if (key === "og:image" || key === "og:image:url") {
-      add(attributeOf(attrs, "content"), { declaredType: ogDeclaredType });
+      add(attributeOf(attrs, "content"), {
+        alt: attributeOf(attrs, "alt") ?? ogAlt,
+        className: attributeOf(attrs, "class"),
+        declaredType: ogDeclaredType,
+      });
     }
   }
   for (const meta of html.matchAll(/<meta\b([^>]*)>/gi)) {
     const attrs = meta[1];
     const key = (attributeOf(attrs, "name") ?? attributeOf(attrs, "property") ?? "").toLowerCase();
-    if (key === "twitter:image" || key === "twitter:image:src") add(attributeOf(attrs, "content"));
+    if (key === "twitter:image" || key === "twitter:image:src") {
+      add(attributeOf(attrs, "content"), {
+        alt: attributeOf(attrs, "alt") ?? twitterAlt,
+        className: attributeOf(attrs, "class"),
+      });
+    }
   }
 
   for (const script of html.matchAll(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)) {
@@ -473,6 +492,7 @@ export function extractImageCandidates(html: string, pageUrl: string): WebsiteIm
           ? image as Record<string, unknown>
           : undefined;
         add(image, {
+          alt: typeof typed?.caption === "string" ? typed.caption : undefined,
           declaredType: typeof typed?.encodingFormat === "string"
             ? typed.encodingFormat
             : undefined,
@@ -496,7 +516,12 @@ export function extractImageCandidates(html: string, pageUrl: string): WebsiteIm
   }
   for (const link of html.matchAll(/<link\b([^>]*)>/gi)) {
     const rel = (attributeOf(link[1], "rel") ?? "").toLowerCase().split(/\s+/);
-    if (rel.includes("image_src")) add(attributeOf(link[1], "href"));
+    if (rel.includes("image_src")) {
+      add(attributeOf(link[1], "href"), {
+        className: attributeOf(link[1], "class"),
+        declaredType: attributeOf(link[1], "type"),
+      });
+    }
   }
 
   const source: `web:${string}` = `web:${new URL(pageUrl).host}`;

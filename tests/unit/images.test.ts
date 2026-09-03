@@ -84,6 +84,17 @@ describe("place image candidate extraction", () => {
     )).toEqual([]);
   });
 
+  it("uses companion social-image alt text to reject disguised chrome", () => {
+    expect(extractImageCandidates(
+      '<meta property="og:image" content="/media/123.png"><meta property="og:image:alt" content="English flag">',
+      "https://place.example/",
+    )).toEqual([]);
+    expect(extractImageCandidates(
+      '<meta name="twitter:image" content="/media/456.jpg"><meta name="twitter:image:alt" content="Venue terrace">',
+      "https://place.example/",
+    )).toHaveLength(1);
+  });
+
   it("returns no candidate for a page with none", () => {
     const html = readFileSync(join(fixtures, "place-images-none.html"), "utf8");
     expect(extractImageCandidates(html, "https://place.example/")).toEqual([]);
