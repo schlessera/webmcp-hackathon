@@ -38,6 +38,8 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       NL_FAST_MODEL: ${NL_FAST_MODEL:-gpt-5.6-luna}
       NL_SMART_MODEL: ${NL_SMART_MODEL:-gpt-5.6-sol}
+      PROXY_URL: ${PROXY_URL:-}
+      PROXY: ${PROXY:-1}
     ports:
       - "127.0.0.1:4173:4173"
     depends_on:

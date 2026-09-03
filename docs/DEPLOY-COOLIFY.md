@@ -2,7 +2,8 @@
 
 The app is a single Docker image (Fastify API + WebSocket + the pre-built React
 bundle) plus Postgres. `compose.coolify.yaml` is a deploy-ready compose that
-Coolify can run directly; local dev keeps using `compose.yaml` (unchanged).
+Coolify can run directly; local development uses `compose.yaml` with the same
+outbound proxy variables passed through to the app service.
 
 ## 1. Create the resource
 
@@ -18,6 +19,20 @@ Coolify can run directly; local dev keeps using `compose.yaml` (unchanged).
 | `DEMO_SECRET_KEY` | **yes** | Any strong random string. HMAC key for guest invite secrets. Must be stable across redeploys or existing invite links break. The compose refuses to seed if it is unset. |
 | `APP_URL` | recommended | The public URL Coolify assigns (e.g. `https://spokes.example.coolify.app`). The seed prints participant invite URLs against it. |
 | `ORIGIN_TRIAL_TOKEN` | for the ChatGPT/WebMCP path | Chrome WebMCP origin-trial token registered **for the deployed origin** (see §4). Without it the page still works as a normal web app, but ChatGPT's built-in browser will not discover the WebMCP tools on the hosted origin. |
+| `OPENAI_API_KEY` | optional | Enables the natural-language surface, matrix evaluation, menu reading, and OpenAI-backed refinement. Leave empty for a deterministic no-model deployment. |
+| `NL_FAST_MODEL` | optional | Fast model for bounded routing, matrix evaluation, and OpenAI web search; defaults to `gpt-5.6-luna`. |
+| `NL_SMART_MODEL` | optional | Smart model for room actions and other judgment-heavy work; defaults to `gpt-5.6-sol`. |
+| `REFINE` | optional | Set to `0` to disable the continuous refinement worker; enabled by default when network and model access are available. |
+| `REFINE_IDLE_STOP_MS` | optional | How long refinement remains alive after the last room participant leaves; defaults to `600000`. |
+| `REFINE_TICK_MS` | optional | Working-loop interval in milliseconds; defaults to `1000`. |
+| `REFINE_IDLE_TICK_MS` | optional | Empty-queue polling interval in milliseconds; defaults to `30000`. |
+| `REFINE_MODEL_CALLS_PER_HOUR` | optional | Per-room model-call budget; defaults to `200`. |
+| `REFINE_SEARCHES_PER_HOUR` | optional | Per-room search budget; defaults to `150`. |
+| `REFINE_SEARCH_MODE` | optional | `split` searches then evaluates snippets; `combined` uses one OpenAI web-search response per place. Defaults to `split`. |
+| `SEARCH_PROVIDER` | optional | Split-search provider: `openai` by default, or `tavily`. |
+| `TAVILY_API_KEY` | when `SEARCH_PROVIDER=tavily` | Tavily credential for the optional fallback search provider. |
+| `PROXY_URL` | optional | Authenticated outbound proxy URL for venue pages, robots, and non-Commons image hosts. Treat it as a secret; it is never logged. |
+| `PROXY` | optional | Set to `0` to force all proxy-eligible traffic direct; defaults to enabled when `PROXY_URL` is present. |
 | `POSTGRES_PASSWORD` | optional | Defaults to `webmcp`. Set a real one for a public deployment. |
 | `SOURCE_COMMIT` | auto | Coolify injects this; it becomes `BUILD_ID` so clients detect new deploys and reload. |
 

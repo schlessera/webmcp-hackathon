@@ -205,6 +205,9 @@ Agreement
 - UI actions and WebMCP actions invoke the same application commands.
 - The map is a projection, not the authoritative source of session truth.
 - Candidate facts reference evidence and freshness.
+- Every direct remote request goes through the policy-aware outbound client at
+  `apps/server/src/net/outbound.ts`; nothing else calls global `fetch` for a
+  remote host except the deliberately separate OpenAI transport.
 - Personal agents advocate but do not invent map facts.
 - The world backend supplies possibilities but does not negotiate.
 - Only the council commits shared agreement.
@@ -218,4 +221,3 @@ Agreement
   exchange. Serialize with a transaction-scoped lock inside the statement that
   needs it, or with a process-local gate, never with a session-scoped advisory
   lock on a pooled connection.
-
