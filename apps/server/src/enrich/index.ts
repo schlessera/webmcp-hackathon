@@ -876,6 +876,10 @@ async function runLookupNow(
   for (const evaluation of evaluations.values()) {
     if (!evaluation.base || !evaluation.texts) continue;
     const openCriteria = [...criteria.values()].filter((criterion) => {
+      // A time window is a deterministic predicate over structured hours.
+      // Fetching the site may supply those hours, but prose/model inference
+      // must never manufacture an answer to an `open:*` criterion.
+      if (criterion.kind === "key" && criterion.key.startsWith("open:")) return false;
       const key = criterion.kind === "key" ? criterion.key : criterion.id;
       const attr = evaluation.base!.find((attribute) => attribute.key === key);
       if (attr && attr.status !== "unknown") return false;
@@ -961,30 +965,30 @@ export async function publishInferenceChanges(
   const changed = [...new Set(candidateIds)].sort();
   if (changed.length === 0) return [];
   const notification = await withTransaction(async (client) => {
-      const room = (
-        await client.query(
-          "SELECT revision FROM rooms WHERE id = $1 FOR UPDATE",
-          [roomId],
-        )
-      ).rows[0] as { revision: number } | undefined;
-      if (!room) return null;
-      const screeningEvents = await bumpCandidateMapRevisions(client, roomId, changed);
-      let revision = room.revision;
-      const storedRevisions: number[] = [];
-      for (const event of screeningEvents) {
-        revision += 1;
-        storedRevisions.push(revision);
-        await client.query(
-          `INSERT INTO events (room_id, revision, type, actor_id, visibility, payload)
-           VALUES ($1, $2, $3, $4, $5, $6)`,
-          [roomId, revision, event.type, event.actorId, event.visibility, event.payload],
-        );
-      }
-      if (revision !== room.revision) {
-        await client.query("UPDATE rooms SET revision = $2 WHERE id = $1", [roomId, revision]);
-      }
-      return { roomId, revision, storedRevisions, confirmations: [] };
-    });
+    const room = (
+      await client.query(
+        "SELECT revision FROM rooms WHERE id = $1 FOR UPDATE",
+        [roomId],
+      )
+    ).rows[0] as { revision: number } | undefined;
+    if (!room) return null;
+    const screeningEvents = await bumpCandidateMapRevisions(client, roomId, changed);
+    let revision = room.revision;
+    const storedRevisions: number[] = [];
+    for (const event of screeningEvents) {
+      revision += 1;
+      storedRevisions.push(revision);
+      await client.query(
+        `INSERT INTO events (room_id, revision, type, actor_id, visibility, payload)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [roomId, revision, event.type, event.actorId, event.visibility, event.payload],
+      );
+    }
+    if (revision !== room.revision) {
+      await client.query("UPDATE rooms SET revision = $2 WHERE id = $1", [roomId, revision]);
+    }
+    return { roomId, revision, storedRevisions, confirmations: [] };
+  });
   if (notification) {
     // X7: the registry is cycle-free, so the committed revision enters the
     // ordered broadcast queue synchronously before a later command can.

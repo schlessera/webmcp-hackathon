@@ -161,6 +161,14 @@ function clampTime(t: string): string {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 }
 
+function validTime(t: string): boolean {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(t);
+  if (!match) return false;
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  return minute >= 0 && minute < 60 && (hour < 24 || (hour === 24 && minute === 0));
+}
+
 function expandDays(spec: string): string[] {
   // "Mo-Fr", "Sa,Su", "Mo", "Sa-Su,PH" → ["mon", …]; unknown tokens skipped.
   const days: string[] = [];
@@ -182,34 +190,62 @@ function expandDays(spec: string): string[] {
 
 /**
  * Best-effort parse of the common subset of the OSM `opening_hours` syntax:
- * "24/7", "Mo-Fr 08:00-18:00; Sa 10:00-14:00", "12:00-23:00", open-ended
- * "18:00+". Returns null when nothing usable could be extracted — the caller
- * decides what null means (the live path: no hours on record).
+ * "24/7", weekday lists/ranges, multiple comma-separated time ranges,
+ * ordered `off`/`closed` overrides, dayless rules and open-ended "18:00+".
+ * Midnight-crossing ranges are split over the named and following weekdays.
+ * Public-holiday (`PH`) selectors and unsupported syntax are ignored. Returns
+ * null when nothing usable could be extracted — the caller decides what null
+ * means (the live path: no hours on record).
  */
 export function parseOpeningHours(oh: string | undefined): DossierHours[] | null {
   if (!oh) return null;
   if (oh.trim() === "24/7") {
     return DAY_ORDER.map((day) => ({ day, open: "00:00", close: "23:59" }));
   }
-  const byDay = new Map<string, DossierHours>();
+  const byDay = new Map<string, DossierHours[]>();
+  const add = (day: string, open: string, close: string) => {
+    const ranges = byDay.get(day) ?? [];
+    if (!ranges.some((range) => range.open === open && range.close === close)) {
+      ranges.push({ day, open, close });
+      byDay.set(day, ranges);
+    }
+  };
   for (const rule of oh.split(";")) {
+    const closed = rule.trim().match(/^([A-Za-z,\- ]+?)\s+(?:off|closed)$/i);
+    if (closed) {
+      for (const day of expandDays(closed[1])) byDay.delete(day);
+      continue;
+    }
     // Leading day spec, then time spec: "Mo-Fr 08:00-18:00,19:00-22:00".
     const m = rule
       .trim()
       .match(/^([A-Za-z,\- ]*?)\s*((?:\d{1,2}:\d{2}[-+](?:\d{1,2}:\d{2})?)(?:,\d{1,2}:\d{2}[-+](?:\d{1,2}:\d{2})?)*)$/);
-    if (!m) continue; // "Mo off", "Su closed", unparseable → skip
+    if (!m) continue;
     const days = m[1].trim() ? expandDays(m[1]) : DAY_ORDER;
-    const first = m[2].split(",")[0]; // first time range per rule
-    const tm = first.match(/^(\d{1,2}:\d{2})[-+](\d{1,2}:\d{2})?$/);
-    if (!tm || days.length === 0) continue;
-    const open = clampTime(tm[1]);
-    const close = tm[2] ? clampTime(tm[2]) : "23:59"; // "18:00+" → open end
-    for (const day of days) {
-      if (!byDay.has(day)) byDay.set(day, { day, open, close });
+    if (days.length === 0) continue;
+    for (const range of m[2].split(",")) {
+      const tm = range.match(/^(\d{1,2}:\d{2})[-+](\d{1,2}:\d{2})?$/);
+      if (!tm || !validTime(tm[1]) || (tm[2] && !validTime(tm[2]))) continue;
+      const open = clampTime(tm[1]);
+      const close = tm[2] ? clampTime(tm[2]) : "23:59"; // "18:00+" → open end
+      const crossesMidnight = Boolean(tm[2]) && close <= open;
+      for (const day of days) {
+        if (!crossesMidnight) {
+          add(day, open, close);
+          continue;
+        }
+        add(day, open, "23:59");
+        const next = DAY_ORDER[(DAY_ORDER.indexOf(day) + 1) % DAY_ORDER.length];
+        add(next, "00:00", close);
+      }
     }
   }
   if (byDay.size === 0) return null;
-  return DAY_ORDER.filter((d) => byDay.has(d)).map((d) => byDay.get(d)!);
+  return DAY_ORDER.flatMap((day) =>
+    (byDay.get(day) ?? []).sort((a, b) =>
+      a.open.localeCompare(b.open) || a.close.localeCompare(b.close),
+    ),
+  );
 }
 
 export interface Dossier {

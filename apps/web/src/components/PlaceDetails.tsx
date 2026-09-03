@@ -380,7 +380,12 @@ export function PlaceDetails({
     .filter(Boolean)
     .join(" · ");
   const hours = hoursLines(dossier?.hours ?? []);
-  const whereWhen = dossier && (dossier.address || dossier.phone || hours.length > 0);
+  const hoursStatus = dossier?.openNow === true
+    ? `open now${dossier.openUntil ? ` · until ${dossier.openUntil}` : ""}`
+    : dossier?.openNow === false
+      ? `closed${dossier.nextOpen ? ` · opens ${dossier.nextOpen}` : ""}`
+      : null;
+  const whereWhen = dossier && (dossier.address || dossier.phone || hours.length > 0 || hoursStatus);
   const askLookup = () => {
     factsBefore.current = factSignatures(dossier);
     setLookupPhase("asked");
@@ -498,6 +503,11 @@ export function PlaceDetails({
           <div className="details-group" data-testid="where-when">
             <div className="group-heading">Where and when</div>
             <div className="ledger">
+              {hoursStatus && (
+                <div className="ledger-row hours-status">
+                  <span className="ledger-label">{hoursStatus}</span>
+                </div>
+              )}
               {dossier.address && (
                 <div className="ledger-row">
                   <span className="ledger-label">{dossier.address}</span>

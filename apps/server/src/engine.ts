@@ -23,6 +23,8 @@ import {
   criterionFor,
   implies,
   normalizeCuisineTokens,
+  parseOpeningHours,
+  windowSpanText,
 } from "@webmcp-hackathon/contracts";
 import { pool, withTransaction } from "./db.ts";
 import type { Participant } from "./auth.ts";
@@ -490,6 +492,15 @@ async function triggerNeedLookup(
   const unknown = inScope(inputs.candidates, inputs.scope)
     .filter((candidate) => {
       const key = criterion.kind === "key" ? criterion.key : criterion.id;
+      if (criterion.kind === "key" && criterion.key.startsWith("open:")) {
+        const hours = candidate.attributes.find((item) => item.key === "hours");
+        if (
+          hours?.status === "verified_true" &&
+          hours.source === "osm:opening_hours" &&
+          candidate.hours?.length
+        ) return false;
+        return parseOpeningHours(candidate.website_hours?.join("; ")) === null;
+      }
       const attribute = candidate.attributes.find((item) => item.key === key);
       if (criterion.kind === "question") return (attribute?.status ?? "unknown") === "unknown";
       if (criterion.key !== "cuisine") return (attribute?.status ?? "unknown") === "unknown";
@@ -653,6 +664,18 @@ async function submitRequirement(
       `payload is required for ${cmd.visibility} requirements.`,
       "Provide a domain payload (attribute, scope, budget, or exclusion).",
     );
+  }
+  if (cmd.payload?.kind === "time") {
+    const window = cmd.payload.window as { start?: unknown; end?: unknown } | undefined;
+    const start = typeof window?.start === "string" ? Date.parse(window.start) : Number.NaN;
+    const end = typeof window?.end === "string" ? Date.parse(window.end) : Number.NaN;
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) {
+      return errorOutcome(
+        "invalid_input",
+        "A time need must end after it starts.",
+        "Provide an ISO-8601 window whose end is later than its start.",
+      );
+    }
   }
 
   // Protected-category defaulting (§3.3): accessibility-class needs are
@@ -1949,6 +1972,13 @@ function summarizePayload(payload: Record<string, unknown>): string {
       const b = payload.perPersonMax as { amount: number; currency: string };
       const symbol = b.currency === "EUR" ? "€" : `${b.currency} `;
       return `budget ≤ ${symbol}${b.amount} per person`;
+    }
+    case "time": {
+      const window = payload.window as { start?: string; end?: string } | undefined;
+      if (typeof payload.phrase === "string") return payload.phrase;
+      return window?.start && window.end
+        ? `open ${windowSpanText({ start: window.start, end: window.end })}`
+        : "open at the requested time";
     }
     case "text":
       return String(payload.text);

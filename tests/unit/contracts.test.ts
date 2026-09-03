@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import AjvModule from "ajv";
+import addFormatsModule from "ajv-formats";
 import {
   BUDGETS,
   CAPABILITY_MANIFEST,
@@ -19,7 +20,10 @@ import {
 
 const Ajv = ((AjvModule as never as { default?: unknown }).default ??
   AjvModule) as typeof AjvModule.default;
+const addFormats = ((addFormatsModule as never as { default?: unknown }).default ??
+  addFormatsModule) as typeof addFormatsModule.default;
 const ajv = new Ajv({ strict: false, allErrors: true });
+addFormats(ajv);
 
 describe("tool schemas (lane 1)", () => {
   const validate = ajv.compile(SYNC_SESSION_INPUT);
@@ -74,6 +78,30 @@ describe("tool schemas (lane 1)", () => {
         note: "x".repeat(201),
       }),
     ).toBe(false);
+  });
+
+  it("accepts offset time windows and rejects malformed timestamps", () => {
+    const submit = ajv.compile(COMMAND_SCHEMAS.SubmitRequirement);
+    const base = {
+      baseRevision: 0,
+      visibility: "shared",
+      hardness: "hard",
+      delegation: { mode: "approval_required" },
+    };
+    expect(submit({
+      ...base,
+      payload: {
+        kind: "time",
+        window: {
+          start: "2026-09-04T12:00:00+02:00",
+          end: "2026-09-04T14:00:00+02:00",
+        },
+      },
+    })).toBe(true);
+    expect(submit({
+      ...base,
+      payload: { kind: "time", window: { start: "tomorrow", end: "later" } },
+    })).toBe(false);
   });
 
   it("no tool argument accepts an actor identity", () => {

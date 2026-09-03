@@ -2,6 +2,7 @@ import {
   ATTRIBUTE_LABELS,
   ATTRIBUTE_VOCABULARY,
   HINT_TAXONOMY,
+  areaById,
   normalizeCuisineTokens,
   type Facet,
   type SpatialContextResult,
@@ -41,7 +42,7 @@ export interface SayOutcome {
 interface Draft {
   intent: Intent;
   needs: Array<{
-    kind: "attribute" | "budget" | "walk" | "exclusion" | "inclusion" | "text";
+    kind: "attribute" | "budget" | "walk" | "time" | "exclusion" | "inclusion" | "text";
     attributeKey: string | null;
     expect: "verified_true" | "verified_false" | null;
     amountEur: number | null;
@@ -49,6 +50,8 @@ interface Draft {
     excludeValues: string[];
     includeValues: string[];
     text: string | null;
+    window: { start: string; end: string } | null;
+    phrase: string | null;
     topic: string | null;
     gist: string;
   }>;
@@ -72,10 +75,10 @@ const SCHEMA = {
         additionalProperties: false,
         required: [
           "kind", "attributeKey", "expect", "amountEur", "walkMin",
-          "excludeValues", "includeValues", "text", "topic", "gist",
+          "excludeValues", "includeValues", "text", "window", "phrase", "topic", "gist",
         ],
         properties: {
-          kind: { type: "string", enum: ["attribute", "budget", "walk", "exclusion", "inclusion", "text"] },
+          kind: { type: "string", enum: ["attribute", "budget", "walk", "time", "exclusion", "inclusion", "text"] },
           attributeKey: NULLABLE_STRING,
           expect: { type: ["string", "null"], enum: ["verified_true", "verified_false", null] },
           amountEur: NULLABLE_NUMBER,
@@ -83,6 +86,21 @@ const SCHEMA = {
           excludeValues: { type: "array", items: { type: "string" } },
           includeValues: { type: "array", items: { type: "string" } },
           text: NULLABLE_STRING,
+          window: {
+            anyOf: [
+              {
+                type: "object",
+                additionalProperties: false,
+                required: ["start", "end"],
+                properties: {
+                  start: { type: "string", format: "date-time", maxLength: 40 },
+                  end: { type: "string", format: "date-time", maxLength: 40 },
+                },
+              },
+              { type: "null" },
+            ],
+          },
+          phrase: NULLABLE_STRING,
           topic: { type: ["string", "null"], enum: [...HINT_TAXONOMY, null] },
           gist: { type: "string" },
         },
@@ -97,7 +115,34 @@ function enumValues(facets: Facet[], key: string): Set<string> {
   return new Set((facet?.values ?? []).map((v) => v.value));
 }
 
-function instructions(context: SpatialContextResult, scope: string): string {
+function localIso(now: Date, timezone: string): string {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-CA", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+    timeZoneName: "longOffset",
+  }).formatToParts(now).map((part) => [part.type, part.value]));
+  const offset = parts.timeZoneName === "GMT"
+    ? "+00:00"
+    : parts.timeZoneName?.replace("GMT", "") ?? "+00:00";
+  return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:${parts.second}${offset}`;
+}
+
+function roomClock(context: SpatialContextResult, now: Date): { timezone: string; localNow: string } {
+  const timezone = areaById(context.area?.areaId ?? "")?.timezone ?? "UTC";
+  return { timezone, localNow: localIso(now, timezone) };
+}
+
+function instructions(
+  context: SpatialContextResult,
+  scope: string,
+  clock: { timezone: string; localNow: string },
+): string {
   const vocab = ATTRIBUTE_VOCABULARY.filter((k) => k !== "price-level" && k !== "cuisine")
     .map((k) => `${k} ("${ATTRIBUTE_LABELS[k]}")`)
     .join(", ");
@@ -119,6 +164,12 @@ function instructions(context: SpatialContextResult, scope: string): string {
     `- kind attribute: only for these keys: ${vocab}. expect verified_true for wanting it, verified_false for wanting its absence.`,
     "- kind budget: a per-person ceiling in euros (amountEur). Words like cheap mean 15, mid-range 25, splurge 40.",
     "- kind walk: a maximum walking time in minutes (walkMin). 'close by' means 10, 'not far' 15.",
+    `Area timezone: ${clock.timezone}.`,
+    `Current local date/time: ${clock.localNow}.`,
+    "- kind time: when the sentence names a date, weekday, meal, part of day, clock time, or 'open now'. Return an absolute window in `window`, and copy the time words the person actually said into `phrase`. Never turn a sentence that names a time into kind text.",
+    "- Resolve time only from words the person supplied, using the area clock above. `window.start` and `window.end` must be ISO-8601 date-times with the area's numeric offset (`±HH:MM`, never `Z`). Never invent a time need when the sentence names no time.",
+    "- Date anchors: today is the current civil date; tomorrow is the next civil date; a named weekday is its next occurrence on or after today. Combine that date with the stated meal or clock time. A bare date or weekday covers 00:00 to 00:00 the next civil day.",
+    "- Time windows: lunch 12:00–14:00; dinner 18:00–21:00; brunch 10:00–13:00; evening 18:00–21:00; tonight 18:00–23:00 on today's date. An explicit 'at' time spans one hour before through one hour after it, so 'at 7pm' is 18:00–20:00. 'open now' starts at the exact current local date/time and ends two hours later.",
     `- kind exclusion: cuisines the person wants to AVOID ("no Italian", "not sushi", "anything but pizza"), only from: ${cuisines || "(none known)"}. Put the matching values in excludeValues.`,
     `- kind inclusion: cuisines the person WANTS ("Asian please", "let's do Italian", "I fancy ramen"), from the same list. Put the matching values in includeValues. Wanting a cuisine is never an exclusion of it; when the wanted cuisine is not in the list, use kind text.`,
     "- kind text: anything else, verbatim in `text` (max 120 chars). It rules nothing out until checked, so prefer a typed kind whenever one honestly fits.",
@@ -134,10 +185,12 @@ export async function say(
   text: string,
   scope: string,
   context: SpatialContextResult,
+  now = new Date(),
 ): Promise<SayOutcome> {
+  const clock = roomClock(context, now);
   const reply = await respond({
     model: config.nlFastModel,
-    instructions: instructions(context, scope),
+    instructions: instructions(context, scope, clock),
     input: [{ role: "user", content: text }],
     schema: { name: "composer_route", schema: SCHEMA },
     reasoning: "low",
@@ -175,6 +228,26 @@ export async function say(
       needs.push({
         ...base,
         payload: { kind: "scope", dimension: "walk_min", max: Math.round(n.walkMin) },
+      });
+    } else if (n.kind === "time") {
+      const startText = n.window?.start;
+      const endText = n.window?.end;
+      const hasOffset = (value: unknown): value is string =>
+        typeof value === "string" && /[+-]\d{2}:\d{2}$/.test(value);
+      const start = hasOffset(startText) ? Date.parse(startText) : Number.NaN;
+      const end = hasOffset(endText) ? Date.parse(endText) : Number.NaN;
+      if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) continue;
+      const proposedPhrase = n.phrase?.trim();
+      const phrase = proposedPhrase && text.toLocaleLowerCase().includes(proposedPhrase.toLocaleLowerCase())
+        ? proposedPhrase
+        : text.trim();
+      needs.push({
+        ...base,
+        payload: {
+          kind: "time",
+          window: { start: startText, end: endText },
+          ...(phrase ? { phrase: phrase.slice(0, 200) } : {}),
+        },
       });
     } else if (n.kind === "exclusion" || n.kind === "inclusion") {
       const source = n.kind === "exclusion" ? n.excludeValues : n.includeValues;

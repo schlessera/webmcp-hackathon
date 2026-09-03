@@ -4,7 +4,12 @@ import type {
   PrepareNavigationResponse,
   SpatialContextResponse,
 } from "@webmcp-hackathon/contracts";
-import { POOL_CAP, areaById } from "@webmcp-hackathon/contracts";
+import {
+  POOL_CAP,
+  areaById,
+  openNow,
+  parseOpeningHours,
+} from "@webmcp-hackathon/contracts";
 import { withTransaction } from "./db.ts";
 import type { Participant } from "./auth.ts";
 import {
@@ -134,6 +139,7 @@ export async function spatialContext(
       effective,
       inputs.verdicts,
       inputs.scope,
+      inputs.timezone,
     );
     const scope = inputs.scope;
     const bundle = computeFacetsBundle(inputs, actor.id, excludeId);
@@ -330,7 +336,7 @@ export async function spatialContext(
 export async function inspectCandidates(
   actor: Participant,
   candidateIds: string[],
-  options: { triggerLookup?: boolean; waitMs?: number } = {},
+  options: { triggerLookup?: boolean; waitMs?: number; now?: Date } = {},
 ): Promise<InspectCandidatesResponse> {
   // R9: discover network targets without locking the room and without
   // checking out a client. The candidate rows are deliberately re-read in a
@@ -398,7 +404,7 @@ export async function inspectCandidates(
   return withTransaction(async (client) => {
     const room = (
       await client.query(
-        "SELECT revision FROM rooms WHERE id = $1 FOR SHARE",
+        "SELECT revision, area_id FROM rooms WHERE id = $1 FOR SHARE",
         [actor.roomId],
       )
     ).rows[0];
@@ -427,6 +433,8 @@ export async function inspectCandidates(
       .filter((ref): ref is string => Boolean(ref));
     const enrichments = await loadCached(client, refs);
     const inputs = await loadEligibilityInputs(client, actor.roomId);
+    const timezone = areaById(room.area_id as string)?.timezone ?? inputs.timezone ?? "UTC";
+    const readAt = options.now ?? inputs.now ?? new Date();
     const candidateById = new Map(inputs.candidates.map((candidate) => [candidate.id, candidate]));
     const needsFor = (candidateId: string): CandidateDossier["needs"] => {
       const candidate = candidateById.get(candidateId);
@@ -440,6 +448,7 @@ export async function inspectCandidates(
           [requirement],
           inputs.verdicts,
           null,
+          timezone,
         )[0];
         const verdict =
           classified.eligibility === "eligible"
@@ -460,7 +469,11 @@ export async function inspectCandidates(
         const why = whyFor(classified, actor.id);
         rows.push({
           requirementId: requirement.id,
-          label: labelForRequirement(requirement, requirement.owner_id === actor.id),
+          label: labelForRequirement(
+            requirement,
+            requirement.owner_id === actor.id,
+            { timezone, now: readAt },
+          ),
           verdict,
           ...(classified.confidence !== undefined ? { confidence: classified.confidence } : {}),
           ...(why !== undefined ? { why } : {}),
@@ -475,6 +488,22 @@ export async function inspectCandidates(
       const enrichment = r.osm_ref ? enrichments.get(r.osm_ref as string) : undefined;
       const view = enrichmentView(r.extras ?? null, enrichment);
       const webPrice = enrichment?.website?.priceLevel;
+      const recordHours = Array.isArray(r.hours) && r.hours.length > 0
+        ? r.hours as CandidateDossier["hours"]
+        : null;
+      const siteHours = parseOpeningHours(enrichment?.website?.hours?.join("; "));
+      const rawHoursClaim = Array.isArray(r.attributes) &&
+        (r.attributes as Array<{ key?: string; value?: unknown }>).some(
+          (attribute) =>
+            attribute?.key === "hours" &&
+            typeof attribute.value === "string" &&
+            attribute.value.length > 0,
+        );
+      const siteHoursClaim = enrichment?.website?.hours?.some((rule) => rule.trim().length > 0) === true;
+      const hasHoursClaim = Boolean(recordHours || siteHours || rawHoursClaim || siteHoursClaim);
+      const current = recordHours || siteHours
+        ? openNow(recordHours ?? siteHours!, timezone, readAt)
+        : null;
       return {
         candidateId: r.id,
         name: r.name,
@@ -484,6 +513,9 @@ export async function inspectCandidates(
         // line, the same way it fills the price-level attribute.
         priceLevel: r.price_level ?? (webPrice ?? null),
         hours: r.hours ?? [],
+        ...(hasHoursClaim ? { openNow: current?.open ?? null } : {}),
+        ...(current?.until ? { openUntil: current.until } : {}),
+        ...(current?.nextOpen ? { nextOpen: current.nextOpen } : {}),
         attributes: mergedAttributes(
           { id: r.id as string, category: r.category as string, attributes: r.attributes ?? [] },
           enrichment,

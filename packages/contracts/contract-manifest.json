@@ -1,6 +1,6 @@
 {
   "toolContractVersion": "3",
-  "sha256": "2f5bc73f35641e1c04e51ad80f29f67a05fba90001c7cef2b5d645001d22f73f",
+  "sha256": "19d0b3671becc33e58f8314ed9d2c081e810052a65ea2c8047dc527ab8720eea",
   "manifest": {
     "capabilityManifest": {
       "agreement": {
@@ -877,6 +877,45 @@
                 "additionalProperties": false,
                 "properties": {
                   "kind": {
+                    "const": "time",
+                    "type": "string"
+                  },
+                  "phrase": {
+                    "maxLength": 200,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "window": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "end": {
+                        "format": "date-time",
+                        "maxLength": 40,
+                        "type": "string"
+                      },
+                      "start": {
+                        "format": "date-time",
+                        "maxLength": 40,
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "start",
+                      "end"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "window"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "kind": {
                     "const": "text",
                     "type": "string"
                   },
@@ -1604,6 +1643,25 @@
                         "type": "object"
                       },
                       "type": "array"
+                    },
+                    "nextOpen": {
+                      "type": "string"
+                    },
+                    "openNow": {
+                      "anyOf": [
+                        {
+                          "type": "null"
+                        },
+                        {
+                          "type": "boolean"
+                        },
+                        {
+                          "type": "boolean"
+                        }
+                      ]
+                    },
+                    "openUntil": {
+                      "type": "string"
                     },
                     "phone": {
                       "type": "string"
@@ -4557,6 +4615,45 @@
                   "required": [
                     "kind",
                     "perPersonMax"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "kind": {
+                      "const": "time",
+                      "type": "string"
+                    },
+                    "phrase": {
+                      "maxLength": 200,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "window": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "end": {
+                          "format": "date-time",
+                          "maxLength": 40,
+                          "type": "string"
+                        },
+                        "start": {
+                          "format": "date-time",
+                          "maxLength": 40,
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "start",
+                        "end"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "window"
                   ],
                   "type": "object"
                 },

@@ -150,6 +150,22 @@ search-derived fact. `SpatialContextResult.refine` reports whether the loop is
 active, how many places remain queued, how many places were checked since UTC
 midnight, and the remaining per-room model-call and search budgets.
 
+### Temporal needs
+
+Each active time need produces one `temporal` facet. Its key is the stable
+criterion `open:<start>-<end>` and is never rendered. Its label is composed by
+the server from the absolute window, the room area's IANA timezone, and the
+read-time clock: `open today 18:00–21:00 (Thu)`, `open tomorrow
+12:00–14:00 (Fri)`, or `open Fri 18:00–21:00`. If the area clock cannot be
+used, the fallback reads only weekday and wall clock from the window's written
+offset, never the ISO timestamp.
+
+The five counts are disjoint: `yes` for verified hours covering the window,
+`no` for verified hours that do not, `likely` / `unlikely` for the same answers
+from site-published hours, and `unknown` when no hours can answer. Their sum is
+the current candidate total. Missing hours never become `no`, and one time
+need never shares a facet with another window.
+
 ---
 
 ## 3. Provenance

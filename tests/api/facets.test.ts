@@ -6,6 +6,7 @@ import {
   type TestRoom,
   type TestServer,
 } from "./helpers.ts";
+import { inspectCandidates } from "../../apps/server/src/spatial.ts";
 
 /**
  * Lane 2: the facets contract (FACETS.md) over the wire, against the real
@@ -42,11 +43,12 @@ interface Context {
     key: string;
     label: string;
     type: string;
-    counts: { yes?: number; no?: number; unknown: number };
+    counts: { yes?: number; likely?: number; unlikely?: number; no?: number; unknown: number };
     values?: Array<{ value: string; label: string; count: number }>;
   }>;
   activeNeeds: Array<{
     id: string;
+    criterionId?: string;
     label: string;
     ruledOut: number;
     wouldReturn: number;
@@ -315,6 +317,91 @@ describe("free-text needs", () => {
     expect(need.unknown).toBe(body.total);
     // Nothing has been checked against it, so nothing can still be matching.
     expect(body.matching).toBe(0);
+  });
+});
+
+describe("time needs over the API", () => {
+  it("counts hours-bearing places and keeps missing hours unknown", async () => {
+    const fresh = await createTestRoom(server.baseUrl);
+    try {
+      await fresh.pool.query("UPDATE rooms SET area_id = 'berlin-mitte' WHERE id = $1", [fresh.roomId]);
+      const candidates = await fresh.pool.query(
+        "SELECT id, name FROM candidates WHERE room_id = $1 ORDER BY name",
+        [fresh.roomId],
+      );
+      for (const candidate of candidates.rows as Array<{ id: string; name: string }>) {
+        if (candidate.name === "Gamma") continue;
+        const close = candidate.name === "Alpha" ? "15:00" : "13:00";
+        await fresh.pool.query(
+          `UPDATE candidates SET hours = $2, attributes = $3 WHERE id = $1`,
+          [
+            candidate.id,
+            JSON.stringify([{ day: "fri", open: "11:00", close }]),
+            JSON.stringify([{
+              key: "hours",
+              status: "verified_true",
+              source: "osm:opening_hours",
+              value: `Fr 11:00-${close}`,
+            }]),
+          ],
+        );
+      }
+
+      const window = {
+        start: "2030-09-06T12:00:00+02:00",
+        end: "2030-09-06T14:00:00+02:00",
+      };
+      const backwards = await command(fresh.tokens.org, "SubmitRequirement", {
+        baseRevision: 0,
+        visibility: "shared",
+        hardness: "hard",
+        delegation: { mode: "approval_required" },
+        payload: { kind: "time", window: { start: window.end, end: window.start } },
+      });
+      expect(backwards.body).toMatchObject({ ok: false, error: { code: "invalid_input" } });
+
+      const submitted = await command(fresh.tokens.org, "SubmitRequirement", {
+        baseRevision: 0,
+        visibility: "shared",
+        hardness: "hard",
+        delegation: { mode: "approval_required" },
+        payload: { kind: "time", window, phrase: "open Friday for lunch" },
+      });
+      expect(submitted.body.ok).toBe(true);
+
+      const { body } = await context(fresh.tokens.org);
+      const criterionId = `open:${window.start}-${window.end}`;
+      const facet = body.facets.find((item) => item.key === criterionId)!;
+      expect(facet).toMatchObject({
+        type: "temporal",
+        counts: { yes: 1, likely: 0, unlikely: 0, no: 1, unknown: 1 },
+      });
+      expect(Object.values(facet.counts).reduce((sum, count) => sum + (count ?? 0), 0))
+        .toBe(body.total);
+      expect(body.activeNeeds[0].criterionId).toBe(criterionId);
+      expect(body.candidates.find((candidate) => candidate.candidateId === candidates.rows[2].id)?.eligibility)
+        .toBe("uncertain");
+
+      const dossier = await inspectCandidates(
+        {
+          id: fresh.participantIds.org,
+          roomId: fresh.roomId,
+          displayName: "Alex",
+          role: "organizer",
+          readyState: "contributing",
+        },
+        [candidates.rows[0].id, candidates.rows[2].id],
+        { triggerLookup: false, now: new Date("2030-09-06T12:30:00+02:00") },
+      );
+      expect(dossier.ok).toBe(true);
+      if (dossier.ok) {
+        expect(dossier.candidates[0].openNow).toBe(true);
+        expect(dossier.candidates[0].openUntil).toBe("15:00");
+        expect(dossier.candidates[1]).not.toHaveProperty("openNow");
+      }
+    } finally {
+      await fresh.cleanup();
+    }
   });
 });
 

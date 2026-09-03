@@ -416,6 +416,13 @@ export interface CandidateDossier {
   category: string;
   priceLevel: number | null;
   hours: Array<{ day: string; open: string; close: string }>;
+  /** Current status in the area's timezone. Absent with no hours; null when
+   * hours exist but cannot answer. */
+  openNow?: boolean | null;
+  /** Clock-only status details in the area's timezone. Additive so older
+   * readers can continue using `openNow` alone. */
+  openUntil?: string;
+  nextOpen?: string;
   links?: DossierLinkView[];
   description?: { text: string; source: string };
   rating?: DossierRating;

@@ -1,6 +1,7 @@
 import type { Static } from "@sinclair/typebox";
 import type { RequirementPayload } from "./commands.ts";
 import { ATTRIBUTE_LABELS, ATTRIBUTE_VOCABULARY } from "./manifest.ts";
+import { windowLabel, windowSpanText } from "./hours.ts";
 
 /** One independently answerable fact about one place. */
 export type Criterion =
@@ -86,7 +87,10 @@ const keyCriterion = (key: keyof typeof ATTRIBUTE_LABELS): Criterion => ({
 });
 
 /** Map a stored requirement payload to the fact a lookup can answer. */
-export function criterionFor(payload: RequirementPayloadValue | null | undefined): Criterion | null {
+export function criterionFor(
+  payload: RequirementPayloadValue | null | undefined,
+  context?: { timezone: string; now: Date },
+): Criterion | null {
   if (!payload) return null;
   if (payload.kind === "attribute") {
     if (!(ATTRIBUTE_VOCABULARY as readonly string[]).includes(payload.key)) return null;
@@ -96,6 +100,14 @@ export function criterionFor(payload: RequirementPayloadValue | null | undefined
     const label = payload.text.trim().replace(/\s+/g, " ");
     const text = normalizeQuestion(payload.text);
     return { id: questionKey(payload.text), kind: "question", text, label };
+  }
+  if (payload.kind === "time") {
+    const id = `open:${payload.window.start}-${payload.window.end}`;
+    const phrase = payload.phrase?.trim().replace(/\s+/g, " ");
+    const label = context
+      ? windowLabel(payload.window, context.timezone, context.now)
+      : phrase || `open ${windowSpanText(payload.window)}`;
+    return { id, kind: "key", key: id, label };
   }
   if ((payload.kind === "inclusion" || payload.kind === "exclusion") && payload.key === "cuisine") {
     return keyCriterion("cuisine");

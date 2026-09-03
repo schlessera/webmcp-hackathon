@@ -61,6 +61,39 @@ the shape of the job is. Models are configurable (`NL_FAST_MODEL`,
   commit in the room. A restart forgets held conditions; the declaration then
   stays pending (uncertain) until it is said again. Nothing is guessed.
 
+## Time resolution in the fast tier
+
+The router receives the room area's IANA timezone and the current local
+date/time with that area's numeric UTC offset. The request clock is captured
+when `say` runs; the area's `areaId` resolves through the area registry to its
+timezone. The model therefore has an explicit civil-date anchor and does not
+invent timestamps without time words from the person.
+
+A date word selects a civil date: `today`, `tomorrow`, or the next occurrence
+on or after today of a named weekday. It combines with these fixed windows:
+
+| Words | Local window |
+|---|---|
+| `lunch` | 12:00–14:00 |
+| `dinner` | 18:00–21:00 |
+| `brunch` | 10:00–13:00 |
+| `evening` | 18:00–21:00 |
+| `tonight` | today, 18:00–23:00 |
+| `at 7pm` | 18:00–20:00 (the stated time ±1 hour) |
+| `open now` | the captured clock through two hours later |
+
+A bare date or weekday spans local 00:00 through the next civil day's 00:00.
+The strict result schema carries a concrete `{ start, end }` window plus the
+person's actual phrase. Both endpoints must be parseable ISO-8601 date-times
+with the area's numeric offset and `end > start`; the server drops a malformed
+time need instead of turning it into free text.
+
+The client does not parse natural-language dates, weekdays, meals, or clock
+times. When the fast tier is unavailable, its one exact time fallback is
+`open now`, which becomes the browser's current instant through two hours
+later with the typed words preserved as `phrase`. Every other time sentence
+uses the existing honest `text` fallback.
+
 ## What the smart tier can and cannot do
 
 - Runs as the participant's own actor: every read is their view, so peers'
