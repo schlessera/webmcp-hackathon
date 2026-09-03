@@ -212,4 +212,10 @@ Agreement
 - No constraint is relaxed outside its owner's delegated authority.
 - Tool results update the visible UI before returning where appropriate.
 - Protocol versions and domain capabilities are explicit.
+- No work holds a database client outside a transaction. A held client is a
+  client no request can have: background jobs that each kept one as a lock
+  holder took the whole pool at boot and the app could not answer an invite
+  exchange. Serialize with a transaction-scoped lock inside the statement that
+  needs it, or with a process-local gate, never with a session-scoped advisory
+  lock on a pooled connection.
 
