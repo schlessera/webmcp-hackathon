@@ -14,12 +14,18 @@ export const DATABASE_URL =
 
 /** Global evidence caches are intentionally shared between production rooms,
  * so API runs must reset them as a lane-level fixture rather than pretending
- * room teardown owns their rows. */
+ * room teardown owns their rows.
+ *
+ * `enrichments` belongs in this list for the same reason and was missing from
+ * it: keyed by OSM ref, never by room, and written by any lane that opens a
+ * Berlin room — the e2e lane included. A file asserting on which places are
+ * enriched was therefore at the mercy of whatever ran before it, in any lane,
+ * on the same database. */
 export async function resetApiCacheState(
   queryable: Pick<pg.Pool, "query">,
 ): Promise<void> {
   await queryable.query(
-    "TRUNCATE page_cache, search_cache, matrix_cache, outbound_metadata_cache",
+    "TRUNCATE page_cache, search_cache, matrix_cache, outbound_metadata_cache, enrichments",
   );
 }
 
