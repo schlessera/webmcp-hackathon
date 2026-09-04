@@ -386,8 +386,72 @@ const spatialTools: ToolDefinition[] = [
   },
 ];
 
+/* --- Opening a room ------------------------------------------------------
+ *
+ * The one part of the product an agent could not previously reach. These two
+ * live on the page BEFORE any room exists, which is why they are the only
+ * tools that answer without a participant token.
+ *
+ * The division of labour is deliberate: the agent states a high-level goal,
+ * and the page works out what that takes. An agent should not be choosing
+ * step classes or composing needs — that is the product's job, and doing it
+ * in one place is what keeps an agent-opened room identical to a
+ * person-opened one.
+ */
+
+export const DESCRIBE_REGIONS_INPUT = Type.Object({}, { additionalProperties: false });
+
+export const OPEN_ROOM_INPUT = Type.Object(
+  {
+    goal: Type.String({
+      minLength: 1,
+      maxLength: 300,
+      description:
+        "What the group wants to do, in ordinary words, as the person said it. " +
+        "One outing or several. Do not break it into steps yourself.",
+    }),
+    organizerName: Type.String({
+      minLength: 1,
+      maxLength: 40,
+      description: "The name of the person opening the room, as others should see it.",
+    }),
+    regionId: Type.String({
+      maxLength: 40,
+      description:
+        "Which prepared region to run in. Call describe_regions first and choose " +
+        "the one whose data suits the goal.",
+    }),
+  },
+  { additionalProperties: false },
+);
+
+const onboardingTools: ToolDefinition[] = [
+  {
+    name: "describe_regions",
+    description:
+      "List the regions this demo can open a room in, with how many places of " +
+      "each kind are on record and how complete their facts are. Spokes is built " +
+      "to work anywhere; world-wide venue data is out of scope for this " +
+      "hackathon, so the demo is bounded to prepared extracts. Call this before " +
+      "open_room. Read-only.",
+    inputSchema: DESCRIBE_REGIONS_INPUT,
+    annotations: { readOnlyHint: true },
+  },
+  {
+    name: "open_room",
+    description:
+      "Open a new planning room from a goal stated in ordinary words, and take " +
+      "this page into it. The page works out what the goal takes — the kinds of " +
+      "place, in order, and the criteria the words already state — so state the " +
+      "goal and let it do that. Returns what it built and a link to invite " +
+      "others. After this, call sync_session and use the room's own tools.",
+    inputSchema: OPEN_ROOM_INPUT,
+    annotations: {},
+  },
+];
+
 /** The full registered tool catalog — static surface, no state-gated registration. */
-export const TOOLS: ToolDefinition[] = [...negotiationTools, ...spatialTools];
+export const TOOLS: ToolDefinition[] = [...onboardingTools, ...negotiationTools, ...spatialTools];
 
 /** Chrome budget guidance (INTERACTION-AND-BINDING.md §2.3). */
 export const BUDGETS = {

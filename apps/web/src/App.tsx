@@ -12,6 +12,7 @@ import {
   clearSession,
   establishSession,
   inviteSecretFromFragment,
+  joinSecretFromFragment,
   type SessionState,
 } from "./session.ts";
 import {
@@ -45,7 +46,9 @@ import { ConsentCards } from "./components/ConsentCards.tsx";
 import { PlaceDetails } from "./components/PlaceDetails.tsx";
 import { ArrivalBar } from "./components/ArrivalBar.tsx";
 import { Drawer } from "./components/Drawer.tsx";
-import { Start } from "./components/Start.tsx";
+import { Onboarding } from "./components/Onboarding.tsx";
+import { Join } from "./components/Join.tsx";
+import { InviteDialog } from "./components/InviteDialog.tsx";
 import { Landing } from "./components/Landing.tsx";
 import { provenanceLine } from "./ui/copy.ts";
 import { RevisionWatermarks } from "./revision-watermarks.ts";
@@ -131,17 +134,25 @@ function writeLastSeen(roomId: string, revision: number): void {
 
 /**
  * The front door keys on the hash, re-read on every hashchange and popstate:
- * `#invite=` is a room, `#start` is the area picker, anything else is the
- * landing page. A room is rendered only while its invite is in the hash, so
+ * `#invite=` is a room, `#join=` is a link someone was handed, `#room` is a
+ * room this page already has an identity for, `#start` opens one, and
+ * anything else is the landing page. A room is rendered only while its invite is in the hash, so
  * Back from a freshly opened room returns to the picker and then to the
  * landing instead of leaving the room mounted under a stale URL. An agent
  * surface flag (`?surface=`) without an invite keeps going straight to the
  * picker. Decided before the session resolves so the first paint is the
  * page, not a splash.
  */
-type Door = "room" | "start" | "landing";
+type Door = "room" | "start" | "join" | "landing";
 function frontDoor(): Door {
   if (inviteSecretFromFragment()) return "room";
+  // A link somebody was handed. It is not yet an identity: the join screen
+  // says what the room is for and asks for a name before it becomes one.
+  if (joinSecretFromFragment()) return "join";
+  // Someone who joined through a link has an identity but no invite in their
+  // URL — the secret was spent to make it. `#room` is how that page says it
+  // is in a room, without putting a credential back in the address bar.
+  if (window.location.hash === "#room") return "room";
   if (window.location.hash === "#start") return "start";
   if (new URLSearchParams(window.location.search).has("surface")) return "start";
   return "landing";
@@ -172,6 +183,7 @@ export function App() {
   const [drawerOpen, setDrawerOpen] = useState(
     () => new URLSearchParams(window.location.search).has("shim"),
   );
+  const [inviteOpen, setInviteOpen] = useState(false);
   /** The revision span this tab missed: after what it last saw on a
    * previous visit, up to the room as found on this visit's first sync.
    * Bounded above so live events after the catch-up never read as "away". */
@@ -257,15 +269,24 @@ export function App() {
           serverSeen = probe.lastSyncedRevision ?? null;
           probedRevision = probe.revision ?? 0;
         }
-        if (
-          !probe.ok &&
-          probe.error?.code === "not_authenticated" &&
-          inviteSecretFromFragment()
-        ) {
-          diagnostics.log("stored token dead — re-exchanging from fragment");
-          clearSession();
-          established = await establishSession();
-          if (cancelled) return;
+        if (!probe.ok && probe.error?.code === "not_authenticated") {
+          if (inviteSecretFromFragment()) {
+            diagnostics.log("stored token dead — re-exchanging from fragment");
+            clearSession();
+            established = await establishSession();
+            if (cancelled) return;
+          } else {
+            // A page that joined through a link holds no credential to
+            // re-exchange: the secret was spent making this identity. Better
+            // to send them back to the front door than to leave them in a
+            // room whose every action fails.
+            diagnostics.log("stored token dead and nothing to re-exchange — starting over");
+            clearSession();
+            if (cancelled) return;
+            window.location.assign(window.location.pathname + window.location.search);
+            window.location.reload();
+            return;
+          }
         }
       }
       setSession(established);
@@ -713,6 +734,10 @@ export function App() {
   const candidateName = useCallback(
     (candidateId: string) =>
       context?.candidates.find((c) => c.candidateId === candidateId)?.name ??
+      // A settled step's places have left the pool; the step keeps the name of
+      // the one the room chose, which is the only one still worth naming.
+      context?.steps?.find((step) => step.settled?.candidateId === candidateId)
+        ?.settled?.name ??
       candidateId,
     [context],
   );
@@ -746,9 +771,22 @@ export function App() {
       />
     );
   }
+  if (door === "join") {
+    return (
+      <Join
+        joinSecret={joinSecretFromFragment()!}
+        onJoined={() => {
+          // The claim already minted this page's identity, so the secret has
+          // done its work and comes out of the URL.
+          window.location.assign(`${window.location.pathname}${window.location.search}#room`);
+          window.location.reload();
+        }}
+      />
+    );
+  }
   if (door === "start") {
     return (
-      <Start
+      <Onboarding
         onOpen={(inviteSecret) => {
           clearSession();
           window.location.assign(`/#invite=${inviteSecret}`);
@@ -776,7 +814,7 @@ export function App() {
     // room. An invite that failed to exchange is still an error to show.
     if (!inviteSecretFromFragment()) {
       return (
-        <Start
+        <Onboarding
           onOpen={(inviteSecret) => {
             clearSession();
             window.location.assign(`/#invite=${inviteSecret}`);
@@ -797,13 +835,22 @@ export function App() {
   const isOrganizer = id.role === "organizer";
   /* Settled means COMMITTED. `agreement` is also present while a proposal is
      merely staged (organizer consent pending), and that must not hide the
-     composer or announce agreement. */
-  const committedId =
-    (context?.agreement?.status === "committed"
-      ? context.agreement.candidateId
-      : undefined) ??
-    context?.proposals.find((p) => p.status === "committed")?.candidateId ??
-    null;
+     composer or announce agreement.
+
+     In a room on a plan, a committed proposal belongs to the step it settled,
+     and that step's agreement stays committed while the room works on the
+     next one. So the question is not "has this room ever agreed" but "has the
+     step it is ON agreed" — otherwise step 2 opens already looking settled,
+     with no composer and an arrival bar for a place from step 1. */
+  const activeStep =
+    context?.steps?.find((step) => step.stepId === context.activeStepId) ?? null;
+  const committedId = context?.steps?.length
+    ? activeStep?.settled?.candidateId ?? null
+    : (context?.agreement?.status === "committed"
+        ? context.agreement.candidateId
+        : undefined) ??
+      context?.proposals.find((p) => p.status === "committed")?.candidateId ??
+      null;
   const selected = context?.candidates.find(
     (c) => c.candidateId === spatialState.selectedId,
   );
@@ -886,6 +933,8 @@ export function App() {
         title={settled && committedId ? candidateName(committedId) : context?.goal ?? null}
         subtitle={subtitle}
         participants={participants}
+        {...(context?.steps ? { steps: context.steps } : {})}
+        activeStepId={context?.activeStepId ?? null}
         meId={id.participantId}
         originEditing={originEditing}
         onOriginEditingChange={setOriginEditing}
@@ -896,6 +945,7 @@ export function App() {
           return result.ok;
         }}
         onOpenDrawer={() => setDrawerOpen(true)}
+        onAddParticipant={() => setInviteOpen(true)}
       />
 
       <div className="app-body">
@@ -1086,6 +1136,7 @@ export function App() {
         {originAnnouncement}
       </div>
 
+      {inviteOpen && <InviteDialog onClose={() => setInviteOpen(false)} />}
       {drawerOpen && (
         <Drawer
           identity={id}

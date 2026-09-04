@@ -1,5 +1,8 @@
 import { BUDGETS, TOOLS, type ToolDefinition } from "@webmcp-hackathon/contracts";
 import {
+  createRoom,
+  fetchAreas,
+  previewPlan,
   spatialContext,
   spatialInspectRaw,
   landmarksRaw,
@@ -8,6 +11,8 @@ import {
   syncSessionRaw,
 } from "./api.ts";
 import { diagnostics } from "./diagnostics-store.ts";
+import { exchangeInvite } from "./session.ts";
+import { mintInvite } from "./invite-api.ts";
 import { runCommand, spatial } from "./spatial-store.ts";
 import { trim, utf8Bytes, wire } from "./wire-store.ts";
 import type {
@@ -342,12 +347,184 @@ function trimInspect(result: unknown): unknown {
   };
 }
 
+/**
+ * The regions this demo can open a room in.
+ *
+ * The limitation is stated in the answer, not only in the tool description,
+ * because an agent that reads one may not have kept the other.
+ */
+async function describeRegions(): Promise<unknown> {
+  const areas = await fetchAreas().catch(() => null);
+  if (!areas) {
+    return {
+      ok: false,
+      error: {
+        code: "temporarily_unavailable",
+        message: "The region list could not be read.",
+        recovery: "Retry in a moment.",
+      },
+    };
+  }
+  return {
+    ok: true,
+    note:
+      "Spokes is built to work anywhere. World-wide venue data is out of scope " +
+      "for this hackathon demo, so it runs on these prepared extracts.",
+    regions: areas
+      .filter((area) => area.available)
+      .map((area) => ({
+        regionId: area.id,
+        label: area.label,
+        city: area.city,
+        source: area.source,
+        dataAsOf: area.dataAsOf,
+        placesOnRecord: (area.classes ?? []).map((item) => ({
+          kind: item.label,
+          places: item.count,
+        })),
+        ...(area.coverage?.pool
+          ? {
+              factsOnRecord: area.coverage.pool.decisive,
+              factsPossible: area.coverage.pool.slots,
+            }
+          : {}),
+      })),
+  };
+}
+
+function cancelled(): unknown {
+  return {
+    ok: false,
+    error: {
+      code: "temporarily_unavailable",
+      message: "The request was cancelled before the room was opened.",
+      recovery: "Call open_room again when you want the room.",
+    },
+  };
+}
+
+/**
+ * A goal, in ordinary words, becomes a room this page is now inside.
+ *
+ * The agent states the goal; the preview decides what it takes. That split is
+ * the point: an agent choosing step classes would be a second implementation
+ * of the planner, and the two would drift.
+ */
+async function openRoomFromGoal(
+  args: unknown,
+  signal?: AbortSignal,
+): Promise<unknown> {
+  const input = (args ?? {}) as {
+    goal?: unknown;
+    organizerName?: unknown;
+    regionId?: unknown;
+  };
+  const goal = typeof input.goal === "string" ? input.goal.trim() : "";
+  const organizerName =
+    typeof input.organizerName === "string" ? input.organizerName.trim() : "";
+  const regionId = typeof input.regionId === "string" ? input.regionId : "";
+  if (!goal || !organizerName || !regionId) {
+    return {
+      ok: false,
+      error: {
+        code: "invalid_input",
+        message: "goal, organizerName and regionId are all required.",
+        recovery: "Call describe_regions for the region ids, then retry.",
+      },
+    };
+  }
+
+  let timezone: string | undefined;
+  try {
+    timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || undefined;
+  } catch {
+    timezone = undefined;
+  }
+  if (signal?.aborted) return cancelled();
+  const preview = await previewPlan({ goal, ...(timezone ? { timezone } : {}) });
+  // The last point before anything is written. An agent that walked away
+  // while the goal was being read should not come back to a room.
+  if (signal?.aborted) return cancelled();
+  const steps = preview?.steps?.length
+    ? preview.steps.map((step) => ({
+        placeClass: step.placeClass.key,
+        title: step.title,
+        needs: step.needs,
+        when: step.when,
+      }))
+    : [{ placeClass: "food" }];
+
+  const created = await createRoom({ areaId: regionId, organizerName, goal, steps });
+  if (!created.ok) {
+    return {
+      ok: false,
+      error: {
+        code: "invalid_input",
+        message: created.error,
+        recovery: "Call describe_regions and use one of the region ids it lists.",
+      },
+    };
+  }
+  const organizer = created.room.invites.find((invite) => invite.role === "organizer");
+  if (!organizer) {
+    return {
+      ok: false,
+      error: {
+        code: "temporarily_unavailable",
+        message: "The room opened without a way in.",
+        recovery: "Retry.",
+      },
+    };
+  }
+
+  // Become the organizer here and now, so a link to hand out can be minted
+  // before the page moves. The navigation below reloads into the room with
+  // this same identity already stored.
+  await exchangeInvite(organizer.inviteSecret);
+  const invite = await mintInvite();
+
+  // Take the page into the room. This is what an agent's caller sees as "we
+  // are in the map view now".
+  window.setTimeout(() => {
+    window.location.assign(`/#invite=${organizer.inviteSecret}`);
+    window.location.reload();
+  }, 0);
+
+  return {
+    ok: true,
+    effect: `Room open: ${created.room.goal}`,
+    region: created.room.areaId,
+    steps: created.room.steps.map((step) => ({
+      position: step.index,
+      about: step.title,
+      kindOfPlace: step.placeClass.label,
+      ...(step.relation.kind === "then" ? { after: step.relation.afterStepId } : {}),
+    })),
+    ...(invite
+      ? {
+          inviteOthers: `${window.location.origin}/#join=${invite.inviteSecret}`,
+          inviteNote: "One person per link, and unused links expire in an hour.",
+        }
+      : {}),
+    next: "The page is now in the room. Call sync_session, then get_spatial_context.",
+  };
+}
+
 async function executeTool(
   name: string,
   args: unknown,
   signal?: AbortSignal,
 ): Promise<unknown> {
   switch (name) {
+    // Opening a room: the only two tools that answer before a participant
+    // exists. They run the same server calls the three onboarding screens
+    // run, so an agent-opened room and a person-opened one are the same room.
+    case "describe_regions":
+      return describeRegions();
+
+    case "open_room":
+      return openRoomFromGoal(args, signal);
+
     case "sync_session":
       // Thread the agent's AbortSignal into the fetch (WEBMCP-REFERENCE §6.4).
       return syncSessionRaw(args ?? {}, signal);

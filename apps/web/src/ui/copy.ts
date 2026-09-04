@@ -391,4 +391,79 @@ export const COPY = {
   startOpeningRoom: "Opening the room…",
   /** "updating 40 places…" — the agent's second phase (COPY.md in progress). */
   agentApplying: (places: number) => `updating ${places} place${places === 1 ? "" : "s"}…`,
+
+  /* --- Onboarding ------------------------------------------------------
+   * Second person for the organizer's own things, third for everyone
+   * else's; "places", never a domain noun; no exclamation marks (COPY.md).
+   */
+  askName: "Your name",
+  askNamePlaceholder: "Alex",
+  askGoal: "What are you trying to do?",
+  askGoalHelp: "In your own words. One outing or several.",
+  /** Published in three places at once — here, the goal field's placeholder,
+   * and the WebMCP tool description. Change them in all three or none. */
+  goalExamples: [
+    "Dinner tonight somewhere we can all walk to",
+    "Coffee and a quiet table, then a bookshop nearby",
+    "A dog-friendly park this afternoon",
+  ],
+  goalContinue: "Work out what that takes",
+  planReading: "Working out what that takes…",
+  planKicker: "What that takes",
+  planOneStep: "One place to find.",
+  planSteps: (count: number) => `${count} places to find, in order.`,
+  planStepOf: (index: number, total: number) => `Step ${index} of ${total}`,
+  planThen: "after that, near there",
+  planStepClass: "Kind of place",
+  planStepNeeds: "From what you said",
+  planNoNeeds: "Nothing stated yet. You can add needs once the room is open.",
+  planDropStep: "Remove this step",
+  planBack: "Change what you said",
+  planConfirm: "Open the room",
+  planOffline:
+    "Your words could not be read just now. Choose the kind of place and keep going.",
+  clarifyPickOne: "Pick one",
+  clarifyPickAny: "Pick any that apply",
+  clarifyApply: "Use these",
+
+  regionTitle: "One thing first",
+  regionLede:
+    "Spokes is built to work anywhere. Venue data that covers everywhere is a cost and licensing problem this demo does not solve, so it is bounded to two regions prepared in advance. Everything past this screen is the real product.",
+  regionPick: "Choose where to run it",
+  regionOpening: "Opening the room…",
+  regionOnRecord: (count: number, label: string) =>
+    `${count} ${label.replace(/^(a|an|somewhere for|somewhere to)\s+/, "")}`,
+  regionFactsKnown: (known: number, slots: number) => `${known} of ${slots} facts on record`,
+
+  invitesTitle: "Add someone",
+  invitesLede: "Send this link, or let them point a phone at the code.",
+  invitesCopy: "Copy link",
+  invitesCopied: "Copied",
+  invitesShare: "Share",
+  invitesNew: "New link",
+  invitesOne: "Each link is for one person. Once it is used, it stays theirs.",
+  invitesExpiry: "Unused links stop working after an hour.",
+  invitesUnused: "not used yet",
+  invitesExpired: "expired",
+  invitesClaimed: (name: string) => `${name} joined`,
+  invitesNone: "No links yet.",
+  addPerson: "Add someone",
+
+  joinLede: (organizer: string) => `${organizer} is working this out with a group.`,
+  joinCount: (people: number) =>
+    `${people} ${people === 1 ? "person is" : "people are"} in so far.`,
+  joinAccount: "Log in",
+  joinAccountOff: "The demo has no accounts. Join as a guest instead.",
+  joinAsGuest: "Join as a guest",
+  joinNameLabel: "Your name",
+  joinGo: "Join",
+  joinJoining: "Joining…",
+  joinInUse: "This link is already in use. Ask for a new one.",
+  joinExpired: "This link has expired. Ask for a new one.",
+  joinUnknown: "This link does not lead anywhere. Ask for a new one.",
+  joinFailed: "Could not reach the room. Try again in a moment.",
+
+  stepSettled: (name: string) => `settled on ${name}`,
+  stepNow: "now",
+  stepNext: "next",
 } as const;

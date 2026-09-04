@@ -49,8 +49,11 @@ async function mockGoalStart(
     const input = route.request().postDataJSON() as Record<string, unknown>;
     roomBodies.push(input);
     const goal = typeof input.goal === "string" ? input.goal : "Somewhere in Berlin Mitte";
-    const step = input.step as { placeClass?: string; needs?: unknown[] } | undefined;
-    const selected = startClasses.find((item) => item.key === step?.placeClass) ?? startClasses[0]!;
+    const planned = (input.steps as Array<{ placeClass?: string; needs?: unknown[] }> | undefined)
+      ?? (input.step ? [input.step as { placeClass?: string; needs?: unknown[] }] : []);
+    const classOf = (key: string | undefined) =>
+      startClasses.find((item) => item.key === key) ?? startClasses[0]!;
+    const selected = classOf(planned[0]?.placeClass);
     await route.fulfill({
       status: 200,
       json: {
@@ -59,8 +62,24 @@ async function mockGoalStart(
         goal,
         step: {
           placeClass: { key: selected.key, label: selected.label },
-          seeded: step?.needs?.length ?? 0,
+          seeded: planned[0]?.needs?.length ?? 0,
         },
+        steps: planned.map((step, index) => ({
+          stepId: `s${index + 1}`,
+          index: index + 1,
+          title: classOf(step.placeClass).label,
+          placeClass: {
+            key: classOf(step.placeClass).key,
+            label: classOf(step.placeClass).label,
+          },
+          relation: index === 0
+            ? { kind: "first" }
+            : { kind: "then", afterStepId: `s${index}` },
+          when: null,
+          status: index === 0 ? "active" : "pending",
+          settled: null,
+        })),
+        activeStepId: planned.length > 0 ? "s1" : null,
         invites: [
           {
             participantId: "p_goal_org",
@@ -138,83 +157,111 @@ test("the root is the landing page, and Start a room opens the picker", async ()
   await context.close();
 });
 
-test("a goal is reviewed, one pending need can be left out, and invites repeat it", async () => {
+test("a goal becomes step boxes, a need can be left out, and a region opens the room", async () => {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
   const page = await context.newPage();
-  const goal = "a film after lunch near Sarah's station";
-  const preview = {
+  const goal = "dinner, then a film near there";
+  const roomBodies = await mockGoalStart(page, {
     goal,
     offline: false,
     steps: [
       {
         stepId: "s1",
-        title: "a film after lunch",
-        placeClass: { key: "cinema", label: "a cinema" },
+        index: 1,
+        title: "dinner",
+        placeClass: { key: "food", label: "somewhere to eat" },
+        relation: { kind: "first" },
         needs: [
+          {
+            payload: { kind: "attribute", key: "outdoor-seating", expect: "verified_true" },
+            label: "outdoor seating",
+            gist: "outdoor seating",
+          },
           {
             payload: { kind: "scope", dimension: "walk_min", max: 10 },
             label: "within 10 min walk",
-            gist: "near the station",
-          },
-          {
-            payload: { kind: "time_window", start: "2026-09-03T14:00:00+02:00", end: "2026-09-03T18:00:00+02:00" },
-            label: "after lunch",
-            gist: "after lunch",
+            gist: "within 10 min walk",
           },
         ],
-        when: {
-          start: "2026-09-03T14:00:00+02:00",
-          end: "2026-09-03T18:00:00+02:00",
-          phrase: "after lunch",
-        },
+        when: null,
+      },
+      {
+        stepId: "s2",
+        index: 2,
+        title: "a film",
+        placeClass: { key: "cinema", label: "a cinema" },
+        relation: { kind: "then", afterStepId: "s1" },
+        needs: [],
+        when: null,
       },
     ],
-    classes: startClasses,
+    classes: [],
     clarify: null,
     meta: { model: "scripted", ms: 12 },
-  };
-  const roomBodies = await mockGoalStart(page, preview);
+  });
   await page.goto(`${BASE}/#start`);
 
-  await page.getByTestId("start-goal").fill(goal);
-  await page.getByTestId("open-room").click();
-  await expect(page.getByTestId("plan-preview")).toContainText("From what you said");
-  await expect(page.getByTestId("plan-preview")).toContainText("a film after lunch");
-  await expect(page.getByTestId("start-class")).toHaveValue("cinema");
-  await expect(page.getByTestId("plan-need")).toHaveCount(2);
-  await expect(page.getByTestId("plan-need").first().locator('.mark[data-mark="silent"]')).toBeVisible();
-  const dropTarget = await page.getByTestId("drop-plan-need-0").boundingBox();
-  expect(dropTarget?.height).toBeGreaterThanOrEqual(44);
+  await page.getByTestId("ask-name").fill("Alex");
+  await page.getByTestId("ask-goal").fill(goal);
+  await page.getByTestId("ask-continue").click();
 
-  await page.getByTestId("drop-plan-need-0").click();
-  await expect(page.getByTestId("plan-need")).toHaveCount(1);
-  await page.getByTestId("open-room").click();
-  await expect(page.getByTestId("start-links")).toBeVisible();
-  await expect(page.getByTestId("invite-goal")).toHaveText(goal);
+  // Two boxes, in order, and the second says it follows the first.
+  await expect(page.getByTestId("onboarding-plan")).toBeVisible();
+  await expect(page.getByTestId("plan-count")).toContainText("2 places to find");
+  await expect(page.getByTestId("plan-step-s1")).toContainText("Step 1 of 2");
+  await expect(page.getByTestId("plan-step-s2")).toContainText("Step 2 of 2");
+  await expect(page.getByTestId("plan-step-s2")).toContainText("after that, near there");
+  await expect(page.getByTestId("plan-step-class-s2")).toHaveValue("cinema");
+
+  // A pending row can be dropped, and its tap target clears the floor.
+  const drop = page.getByTestId("plan-step-s1").getByRole("button", { name: /Leave out/ }).first();
+  expect((await drop.boundingBox())?.height).toBeGreaterThanOrEqual(44);
+  await drop.click();
+  await expect(page.getByTestId("plan-step-s1").locator(".step-need")).toHaveCount(1);
+
+  // The region dialog is the last thing asked, and says why it exists.
+  await page.getByTestId("plan-confirm").click();
+  const dialog = page.getByTestId("region-dialog");
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toContainText("demo limit");
+  await expect(dialog).toContainText("built to work anywhere");
+  await page.getByTestId("region-berlin-mitte").click();
+
   expect(roomBodies).toHaveLength(1);
   expect(roomBodies[0]).toMatchObject({
+    areaId: "berlin-mitte",
+    organizerName: "Alex",
     goal,
-    step: { placeClass: "cinema", needs: [{ label: "after lunch" }] },
+    steps: [
+      { placeClass: "food", needs: [{ label: "within 10 min walk" }] },
+      { placeClass: "cinema" },
+    ],
   });
   await context.close();
 });
 
-test("a missing preview keeps the server class list and room creation available", async () => {
+test("a missing preview still opens a room, with the class the person picks", async () => {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
   const page = await context.newPage();
   const roomBodies = await mockGoalStart(page, null);
   await page.goto(`${BASE}/#start`);
 
-  await expect(page.getByTestId("start-class").locator("option")).toHaveCount(startClasses.length);
-  await page.getByTestId("start-goal").fill("a walk after work");
-  await page.getByTestId("open-room").click();
-  await expect(page.getByTestId("plan-preview")).toContainText("Choose the kind of place");
-  await page.getByTestId("start-class").selectOption("park");
-  await page.getByTestId("open-room").click();
-  await expect(page.getByTestId("start-links")).toBeVisible();
+  await page.getByTestId("ask-name").fill("Alex");
+  await page.getByTestId("ask-goal").fill("a walk after work");
+  await page.getByTestId("ask-continue").click();
+
+  await expect(page.getByTestId("onboarding-plan")).toBeVisible();
+  await expect(page.getByTestId("start")).toContainText("could not be read");
+  // The class list still comes from the server, so the room is still openable.
+  await expect(page.getByTestId("plan-step-class-s1").locator("option"))
+    .toHaveCount(startClasses.length);
+  await page.getByTestId("plan-step-class-s1").selectOption("park");
+  await page.getByTestId("plan-confirm").click();
+  await page.getByTestId("region-berlin-mitte").click();
+
   expect(roomBodies[0]).toMatchObject({
     goal: "a walk after work",
-    step: { placeClass: "park" },
+    steps: [{ placeClass: "park" }],
   });
   await context.close();
 });
@@ -229,8 +276,10 @@ test("a preview clarification adds the chosen needs to the pending rows", async 
     steps: [
       {
         stepId: "s1",
+        index: 1,
         title: "lunch",
         placeClass: { key: "food", label: "somewhere to eat" },
+        relation: { kind: "first" },
         needs: [
           {
             payload: { kind: "time_window", start: "2026-09-03T12:00:00+02:00", end: "2026-09-03T14:00:00+02:00" },
@@ -263,20 +312,26 @@ test("a preview clarification adds the chosen needs to the pending rows", async 
         },
       ],
       allowFreeText: true,
+      mode: "one",
+      stepId: "s1",
       said: goal,
     },
     meta: { model: "scripted", ms: 9 },
   });
   await page.goto(`${BASE}/#start`);
 
-  await page.getByTestId("start-goal").fill(goal);
-  await page.getByTestId("open-room").click();
+  await page.getByTestId("ask-name").fill("Alex");
+  await page.getByTestId("ask-goal").fill(goal);
+  await page.getByTestId("ask-continue").click();
   await expect(page.getByTestId("plan-clarify")).toBeVisible();
-  await expect(page.getByTestId("plan-clarify-text")).toBeVisible();
-  await page.getByRole("button", { name: "Alexanderplatz · station" }).click();
+  await expect(page.getByTestId("plan-clarify")).toContainText("Pick one");
+  await expect(page.getByTestId("plan-clarify-words")).toBeVisible();
+  await page.getByTestId("plan-clarify-alexanderplatz").click();
   await expect(page.getByTestId("plan-clarify")).toHaveCount(0);
-  await expect(page.getByTestId("plan-need")).toHaveCount(2);
-  await expect(page.getByTestId("plan-preview")).toContainText("within 10 min walk of Alexanderplatz");
+  // The answer lands on the step it was asked about.
+  await expect(page.getByTestId("plan-step-s1").locator(".step-need")).toHaveCount(2);
+  await expect(page.getByTestId("plan-step-s1"))
+    .toContainText("within 10 min walk of Alexanderplatz");
   await context.close();
 });
 

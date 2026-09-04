@@ -170,12 +170,36 @@ export interface ExplorePlace {
   candidateId?: string;
 }
 
+/**
+ * One place in the room's plan.
+ *
+ * The room runs one step at a time: the active one owns the pool, the map
+ * and the needs, and a settled one keeps the place it landed on so the way
+ * here stays readable while what is ahead is still open.
+ */
+export interface RoomStep {
+  stepId: string;
+  /** 1-based, so copy can say "step 2 of 3" without arithmetic. */
+  index: number;
+  title: string;
+  placeClass: { key: string; label: string };
+  relation: { kind: "first" } | { kind: "then"; afterStepId: string };
+  when: { start: string; end: string; phrase: string } | null;
+  status: "pending" | "active" | "settled";
+  settled: { candidateId: string; name: string; lat: number; lng: number } | null;
+}
+
 export interface SpatialContext {
   ok: true;
   revision: number;
   phase: string;
   /** The room's goal, verbatim. Older servers may omit it. */
   goal?: string;
+  /** The plan the goal decomposed into, when it needed more than one place.
+   * Absent for a room without one, which is how rooms behaved before plans
+   * existed — so nothing here may be required to render a room. */
+  steps?: RoomStep[];
+  activeStepId?: string | null;
   scope: SpatialScope;
   area?: AreaView;
   pool?: PoolView;

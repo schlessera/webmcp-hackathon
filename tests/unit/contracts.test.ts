@@ -243,8 +243,14 @@ describe("character budgets (Chrome guidance)", () => {
     expect(CAPABILITY_MANIFEST.conduct.length).toBeLessThanOrEqual(400);
   });
 
-  it("advertises the implemented 22-tool surface without meeting points", () => {
-    expect(TOOLS).toHaveLength(22);
+  it("advertises the implemented 24-tool surface without meeting points", () => {
+    // 22 in-room tools, plus the two that open a room: an agent that finds
+    // the front page can now carry a goal all the way to the map.
+    expect(TOOLS).toHaveLength(24);
+    expect(TOOLS.slice(0, 2).map((tool) => tool.name)).toEqual([
+      "describe_regions",
+      "open_room",
+    ]);
     expect(CAPABILITY_MANIFEST.capabilities).not.toContain("meeting-points");
     expect(TOOLS.find((tool) => tool.name === "set_search_scope")?.description)
       .toContain("Organizer only");

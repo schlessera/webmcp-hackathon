@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import type { ParticipantSummary } from "../spatial-types.ts";
-import { avatarTilt, initials, personColor } from "../ui/copy.ts";
+import type { ParticipantSummary, RoomStep } from "../spatial-types.ts";
+import { COPY, avatarTilt, initials, personColor } from "../ui/copy.ts";
 import { Wordmark } from "./Wordmark.tsx";
 
 /**
@@ -21,6 +21,10 @@ interface Props {
   title: string | null;
   subtitle: HeaderSubtitle;
   participants: ParticipantSummary[];
+  /** The room's plan, when it has one. Absent for a room with a single
+   * destination, which is every room that predates plans. */
+  steps?: RoomStep[];
+  activeStepId?: string | null;
   meId: string;
   originEditing: boolean;
   onOriginEditingChange(enabled: boolean): void;
@@ -32,6 +36,8 @@ interface Props {
   sharedPositionIds: ReadonlySet<string>;
   onSetOriginSharing(shared: boolean): Promise<boolean>;
   onOpenDrawer(): void;
+  /** Hand someone a way in. Absent where adding people is not offered. */
+  onAddParticipant?(): void;
 }
 
 /** "here now" / "arrived" / "not arrived yet" — presence in words. */
@@ -43,6 +49,8 @@ export function Header({
   title,
   subtitle,
   participants,
+  steps,
+  activeStepId,
   meId,
   originEditing,
   onOriginEditingChange,
@@ -50,6 +58,7 @@ export function Header({
   sharedPositionIds,
   onSetOriginSharing,
   onOpenDrawer,
+  onAddParticipant,
 }: Props) {
   /* The avatar row opens a roster card on tap (W12): names and presence are
      reachable on touch, not only on hover. A disclosure, not navigation —
@@ -125,6 +134,46 @@ export function Header({
         >
           {subtitle.text}
         </div>
+        {/* A room on a plan says where it is in it. Each step carries its own
+            mark, so the sequence survives greyscale and reads without
+            colour (CLAUDE.md §13). */}
+        {steps && steps.length > 1 && (
+          <ol className="header-steps" data-testid="header-steps">
+            {steps.map((step) => {
+              const active = step.stepId === activeStepId;
+              return (
+                <li
+                  key={step.stepId}
+                  className="header-step"
+                  data-state={step.status}
+                  data-active={active || undefined}
+                  data-testid={`header-step-${step.stepId}`}
+                >
+                  <span
+                    className="mark"
+                    data-mark={
+                      // The map's own vocabulary: a settled step is a filled
+                      // dot because it is decided, the one being worked on is
+                      // the hollow "not yet" ring, and the ones still ahead
+                      // are the small grey out mark. Three shapes, so the row
+                      // survives greyscale.
+                      step.status === "settled"
+                        ? undefined
+                        : active
+                          ? "unknown"
+                          : "out"
+                    }
+                    aria-hidden="true"
+                  />
+                  <span className="header-step-label">
+                    {step.settled ? step.settled.name : step.placeClass.label}
+                  </span>
+                  {active && <span className="header-step-now">{COPY.stepNow}</span>}
+                </li>
+              );
+            })}
+          </ol>
+        )}
       </div>
 
       <div className="roster" ref={rosterRef}>
@@ -170,6 +219,22 @@ export function Header({
             );
           })}
         </button>
+        {/* Adding someone is an action, so it draws in --spoke-act; the
+            avatars beside it are identity and never do (CLAUDE.md §2). The
+            glyph is small and the tap target is not: the padding reaches
+            44px without the drawn mark growing (§13). */}
+        {onAddParticipant && (
+          <button
+            type="button"
+            className="add-person"
+            data-testid="add-person"
+            aria-label={COPY.addPerson}
+            title={COPY.addPerson}
+            onClick={onAddParticipant}
+          >
+            <span aria-hidden="true">+</span>
+          </button>
+        )}
         {rosterOpen && (
           <div className="roster-card" role="dialog" aria-label="Who is in the room" data-testid="roster-card">
             {participants.map((p, i) => (

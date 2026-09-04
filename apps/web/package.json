@@ -13,6 +13,7 @@
     "@webmcp-hackathon/contracts": "workspace:*",
     "blurhash": "2.0.5",
     "maplibre-gl": "^6.6.0",
+    "qrcode-generator": "^2.0.4",
     "react": "^18.3.0",
     "react-dom": "^18.3.0"
   },

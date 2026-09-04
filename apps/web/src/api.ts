@@ -603,20 +603,39 @@ export interface PlanClarification {
   choices: Array<{ id: string; label: string; needs: ParsedNeed[] }>;
   allowFreeText: true;
   said: string;
+  /** "one" is a fork, "many" a set. Absent on older servers: treat as "one". */
+  mode?: "one" | "many";
+  /** Which step the question is about, when it is about one. */
+  stepId?: string | null;
+}
+export interface PlanStepView {
+  stepId: string;
+  index: number;
+  title: string;
+  placeClass: { key: string; label: string };
+  relation: { kind: "first" } | { kind: "then"; afterStepId: string };
+  needs: ParsedNeed[];
+  when: { start: string; end: string; phrase: string } | null;
 }
 export interface PlanPreview {
   goal: string;
   offline: boolean;
-  steps: Array<{
-    stepId: "s1";
-    title: string;
-    placeClass: { key: string; label: string };
-    needs: ParsedNeed[];
-    when: { start: string; end: string; phrase: string } | null;
-  }>;
+  steps: PlanStepView[];
+  /** Per-area counts. Empty when no region has been chosen yet, which is the
+   * ordinary case: the region dialog is where counts arrive. */
   classes: StepClassSummary[];
   clarify: PlanClarification | null;
   meta: { model: string | null; ms: number };
+}
+export interface RoomStepView {
+  stepId: string;
+  index: number;
+  title: string;
+  placeClass: { key: string; label: string };
+  relation: { kind: "first" } | { kind: "then"; afterStepId: string };
+  when: { start: string; end: string; phrase: string } | null;
+  status: "pending" | "active" | "settled";
+  settled: { candidateId: string; name: string; lat: number; lng: number } | null;
 }
 export interface CreatedRoom {
   roomId: string;
@@ -626,6 +645,8 @@ export interface CreatedRoom {
     placeClass: { key: string; label: string };
     seeded: number;
   };
+  steps: RoomStepView[];
+  activeStepId: string | null;
   invites: Array<{
     participantId: string;
     displayName: string;
@@ -655,7 +676,7 @@ export async function fetchAreas(): Promise<AreaSummary[]> {
 
 /** A best-effort read before a room exists. Any failure is the offline path. */
 export async function previewPlan(
-  input: { areaId: string; goal: string },
+  input: { goal: string; areaId?: string; timezone?: string },
   timeoutMs = 12_000,
 ): Promise<PlanPreview | null> {
   const controller = new AbortController();
@@ -679,9 +700,16 @@ export async function previewPlan(
 export async function createRoom(input: {
   areaId: string;
   organizerName: string;
-  memberNames: string[];
+  memberNames?: string[];
   goal?: string;
   step?: { placeClass: string; needs?: ParsedNeed[] };
+  /** The plan the organizer confirmed: one entry per place, in order. */
+  steps?: Array<{
+    placeClass: string;
+    title?: string;
+    needs?: ParsedNeed[];
+    when?: { start: string; end: string; phrase: string } | null;
+  }>;
 }): Promise<{ ok: true; room: CreatedRoom } | { ok: false; error: string }> {
   // The invite secrets in the answer never reach the timeline: size only.
   const span = wire.begin({ lane: "http", label: "POST rooms" });
