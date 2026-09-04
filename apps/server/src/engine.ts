@@ -67,6 +67,8 @@ import {
 import { startPoolFill } from "./pool-fill.ts";
 import { wakeRefinement } from "./refine/worker.ts";
 import { publishFacts } from "./enrich/progress.ts";
+import { LIVE_POOL, LIVE_POOL_C } from "./live-pool.ts";
+import { readPlan, recordPendingNeeds, settleAndAdvance, type StepAdvance } from "./steps.ts";
 export {
   notifyCommit,
   onCommit,
@@ -171,6 +173,9 @@ interface HandlerOutcome {
   refine?: boolean;
   /** Presentation refreshes for every room sharing a globally changed ref. */
   factRooms?: Array<{ roomId: string; candidateIds: string[] }>;
+  /** The room finished a step and opened the next one. Its pending needs are
+   * submitted after this command's transaction, as ordinary commands. */
+  advance?: StepAdvance;
 }
 
 /** Thrown inside the command transaction so failures ROLL BACK any writes a
@@ -419,6 +424,7 @@ export async function submitCommand(
       warmTargets: outcome.warmTargets ?? [],
       poolFill: outcome.poolFill ?? false,
       factRooms: outcome.factRooms ?? [],
+      advance: outcome.advance,
       replayed: false as const,
     };
     });
@@ -492,7 +498,180 @@ export async function submitCommand(
     warmEnrichments(pool, actor.roomId, result.warmTargets);
   }
   if (result.poolFill) startPoolFill(actor.roomId, true);
+  if (result.advance) {
+    // Opening a step submits more commands, which move the room past the
+    // revision this one earned. Report the head the caller must actually
+    // build on, or their very next command answers sync_required.
+    const head = await openAdvancedStep(actor, result.advance);
+    if (head > result.success.revision) {
+      const settledSuccess = { ...result.success, revision: head };
+      // The replay record was written inside the transaction, with the
+      // revision this command earned before the step opened. Bring it up to
+      // what the caller was actually told, so a retry of the same key does
+      // not hand back a revision that is already stale.
+      if (idempotency) {
+        await pool.query(
+          `UPDATE command_idempotency SET response = $3
+            WHERE participant_id = $1 AND idempotency_key = $2`,
+          [actor.id, idempotency.key, settledSuccess],
+        ).catch((err) => {
+          console.error("could not update the replay record after a step advance:", err);
+        });
+      }
+      return settledSuccess;
+    }
+  }
   return result.success;
+}
+
+/**
+ * The half of a step advance that happens after the commit is durable: warm
+ * the places the new step brought in, and submit the needs the goal already
+ * stated for it.
+ *
+ * The needs go through submitCommand, not through an INSERT, because they
+ * must be rows like any other — droppable, hold-to-preview, counted. A
+ * payload that no longer validates is skipped; the step is already open and
+ * stays open.
+ */
+async function openAdvancedStep(actor: Participant, advance: StepAdvance): Promise<number> {
+  const seeds = (
+    await pool.query(
+      "SELECT id, osm_ref, name, location, extras FROM candidates WHERE room_id = $1 AND step_id = $2",
+      [actor.roomId, advance.openedStep.stepId],
+    )
+  ).rows as Array<{
+    id: string;
+    osm_ref: string | null;
+    name: string;
+    location: { lat: number; lng: number };
+    extras: { website?: string; wikidata?: string } | null;
+  }>;
+  const targets: RoomLookupTarget[] = seeds
+    .filter((row) => row.osm_ref !== null)
+    .map((row) => ({
+      candidateId: row.id,
+      osmRef: row.osm_ref!,
+      placeName: row.name,
+      location: row.location,
+      ...(row.extras?.website ? { website: row.extras.website } : {}),
+      ...(row.extras?.wikidata ? { wikidata: row.extras.wikidata } : {}),
+    }));
+  if (targets.length > 0) warmEnrichments(pool, actor.roomId, targets);
+
+  return applyPendingNeeds(actor, advance.openedStep.stepId, advance.pendingNeeds);
+}
+
+/** Rooms whose deferred needs are being applied right now, so a resume
+ * triggered by a second reader does not run the same submissions twice. */
+const applyingNeeds = new Set<string>();
+
+/**
+ * Submit the needs a step still owes, and forget only what has actually been
+ * dealt with.
+ *
+ * Three things make this fiddly, and all three are the room being alive while
+ * it runs. Someone else's command can land between reading the revision and
+ * submitting against it, which answers `sync_required` — that is retryable, so
+ * it is retried rather than dropped. Someone else can settle this very step
+ * while the loop is mid-flight, and a need for it must NOT land on whatever
+ * step is active by then. And the process can stop: whatever has not been
+ * submitted stays on the step, so a later reader can resume it.
+ */
+async function applyPendingNeeds(
+  actor: Participant,
+  stepId: string,
+  needs: Array<{ payload: Record<string, unknown> }>,
+): Promise<number> {
+  const key = `${actor.roomId}:${stepId}`;
+  if (needs.length === 0 || applyingNeeds.has(key)) return 0;
+  applyingNeeds.add(key);
+  let head = 0;
+  const remaining = [...needs];
+  try {
+    while (remaining.length > 0) {
+      const room = (
+        await pool.query(
+          "SELECT revision, active_step_id FROM rooms WHERE id = $1",
+          [actor.roomId],
+        )
+      ).rows[0] as { revision: number; active_step_id: string | null } | undefined;
+      // The room moved on, or vanished. What is left stays on the step,
+      // which is where a later reader will find it.
+      if (!room || room.active_step_id !== stepId) return head;
+
+      const result = await submitCommand(actor, "SubmitRequirement", {
+        baseRevision: Number(room.revision),
+        visibility: "shared",
+        hardness: "hard",
+        delegation: { mode: "approval_required" },
+        payload: remaining[0].payload,
+      });
+      if (result.ok) {
+        head = Math.max(head, result.revision);
+      } else if (result.error.code === "invalid_input") {
+        // A payload the room will never accept. Retrying cannot change that
+        // answer, so it is dropped — the step is open and stays open.
+      } else {
+        // sync_required, or the room being briefly unavailable. Leave the
+        // rest where they are and let the next read pick them up; retrying
+        // here forever would hold the request open.
+        return head;
+      }
+      remaining.shift();
+      // Durable after each one, so an interruption loses nothing that has
+      // not already been applied.
+      await withTransaction((client) =>
+        recordPendingNeeds(client, actor.roomId, stepId, remaining),
+      );
+    }
+  } finally {
+    applyingNeeds.delete(key);
+  }
+  return head;
+}
+
+/**
+ * Finish applying what an interrupted advance left behind.
+ *
+ * Called when a room is read, because a step that opened while the process
+ * was dying would otherwise hold its needs forever: nothing else revisits
+ * that window. Deliberately fire-and-forget and deliberately quiet — the
+ * read it hangs off must not wait for it or fail because of it.
+ */
+export function resumePendingNeeds(roomId: string): void {
+  void (async () => {
+    const row = (
+      await pool.query("SELECT steps, active_step_id FROM rooms WHERE id = $1", [roomId])
+    ).rows[0];
+    if (!row) return;
+    const { steps, activeStepId } = readPlan(row);
+    const step = steps.find((entry) => entry.stepId === activeStepId);
+    if (!step || (step.pendingNeeds?.length ?? 0) === 0) return;
+    const organizer = (
+      await pool.query(
+        `SELECT id, room_id, display_name, role, ready_state FROM participants
+          WHERE room_id = $1 AND role = 'organizer' LIMIT 1`,
+        [roomId],
+      )
+    ).rows[0] as
+      | { id: string; room_id: string; display_name: string; role: string; ready_state: string }
+      | undefined;
+    if (!organizer) return;
+    await applyPendingNeeds(
+      {
+        id: organizer.id,
+        roomId: organizer.room_id,
+        displayName: organizer.display_name,
+        role: organizer.role as Participant["role"],
+        readyState: organizer.ready_state as Participant["readyState"],
+      },
+      step.stepId,
+      step.pendingNeeds,
+    );
+  })().catch((err) => {
+    console.error("resuming a step's pending needs failed:", err);
+  });
 }
 
 async function triggerNeedLookup(
@@ -745,9 +924,13 @@ async function submitRequirement(
   }
 
   const upserted = await client.query(
-    `INSERT INTO requirements (id, room_id, owner_id, visibility, hardness, delegation, payload, scope_hint, note, withdrawn, created_at_revision)
+    // A need belongs to the step the room is on when it is stated. A room
+    // without a plan has no active step and the column stays NULL, which is
+    // every need in every room until plans existed.
+    `INSERT INTO requirements (id, room_id, owner_id, visibility, hardness, delegation, payload, scope_hint, note, withdrawn, created_at_revision, step_id)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, false,
-             (SELECT revision + 1 FROM rooms WHERE id = $2))
+             (SELECT revision + 1 FROM rooms WHERE id = $2),
+             (SELECT active_step_id FROM rooms WHERE id = $2))
      ON CONFLICT (id) DO UPDATE SET visibility = $4, hardness = $5,
        delegation = $6, payload = $7, scope_hint = $8, note = $9, withdrawn = false
      WHERE requirements.room_id = $2 AND requirements.owner_id = $3`,
@@ -798,7 +981,8 @@ async function submitRequirement(
         `SELECT c.id FROM candidates c
           LEFT JOIN verdicts v ON v.room_id = c.room_id
            AND v.candidate_id = c.id AND v.owner_id = $2
-         WHERE c.room_id = $1 AND v.verdict IS NULL ORDER BY c.id LIMIT 10`,
+         WHERE c.room_id = $1 AND ${LIVE_POOL_C} AND v.verdict IS NULL
+         ORDER BY c.id LIMIT 10`,
         [actor.roomId, actor.id],
       )
     ).rows.map((r) => r.id);
@@ -904,7 +1088,9 @@ async function setRequirementActive(
 ): Promise<HandlerOutcome> {
   const row = (
     await client.query(
-      `SELECT owner_id, visibility, active, payload FROM requirements
+      `SELECT owner_id, visibility, active, payload, step_id,
+              (SELECT r.active_step_id FROM rooms r WHERE r.id = $2) AS room_step
+         FROM requirements
         WHERE id = $1 AND room_id = $2 AND NOT withdrawn`,
       [cmd.requirementId, actor.roomId],
     )
@@ -917,6 +1103,16 @@ async function setRequirementActive(
       "not_found",
       "Unknown requirementId.",
       "Call sync_session to refresh IDs; you can only set aside your own needs.",
+    );
+  }
+  // A need stated for a step the room has already settled stays set aside.
+  // It is still the owner's row and still readable; it just does not get to
+  // classify a pool it was never about.
+  if (cmd.active && row.step_id !== null && row.step_id !== row.room_step) {
+    return errorOutcome(
+      "phase_unavailable",
+      "That need belongs to a step the room has already settled.",
+      "State it again for the step the room is on now.",
     );
   }
   if (row.active === cmd.active) {
@@ -1002,6 +1198,11 @@ async function evaluateCandidates(
       "Declare an agent-private requirement first; screening verdicts fold into it.",
     );
   }
+  // Deliberately NOT limited to the live pool. An agent may be answering for
+  // a place that settled while it was screening, and rejecting that verdict
+  // would turn a race into an error. Recording it is harmless: eligibility
+  // only ever reads the live pool, so a verdict on a settled step's place
+  // classifies nothing.
   const candidateRevisions = new Map<string, number>(
     (
       await client.query("SELECT id, map_revision FROM candidates WHERE room_id = $1", [
@@ -1303,7 +1504,10 @@ async function addCandidates(
     );
   }
   const existingRows = (
-    await client.query("SELECT id, osm_ref FROM candidates WHERE room_id = $1 ORDER BY id", [actor.roomId])
+    await client.query(
+      `SELECT id, osm_ref FROM candidates WHERE room_id = $1 AND ${LIVE_POOL} ORDER BY id`,
+      [actor.roomId],
+    )
   ).rows as Array<{ id: string; osm_ref: string | null }>;
   const existingRefs = new Set(
     existingRows.map((row) => row.osm_ref).filter((ref): ref is string => ref !== null),
@@ -1414,9 +1618,13 @@ async function proposeDestination(
   actor: Participant,
   cmd: { candidateId: string },
 ): Promise<HandlerOutcome> {
+  // The live pool, not the room's whole history. A page holding candidate ids
+  // from a step the room has settled must not be able to propose one of them:
+  // committing it would settle the CURRENT step with a place from the last
+  // one, and centre everything after it on the wrong point.
   const candidate = (
     await client.query(
-      "SELECT id, name FROM candidates WHERE id = $1 AND room_id = $2",
+      `SELECT id, name FROM candidates WHERE id = $1 AND room_id = $2 AND ${LIVE_POOL}`,
       [cmd.candidateId, actor.roomId],
     )
   ).rows[0];
@@ -2296,9 +2504,48 @@ async function commitAgreement(
       payload: { count: retired.rowCount },
     });
   }
+  // A room on a plan does not stop at one place. Settling this step and
+  // opening the next happens in this transaction, so the room is never seen
+  // having agreed somewhere without having moved on from it. A room with no
+  // plan, or one on its last step, gets null and stays agreed.
+  const place = (
+    await client.query("SELECT id, name, location FROM candidates WHERE id = $1", [
+      proposal.candidate_id,
+    ])
+  ).rows[0] as { id: string; name: string; location: { lat: number; lng: number } } | undefined;
+  const advance = place
+    ? await settleAndAdvance(client, actor.roomId, {
+        candidateId: place.id,
+        name: place.name,
+        lat: place.location.lat,
+        lng: place.location.lng,
+      })
+    : null;
+  if (advance) {
+    events.push({
+      type: "step_advanced",
+      actorId: actor.id,
+      visibility: "shared",
+      payload: {
+        actorName: actor.displayName,
+        settledStepId: advance.settledStep.stepId,
+        settledPlaceName: advance.settledStep.settled?.name ?? proposal.candidate_name,
+        stepId: advance.openedStep.stepId,
+        index: advance.openedStep.index,
+        total: advance.total,
+        title: advance.openedStep.title,
+        placeClassLabel: advance.openedStep.placeClass.label,
+        poolSize: advance.poolSize,
+      },
+    });
+  }
   return {
     events,
-    effect: `Agreement committed: ${proposal.candidate_name}. Arrival planning is open.`,
+    effect: advance
+      ? `Agreed: ${proposal.candidate_name}. Next, ${advance.openedStep.placeClass.label} near there.`
+      : `Agreement committed: ${proposal.candidate_name}. Arrival planning is open.`,
+    ...(advance ? { advance } : {}),
+    ...(advance ? { poolFill: true, refine: true } : {}),
   };
 }
 

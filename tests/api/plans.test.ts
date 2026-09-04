@@ -18,6 +18,8 @@ const created: string[] = [];
 
 interface PlanStep {
   stepId: string;
+  index: number;
+  relation: { kind: string; afterStepId?: string };
   title: string;
   placeClass: { key: string; label: string };
   needs: Array<{ payload: Record<string, unknown>; label: string; gist: string }>;
@@ -96,8 +98,10 @@ describe("POST /api/plans/preview", () => {
     expect(preview.goal).toBe("go for a walk with the dogs");
     expect(preview.steps).toEqual([{
       stepId: "s1",
+      index: 1,
       title: "somewhere to eat",
       placeClass: { key: "food", label: "somewhere to eat" },
+      relation: { kind: "first" },
       needs: [],
       when: null,
     }]);
@@ -124,8 +128,10 @@ describe("POST /api/plans/preview", () => {
     expect(preview.steps).toHaveLength(1);
     expect(preview.steps[0]).toMatchObject({
       stepId: "s1",
+      index: 1,
       title: "a park",
       placeClass: { key: "park", label: "a park" },
+      relation: { kind: "first" },
       when: null,
     });
     expect(preview.steps[0].needs).toEqual([{
@@ -138,6 +144,61 @@ describe("POST /api/plans/preview", () => {
       "go for a walk with the dogs",
     ]);
     expect(rooms.rows[0].n).toBe(0);
+  });
+
+  it("reads a goal that names a second place into two steps, in order", async () => {
+    const { status, body } = await post(scriptedServer, "/api/plans/preview", {
+      goal: "Dinner with outdoor seating, then the new MCU film",
+    });
+    expect(status).toBe(200);
+    const preview = body as Preview;
+    expect(preview.steps).toHaveLength(2);
+
+    const [first, second] = preview.steps;
+    expect(first).toMatchObject({
+      stepId: "s1",
+      index: 1,
+      placeClass: { key: "food", label: "somewhere to eat" },
+      relation: { kind: "first" },
+    });
+    expect(second).toMatchObject({
+      stepId: "s2",
+      index: 2,
+      placeClass: { key: "cinema", label: "a cinema" },
+      // A later step is searched around where the one before it settles.
+      relation: { kind: "then", afterStepId: "s1" },
+    });
+
+    // Each step keeps the criteria its own half of the sentence stated. The
+    // pre-parser reads "dinner" as a time, and a time stated in the sentence
+    // belongs to the outing that sentence starts with.
+    expect(first.needs.map((need) => need.payload.kind)).toContain("time");
+    expect(first.needs.map((need) => need.payload.key)).toContain("outdoor-seating");
+    expect(first.when?.phrase).toBe("Dinner");
+    expect(second.needs.map((need) => need.payload.kind)).toEqual(["text"]);
+    expect(second.needs[0].label).toBe("the new MCU film");
+  });
+
+  it("reads a goal with no region chosen yet, and offers no counts for one", async () => {
+    const { status, body } = await post(scriptedServer, "/api/plans/preview", {
+      goal: "go for a walk with the dogs",
+      timezone: "Europe/Berlin",
+    });
+    expect(status).toBe(200);
+    const preview = body as Preview;
+    expect(preview.steps).toHaveLength(1);
+    expect(preview.steps[0].placeClass.key).toBe("park");
+    // Counts belong to an area, and none has been chosen: the region dialog
+    // is where they arrive.
+    expect(preview.classes).toEqual([]);
+  });
+
+  it("still rejects an areaId the registry does not know", async () => {
+    const { status } = await post(scriptedServer, "/api/plans/preview", {
+      areaId: "atlantis",
+      goal: "go for a walk with the dogs",
+    });
+    expect(status).toBe(400);
   });
 });
 

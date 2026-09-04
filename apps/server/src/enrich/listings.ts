@@ -1,6 +1,7 @@
 import type pg from "pg";
 import { PLACE_CLASSES, PRICE_LEVEL_EUR, type PlaceClass } from "@webmcp-hackathon/contracts";
 import { outboundFetchFor } from "../net/outbound.ts";
+import { LIVE_POOL } from "../live-pool.ts";
 
 export const LISTING_SOURCE = "listing:google" as const;
 export const LISTING_NOTE = "Google business profile";
@@ -766,7 +767,7 @@ export async function fetchRoomListings(
     const rows = (await q.query(
       `SELECT id, osm_ref, name, category, location, extras->>'website' AS website
          FROM candidates
-        WHERE room_id = $1 AND osm_ref IS NOT NULL
+        WHERE room_id = $1 AND osm_ref IS NOT NULL AND ${LIVE_POOL}
         ORDER BY id
         LIMIT $2`,
       [roomId, DATAFORSEO_LIMIT],

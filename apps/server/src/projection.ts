@@ -345,6 +345,14 @@ export function projectEvent(
         `Agreement committed: ${p.candidateName ?? p.proposalId}. Time to plan arrivals.`,
       );
 
+    // The plan moved on. Counts are absolute and the copy names no domain:
+    // the class label is server data that arrived with the step (COPY.md).
+    case "step_advanced":
+      return full(
+        event,
+        `Step ${p.index} of ${p.total}: ${p.placeClassLabel}, near ${p.settledPlaceName}. ${p.poolSize} places to start from.`,
+      );
+
     case "arrival_plan_updated":
       return full(
         event,

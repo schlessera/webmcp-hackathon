@@ -2,6 +2,7 @@ import { POOL_CAP, areaById, type AreaDefinition } from "@webmcp-hackathon/contr
 import type pg from "pg";
 import { insertCandidateSeeds, warmTargetsFor } from "./candidate-write.ts";
 import { notifyCommit } from "./commit-notifications.ts";
+import { LIVE_POOL } from "./live-pool.ts";
 import { pool as database, withTransaction } from "./db.ts";
 import { warmEnrichmentsDone, type RoomLookupTarget } from "./enrich/index.ts";
 import { publishFacts } from "./enrich/progress.ts";
@@ -124,7 +125,7 @@ async function preparePlan(roomId: string, job: Job): Promise<boolean> {
   }
   if (job.scopeId === room.scope.scopeId && !job.rerun) return true;
   const refs = new Set((await database.query(
-    "SELECT osm_ref FROM candidates WHERE room_id = $1 AND osm_ref IS NOT NULL",
+    `SELECT osm_ref FROM candidates WHERE room_id = $1 AND osm_ref IS NOT NULL AND ${LIVE_POOL}`,
     [roomId],
   )).rows.map((row) => row.osm_ref as string));
   const plan = cachedPoolPlan(
@@ -188,7 +189,7 @@ async function insertNextBatch(roomId: string, job: Job): Promise<BatchResult> {
     const stats = (await client.query(
       `SELECT count(*)::int AS count,
               COALESCE(max((substring(id from '([0-9]+)$'))::int), 0)::int AS max_suffix
-         FROM candidates WHERE room_id = $1`,
+         FROM candidates WHERE room_id = $1 AND ${LIVE_POOL}`,
       [roomId],
     )).rows[0] as { count: number; max_suffix: number };
     const headroom = Math.max(0, POOL_CAP - Number(stats.count));
@@ -198,7 +199,7 @@ async function insertNextBatch(roomId: string, job: Job): Promise<BatchResult> {
     }
     const selectedRefs = selected.map((venue) => venue.ref);
     const present = new Set((await client.query(
-      "SELECT osm_ref FROM candidates WHERE room_id = $1 AND osm_ref = ANY($2)",
+      `SELECT osm_ref FROM candidates WHERE room_id = $1 AND osm_ref = ANY($2) AND ${LIVE_POOL}`,
       [roomId, selectedRefs],
     )).rows.map((row) => row.osm_ref as string));
     const venues = selected.filter((venue) => !present.has(venue.ref)).slice(0, headroom);

@@ -62,6 +62,7 @@ import { prefetchKey, prefetchManager } from "./pipeline/prefetch.ts";
 import { pipelineScheduler } from "./pipeline/scheduler.ts";
 import { responseMetrics } from "./nl/openai.ts";
 import { config } from "./config.ts";
+import { readPlan, stepViews } from "./steps.ts";
 
 /** How long a place panel waits for a fresh lookup before opening with what
  * is cached. The lookup keeps running and lands for the next read. */
@@ -479,11 +480,12 @@ export async function spatialContext(
   return withTransaction(async (client) => {
     const room = (
       await client.query(
-        "SELECT revision, phase, impasse_active, data_source, area_id, goal FROM rooms WHERE id = $1 FOR SHARE",
+        "SELECT revision, phase, impasse_active, data_source, area_id, goal, steps, active_step_id FROM rooms WHERE id = $1 FOR SHARE",
         [actor.roomId],
       )
     ).rows[0];
     if (!room) return notFound();
+    const plan = readPlan(room);
 
     const [inputs, proposals, stances, participantRows, agreementRow, arrivalRow] =
       await Promise.all([
@@ -710,6 +712,11 @@ export async function spatialContext(
       revision: room.revision as number,
       phase: room.phase as string,
       ...(typeof room.goal === "string" && room.goal ? { goal: room.goal } : {}),
+      // A room without a plan sends no steps, so a client that never
+      // learned about them reads exactly the context it always did.
+      ...(plan.steps.length > 0
+        ? { steps: stepViews(plan.steps), activeStepId: plan.activeStepId }
+        : {}),
       scope,
       ...(source
         ? {

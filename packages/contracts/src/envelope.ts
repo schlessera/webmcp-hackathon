@@ -1,5 +1,6 @@
 import type { ToolError } from "./errors.ts";
 import type { CapabilityManifest, Visibility } from "./manifest.ts";
+import type { RoomStepView } from "./steps.ts";
 
 /** Shared result envelope — INTERACTION-AND-BINDING.md §3. Tools always resolve, never reject. */
 
@@ -397,6 +398,13 @@ export interface SpatialContextResult {
   /** The room's goal, verbatim as the organizer typed it. Optional so older
    * servers keep the same contract. */
   goal?: string;
+  /** The room's plan: the sequence of places the goal decomposed into, with
+   * the one it is on marked active and the ones behind it keeping the place
+   * they settled on. Empty for a room without a plan, which is how every
+   * room behaved before plans existed — so this is optional, and a client
+   * that ignores it sees exactly what it saw before. */
+  steps?: RoomStepView[];
+  activeStepId?: string | null;
   scope: ScopeView | null;
   area?: AreaView;
   pool?: PoolView;

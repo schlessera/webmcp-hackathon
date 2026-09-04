@@ -114,7 +114,15 @@ function scripted(draft: { placeClass: string; concepts: unknown[] }): void {
       type: "message",
       content: [{
         type: "output_text",
-        text: JSON.stringify({ intent: "plan", confidence: 1, reply: null, ...draft }),
+        // Stage A answers with a LIST of steps now. Every golden draft here
+        // is a single outing, so it scripts a one-entry list.
+        text: JSON.stringify({
+          intent: "plan",
+          confidence: 1,
+          reply: null,
+          steps: [{ placeClass: draft.placeClass }],
+          concepts: draft.concepts.map((concept) => ({ ...(concept as object), step: 1 })),
+        }),
       }],
     }],
   }));
@@ -135,7 +143,7 @@ describe("plan preview corpus", () => {
   for (const row of planRows) {
     it(`${row.id}: reads the goal into one step`, async () => {
       scripted(DRAFTS[row.id]);
-      const preview = await planPreview(row.text, area, NOW);
+      const preview = await planPreview(row.text, area, { now: NOW });
       expect(preview.offline).toBe(false);
       expect(preview.steps).toHaveLength(1);
       const step = preview.steps[0];
@@ -155,7 +163,7 @@ describe("plan preview corpus", () => {
 describe("plan preview", () => {
   it("keeps the goal verbatim and reports every class the area has", async () => {
     scripted(DRAFTS["plan-001"]);
-    const preview = await planPreview(planRows[0].text, area, NOW);
+    const preview = await planPreview(planRows[0].text, area, { now: NOW });
     expect(preview.goal).toBe(planRows[0].text);
     expect(preview.classes.map((row) => row.key)).toContain("food");
     for (const row of preview.classes) {
@@ -166,7 +174,7 @@ describe("plan preview", () => {
 
   it("carries a time concept into the step's window and title", async () => {
     scripted(DRAFTS["plan-005"]);
-    const preview = await planPreview(planRows[4].text, area, NOW);
+    const preview = await planPreview(planRows[4].text, area, { now: NOW });
     expect(preview.steps[0].when).toEqual({
       start: "2026-09-03T18:00:00+02:00",
       end: "2026-09-03T21:00:00+02:00",
@@ -178,7 +186,7 @@ describe("plan preview", () => {
   it("resolves a pre-parsed relative time into the step's window without the model", async () => {
     // The pre-parser already read "for dinner"; the model sees only the remainder.
     scripted({ placeClass: "food", concepts: [] });
-    const preview = await planPreview(planRows[4].text, area, NOW);
+    const preview = await planPreview(planRows[4].text, area, { now: NOW });
     expect(preview.steps[0].needs.map((need) => need.payload.kind)).toEqual(["time"]);
     expect(preview.steps[0].when).toEqual({
       start: "2026-09-03T18:00:00+02:00",
@@ -189,14 +197,14 @@ describe("plan preview", () => {
 
   it("falls back to the class label when the goal names nothing to title it with", async () => {
     scripted(DRAFTS["plan-003"]);
-    const preview = await planPreview(planRows[2].text, area, NOW);
+    const preview = await planPreview(planRows[2].text, area, { now: NOW });
     expect(preview.steps[0].when).toBeNull();
     expect(preview.steps[0].title).toBe("a park");
   });
 
   it("measures a referent nobody can place yet from the person, and says so", async () => {
     scripted(DRAFTS["plan-001"]);
-    const preview = await planPreview(planRows[0].text, area, NOW);
+    const preview = await planPreview(planRows[0].text, area, { now: NOW });
     const scope = preview.steps[0].needs.find((need) => need.payload.kind === "scope")!;
     expect(scope.payload).toMatchObject({ dimension: "walk_min", max: 10 });
     expect(scope.payload.referent).toBeUndefined();
@@ -212,7 +220,7 @@ describe("plan preview", () => {
         gist: "the new mcu movie",
       })],
     });
-    const preview = await planPreview("watch the new MCU movie", area, NOW);
+    const preview = await planPreview("watch the new MCU movie", area, { now: NOW });
     expect(preview.steps[0].placeClass.key).toBe("cinema");
     expect(preview.steps[0].needs).toEqual([{
       payload: { kind: "text", text: "does this place offer the new MCU movie?" },
@@ -224,7 +232,7 @@ describe("plan preview", () => {
 
   it("falls back to one default step when the model answers with an unknown class", async () => {
     scripted({ placeClass: "spaceport", concepts: [] });
-    const preview = await planPreview("let's go somewhere", area, NOW);
+    const preview = await planPreview("let's go somewhere", area, { now: NOW });
     expect(preview.steps[0].placeClass).toEqual({ key: "food", label: "somewhere to eat" });
     expect(preview.steps[0].needs).toEqual([]);
   });

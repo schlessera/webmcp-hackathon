@@ -398,3 +398,32 @@ export async function apiPost<T = Record<string, unknown>>(
   const raw = await response.text();
   return { body: JSON.parse(raw) as T, raw, status: response.status };
 }
+
+/**
+ * Leave the shared `enrichments` table as this file found it.
+ *
+ * Enrichment is keyed by OSM ref, not by room: warming a room warms every
+ * other room that ever holds the same place. That is deliberate in
+ * production and a hazard in a test lane, because a neighbouring file can
+ * assert "only these refs are enriched" and be broken by a room this file
+ * opened. Snapshot before, delete what appeared, and the neighbour's
+ * assumption survives whatever order vitest picks.
+ */
+export async function keepEnrichmentsClean(
+  queryable: Pick<pg.Pool, "query">,
+): Promise<() => Promise<void>> {
+  const before = new Set(
+    (await queryable.query("SELECT osm_ref FROM enrichments")).rows.map(
+      (row) => row.osm_ref as string,
+    ),
+  );
+  return async () => {
+    const after = (await queryable.query("SELECT osm_ref FROM enrichments")).rows.map(
+      (row) => row.osm_ref as string,
+    );
+    const added = after.filter((ref) => !before.has(ref));
+    if (added.length > 0) {
+      await queryable.query("DELETE FROM enrichments WHERE osm_ref = ANY($1)", [added]);
+    }
+  };
+}

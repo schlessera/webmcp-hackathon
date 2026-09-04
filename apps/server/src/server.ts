@@ -13,6 +13,7 @@ import {
   SYNC_SESSION_INPUT,
   TOOL_CONTRACT_VERSION,
   areaById,
+  type AreaDefinition,
 } from "@webmcp-hackathon/contracts";
 
 const Ajv = ((AjvModule as never as { default?: unknown }).default ??
@@ -54,6 +55,8 @@ import { say } from "./nl/say.ts";
 import { offlinePlan, planPreview } from "./nl/plan.ts";
 import { runAgent } from "./nl/agent.ts";
 import { heldFor, hold, release, screenPending } from "./nl/holder.ts";
+import { LIVE_POOL } from "./live-pool.ts";
+import { claimInvite, inviteContext, listInvites, mintInvite } from "./invites.ts";
 import { consumeLookupToken, LOOKUP_RATE_LIMIT_ERROR } from "./lookup-budget.ts";
 import { resumePoolFills } from "./pool-fill.ts";
 import { loadPlaceImage } from "./enrich/images.ts";
@@ -146,6 +149,91 @@ app.post("/api/session/exchange", async (req, reply) => {
   };
 });
 
+/* --- Invite links -------------------------------------------------------
+ *
+ * Two of these four routes are unauthenticated, gated only by knowing a
+ * secret, and one of them mints a participant and a token. They therefore
+ * carry the same per-IP cap as the exchange above, for the same reason.
+ */
+const inviteAttempts = new Map<string, { count: number; windowStart: number }>();
+const INVITE_LIMIT = 30;
+const INVITE_WINDOW_MS = 60_000;
+
+function overInviteBudget(ip: string): boolean {
+  const now = Date.now();
+  const entry = inviteAttempts.get(ip);
+  if (!entry || now - entry.windowStart > INVITE_WINDOW_MS) {
+    inviteAttempts.set(ip, { count: 1, windowStart: now });
+    return false;
+  }
+  return ++entry.count > INVITE_LIMIT;
+}
+
+app.post("/api/invites", async (req, reply) => {
+  const actor = await bearer(req);
+  if (!actor) return reply.code(401).send(notAuthenticated);
+  const minted = await mintInvite(actor);
+  req.log.info(
+    { correlationId: correlationId(req), roomId: actor.roomId, inviteId: minted.inviteId, outcome: "ok" },
+    "invite minted",
+  );
+  // The secret rides in the body once, to whoever asked for it. Never logged.
+  return {
+    inviteId: minted.inviteId,
+    inviteSecret: minted.inviteSecret,
+    expiresAt: minted.expiresAt,
+  };
+});
+
+app.get("/api/invites", async (req, reply) => {
+  const actor = await bearer(req);
+  if (!actor) return reply.code(401).send(notAuthenticated);
+  return { invites: await listInvites(actor) };
+});
+
+app.get("/api/invites/:secret/context", async (req, reply) => {
+  if (overInviteBudget(req.ip)) {
+    return reply.code(429).send({ error: "too many invite lookups; retry later" });
+  }
+  const { secret } = req.params as { secret: string };
+  const context = await inviteContext(secret);
+  if (!context) return reply.code(404).send({ error: "unknown_invite" });
+  return context;
+});
+
+app.post("/api/invites/:secret/claim", async (req, reply) => {
+  if (overInviteBudget(req.ip)) {
+    return reply.code(429).send({ error: "too many join attempts; retry later" });
+  }
+  const { secret } = req.params as { secret: string };
+  const body = (req.body ?? {}) as { displayName?: unknown; deviceId?: unknown };
+  const claimed = await claimInvite(secret, body.displayName, body.deviceId);
+  if (!claimed.ok) {
+    req.log.info(
+      { correlationId: correlationId(req), outcome: claimed.error },
+      "invite claim refused",
+    );
+    return reply.code(claimed.status).send({ error: claimed.error });
+  }
+  req.log.info(
+    {
+      correlationId: correlationId(req),
+      roomId: claimed.participant.roomId,
+      participantId: claimed.participant.id,
+      joined: claimed.joined,
+      outcome: "ok",
+    },
+    "invite claimed",
+  );
+  return {
+    participantToken: claimed.token,
+    participantId: claimed.participant.id,
+    displayName: claimed.participant.displayName,
+    role: claimed.participant.role,
+    roomId: claimed.participant.roomId,
+  };
+});
+
 // The area picker (docs/DATA-QUALITY.md): the registry joined with what was
 // measured from each area's extract. Public and static; nothing per-user.
 app.get("/api/areas", async () => ({ areas: areaSummaries() }));
@@ -169,31 +257,45 @@ function overRoomBudget(ip: string): boolean {
 }
 
 /**
- * Read a goal into one step before any room exists (UNDERSTANDING-ARCH.md
- * §10). Stateless: nothing is written, and the answer is what the room WOULD
- * open with, for the organizer to accept or drop.
+ * Read a goal into the steps it takes, before any room exists.
+ *
+ * Stateless: nothing is written, and the answer is what the room WOULD open
+ * with, for the organizer to accept or drop. `areaId` is optional and
+ * normally absent — the region is chosen after the plan is read, so the
+ * preview names classes without counting them. A caller that does pass one
+ * gets the counts too, which is what the older single-area path did.
  */
 app.post("/api/plans/preview", async (req, reply) => {
   if (overRoomBudget(req.ip)) {
     return reply.code(429).send({ error: "too many rooms opened from here; retry later" });
   }
-  const body = (req.body ?? {}) as { areaId?: unknown; goal?: unknown };
-  const area = typeof body.areaId === "string" ? areaById(body.areaId) : undefined;
-  if (!area) return reply.code(400).send({ error: "areaId required" });
+  const body = (req.body ?? {}) as { areaId?: unknown; goal?: unknown; timezone?: unknown };
+  let area: AreaDefinition | null = null;
+  if (typeof body.areaId === "string") {
+    area = areaById(body.areaId) ?? null;
+    if (!area) return reply.code(400).send({ error: "Unknown areaId." });
+  }
   const goal = typeof body.goal === "string" ? body.goal.trim().replace(/\s+/g, " ") : "";
   if (goal.length < 1 || goal.length > 300) {
     return reply.code(400).send({ error: "goal must be 1-300 characters" });
   }
-  if (!loadSnapshot(area.id)) {
+  if (area && !loadSnapshot(area.id)) {
     return reply.code(503).send({ error: "No place data is available for this area right now." });
   }
+  // The organizer's own zone, when the page sent one: before a region is
+  // chosen there is no area to read one from, and "tonight" still has to
+  // mean tonight where they are.
+  const timezone = typeof body.timezone === "string" && body.timezone.length <= 60
+    ? body.timezone
+    : undefined;
   const started = Date.now();
   try {
-    const preview = await planPreview(goal, area);
+    const preview = await planPreview(goal, area, { ...(timezone ? { timezone } : {}) });
     req.log.info(
       {
         correlationId: correlationId(req),
-        areaId: area.id,
+        areaId: area?.id ?? null,
+        steps: preview.steps.length,
         placeClass: preview.steps[0]?.placeClass.key,
         needs: preview.steps[0]?.needs.length ?? 0,
         offline: preview.offline,
@@ -205,11 +307,11 @@ app.post("/api/plans/preview", async (req, reply) => {
     return preview;
   } catch (err) {
     req.log.warn(
-      { correlationId: correlationId(req), areaId: area.id, err: String(err) },
+      { correlationId: correlationId(req), areaId: area?.id ?? null, err: String(err) },
       "plan preview failed",
     );
     // A goal nobody could read still opens a room: the default step.
-    return { ...offlinePlan(goal, area.id), offline: true };
+    return { ...offlinePlan(goal, area?.id ?? null), offline: true };
   }
 });
 
@@ -224,6 +326,7 @@ app.post("/api/rooms", async (req, reply) => {
     center?: unknown;
     goal?: unknown;
     step?: unknown;
+    steps?: unknown;
   };
   if (typeof body.areaId !== "string") {
     return reply.code(400).send({ error: "areaId required" });
@@ -236,6 +339,14 @@ app.post("/api/rooms", async (req, reply) => {
     ...(body.center !== undefined ? { center: body.center as { lat: number; lng: number } } : {}),
     ...(typeof body.goal === "string" ? { goal: body.goal } : {}),
     ...(step && typeof step === "object" && !Array.isArray(step) ? { step } : {}),
+    // The plan the organizer confirmed. `step` stays the older single-step
+    // form; a room given neither has no plan and behaves as it always did.
+    // A `steps` that is present but not a list is a malformed request, not a
+    // request for a plainer room — dropping it would answer 200 to a caller
+    // who asked for something else.
+    ...(body.steps !== undefined
+      ? { steps: body.steps as NonNullable<Parameters<typeof createRoom>[0]["steps"]> }
+      : {}),
   });
   if (!created.ok) {
     return reply.code(created.status).send({ error: created.error });
@@ -258,6 +369,8 @@ app.post("/api/rooms", async (req, reply) => {
     dataSource: created.dataSource,
     goal: created.goal,
     step: created.step,
+    steps: created.steps,
+    activeStepId: created.activeStepId,
   };
 });
 
@@ -426,7 +539,8 @@ async function withCandidateIds<T extends { ref: string }>(
   if (places.length === 0) return places;
   const rows = (
     await pool.query(
-      "SELECT id, osm_ref FROM candidates WHERE room_id = $1 AND osm_ref = ANY($2)",
+      `SELECT id, osm_ref FROM candidates
+        WHERE room_id = $1 AND osm_ref = ANY($2) AND ${LIVE_POOL}`,
       [roomId, places.map((place) => place.ref)],
     )
   ).rows as Array<{ id: string; osm_ref: string }>;

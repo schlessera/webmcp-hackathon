@@ -78,7 +78,11 @@ await withTransaction(async (client) => {
     // Destructive path, explicitly named: clears only the demo room.
     for (const table of [
       "stances", "proposals", "verdicts", "requirements", "adjustments",
-      "arrival_plans", "attestations", "events", "invite_secrets", "participant_tokens",
+      "arrival_plans", "attestations", "events", "invite_secrets",
+      // Links minted from inside the room point at both the room and the
+      // participant who minted them; leaving them would make the next reset
+      // fail on a foreign key instead of reseeding.
+      "room_invites", "participant_tokens",
       "candidates",
     ]) {
       if (table === "participant_tokens") {

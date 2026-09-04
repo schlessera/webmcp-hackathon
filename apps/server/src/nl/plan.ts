@@ -1,8 +1,11 @@
 import AjvModule from "ajv";
 import addFormatsModule from "ajv-formats";
 import {
+  AREAS,
   RequirementPayload,
+  STEPS_MAX,
   STEP_CLASSES,
+  stepId,
   defaultStepClass,
   preparse,
   stepClassByKey,
@@ -11,6 +14,7 @@ import {
   type Facet,
   type Interpretation,
   type SpatialContextResult,
+  type StepRelation,
   type StepClass,
 } from "@webmcp-hackathon/contracts";
 import { config } from "../config.ts";
@@ -26,7 +30,7 @@ import { parseJson, respond } from "./llm.ts";
 import { mapInterpretation, type UnderstandInput } from "./understand/map.ts";
 import { resolveConceptReferent } from "./understand/resolvers.ts";
 import type { Clarification, ParsedNeed } from "./understand/types.ts";
-import { SCHEMA, conceptFromDraft, modelInstructions, type Draft } from "./say.ts";
+import { SCHEMA, conceptFromDraft, modelInstructions, type Draft, type DraftConcept } from "./say.ts";
 
 /**
  * Goal-first room creation (UNDERSTANDING-ARCH.md §10, D1).
@@ -49,9 +53,15 @@ export interface PlanStepClass {
 }
 
 export interface PlanStep {
-  stepId: "s1";
+  stepId: string;
+  /** 1-based, so copy can say "step 2 of 3" without arithmetic. */
+  index: number;
   title: string;
   placeClass: PlanStepClass;
+  /** How this step sits in the sequence. A later step is always searched
+   * around where the one before it settles — that is what "then" can mean
+   * for a group that has to get there. */
+  relation: StepRelation;
   needs: ParsedNeed[];
   when: { start: string; end: string; phrase: string } | null;
 }
@@ -75,8 +85,13 @@ const validatePayload = payloadAjv.compile(RequirementPayload);
 
 const TITLE_MAX = 40;
 
-interface PlanDraft extends Draft {
-  placeClass: string | null;
+/** Stage A's concept, plus the step it belongs to. The base draft shape is
+ * shared with /api/nl/say, which has no steps to attribute anything to. */
+type PlanDraftConcept = DraftConcept & { step?: number | null };
+
+interface PlanDraft extends Omit<Draft, "concepts"> {
+  steps: Array<{ placeClass: string | null }> | null;
+  concepts: PlanDraftConcept[];
 }
 
 /** Stage A's shape, plus the one field a goal must decide and the one extra
@@ -88,22 +103,39 @@ const PLAN_SCHEMA = (() => {
     properties: Record<string, unknown>;
   };
   const concepts = base.properties.concepts as {
-    items: { properties: { role: { enum: string[] } } };
+    items: { required: string[]; properties: { role: { enum: string[] } } };
   };
   return {
     ...(SCHEMA as unknown as Record<string, unknown>),
-    required: [...base.required, "placeClass"],
+    required: [...base.required, "steps"],
     properties: {
       ...base.properties,
       intent: { enum: ["plan"] },
-      placeClass: { type: "string", maxLength: 40 },
+      // One entry per place the group has to end up at, in the order the
+      // sentence puts them. Most goals have one.
+      steps: {
+        type: "array",
+        minItems: 1,
+        maxItems: STEPS_MAX,
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["placeClass"],
+          properties: { placeClass: { type: "string", maxLength: 40 } },
+        },
+      },
       concepts: {
         ...concepts,
         items: {
           ...concepts.items,
+          required: [...concepts.items.required, "step"],
           properties: {
             ...concepts.items.properties,
             role: { enum: [...concepts.items.properties.role.enum, "subject"] },
+            // Which step this concept is about, 1-based. "Dinner at eight
+            // then a film" puts the time on the first and nothing on the
+            // second.
+            step: { type: "integer", minimum: 1, maximum: STEPS_MAX },
           },
         },
       },
@@ -117,13 +149,17 @@ function planInstructions(): string {
     .join("; ");
   return [
     "This sentence is the GOAL a person typed to open a new room, not a message inside one. Return intent plan.",
-    "It states what the group wants to do. Return the concepts it states, exactly as above, and one class of place.",
-    `placeClass is exactly one of these keys: ${table}.`,
-    "Choose the class the goal is about. If the goal names no kind of place, answer food.",
-    "If the goal names several places one after another, answer the class of the FIRST one and return only its concepts.",
-    "Examples: go for a walk with the dogs -> park; catch the new film -> cinema; coworking with a quiet room -> coworking; let's have lunch -> food; mit den Hunden spazieren gehen -> park; erst Abendessen -> food.",
-    "role subject names a particular thing the place must offer — a film, an exhibition, a band, a screening. Put the name in surface and a short name in gist.",
-    "Examples: watch the new MCU movie -> subject the new MCU movie; die neue Marvel-Verfilmung sehen -> subject die neue Marvel-Verfilmung.",
+    "It states what the group wants to do. Break it into the places they have to END UP AT, in order, and return the concepts it states.",
+    `Each step's placeClass is exactly one of these keys: ${table}.`,
+    `Return between 1 and ${STEPS_MAX} steps. Most goals are ONE step: return one unless the sentence really names a second place to go to afterwards.`,
+    "A second step needs a sequence word — then, after that, afterwards, and then, later, dann, danach, anschließend — or two separate outings named one after the other.",
+    "Examples of ONE step: dinner somewhere we can all walk to; coffee and a quiet table; a dog-friendly park this afternoon; a museum with the Vermeer exhibition.",
+    "Examples of TWO steps: dinner then the new MCU film -> food, cinema; erst Abendessen, dann ins Kino -> food, cinema; coffee and then a bookshop nearby -> cafe, books; a walk with the dog and afterwards a beer -> park, drinks.",
+    "Buying or trying something is still one step: the place that sells it. i want to test and buy a new iPhone -> one step, and the model is a subject.",
+    "If the goal names no kind of place, answer one step of class food.",
+    "Every concept carries step: the 1-based number of the step it is about. A concept that belongs to the whole goal, or to no step in particular, is step 1.",
+    "role subject names a particular thing the place must offer or stock — a film, an exhibition, a band, a product. Put the name in surface and a short name in gist.",
+    "Examples: watch the new MCU movie -> subject the new MCU movie; die neue Marvel-Verfilmung sehen -> subject die neue Marvel-Verfilmung; buy a new iPhone -> subject a new iPhone.",
     "A word naming the class itself is not also a kind concept: cinema, park, museum, coworking space belong in placeClass only.",
   ].join("\n");
 }
@@ -135,32 +171,42 @@ const facetCache = new Map<string, Facet[]>();
  * the snapshot for the step's classes inside the narrow radius, so a cuisine
  * the area records routes the same way in the preview as it will in the room.
  */
-function facetsFor(area: AreaDefinition, stepClass: StepClass): Facet[] {
-  const key = `${area.id}:${stepClass.key}`;
+function facetsFor(area: AreaDefinition | null, stepClass: StepClass): Facet[] {
+  const key = `${area?.id ?? "*"}:${stepClass.key}`;
   const cached = facetCache.get(key);
   if (cached) return cached;
-  const snapshot = loadSnapshot(area.id);
-  if (!snapshot) {
-    facetCache.set(key, []);
-    return [];
+  // No area yet: read every area the demo has, so a preview taken before the
+  // region is chosen is not silently a preview of one of them.
+  const areas = area ? [area] : AREAS;
+  const rows: Array<Record<string, unknown>> = [];
+  for (const source of areas) {
+    const snapshot = loadSnapshot(source.id);
+    if (!snapshot) continue;
+    const venues = fillPlan(
+      source,
+      snapshot,
+      source.center,
+      source.radii.narrow,
+      [],
+      Number.MAX_SAFE_INTEGER,
+      stepClass.members,
+    ).batches[0] ?? [];
+    for (const seed of seedsForVenues(
+      `room_preview_${source.id}`,
+      venues,
+      snapshot.manifest.extract.timestamp,
+    )) {
+      rows.push({ ...seed, map_revision: rows.length });
+    }
   }
-  const venues = fillPlan(
-    area,
-    snapshot,
-    area.center,
-    area.radii.narrow,
-    [],
-    Number.MAX_SAFE_INTEGER,
-    stepClass.members,
-  ).batches[0] ?? [];
-  const rows = seedsForVenues("room_preview", venues, snapshot.manifest.extract.timestamp)
-    .map((seed, index) => ({ ...seed, map_revision: index }));
-  const facets = computeFacets(
-    rows as never,
-    null,
-    undefined,
-    area.currency === "USD" ? "USD" : "EUR",
-  );
+  const facets = rows.length === 0
+    ? []
+    : computeFacets(
+        rows as never,
+        null,
+        undefined,
+        (area?.currency ?? "EUR") === "USD" ? "USD" : "EUR",
+      );
   facetCache.set(key, facets);
   return facets;
 }
@@ -172,17 +218,21 @@ export function resetPlanCaches(): void {
 
 function planInput(
   goal: string,
-  area: AreaDefinition,
+  area: AreaDefinition | null,
   stepClass: StepClass,
   now: Date,
+  /** The organizer's own zone, when the page told us. Before a region is
+   * chosen there is no area to read one from, and "tonight" still has to
+   * mean tonight where they are. */
+  timezone?: string,
 ): UnderstandInput {
   return {
     text: goal,
     scope: "shared",
     room: {
-      areaId: area.id,
-      timezone: area.timezone,
-      currency: area.currency === "USD" ? "USD" : "EUR",
+      areaId: area?.id ?? AREAS[0].id,
+      timezone: timezone ?? area?.timezone ?? AREAS[0].timezone,
+      currency: (area?.currency ?? "EUR") === "USD" ? "USD" : "EUR",
       now,
       // Nobody has said where they start yet, so a distance is measured from
       // the area centre and says so (map.ts assumedFor).
@@ -276,35 +326,48 @@ function whenFor(needs: ParsedNeed[], concepts: Concept[]): PlanStep["when"] {
 }
 
 /** The one default step: what a room opens with when no goal could be read. */
-export function offlinePlan(goal: string, areaId: string): PlanPreview {
+export function offlinePlan(goal: string, areaId: string | null): PlanPreview {
   const stepClass = defaultStepClass();
   return {
     goal,
     offline: true,
     steps: [{
-      stepId: "s1",
+      stepId: stepId(1),
+      index: 1,
       title: stepClass.label,
       placeClass: { key: stepClass.key, label: stepClass.label },
+      relation: { kind: "first" },
       needs: [],
       when: null,
     }],
-    classes: areaClassCounts(areaId),
+    classes: areaId ? areaClassCounts(areaId) : [],
     clarify: null,
     meta: { model: null, ms: 0 },
   };
 }
 
+export interface PlanPreviewOptions {
+  now?: Date;
+  /** The organizer's own zone, when the page sent one. Used before a region
+   * has been chosen, which is the ordinary case for this screen. */
+  timezone?: string;
+}
+
 export async function planPreview(
   goal: string,
-  area: AreaDefinition,
-  now = new Date(),
+  area: AreaDefinition | null,
+  options: PlanPreviewOptions = {},
 ): Promise<PlanPreview> {
-  if (!config.nlEnabled) return offlinePlan(goal, area.id);
+  const now = options.now ?? new Date();
+  if (!config.nlEnabled) return offlinePlan(goal, area?.id ?? null);
 
-  const currency = area.currency === "USD" ? "USD" : "EUR";
+  const currency = (area?.currency ?? "EUR") === "USD" ? "USD" : "EUR";
   const parsed = preparse(goal, { currency });
-  let concepts: Concept[] = parsed.concepts;
-  let stepClass = defaultStepClass();
+  // Everything the pre-parser found belongs to the first step: it reads
+  // times, distances and budgets, and a sentence states those about the
+  // outing it starts with.
+  let byStep: Concept[][] = [parsed.concepts];
+  let classes: StepClass[] = [defaultStepClass()];
   let meta: PlanPreview["meta"] = { model: null, ms: 0 };
 
   if (!parsed.preparsedWhole) {
@@ -312,8 +375,8 @@ export async function planPreview(
       model: config.llmRouteModel,
       instructions: [
         modelInstructions(
-          { facets: facetsFor(area, stepClass) } as SpatialContextResult,
-          planInput(goal, area, stepClass, now),
+          { facets: facetsFor(area, classes[0]) } as SpatialContextResult,
+          planInput(goal, area, classes[0], now, options.timezone),
           parsed.concepts,
           parsed.remainder,
         ),
@@ -327,60 +390,92 @@ export async function planPreview(
       serviceTier: "default",
     });
     const draft = parseJson<PlanDraft>(reply.text);
-    stepClass = stepClassByKey(draft?.placeClass ?? "") ?? defaultStepClass();
-    concepts = [...parsed.concepts, ...(draft?.concepts ?? []).map(conceptFromDraft)].slice(0, 5);
+    const drafted = (draft?.steps ?? [])
+      .slice(0, STEPS_MAX)
+      .map((step) => stepClassByKey(step?.placeClass ?? "") ?? defaultStepClass());
+    classes = drafted.length > 0 ? drafted : [defaultStepClass()];
+    byStep = classes.map(() => [] as Concept[]);
+    byStep[0] = [...parsed.concepts];
+    for (const raw of draft?.concepts ?? []) {
+      // A step number outside the plan the model just returned means the
+      // sentence and the split disagree; the first step is where a concept
+      // with nowhere to go belongs.
+      const at = Number.isInteger(raw.step) && raw.step! >= 1 && raw.step! <= classes.length
+        ? raw.step! - 1
+        : 0;
+      byStep[at].push(conceptFromDraft(raw));
+    }
+    byStep = byStep.map((concepts) => concepts.slice(0, 5));
     meta = { model: reply.model, ms: reply.ms };
   }
 
-  const input = planInput(goal, area, stepClass, now);
-  const subjects = concepts.filter((concept) => concept.role === "subject");
-  const grounded = groundReferents(
-    concepts.filter((concept) => concept.role !== "subject"),
-    input,
-  );
-  const interpretation: Interpretation = {
-    intent: "need",
-    concepts: grounded.concepts,
-    confidence: 1,
-    reply: null,
-    meta: { model: meta.model, ms: meta.ms, preparsedWhole: parsed.preparsedWhole },
-  };
-  const mapped = mapInterpretation(interpretation, input);
+  // Stage B runs per step, unchanged: each step is read against the facets
+  // its own class has, so a cuisine routes on a food step and a subject
+  // becomes a question on a cinema step.
+  const steps: PlanStep[] = [];
+  let clarify: Clarification | null = null;
+  for (const [i, stepClass] of classes.entries()) {
+    const concepts = byStep[i] ?? [];
+    const input = planInput(goal, area, stepClass, now, options.timezone);
+    const subjects = concepts.filter((concept) => concept.role === "subject");
+    const grounded = groundReferents(
+      concepts.filter((concept) => concept.role !== "subject"),
+      input,
+    );
+    const interpretation: Interpretation = {
+      intent: "need",
+      concepts: grounded.concepts,
+      confidence: 1,
+      reply: null,
+      meta: { model: meta.model, ms: meta.ms, preparsedWhole: parsed.preparsedWhole },
+    };
+    const mapped = mapInterpretation(interpretation, input);
 
-  const needs = [
-    ...subjects.flatMap((concept) => {
-      const need = subjectNeed(concept);
-      return need ? [need] : [];
-    }),
-    ...mapped.needs.map((need) => {
-      const name = grounded.dropped.get(need.gist);
-      return name
-        ? { ...need, assumed: `measured from where you start, not ${name}`.slice(0, 80) }
-        : need;
-    }),
-  ].filter((need) => validatePayload(need.payload));
+    const needs = [
+      ...subjects.flatMap((concept) => {
+        const need = subjectNeed(concept);
+        return need ? [need] : [];
+      }),
+      ...mapped.needs.map((need) => {
+        const name = grounded.dropped.get(need.gist);
+        return name
+          ? { ...need, assumed: `measured from where you start, not ${name}`.slice(0, 80) }
+          : need;
+      }),
+    ].filter((need) => validatePayload(need.payload));
 
-  const clarify = mapped.clarify
-    ? {
+    // The first question the plan raises is the one the organizer answers.
+    // A later step's ambiguity waits until that step is the one being read.
+    if (!clarify && mapped.clarify) {
+      clarify = {
         ...mapped.clarify,
+        mode: mapped.clarify.mode ?? "one",
+        stepId: stepId(i + 1),
         choices: mapped.clarify.choices.map((choice) => ({
           ...choice,
           needs: choice.needs.filter((need) => validatePayload(need.payload)),
         })),
-      }
-    : null;
+      };
+    }
+
+    steps.push({
+      stepId: stepId(i + 1),
+      index: i + 1,
+      title: titleFor(concepts, stepClass),
+      placeClass: { key: stepClass.key, label: stepClass.label },
+      relation: i === 0 ? { kind: "first" } : { kind: "then", afterStepId: stepId(i) },
+      needs,
+      when: whenFor(needs, concepts),
+    });
+  }
 
   return {
     goal,
     offline: false,
-    steps: [{
-      stepId: "s1",
-      title: titleFor(concepts, stepClass),
-      placeClass: { key: stepClass.key, label: stepClass.label },
-      needs,
-      when: whenFor(needs, concepts),
-    }],
-    classes: areaClassCounts(area.id),
+    steps,
+    // Counts belong to an area, and before one is chosen there are none to
+    // give. The region dialog is where they arrive (GET /api/areas).
+    classes: area ? areaClassCounts(area.id) : [],
     clarify,
     meta,
   };

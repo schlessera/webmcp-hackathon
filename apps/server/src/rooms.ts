@@ -6,7 +6,13 @@ import {
   areaById,
   defaultStepClass,
   stepClassByKey,
+  stepId,
+  STEPS_MAX,
+  STEP_TITLE_MAX,
+  type RoomStep,
+  type RoomStepView,
   type StepClass,
+  type StepWhen,
 } from "@webmcp-hackathon/contracts";
 import { withTransaction } from "./db.ts";
 import { sha256, type Participant } from "./auth.ts";
@@ -17,6 +23,7 @@ import { warmEnrichments } from "./enrich/index.ts";
 import { startPoolFill } from "./pool-fill.ts";
 import { warmTargetsFor } from "./candidate-write.ts";
 import { noteRefinementPresence, startRefinement } from "./refine/worker.ts";
+import { stepViews } from "./steps.ts";
 
 /**
  * Room creation from the area picker: one organizer, up to five members,
@@ -43,6 +50,23 @@ export interface CreateRoomInput {
    * shared needs through the ordinary command path, once the room exists.
    */
   step?: { placeClass?: unknown; needs?: unknown };
+  /**
+   * The room's plan: one step, or several. "Dinner, then the new film" is
+   * two, and the second is searched around wherever the first settles.
+   *
+   * The first step is live at creation — its class decides the pool and its
+   * needs are submitted as the organizer's, exactly as `step` does. The rest
+   * wait, and open one at a time as the room agrees on each place.
+   *
+   * Absent, the room has no plan and behaves as rooms did before plans
+   * existed. `step` is the older single-step form and keeps that behaviour.
+   */
+  steps?: Array<{
+    placeClass?: unknown;
+    title?: unknown;
+    needs?: unknown;
+    when?: unknown;
+  }>;
 }
 
 /** A need the preview proposed, as the composer would submit it. */
@@ -67,6 +91,9 @@ export type CreateRoomResult =
       dataSource: DataSource;
       goal: string;
       step: { placeClass: { key: string; label: string }; seeded: number };
+      /** The plan, as the wire carries it. Empty for a room without one. */
+      steps: RoomStepView[];
+      activeStepId: string | null;
     }
   | { ok: false; status: 400 | 503; error: string };
 
@@ -120,6 +147,64 @@ async function applySeedNeeds(
   return seeded;
 }
 
+/**
+ * The plan a room opens with. The first step is active; the rest wait their
+ * turn and carry the needs the goal already stated for them until they do.
+ *
+ * A title the caller did not compose falls back to the class label, which is
+ * server data — nothing here writes a domain word (CLAUDE.md §1).
+ */
+function buildSteps(
+  input: NonNullable<CreateRoomInput["steps"]>,
+): { steps: RoomStep[]; classes: StepClass[] } | null {
+  if (input.length === 0 || input.length > STEPS_MAX) return null;
+  const steps: RoomStep[] = [];
+  const classes: StepClass[] = [];
+  for (const [i, raw] of input.entries()) {
+    // The route hands this straight from JSON, so an entry can be anything —
+    // null, a list, a number. A malformed request is a 400, not a throw.
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+    const key = raw.placeClass;
+    const stepClass =
+      key === undefined || key === null
+        ? defaultStepClass()
+        : typeof key === "string"
+          ? stepClassByKey(key)
+          : undefined;
+    if (!stepClass) return null;
+    classes.push(stepClass);
+    const id = stepId(i + 1);
+    const title =
+      typeof raw.title === "string" && raw.title.trim()
+        ? raw.title.trim().slice(0, STEP_TITLE_MAX)
+        : stepClass.label;
+    steps.push({
+      stepId: id,
+      index: i + 1,
+      title,
+      placeClass: { key: stepClass.key, label: stepClass.label },
+      relation: i === 0 ? { kind: "first" } : { kind: "then", afterStepId: stepId(i) },
+      when: cleanWhen(raw.when),
+      status: i === 0 ? "active" : "pending",
+      settled: null,
+      // The first step's needs are applied at creation, like `step`'s are;
+      // a later step keeps its own until it opens.
+      pendingNeeds: i === 0 ? [] : seedNeeds(raw.needs),
+    });
+  }
+  return { steps, classes };
+}
+
+function cleanWhen(value: unknown): StepWhen | null {
+  const when = value as { start?: unknown; end?: unknown; phrase?: unknown } | null;
+  if (!when || typeof when !== "object") return null;
+  return typeof when.start === "string" &&
+    typeof when.end === "string" &&
+    typeof when.phrase === "string"
+    ? { start: when.start, end: when.end, phrase: when.phrase }
+    : null;
+}
+
 function cleanName(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const name = value.trim().replace(/\s+/g, " ");
@@ -154,16 +239,39 @@ export async function createRoom(input: CreateRoomInput): Promise<CreateRoomResu
     }
     center = { lat: c.lat, lng: c.lng };
   }
-  const rawClass = input.step?.placeClass;
-  let stepClass: StepClass;
-  if (rawClass === undefined || rawClass === null) {
-    stepClass = defaultStepClass();
-  } else {
-    const found = typeof rawClass === "string" ? stepClassByKey(rawClass) : undefined;
-    if (!found) return { ok: false, status: 400, error: "Unknown step placeClass." };
-    stepClass = found;
+  // A plan, if one was given; otherwise the older single-step shape, which
+  // leaves the room without a plan and behaves exactly as it always did.
+  let plan: { steps: RoomStep[]; classes: StepClass[] } | null = null;
+  if (input.steps !== undefined) {
+    if (!Array.isArray(input.steps)) {
+      return { ok: false, status: 400, error: "steps must be an array." };
+    }
+    plan = buildSteps(input.steps);
+    if (!plan) {
+      return {
+        ok: false,
+        status: 400,
+        error: `steps must be 1–${STEPS_MAX} entries, each with a known placeClass.`,
+      };
+    }
   }
-  const needs = seedNeeds(input.step?.needs);
+  let stepClass: StepClass;
+  if (plan) {
+    stepClass = plan.classes[0];
+  } else {
+    const rawClass = input.step?.placeClass;
+    if (rawClass === undefined || rawClass === null) {
+      stepClass = defaultStepClass();
+    } else {
+      const found = typeof rawClass === "string" ? stepClassByKey(rawClass) : undefined;
+      if (!found) return { ok: false, status: 400, error: "Unknown step placeClass." };
+      stepClass = found;
+    }
+  }
+  const needs = plan
+    ? seedNeeds(input.steps![0]?.needs)
+    : seedNeeds(input.step?.needs);
+  const activeStepId = plan ? plan.steps[0].stepId : null;
 
   const roomId = `room_${randomBytes(4).toString("hex")}`;
   const set = candidatesFor(roomId, area, center, stepClass.members);
@@ -190,8 +298,8 @@ export async function createRoom(input: CreateRoomInput): Promise<CreateRoomResu
 
   await withTransaction(async (client) => {
     await client.query(
-      `INSERT INTO rooms (id, goal, phase, domain, revision, policy, scope, scope_seq, area_id, data_source)
-       VALUES ($1, $2, 'gathering', $3, 0, $4, $5, 1, $6, $7)`,
+      `INSERT INTO rooms (id, goal, phase, domain, revision, policy, scope, scope_seq, area_id, data_source, steps, active_step_id)
+       VALUES ($1, $2, 'gathering', $3, 0, $4, $5, 1, $6, $7, $8, $9)`,
       [
         roomId,
         goal,
@@ -211,6 +319,8 @@ export async function createRoom(input: CreateRoomInput): Promise<CreateRoomResu
         }),
         area.id,
         JSON.stringify(set.dataSource),
+        JSON.stringify(plan?.steps ?? []),
+        activeStepId,
       ],
     );
     for (const [i, p] of people.entries()) {
@@ -233,12 +343,12 @@ export async function createRoom(input: CreateRoomInput): Promise<CreateRoomResu
     }
     for (const c of set.candidates) {
       await client.query(
-        `INSERT INTO candidates (id, room_id, name, category, price_level, walk_min, location, attributes, hours, osm_ref, extras)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+        `INSERT INTO candidates (id, room_id, name, category, price_level, walk_min, location, attributes, hours, osm_ref, extras, step_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
         [
           c.id, roomId, c.name, c.category, c.price_level, c.walk_min,
           JSON.stringify(c.location), JSON.stringify(c.attributes), JSON.stringify(c.hours),
-          c.osmRef ?? null, JSON.stringify(c.extras ?? {}),
+          c.osmRef ?? null, JSON.stringify(c.extras ?? {}), activeStepId,
         ],
       );
     }
@@ -281,5 +391,7 @@ export async function createRoom(input: CreateRoomInput): Promise<CreateRoomResu
     dataSource: set.dataSource,
     goal,
     step: { placeClass: { key: stepClass.key, label: stepClass.label }, seeded },
+    steps: stepViews(plan?.steps ?? []),
+    activeStepId,
   };
 }

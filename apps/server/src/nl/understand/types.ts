@@ -19,6 +19,15 @@ export interface Clarification {
   choices: ClarifyChoice[];
   allowFreeText: true;
   said: string;
+  /**
+   * How many of the choices apply. "one" is a fork — which of these did you
+   * mean — and stays the default everywhere a clarification already existed.
+   * "many" is a set: the question is under-determined in more than one
+   * direction at once, and the page draws checkboxes rather than a picker.
+   */
+  mode?: "one" | "many";
+  /** Which step of a plan the question is about, when it is about one. */
+  stepId?: string | null;
 }
 
 export interface MapResult {

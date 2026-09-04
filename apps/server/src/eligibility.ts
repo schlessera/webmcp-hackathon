@@ -1,4 +1,5 @@
 import type pg from "pg";
+import { LIVE_POOL } from "./live-pool.ts";
 import type { Feasibility } from "@webmcp-hackathon/contracts";
 import {
   ATTRIBUTE_LABELS,
@@ -341,9 +342,17 @@ export async function loadEligibilityInputs(
   viewerId?: string,
 ): Promise<EligibilityInputs> {
   const [candidates, requirements, verdicts, scope, attestations, room, participantOrigins] = await Promise.all([
-    q.query("SELECT * FROM candidates WHERE room_id = $1 ORDER BY id", [roomId]),
+    q.query(`SELECT * FROM candidates WHERE room_id = $1 AND ${LIVE_POOL} ORDER BY id`, [roomId]),
+    // A need belongs to the step it was stated for, and a step the room has
+    // moved past does not get to classify the pool it is not about. Written
+    // as the read rather than only as the `active` flag the advance sets, so
+    // re-activating an old row cannot bring it back (SetRequirementActive
+    // refuses that too — this is the floor under it).
     q.query(
-      "SELECT * FROM requirements WHERE room_id = $1 AND NOT withdrawn",
+      `SELECT * FROM requirements
+        WHERE room_id = $1 AND NOT withdrawn
+          AND (step_id IS NULL
+               OR step_id = (SELECT r.active_step_id FROM rooms r WHERE r.id = $1))`,
       [roomId],
     ),
     q.query("SELECT * FROM verdicts WHERE room_id = $1", [roomId]),

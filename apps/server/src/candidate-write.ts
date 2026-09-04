@@ -1,6 +1,7 @@
 import type pg from "pg";
 import type { CandidateSeed } from "./places.ts";
 import type { RoomLookupTarget } from "./enrich/index.ts";
+import { LIVE_POOL } from "./live-pool.ts";
 
 /** Continue a room's numeric candidate suffix while preserving creation ids. */
 export function numberCandidateSeeds(
@@ -43,19 +44,28 @@ export async function insertCandidateSeeds(
       seed.osmRef ?? null,
       JSON.stringify(seed.extras ?? {}),
     );
-    return `(${Array.from({ length: 11 }, (_, i) => `$${offset + i + 1}`).join(", ")})`;
+    return `(${Array.from({ length: 11 }, (_, i) => `$${offset + i + 1}`).join(", ")}, ` +
+      `(SELECT r.active_step_id FROM rooms r WHERE r.id = $2))`;
   });
+  // A place joins the step the room is ON — read from the room, not passed
+  // in. Background fills and participant additions therefore cannot write a
+  // row with no step into a room that has one, which would make it live for
+  // every step (LIVE_POOL treats NULL as the room's own). A room without a
+  // plan has no active step and every row stays NULL, exactly as before.
   await client.query(
     `INSERT INTO candidates
-       (id, room_id, name, category, price_level, walk_min, location, attributes, hours, osm_ref, extras)
+       (id, room_id, name, category, price_level, walk_min, location, attributes, hours, osm_ref, extras, step_id)
      VALUES ${rows.join(", ")}`,
     values,
   );
+  // poolSize is what the room holds NOW, which for a room on a step is that
+  // step's pool, not every place the room has ever pooled.
   await client.query(
     `UPDATE rooms
         SET data_source = CASE WHEN data_source IS NULL THEN NULL
           ELSE jsonb_set(data_source, '{poolSize}',
-            to_jsonb((SELECT count(*)::int FROM candidates WHERE room_id = $1))) END
+            to_jsonb((SELECT count(*)::int FROM candidates
+                       WHERE room_id = $1 AND ${LIVE_POOL}))) END
       WHERE id = $1`,
     [roomId],
   );

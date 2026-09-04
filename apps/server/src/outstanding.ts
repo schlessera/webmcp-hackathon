@@ -1,6 +1,7 @@
 import type pg from "pg";
 import type { OutstandingItem } from "@webmcp-hackathon/contracts";
 import { isHeld } from "./nl/held-registry.ts";
+import { LIVE_POOL_C } from "./live-pool.ts";
 
 /** Decisions currently pending for one participant. */
 export async function outstandingFor(
@@ -27,7 +28,7 @@ export async function outstandingFor(
           LEFT JOIN verdicts v ON v.room_id = c.room_id
            AND v.candidate_id = c.id AND v.owner_id = $2
            AND v.screened_map_revision = c.map_revision
-         WHERE c.room_id = $1 AND (v.verdict IS NULL OR v.verdict = 'needs_info')
+         WHERE c.room_id = $1 AND ${LIVE_POOL_C} AND (v.verdict IS NULL OR v.verdict = 'needs_info')
          ORDER BY c.id LIMIT 10`,
         [roomId, participantId],
       )

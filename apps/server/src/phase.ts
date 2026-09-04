@@ -73,6 +73,11 @@ const TRANSITIONS: readonly Transition[] = [
   { from: "gathering", on: "impasse_detected", to: "deliberation" },
   { from: "deliberation", on: "agreement_committed", to: "agreed" },
   { from: "agreed", on: "arrival_plan_updated", to: "arrival" },
+  // A room on a plan does not stop at one place: settling a step opens the
+  // next one, and the room is gathering again for it. The commit emits
+  // `agreement_committed` then `step_advanced`, and the fold below applies
+  // them in that order, so the room passes through `agreed` on its way back.
+  { from: "agreed", on: "step_advanced", to: "gathering" },
 ];
 
 /**
