@@ -3333,7 +3333,7 @@ test("the big number counts likely places with the confirmed ones and the sublin
   await expect(page.getByTestId("count-number")).toHaveText("5");
   await expect(page.getByTestId("count-block")).toHaveAttribute("data-state", "works");
   await expect(page.getByTestId("count-block")).toContainText(
-    `of ${context.total} · 3 of them likely · 3 unsure`,
+    `of ${context.total} · 3 likely · 3 unsure`,
   );
   // The header and the brief's live region say the same number.
   await expect(page.getByTestId("room-subtitle")).toContainText("5 still work");
@@ -3373,7 +3373,7 @@ test("a room with only guesses left is not an impasse", async ({ page }) => {
   // and keeps its works colour rather than turning unsure.
   await expect(page.getByTestId("count-number")).toHaveText("2");
   await expect(page.getByTestId("count-block")).toHaveAttribute("data-state", "works");
-  await expect(page.getByTestId("count-block")).toContainText("2 of them likely");
+  await expect(page.getByTestId("count-block")).toContainText("2 likely");
 });
 
 /** A grid of in-scope places, far enough apart that every card can be drawn. */
@@ -3711,7 +3711,7 @@ test("a declared impasse with likely places left counts them and still offers th
   // what it has rather than that it has nothing.
   await expect(page.getByTestId("count-number")).toHaveText("2");
   await expect(page.getByTestId("count-block")).toHaveAttribute("data-state", "works");
-  await expect(page.getByTestId("count-block")).toContainText("2 of them likely");
+  await expect(page.getByTestId("count-block")).toContainText("2 likely");
   await expect(page.getByTestId("room-subtitle")).toContainText("2 still work");
   await expect(page.getByTestId("room-subtitle")).not.toContainText(/nothing/i);
   // The server's recovery offers stay on the brief, as offers.

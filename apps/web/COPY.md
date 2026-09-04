@@ -47,7 +47,7 @@ The count block is the single most-read element. Always **absolute, never
 percentage**, and always paired with the total on second line.
 
 ```
-6            of 34 · 4 of them likely · 3 unsure
+6            of 34 · 4 likely · 3 unsure
 still work
 ```
 
@@ -56,7 +56,7 @@ still work
 - 1 → "1 still works" (verb agrees).
 - The big number counts confirmed places **and** likely ones: a guess with a
   reason is still an option the room can act on. The subline breaks that
-  number down — "4 of them likely" is part of the six, never an addition to
+  number down — "4 likely" is part of the six, never an addition to
   it. **likely** and **unlikely** are the only words for a guess; never
   "probably", "maybe", "estimated". A guess is drawn dashed.
 - Unknowns are counted separately and never folded into the total:

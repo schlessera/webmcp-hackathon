@@ -1945,7 +1945,7 @@ export function MapView({
      still never rules a place out and never makes a room feasible. The
      subline breaks the number down rather than adding to it. */
   const works = matching + likely;
-  const guessed = `${likely > 0 ? ` · ${likely} of them likely` : ""}${unsure > 0 ? ` · ${unsure} unsure` : ""}${
+  const guessed = `${likely > 0 ? ` · ${likely} likely` : ""}${unsure > 0 ? ` · ${unsure} unsure` : ""}${
     unlikely > 0 ? ` · ${unlikely} unlikely` : ""
   }`;
   const statedNeeds = context.activeNeeds.filter((n) => n.active);

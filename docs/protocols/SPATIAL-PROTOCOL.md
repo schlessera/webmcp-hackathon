@@ -469,7 +469,7 @@ makes a room feasible and never rules a place out. The candidate's
 
 Display differs from the wire, deliberately. The client's big number is
 `matching + likely` — a guess with a reason is an option the room can act on
-— and the subline breaks it down ("of 34 · 4 of them likely · 3 unsure").
+— and the subline breaks it down ("of 34 · 4 likely · 3 unsure").
 The sum is computed in the client; no field on the wire carries it, and
 `matching` keeps its eligible-only meaning for every other consumer.
 
