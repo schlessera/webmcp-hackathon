@@ -1417,7 +1417,7 @@ test("a fresh whole-area pool stays fixed, caps DOM stickers, and leaves every G
   await expect(page.getByTestId("map-region")).toHaveAttribute("data-loaded", "true", {
     timeout: 20_000,
   });
-  await expect(page.getByTestId("count-fill")).toHaveText("adding places · 60 of 90");
+  await expect(page.getByTestId("count-fill")).toHaveAttribute("aria-valuetext", "adding places · 60 of 90");
 
   await expect
     .poll(() => page.evaluate(() => window.__spokesMapStats?.()))
@@ -1444,7 +1444,7 @@ test("a fresh whole-area pool stays fixed, caps DOM stickers, and leaves every G
       text: "15 more places on the map.",
     }],
   });
-  await expect(page.getByTestId("count-fill")).toHaveText("adding places · 75 of 90");
+  await expect(page.getByTestId("count-fill")).toHaveAttribute("aria-valuetext", "adding places · 75 of 90");
   await expect.poll(() => page.evaluate(() => window.__spokesMapStats?.().glFeatures)).toBe(75);
   const midway = await page.evaluate(() => window.__spokesMapStats!());
   expect(midway.domMarkers).toBe(60);
@@ -1945,7 +1945,7 @@ test("a need said is pending until the room settles it, and busy rings mark plac
   await expect(page.getByTestId("pin-place_1")).toHaveAttribute("data-busy", "true");
   await expect(page.getByTestId("pin-place_2")).toHaveAttribute("data-busy", "true");
   await expect(page.getByTestId("pin-place_3")).not.toHaveAttribute("data-busy", "true");
-  await expect(page.getByTestId("count-busy")).toHaveText("checking 2 for outdoor seating");
+  await expect(page.getByTestId("count-busy")).toHaveAttribute("aria-valuetext", "checking 2 for outdoor seating");
   await expect(page.getByTestId("map-region")).toHaveAttribute("aria-busy", "true");
   // The ring fades in over the settle duration; wait for it to land.
   await expect
@@ -2454,35 +2454,42 @@ test("the room says what it is refining, a question need shows it was looked up,
   await page.goto(`${BASE}/#invite=deadbeef`);
   await socket.welcomed;
 
-  // The refinement line, quiet under the count, absolute both sides.
+  // The refinement progress, in the count's head slot, absolute both sides.
   const refineLine = page.getByTestId("count-refine");
-  await expect(refineLine).toHaveText("checked 84 places for 2 needs · 5 to go");
+  await expect(refineLine).toHaveAttribute(
+    "aria-valuetext",
+    "checked 84 places for 2 needs · 5 to go",
+  );
   await expect(page.getByTestId("count-busy")).toHaveCount(0);
 
   // The worker names the places it is on: rings on them, the count says how many.
   socket.send({ type: "lookups", pending: ["place_1", "place_2"], reason: { kind: "refine" } });
-  await expect(page.getByTestId("count-busy")).toHaveText("looking up 2 · 5 to go");
+  await expect(page.getByTestId("count-busy")).toHaveAttribute("aria-valuetext", "looking up 2 · 5 to go");
   await expect(page.getByTestId("pin-place_1")).toHaveAttribute("data-busy", "true");
   await expect(page.getByTestId("pin-place_2")).toHaveAttribute("data-busy", "true");
   await expect(page.getByTestId("map-region")).toHaveAttribute("aria-busy", "true");
   socket.send({ type: "lookups", pending: [] });
   await expect(page.getByTestId("count-busy")).toHaveCount(0);
   await expect(page.getByTestId("pin-place_1")).not.toHaveAttribute("data-busy", "true");
+  // One slot: the lookup borrowed it, and refinement has it back.
   await expect(refineLine).toBeVisible();
 
   // A server-declared budget pause wins even while its counters still look
   // reachable. No lookup frame means no stale checking line survives.
   context.refine.paused = "budget";
   socket.send({ type: "facts", candidateIds: [], reason: "inference" });
-  await expect(refineLine).toHaveText("paused for now");
-  await expect(refineLine).not.toContainText("to go");
+  await expect(refineLine).toHaveAttribute("aria-valuetext", "paused for now");
+  await expect(refineLine).toHaveAttribute("data-paused", "true");
   await expect(page.getByTestId("count-busy")).toHaveCount(0);
 
   // Explicit null resumes the complete sentence. The initial assertion above
   // exercised an older context where the field was absent.
   context.refine.paused = null;
   socket.send({ type: "facts", candidateIds: [], reason: "inference" });
-  await expect(refineLine).toHaveText("checked 84 places for 2 needs · 5 to go");
+  await expect(refineLine).toHaveAttribute(
+    "aria-valuetext",
+    "checked 84 places for 2 needs · 5 to go",
+  );
 
   // A question need that has answers says it was looked up, beside its counts.
   const row = page.getByTestId("need-need-wifi");
@@ -2551,21 +2558,24 @@ test("the room says what it is refining, a question need shows it was looked up,
   refine.queued = 2_500;
   refine.tier1Queued = 7;
   socket.send({ type: "facts", candidateIds: [], reason: "inference" });
-  await expect(refineLine).toHaveText("checked 84 places for 2 needs · 7 to go");
+  await expect(refineLine).toHaveAttribute(
+    "aria-valuetext",
+    "checked 84 places for 2 needs · 7 to go",
+  );
   socket.send({ type: "lookups", pending: ["place_1", "place_2"], reason: { kind: "refine" } });
-  await expect(page.getByTestId("count-busy")).toHaveText("looking up 2 · 7 to go");
+  await expect(page.getByTestId("count-busy")).toHaveAttribute("aria-valuetext", "looking up 2 · 7 to go");
   socket.send({ type: "lookups", pending: [] });
 
   // Nothing is moving: the register stays, the promise goes.
   refine.paused = "idle";
   socket.send({ type: "facts", candidateIds: [], reason: "inference" });
-  await expect(refineLine).toHaveText("checked 84 places for 2 needs");
+  await expect(refineLine).toHaveAttribute("aria-valuetext", "checked 84 places for 2 needs");
   refine.paused = null;
 
   // Either exhausted budget pauses the line; searches normally run out first.
   refine.budgetLeft.searches = 0;
   socket.send({ type: "facts", candidateIds: ["place_24"], reason: "inference" });
-  await expect(refineLine).toHaveText("paused for now");
+  await expect(refineLine).toHaveAttribute("aria-valuetext", "paused for now");
 });
 
 test("Confirm in the place panel updates the row and the count", async ({ page }) => {
@@ -2827,7 +2837,7 @@ test("the refinement line and the fact rows are still under reduced motion", asy
   const socket = await scriptedSocket(page, 51);
   await page.goto(`${BASE}/#invite=deadbeef`);
   await socket.welcomed;
-  await expect(page.getByTestId("count-refine")).toHaveText("checked 3 places for 0 needs · 2 to go");
+  await expect(page.getByTestId("count-refine")).toHaveAttribute("aria-valuetext", "checked 3 places for 0 needs · 2 to go");
   socket.send({ type: "lookups", pending: ["place_1"], reason: { kind: "refine" } });
   await expect(page.getByTestId("pin-place_1")).toHaveAttribute("data-busy", "true");
   await expect

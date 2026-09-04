@@ -3211,18 +3211,12 @@ body { overflow: hidden; }
 .need-row[data-variant="private"] .row-busy { border-color: var(--spoke-scope); }
 .need-row[data-variant="unsure"] .row-busy { border-color: var(--spoke-unsure); }
 
-/* The count block's busy line: what is being checked, and for what. */
-.count-busy {
-  display: flex;
-  align-items: center;
-  margin-top: 5px;
-  font-family: var(--spoke-font-mono);
-  font-weight: var(--spoke-weight-body);
-  font-size: var(--spoke-size-micro);
-  line-height: 1.3;
-  font-variant-numeric: tabular-nums;
+.count-block .line-busy {
+  border-color: currentColor;
+  /* In the head slot the ring is the whole indicator; nothing follows it that
+     needs clearing. */
+  margin-right: 0;
 }
-.count-block .line-busy { border-color: currentColor; }
 /* The pipeline ring (SPOKES-UI "The pipeline ring and dot stages"): one
    determinate ring beside one line, done of total for the stated needs.
    The fill moves on the settle duration; reduced motion zeroes it. */
@@ -3259,16 +3253,7 @@ body { overflow: hidden; }
   transition: stroke-dashoffset var(--spoke-dur-settle) var(--spoke-ease);
 }
 .count-progress[data-paused="true"] .progress-ring-fill { opacity: 0.5; }
-/* The refinement line: quiet, under the count, absolute numbers. */
-.count-refine {
-  margin-top: 3px;
-  font-family: var(--spoke-font-mono);
-  font-weight: var(--spoke-weight-body);
-  font-size: var(--spoke-size-micro);
-  line-height: 1.3;
-  opacity: 0.78;
-  font-variant-numeric: tabular-nums;
-}
+
 /* A question need that has been looked up says so beside its label. */
 .need-looked {
   font-family: var(--spoke-font-mono);

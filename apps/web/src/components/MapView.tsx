@@ -2018,14 +2018,14 @@ export function MapView({
       : null;
   const settled = committedId !== null;
   useEffect(() => {
-    const line = pipelineLine ?? refineLine ?? "";
+    const line = pipelineLine ?? refineLine ?? fillLine ?? busyLine ?? "";
     const wait = Math.max(0, 10_000 - (Date.now() - refineAnnouncedAt.current));
     const timer = setTimeout(() => {
       refineAnnouncedAt.current = Date.now();
       setRefineAnnouncement(line);
     }, wait);
     return () => clearTimeout(timer);
-  }, [refineLine, pipelineLine]);
+  }, [refineLine, pipelineLine, fillLine, busyLine]);
   const preNeed = statedNeeds.length === 0 && context.privateEffects.length === 0;
 
   /* Zero survivors with unknowns outstanding is NOT an impasse (§4) unless the
@@ -2058,39 +2058,100 @@ export function MapView({
     return relaxable[0] ?? null;
   }, [context.activeNeeds]);
 
-  /* The pipeline ring rides in the count's own head row, right of the number
-     (SPOKES-UI §3). As a line of its own it appeared and disappeared with
-     every lookup, and the whole block changed height under the reader — a
-     count that jumps is a count nobody trusts. The words it used to carry
-     stay on `aria-valuetext`, where they are read rather than measured. */
-  const progressChip = pipelineLine && !fillLine && countState !== "settled" ? (
+  /* One progress slot, and it rides in the count's head row, right of the
+     number (SPOKES-UI §3). Whatever is running — the whole-area fill, the
+     pipeline, a lookup, background refinement — it is drawn there as a ring
+     and, where there are honest numbers, `done/total`.
+
+     As lines under the block these came and went with every lookup and the
+     count changed height under the reader; a count that jumps is a count
+     nobody trusts. The words each line used to print stay on
+     `aria-valuetext`, where they are read rather than measured, and the
+     live region still speaks them at most every ten seconds.
+
+     Precedence is unchanged: the fill wins while it runs, because its
+     absolute target explains why the denominator is still moving. */
+  const headProgress: {
+    testid: string;
+    text: string;
+    done?: number;
+    total?: number;
+    count?: number;
+    paused?: boolean;
+  } | null = countState === "settled"
+    ? null
+    : fillLine && context.pool
+      ? {
+          testid: "count-fill",
+          text: fillLine,
+          done: context.pool.size,
+          total: context.pool.target,
+        }
+      : pipelineLine
+        ? {
+            testid: "count-progress",
+            text: pipelineLine + (pipelineMix ? ` ${pipelineMix}` : ""),
+            done: pipeline!.done,
+            total: pipeline!.total,
+            paused: pipelinePaused,
+          }
+        : busyLine
+          ? {
+              testid: "count-busy",
+              text: busyLine,
+              ...(busyCount > 0 ? { count: busyCount } : {}),
+            }
+          : refineLine
+            ? {
+                testid: "count-refine",
+                text: refineLine,
+                paused: refineLine === COPY.refinePaused,
+              }
+            : null;
+  const progressChip = headProgress ? (
     <span
       className="count-progress"
-      data-testid="count-progress"
-      data-paused={pipelinePaused || undefined}
+      data-testid={headProgress.testid}
+      data-paused={headProgress.paused || undefined}
       role="progressbar"
-      aria-valuemin={0}
-      aria-valuemax={pipeline!.total}
-      aria-valuenow={pipelinePaused ? undefined : pipeline!.done}
-      aria-valuetext={pipelineLine + (pipelineMix ? ` ${pipelineMix}` : "")}
+      {...(headProgress.total !== undefined
+        ? {
+            "aria-valuemin": 0,
+            "aria-valuemax": headProgress.total,
+            ...(headProgress.paused ? {} : { "aria-valuenow": headProgress.done }),
+          }
+        : {})}
+      aria-valuetext={headProgress.text}
     >
-      <svg className="progress-ring" viewBox="0 0 16 16" aria-hidden="true">
-        <circle className="progress-ring-track" cx="8" cy="8" r="6.5" />
-        <circle
-          className="progress-ring-fill"
-          cx="8"
-          cy="8"
-          r="6.5"
-          style={{
-            strokeDashoffset:
-              RING_CIRCUMFERENCE *
-              (1 - Math.min(1, pipeline!.done / Math.max(1, pipeline!.total))),
-          }}
-        />
-      </svg>
-      <span className="count-progress-count" aria-hidden="true">
-        {pipeline!.done}/{pipeline!.total}
-      </span>
+      {headProgress.total !== undefined ? (
+        <svg className="progress-ring" viewBox="0 0 16 16" aria-hidden="true">
+          <circle className="progress-ring-track" cx="8" cy="8" r="6.5" />
+          <circle
+            className="progress-ring-fill"
+            cx="8"
+            cy="8"
+            r="6.5"
+            style={{
+              strokeDashoffset:
+                RING_CIRCUMFERENCE *
+                (1 -
+                  Math.min(
+                    1,
+                    (headProgress.done ?? 0) / Math.max(1, headProgress.total),
+                  )),
+            }}
+          />
+        </svg>
+      ) : (
+        <i className="busy-ring line-busy" aria-hidden="true" />
+      )}
+      {(headProgress.total !== undefined || headProgress.count !== undefined) && (
+        <span className="count-progress-count" aria-hidden="true">
+          {headProgress.total !== undefined
+            ? `${headProgress.done}/${headProgress.total}`
+            : headProgress.count}
+        </span>
+      )}
     </span>
   ) : null;
 
@@ -2132,10 +2193,17 @@ export function MapView({
           const map = mapRef.current?.getMap();
           if (map) {
             map.setMissingStyleImageResolver((id) => resolveRingImage(map, id));
-            setFirstLabelLayer(
-              map.getStyle().layers?.find((layer) => layer.type === "symbol")?.id,
-            );
-            setBasemapSource(map.getSource(BASEMAP_SOURCE) ? BASEMAP_SOURCE : null);
+            /* Reading the style is for the optional layers only, and a style
+               the map could not fetch throws here. Nothing below may depend
+               on it: the room's own map has to load either way. */
+            try {
+              setFirstLabelLayer(
+                map.getStyle().layers?.find((layer) => layer.type === "symbol")?.id,
+              );
+              setBasemapSource(map.getSource(BASEMAP_SOURCE) ? BASEMAP_SOURCE : null);
+            } catch {
+              setBasemapSource(null);
+            }
             // Symbol layers mount only after this handler marks the map
             // loaded, so both DPR-specific images exist before first paint.
             addRingImages(map, ringPixelRatio);
@@ -2944,20 +3012,6 @@ export function MapView({
               {countState === "impasse" ? `of ${total}${guessed} · ${zeroReason}` : `of ${total}${guessed}`}
             </div>
           </>
-        )}
-        {busyLine && countState !== "settled" && (
-          <div
-            className="count-busy"
-            data-testid={fillLine ? "count-fill" : "count-busy"}
-          >
-            <i className="busy-ring line-busy" aria-hidden="true" />
-            <span>{busyLine}</span>
-          </div>
-        )}
-        {refineLine && countState !== "settled" && (
-          <div className="count-refine" data-testid="count-refine">
-            {refineLine}
-          </div>
         )}
         <span className="sr-only" aria-live="polite" aria-atomic="true">
           {refineAnnouncement}

@@ -686,9 +686,19 @@ disappeared with every lookup and the block changed height under the reader;
 a count that jumps is a count nobody trusts. In the head row a lookup starting
 or finishing costs no height at all.
 
-The sentence it used to print — "checked N of M places for K needs", and
-"· N reading · N checking" while anything is in flight — stays on
-`aria-valuetext`, where it is read rather than measured. `role="progressbar"`
+That head slot is the **only** progress slot, and every kind of progress uses
+it, in this precedence: the whole-area fill (`count-fill`, determinate on
+`pool.size / pool.target` — its absolute target explains why the denominator
+moves), then the pipeline (`count-progress`), then a lookup (`count-busy`,
+the turning busy ring with the number in flight beside it), then background
+refinement (`count-refine`, the busy ring alone). Where there are honest
+numbers the ring is determinate and shows `done/total`; where there are not,
+it turns. Nothing is drawn under the count block at all.
+
+The sentences these used to print — "checked N of M places for K needs · N
+reading", "adding places · N of M", "looking up N · M to go", "paused for
+now" — all stay on `aria-valuetext`, where they are read rather than
+measured, and the live region still speaks whichever is running. `role="progressbar"`
 with `aria-valuemin`, `aria-valuemax`, `aria-valuenow` (omitted while paused)
 and that `aria-valuetext`; one `aria-live` summary at most every 10 s.
 Drained: nothing is drawn. Whole-area fill keeps the slot while it runs.

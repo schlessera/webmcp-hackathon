@@ -138,13 +138,13 @@ Work the room is doing is stated as what it is doing, never as a bare
   "thinking", never "processing".
 - Nothing under a second shows a state at all; a ring that flashes for a
   glance is noise.
-- The room refining on its own: `looking up 12 · 40 to go` in the count
-  block while places are being worked on. Where the server sends pipeline
-  frames the progress ring carries it instead — `N/M` beside the ring in the
-  count's head row, with `checked N of M places for K needs · N reading` on
-  `aria-valuetext`. Out of budget: `paused for now` — nothing is wrong, the
-  room is waiting its turn. Never "AI is searching", never a spinner without
-  a number.
+- Progress of every kind — the area filling, the pipeline, a lookup, the room
+  refining on its own — is one ring in the count's head row, with `N/M` beside
+  it wherever there are honest numbers. The sentences ride on `aria-valuetext`
+  and the live region: `adding places · 60 of 90`, `checked 84 places for 2
+  needs · 5 to go`, `looking up 2 · 5 to go`, and, out of budget, `paused for
+  now` — nothing is wrong, the room is waiting its turn. Never "AI is
+  searching", never a spinner without a number.
 - A question need that has answers: `· looked up` beside its label.
 - A fact read from the web names where: `from example.org ↗` as a link,
   host only, always clickable. Sources in words: `found on the web`,
