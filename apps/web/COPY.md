@@ -221,6 +221,9 @@ Each states what's true, then the one thing to do.
   placeholder. It finds by name; never offer to find "restaurants near you"
   or any other kind of place.
 - Nothing matched: **“No place here goes by that name.”** Never "No results".
+- Once a place is chosen the chip carries its name, with a `✕` beside it
+  labelled **“Stop showing <name>”**. The place's own card takes the suffix
+  **“· found”**, in the same family as “· proposed”, “· staged”, “· settled”.
 - Layers control: **“Layers”**, and its rows read **“Buildings in 3D”**,
   **“Places not in the room”**, **“Landmarks”**, **“Transit lines”**.
 - “Search here” keeps its own meaning — moving the room's area to the middle

@@ -481,6 +481,24 @@ body { overflow: hidden; }
   color: var(--spoke-works-text);
 }
 
+/* The place the viewer went looking for (MapFind.tsx). Picked out by form,
+   not by a colour: the state dot inside keeps saying whether the place works,
+   while a second ink ring, a lift and a half-step of scale say "this is the
+   one you asked for". A new colour here would claim a fifth meaning (§2). */
+.marker[data-target="true"] .sticker-box {
+  scale: 1.06;
+  border-color: var(--spoke-ink);
+  box-shadow: var(--spoke-shadow-lift);
+  outline: 1.5px solid var(--spoke-ink);
+  outline-offset: 2.5px;
+}
+/* A found place the room does not hold: the explore layer's own grey dot,
+   so the card never implies the room has ruled on it (§4). */
+.marker[data-state="explore"] .sticker-dot {
+  background: var(--spoke-out);
+  border-color: var(--spoke-line);
+}
+
 /* unsure — hollow dot, soft name, `?` badge. Not a failure (§4). */
 .marker[data-state="unsure"] .sticker-dot {
   background: var(--spoke-surface);
@@ -688,6 +706,9 @@ body { overflow: hidden; }
 .marker[data-state="return"] .sticker-name { color: var(--spoke-works-text); }
 
 .sticker-suffix { color: var(--spoke-surface); opacity: 0.85; }
+/* On a plate card the cream suffix would be invisible, so the found suffix
+   takes the name's own colour whatever the card is filled with. */
+.marker[data-target="true"] .sticker-suffix { color: inherit; opacity: 0.65; }
 
 /* ── Count block ───────────────────────────────────────────────────────── */
 
@@ -803,6 +824,13 @@ body { overflow: hidden; }
   box-shadow: var(--spoke-shadow-lift);
   color: var(--spoke-ink);
 }
+/* The card standing in for the found place's label carries the same ink
+   ring, so the map still says which place was asked for. */
+.explore-card[data-target] {
+  border-color: var(--spoke-ink);
+  outline: 1.5px solid var(--spoke-ink);
+  outline-offset: 2.5px;
+}
 .explore-card-heading {
   font-family: var(--spoke-font-display);
   font-size: var(--spoke-size-place);
@@ -850,12 +878,33 @@ body { overflow: hidden; }
   position: absolute;
   top: 14px;
   right: 14px;
+  /* The count block owns the other corner and sizes to its own text, so the
+     controls take what is left of the row. `--count-block-w` is measured;
+     the fallback is a wide guess, which errs towards a narrower control. */
+  max-width: calc(100% - var(--count-block-w, 200px) - 28px);
+  flex-wrap: wrap;
+  justify-content: flex-end;
   /* Above every marker (a selected sticker reaches 14, the origin mark 16):
      a control the user is reaching for is never behind a label. */
   z-index: 20;
   display: flex;
   align-items: flex-start;
   gap: 6px;
+}
+
+/* An open field is a transient, user-asked-for state, and it is worth more
+   width than the count block's corner: while it is open the row takes the
+   whole band. */
+.map-top-right:has(.map-find) { max-width: calc(100% - 28px); }
+
+/* On a phone the count block is most of the band, and a control squeezed
+   into what is left is unusable. Below it, then — still the map's top, still
+   out of the count's way, and full width for the field. */
+@media (max-width: 559px) {
+  .map-top-right {
+    top: calc(14px + var(--count-block-h, 74px) + 8px);
+    max-width: calc(100% - 28px);
+  }
 }
 
 .map-find {
@@ -927,6 +976,26 @@ body { overflow: hidden; }
   background: var(--spoke-surface);
   box-shadow: var(--spoke-shadow-lift);
   color: var(--spoke-ink-soft);
+  font-size: var(--spoke-size-micro);
+}
+
+/* Holding a target: the chip names it, the ✕ lets it go. Two buttons, each
+   its own 44px box, so neither tap can take the other. */
+.map-find-target {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  max-width: min(300px, calc(100vw - 190px));
+}
+.map-find-target-name {
+  display: block;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.map-find-clear .map-nav-chip {
+  padding-inline: 8px;
   font-size: var(--spoke-size-micro);
 }
 

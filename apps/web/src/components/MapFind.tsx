@@ -8,7 +8,13 @@ import type { ExplorePlace } from "../spatial-types.ts";
  * A collapsed chip until it is asked for, so the map keeps its top edge. The
  * matches come from the same snapshot the explore layer draws, so choosing one
  * always lands on a place the room can bring in — the caller decides what
- * "choose" means (open it, or fly the map to it), this only finds.
+ * "choose" means (centring the map on it, marking it, opening it), this only
+ * finds.
+ *
+ * Once a place is chosen the chip holds it: it names the target, so the map
+ * always says what it is centred on, and carries the one control that lets it
+ * go. Tapping the name searches again; dismissing returns the chip to "Find a
+ * place" and the map to nothing in particular.
  *
  * Keyboard: ↓/↑ move through the matches, Enter chooses, Escape clears and
  * then closes. The match count is announced, so a screen reader hears the
@@ -21,10 +27,13 @@ interface Props {
   roomId: string;
   /** Where the viewer is looking; ties break towards it. */
   near: { lat: number; lng: number } | null;
+  /** The place the map is currently centred on, if the viewer found one. */
+  target: ExplorePlace | null;
   onChoose(place: ExplorePlace): void;
+  onClear(): void;
 }
 
-export function MapFind({ roomId, near, onChoose }: Props) {
+export function MapFind({ roomId, near, target, onChoose, onClear }: Props) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [matches, setMatches] = useState<ExplorePlace[]>([]);
@@ -91,17 +100,42 @@ export function MapFind({ roomId, near, onChoose }: Props) {
     setMatches([]);
   };
 
+  const openField = () => {
+    setOpen(true);
+    requestAnimationFrame(() => inputRef.current?.focus());
+  };
+
   if (!open) {
-    return (
+    return target ? (
+      <div className="map-find-target" data-testid="find-target">
+        <button
+          ref={chipRef}
+          type="button"
+          className="map-nav-action map-find-open"
+          data-testid="find-place"
+          onClick={openField}
+        >
+          <span className="map-nav-chip" data-on="true">
+            <span className="map-find-target-name">{target.name}</span>
+          </span>
+        </button>
+        <button
+          type="button"
+          className="map-nav-action map-find-clear"
+          data-testid="find-clear"
+          aria-label={`Stop showing ${target.name}`}
+          onClick={onClear}
+        >
+          <span className="map-nav-chip" aria-hidden="true">✕</span>
+        </button>
+      </div>
+    ) : (
       <button
         ref={chipRef}
         type="button"
         className="map-nav-action map-find-open"
         data-testid="find-place"
-        onClick={() => {
-          setOpen(true);
-          requestAnimationFrame(() => inputRef.current?.focus());
-        }}
+        onClick={openField}
       >
         <span className="map-nav-chip">Find a place</span>
       </button>

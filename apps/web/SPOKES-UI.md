@@ -320,18 +320,44 @@ present; the round dot continues to mean here now.
 
 Both live in one right-anchored row at the map's top (`.map-top-right`,
 `z-index: 20` — in front of every marker), so the count block keeps the
-top-left corner it owns and no name card is drawn into either corner.
+top-left corner it owns and no name card is drawn into either corner. The row
+takes what the count block leaves of the band (`--count-block-w`, measured),
+wrapping rather than shrinking a control; an open field takes the whole band,
+being transient and asked for. Below 560px the count block is most of the
+band, so the row sits under it (`--count-block-h`) instead of beside it.
 
 **Find a place** (`MapFind.tsx`) is a `Find a place` chip until it is asked
 for, then a field of `min(300px, 100vw − 190px)` with the matches beneath it
 in a `--spoke-surface` card. Matching runs server-side over the room area's
 snapshot — the same rows the explore layer draws — by name only, forgiving
 accents, punctuation, word order and one wrong letter. At most 8 matches, each
-a ≥44px row with the name above its place class. Choosing one flies the map to
-it (an explicit action, the §8 exception) and opens it: a place already in the
-room opens as itself; one that is not opens the explore card, so the next
-gesture is `Bring into the room`. ↓/↑ move, Enter chooses, Escape clears then
-closes, and the match count goes out on `aria-live`.
+a ≥44px row with the name above its place class. ↓/↑ move, Enter chooses,
+Escape clears then closes, and the match count goes out on `aria-live`.
+
+Choosing a match makes it the **target**. The map flies to it and centres on
+it (an explicit action, the §8 exception), and the chip becomes the target's
+name beside a `✕`: the map always says what it is centred on, and the one
+control that lets it go sits next to it. Tapping the name searches again.
+
+The target is drawn, not selected. Its card is forced into the named set
+whatever its rank, sits at `z-index: 15`, takes the suffix `· found`, and
+carries a second `--spoke-ink` ring at 2.5px offset with a 1.06 scale and the
+lift shadow. The ring is form, not colour — the dot inside still says whether
+the place works, and a fifth colour would claim a fifth meaning (§2). A target
+the room does not hold is drawn as a card of its own (`found-marker`) with the
+explore layer's grey dot.
+
+What *opens* depends on the width, because the detail is a panel beside the
+map on desktop and a full screen over it on mobile:
+
+- **≥980px** — the detail opens with the target: its panel when the room holds
+  the place, its explore card (also ink-ringed) when it does not.
+- **<980px** — nothing opens. Opening a full-screen detail would hide the very
+  place the viewer asked to see, so the target is drawn and its detail is a
+  second tap on the card.
+
+Dismissing the target with `✕` returns the chip to `Find a place` and closes
+whatever the target opened.
 
 **Layers** (`MapLayers.tsx`) is a `Layers` chip whose panel carries one
 checkbox per optional layer: buildings in 3D, places not in the room,

@@ -299,6 +299,9 @@ function circlePolygon(center: { lat: number; lng: number }, radiusM: number) {
  * the map, in its own state's colour, size and border style, and tapping it
  * opens it.
  */
+/** The width at which the detail panel sits beside the map instead of over
+ * it (SPOKES-UI §9). Below it, opening a detail hides the map. */
+const DESKTOP_MIN_WIDTH = 980;
 const NAME_CAP = 18;
 const NAME_FLOOR = 6;
 /* Who gets a name, in order (user decision, 2026-09-03): a place someone has
@@ -569,6 +572,11 @@ export function MapView({
     transit: false,
   });
   const [landmarks, setLandmarks] = useState<AreaLandmark[]>([]);
+  /* The place the viewer went looking for, held until they dismiss it. It is
+     a target, not a selection: the map centres on it and marks it, and only a
+     desktop viewport — where the panel sits beside the map rather than over
+     it — opens its detail as well. */
+  const [searchTarget, setSearchTarget] = useState<ExplorePlace | null>(null);
   /** The camera's tilt, republished when a move settles: the 3D layer's own
    * evidence that it took, and what a spec reads to see the map level again. */
   const [pitch, setPitch] = useState(0);
@@ -662,6 +670,9 @@ export function MapView({
   const deltaChipRef = useRef<HTMLDivElement>(null);
   const topRightRef = useRef<HTMLDivElement>(null);
   const [overlayTick, setOverlayTick] = useState(0);
+  /** The count block's measured box, so the controls opposite it can take
+   * what is left of the row — and, on a phone, sit under it instead. */
+  const [countBlockBox, setCountBlockBox] = useState({ width: 0, height: 0 });
   const focusExploreAction = useRef(false);
   const ownScopeCenter = useRef<string | null>(null);
   const exploreTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1066,18 +1077,28 @@ export function MapView({
   /* Sixty DOM markers, chosen by the same order that hands out names: a busy
      or proposed place in a crowded room must never be left GL-only, because
      GL cannot carry a card. Out-of-scope places come last but still come. */
-  const domCandidates = useMemo(
-    () =>
-      [...candidates]
-        .sort(
-          (a, b) =>
-            (rankOf(a) ?? RANK_OUT_OF_SCOPE) - (rankOf(b) ?? RANK_OUT_OF_SCOPE) ||
-            a.walkMin - b.walkMin ||
-            (a.ref ?? a.candidateId).localeCompare(b.ref ?? b.candidateId),
-        )
-        .slice(0, DOM_MARKER_CAP),
-    [candidates, rankOf],
-  );
+  const targetCandidateId = searchTarget?.candidateId ?? null;
+  const domCandidates = useMemo(() => {
+    const chosen = [...candidates]
+      .sort(
+        (a, b) =>
+          (rankOf(a) ?? RANK_OUT_OF_SCOPE) - (rankOf(b) ?? RANK_OUT_OF_SCOPE) ||
+          a.walkMin - b.walkMin ||
+          (a.ref ?? a.candidateId).localeCompare(b.ref ?? b.candidateId),
+      )
+      .slice(0, DOM_MARKER_CAP);
+    // A place the viewer went looking for is drawn whatever its rank: it
+    // takes the last slot from the lowest-ranked place rather than losing
+    // its card to a cap the viewer cannot see.
+    if (targetCandidateId && !chosen.some((c) => c.candidateId === targetCandidateId)) {
+      const target = candidates.find((c) => c.candidateId === targetCandidateId);
+      if (target) {
+        chosen.pop();
+        chosen.push(target);
+      }
+    }
+    return chosen;
+  }, [candidates, rankOf, targetCandidateId]);
   const domCandidateIds = useMemo(
     () => new Set(domCandidates.map((candidate) => candidate.candidateId)),
     [domCandidates],
@@ -1260,6 +1281,13 @@ export function MapView({
       return false;
     };
 
+    // The target takes its name first: it is the one place on this map the
+    // viewer asked for by name, so it never loses the card to a neighbour.
+    const target = targetCandidateId
+      ? domCandidates.find((candidate) => candidate.candidateId === targetCandidateId)
+      : undefined;
+    if (target) tryPlace(target, false);
+
     for (const candidate of ordered) {
       if (placements.size >= NAME_CAP) break;
       tryPlace(candidate, true);
@@ -1310,6 +1338,7 @@ export function MapView({
     viewTick,
     collisionOffsets,
     overlayTick,
+    targetCandidateId,
   ]);
 
   /* Draw order and the dashed filter are layout facts baked into the source,
@@ -1795,8 +1824,14 @@ export function MapView({
   }, [viewTick, center.lat, center.lng]);
 
   /* Choosing a found place is an explicit action, so it may move the map
-     (§8). A place the room already holds opens as itself; one it does not
-     enters the explore cache first, so its card can open on arrival. */
+     (§8): it centres on the place and marks it as the target. A place the
+     room does not hold enters the explore cache first, so it can be drawn
+     the moment the map arrives.
+
+     What opens depends on the width, because the detail is a panel beside
+     the map on desktop and a full screen over it on mobile. Opening it on a
+     phone would hide the very place the viewer just asked to see, so there
+     the target is drawn and the detail is one more tap. */
   const chooseFound = (place: ExplorePlace) => {
     const map = mapRef.current;
     map?.flyTo({
@@ -1804,14 +1839,40 @@ export function MapView({
       zoom: Math.max(map.getZoom(), 16),
       duration: motion.reduced ? 0 : 600,
     });
+    if (!place.candidateId) spatial.adoptExplore([place]);
+    setSearchTarget(place);
+    setSelectedExploreRef(null);
+    dispatchSelect(null);
+    if (viewportWidth < DESKTOP_MIN_WIDTH) return;
+    if (place.candidateId) {
+      dispatchSelect(place.candidateId);
+      return;
+    }
+    focusExploreAction.current = false;
+    setSelectedExploreRef(place.ref);
+  };
+
+  /** Dismiss the target, and whatever it opened along with it. */
+  const clearSearchTarget = () => {
+    const place = searchTarget;
+    setSearchTarget(null);
+    if (!place) return;
+    if (place.candidateId && selectedIdRef.current === place.candidateId) dispatchSelect(null);
+    if (!place.candidateId) setSelectedExploreRef((ref) => (ref === place.ref ? null : ref));
+  };
+
+  /** Open what the target is: its panel when the room holds it, its explore
+   * card when it does not. The second tap of the phone's two. */
+  const openSearchTarget = () => {
+    const place = searchTarget;
+    if (!place) return;
     if (place.candidateId) {
       setSelectedExploreRef(null);
       dispatchSelect(place.candidateId);
       return;
     }
-    spatial.adoptExplore([place]);
-    dispatchSelect(null);
     focusExploreAction.current = false;
+    dispatchSelect(null);
     setSelectedExploreRef(place.ref);
   };
 
@@ -2011,7 +2072,11 @@ export function MapView({
       topRightRef.current,
     ].filter((element): element is HTMLDivElement => element !== null);
     if (targets.length === 0) return;
-    const observer = new ResizeObserver(() => setOverlayTick((tick) => tick + 1));
+    const observer = new ResizeObserver(() => {
+      setOverlayTick((tick) => tick + 1);
+      const box = countBlockRef.current?.getBoundingClientRect();
+      setCountBlockBox({ width: box?.width ?? 0, height: box?.height ?? 0 });
+    });
     for (const target of targets) observer.observe(target);
     return () => observer.disconnect();
   }, [loaded, Boolean(bestRelaxation) && !settled]);
@@ -2027,6 +2092,14 @@ export function MapView({
       data-explore-count={explorePlaces.length}
       data-layers={Object.entries(layers).filter(([, on]) => on).map(([key]) => key).join(" ")}
       data-pitch={pitch}
+      style={
+        countBlockBox.width > 0
+          ? ({
+              "--count-block-w": `${Math.round(countBlockBox.width)}px`,
+              "--count-block-h": `${Math.round(countBlockBox.height)}px`,
+            } as CSSProperties)
+          : undefined
+      }
     >
       {tileStyle && (
       <Map
@@ -2524,7 +2597,9 @@ export function MapView({
               offset={collisionOffsets.get(c.candidateId) ?? [0, 0]}
               anchor="center"
               style={{
-                zIndex: named.has(c.candidateId)
+                zIndex: c.candidateId === targetCandidateId
+                  ? 15
+                  : named.has(c.candidateId)
                   ? state === "selected"
                     ? 14
                     : state === "settled"
@@ -2545,6 +2620,7 @@ export function MapView({
                 className="marker"
                 data-state={state}
                 data-named={named.has(c.candidateId)}
+                data-target={c.candidateId === targetCandidateId || undefined}
                 data-candidate-id={c.candidateId}
                 data-busy={busy.has(c.candidateId) || undefined}
                 data-stage={stageOf(c.candidateId) ?? undefined}
@@ -2640,6 +2716,9 @@ export function MapView({
                     <i className="busy-ring sticker-busy" aria-hidden="true" />
                     <span className="sticker-name">
                       {c.name}
+                      {c.candidateId === targetCandidateId && (
+                        <span className="sticker-suffix"> · found</span>
+                      )}
                       {state === "proposed" && (
                         <span className="sticker-suffix"> · proposed</span>
                       )}
@@ -2661,6 +2740,56 @@ export function MapView({
             </Marker>
           );
         })}
+        {searchTarget &&
+          !searchTarget.candidateId &&
+          selectedExploreRef !== searchTarget.ref && (
+          /* The place the viewer found, which the room does not hold. Drawn
+             as a card of its own so it reads as the target from across the
+             map; tapping it is the second tap that opens what it is. */
+          <Marker
+            longitude={searchTarget.location.lng}
+            latitude={searchTarget.location.lat}
+            anchor="center"
+            style={{ zIndex: 15 }}
+          >
+            <div
+              className="marker"
+              data-state="explore"
+              data-named="true"
+              data-target="true"
+              data-testid="found-marker"
+              role="button"
+              tabIndex={0}
+              aria-label={`${searchTarget.name} — the place you found`}
+              onClick={(event) => {
+                event.stopPropagation();
+                openSearchTarget();
+              }}
+              onKeyDown={(event) => {
+                if (event.key !== "Enter" && event.key !== " ") return;
+                event.preventDefault();
+                openSearchTarget();
+              }}
+            >
+              <div
+                className="marker-sticker"
+                data-side="left"
+                style={{
+                  "--tilt": `${tiltFor(searchTarget.ref)}deg`,
+                  "--sticker-anchor-x": `${STICKER_ANCHOR_PX}px`,
+                } as CSSProperties}
+              >
+                <div className="sticker-box">
+                  <i className="sticker-dot" aria-hidden="true" />
+                  <span className="sticker-name">
+                    {searchTarget.name}
+                    <span className="sticker-suffix"> · found</span>
+                  </span>
+                </div>
+              </div>
+            </div>
+          </Marker>
+        )}
         {selectedExplore && !selectedExplore.candidateId && (
           <Marker
             longitude={selectedExplore.location.lng}
@@ -2672,6 +2801,7 @@ export function MapView({
             <div
               className="explore-card"
               data-testid="explore-card"
+              data-target={selectedExplore.ref === searchTarget?.ref || undefined}
               onClick={(event) => event.stopPropagation()}
             >
               <div className="explore-card-heading">
@@ -2691,7 +2821,7 @@ export function MapView({
                 >
                   Bring into the room
                 </button>
-                {viewportWidth >= 980 && visibleExplore.length > 1 && (
+                {viewportWidth >= DESKTOP_MIN_WIDTH && visibleExplore.length > 1 && (
                   <button
                     type="button"
                     disabled={addingExplore}
@@ -2850,7 +2980,13 @@ export function MapView({
       )}
 
       <div className="map-top-right" ref={topRightRef}>
-        <MapFind roomId={roomId} near={viewportCenter} onChoose={chooseFound} />
+        <MapFind
+          roomId={roomId}
+          near={viewportCenter}
+          target={searchTarget}
+          onChoose={chooseFound}
+          onClear={clearSearchTarget}
+        />
         <MapLayers
           active={layers}
           onToggle={(key, on) => setLayers((current) => ({ ...current, [key]: on }))}
