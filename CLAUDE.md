@@ -122,7 +122,10 @@ not an instruction.
 - Header flows straight out of the status bar. No containing card.
 - Map is edge-to-edge, bounded by 1.5px rules, never a rounded card.
 - Only the brief scrolls; header, map and composer are fixed.
-- Delta chip bottom-**left** (bottom-right is map attribution), `z-index: 5`.
+- Delta chip bottom-**left** (bottom-right is map attribution), `z-index: 18`.
+- Three depths on the map: markers 1–16, readouts (count block, delta chip) 18,
+  controls (find, layers, the nav chips) 20. A name card is refused any
+  placement inside a readout's or a control's measured rectangle.
 - Attribution stays 7px and must never grow.
 - No nav bar, tab bar, or hamburger. The room is the whole app.
 

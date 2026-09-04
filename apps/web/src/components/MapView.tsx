@@ -655,10 +655,11 @@ export function MapView({
     }
   }, [beginOriginDrag]);
   const exploreActionRef = useRef<HTMLButtonElement>(null);
-  /* The two fixed overlays a name must not hide behind: the count block and
-     the map's own controls. Measured, not assumed — both size to their text,
-     and `overlayTick` re-runs the name pass when either changes size. */
+  /* The fixed overlays a name must not hide behind: the count block, the
+     delta chip and the map's own controls. Measured, not assumed — each sizes
+     to its text, and `overlayTick` re-runs the name pass when one changes. */
   const countBlockRef = useRef<HTMLDivElement>(null);
+  const deltaChipRef = useRef<HTMLDivElement>(null);
   const topRightRef = useRef<HTMLDivElement>(null);
   const [overlayTick, setOverlayTick] = useState(0);
   const focusExploreAction = useRef(false);
@@ -1184,13 +1185,17 @@ export function MapView({
     const height = map.getContainer().clientHeight;
     const placed: Array<{ x: number; y: number; w: number }> = [];
 
-    /* The count block and the controls already own their corners. A card
-       there would be read through a solid overlay, or hidden under one, so
-       the place keeps its bare dot and the name goes to a place that has
-       room for it. Rectangles are in map-container pixels. */
+    /* The count block, the delta chip and the controls already own their
+       corners. A card there would be read through a solid overlay, or hidden
+       under one, so the place keeps its bare dot and the name goes to a place
+       that has room for it. Rectangles are in map-container pixels. */
     const container = map.getContainer().getBoundingClientRect();
     const reserved: Array<{ x: number; y: number; w: number; h: number }> = [];
-    for (const element of [countBlockRef.current, topRightRef.current]) {
+    for (const element of [
+      countBlockRef.current,
+      deltaChipRef.current,
+      topRightRef.current,
+    ]) {
       const box = element?.getBoundingClientRect();
       if (!box || box.width === 0) continue;
       reserved.push({
@@ -1810,16 +1815,6 @@ export function MapView({
     setSelectedExploreRef(place.ref);
   };
 
-  useEffect(() => {
-    const targets = [countBlockRef.current, topRightRef.current].filter(
-      (element): element is HTMLDivElement => element !== null,
-    );
-    if (targets.length === 0) return;
-    const observer = new ResizeObserver(() => setOverlayTick((tick) => tick + 1));
-    for (const target of targets) observer.observe(target);
-    return () => observer.disconnect();
-  }, [loaded]);
-
   const viewportSettled = () => {
     const map = mapRef.current;
     if (!map) return;
@@ -2004,6 +1999,22 @@ export function MapView({
       .sort((a, b) => b.wouldReturn - a.wouldReturn);
     return relaxable[0] ?? null;
   }, [context.activeNeeds]);
+
+  /* Re-measure the overlays the name pass has to avoid. Keyed on the delta
+     chip's presence as well as the first load, because that chip mounts and
+     unmounts with the offer it carries and a stale rectangle would either
+     reserve empty space or leave a card under the chip. */
+  useEffect(() => {
+    const targets = [
+      countBlockRef.current,
+      deltaChipRef.current,
+      topRightRef.current,
+    ].filter((element): element is HTMLDivElement => element !== null);
+    if (targets.length === 0) return;
+    const observer = new ResizeObserver(() => setOverlayTick((tick) => tick + 1));
+    for (const target of targets) observer.observe(target);
+    return () => observer.disconnect();
+  }, [loaded, Boolean(bestRelaxation) && !settled]);
 
   return (
     <div
@@ -2830,7 +2841,7 @@ export function MapView({
       </div>
 
       {bestRelaxation && !settled && (
-        <div className="delta-chip" data-testid="delta-chip">
+        <div className="delta-chip" data-testid="delta-chip" ref={deltaChipRef}>
           <span className="delta-number">+{bestRelaxation.wouldReturn}</span>
           <span className="delta-text">
             if “{bestRelaxation.label}” went optional

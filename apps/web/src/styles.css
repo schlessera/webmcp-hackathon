@@ -683,7 +683,10 @@ body { overflow: hidden; }
 .count-block {
   position: absolute;
   left: 14px; top: 14px;
-  z-index: 4;
+  /* Above every marker (a selected sticker reaches 14, the origin mark 16),
+     below the controls at 20: the room's count is never read through a label,
+     and never covers a button. */
+  z-index: 18;
   padding: 8px 13px;
   border-radius: var(--spoke-radius-block);
   box-shadow: var(--spoke-shadow-pop);
@@ -749,7 +752,8 @@ body { overflow: hidden; }
 .delta-chip {
   position: absolute;
   left: 14px; bottom: 12px;
-  z-index: 5;
+  /* The offer reads over the markers, under the controls — as the count does. */
+  z-index: 18;
   display: flex;
   align-items: center;
   gap: 7px;

@@ -168,13 +168,20 @@ inside both sides of the map band; if neither orientation fits, draw the dot
 only.
 
 The map's own overlays own their corners. A card is refused any placement that
-would land in the count block's rectangle or the controls' (`.map-top-right`) —
-those two are measured live, because both size to their text — and the place
-keeps its bare dot instead. The rule holds in the last-resort pass too: a name
-under a solid overlay is not a name. Every control sits at `z-index: 20`, above
-even a selected sticker (14) and the starting-point mark (16), so a button is
-never behind a label; the count block (4) and the delta chip (5) stay under the
-markers, which is why the count block earns a reserved rectangle instead.
+would land in the count block's rectangle, the delta chip's, or the controls'
+(`.map-top-right`) — all three measured live, because each sizes to its own
+text — and the place keeps its bare dot instead. The rule holds in the
+last-resort pass too: a name under a solid overlay is not a name.
+
+Three depths, and markers own only the lowest of them:
+
+| Layer | `z-index` |
+|---|---|
+| markers — a bare dot 1, a named card 10, selected 14, the starting-point mark 16 | 1–16 |
+| readouts — the count block, the delta chip | 18 |
+| controls — `.map-top-right`, `.map-nav-actions` | 20 |
+
+A readout is never read through a label, and never covers a button.
 
 A name card always stacks above every unlabelled dot, regardless of either
 place's state. DOM marker wrappers use two explicit tiers: dot-only markers
@@ -280,9 +287,10 @@ base, so its `+3` and `−19` are about confirmed gain and loss.
 
 ### Delta chip
 
-Bottom-**left**, 12px inset, `z-index: 5` (above attribution),
-`--spoke-ink` fill, `--spoke-works-pop` numeral.
-Bottom-left because bottom-right belongs to map attribution.
+Bottom-**left**, 12px inset, `z-index: 18` (above attribution and every
+marker, below the controls), `--spoke-ink` fill, `--spoke-works-pop` numeral.
+Bottom-left because bottom-right belongs to map attribution. Name cards are
+refused its rectangle, which is measured while the chip is mounted.
 
 ### Presence
 
