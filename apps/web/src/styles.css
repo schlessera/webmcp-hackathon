@@ -3226,18 +3226,21 @@ body { overflow: hidden; }
 /* The pipeline ring (SPOKES-UI "The pipeline ring and dot stages"): one
    determinate ring beside one line, done of total for the stated needs.
    The fill moves on the settle duration; reduced motion zeroes it. */
+/* In the head row, right of the number: a ring and its numerals, so a lookup
+   starting or finishing never changes the block's height. */
 .count-progress {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 6px;
-  margin-top: 5px;
+  align-self: center;
+  gap: 5px;
+  margin-left: 3px;
   font-family: var(--spoke-font-mono);
   font-weight: var(--spoke-weight-body);
   font-size: var(--spoke-size-micro);
   line-height: 1.3;
   font-variant-numeric: tabular-nums;
+  opacity: 0.85;
 }
-.count-progress-mix { opacity: 0.78; }
 .progress-ring {
   flex: none;
   width: 16px;

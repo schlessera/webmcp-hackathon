@@ -2058,6 +2058,42 @@ export function MapView({
     return relaxable[0] ?? null;
   }, [context.activeNeeds]);
 
+  /* The pipeline ring rides in the count's own head row, right of the number
+     (SPOKES-UI §3). As a line of its own it appeared and disappeared with
+     every lookup, and the whole block changed height under the reader — a
+     count that jumps is a count nobody trusts. The words it used to carry
+     stay on `aria-valuetext`, where they are read rather than measured. */
+  const progressChip = pipelineLine && !fillLine && countState !== "settled" ? (
+    <span
+      className="count-progress"
+      data-testid="count-progress"
+      data-paused={pipelinePaused || undefined}
+      role="progressbar"
+      aria-valuemin={0}
+      aria-valuemax={pipeline!.total}
+      aria-valuenow={pipelinePaused ? undefined : pipeline!.done}
+      aria-valuetext={pipelineLine + (pipelineMix ? ` ${pipelineMix}` : "")}
+    >
+      <svg className="progress-ring" viewBox="0 0 16 16" aria-hidden="true">
+        <circle className="progress-ring-track" cx="8" cy="8" r="6.5" />
+        <circle
+          className="progress-ring-fill"
+          cx="8"
+          cy="8"
+          r="6.5"
+          style={{
+            strokeDashoffset:
+              RING_CIRCUMFERENCE *
+              (1 - Math.min(1, pipeline!.done / Math.max(1, pipeline!.total))),
+          }}
+        />
+      </svg>
+      <span className="count-progress-count" aria-hidden="true">
+        {pipeline!.done}/{pipeline!.total}
+      </span>
+    </span>
+  ) : null;
+
   /* Re-measure the overlays the name pass has to avoid. Keyed on the delta
      chip's presence as well as the first load, because that chip mounts and
      unmounts with the offer it carries and a stale rectangle would either
@@ -2889,6 +2925,7 @@ export function MapView({
               <span className="count-label">
                 places
               </span>
+              {progressChip}
             </div>
             <div className="count-sub">nothing ruled out yet</div>
           </>
@@ -2901,40 +2938,12 @@ export function MapView({
                 <br />
                 {stillWorkVerb(works).split(" ")[1]}
               </span>
+              {progressChip}
             </div>
             <div className="count-sub">
               {countState === "impasse" ? `of ${total}${guessed} · ${zeroReason}` : `of ${total}${guessed}`}
             </div>
           </>
-        )}
-        {pipelineLine && !fillLine && countState !== "settled" && (
-          <div
-            className="count-progress"
-            data-testid="count-progress"
-            data-paused={pipelinePaused || undefined}
-            role="progressbar"
-            aria-valuemin={0}
-            aria-valuemax={pipeline!.total}
-            aria-valuenow={pipelinePaused ? undefined : pipeline!.done}
-            aria-valuetext={pipelineLine + (pipelineMix ? ` ${pipelineMix}` : "")}
-          >
-            <svg className="progress-ring" viewBox="0 0 16 16" aria-hidden="true">
-              <circle className="progress-ring-track" cx="8" cy="8" r="6.5" />
-              <circle
-                className="progress-ring-fill"
-                cx="8"
-                cy="8"
-                r="6.5"
-                style={{
-                  strokeDashoffset: RING_CIRCUMFERENCE * (1 - Math.min(1, pipeline!.done / Math.max(1, pipeline!.total))),
-                }}
-              />
-            </svg>
-            <span>
-              {pipelineLine}
-              {pipelineMix && <span className="count-progress-mix"> {pipelineMix}</span>}
-            </span>
-          </div>
         )}
         {busyLine && countState !== "settled" && (
           <div

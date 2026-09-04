@@ -2932,6 +2932,9 @@ test("the pipeline ring fills as the room checks places and goes away when drain
   await page.goto(`${BASE}/#invite=deadbeef`);
   await socket.welcomed;
   await expect(page.getByTestId("count-progress")).toHaveCount(0);
+  const countHeight = async () =>
+    (await page.getByTestId("count-block").boundingBox())!.height;
+  const heightWithoutRing = await countHeight();
 
   socket.send({
     type: "pipeline",
@@ -2946,8 +2949,14 @@ test("the pipeline ring fills as the room checks places and goes away when drain
   await expect(ring).toHaveAttribute("role", "progressbar");
   await expect(ring).toHaveAttribute("aria-valuemax", "10");
   await expect(ring).toHaveAttribute("aria-valuenow", "2");
-  await expect(ring).toContainText("checked 2 of 10 places");
-  await expect(ring).toContainText("3 reading · 1 checking");
+  // Visible: the ring and its numerals, in the count's head row. The sentence
+  // rides on aria-valuetext, so a lookup never changes the block's height.
+  await expect(ring).toContainText("2/10");
+  await expect(ring).toHaveAttribute("aria-valuetext", /checked 2 of 10 places/);
+  await expect(ring).toHaveAttribute("aria-valuetext", /3 reading · 1 checking/);
+  // The ring rides in the head row, so arriving costs the block no height —
+  // to within the sub-pixel its own line box adds.
+  expect(Math.abs((await countHeight()) - heightWithoutRing)).toBeLessThan(1);
   await page.screenshot({ path: "test-results/pipeline-ui-430.png", clip: { x: 0, y: 60, width: 430, height: 420 } });
   // The old two-line register is gone once frames flow.
   await expect(page.getByTestId("count-refine")).toHaveCount(0);
@@ -2965,7 +2974,7 @@ test("the pipeline ring fills as the room checks places and goes away when drain
     total: 10,
     paused: "budget",
   });
-  await expect(ring).toHaveText("paused for now");
+  await expect(ring).toHaveAttribute("aria-valuetext", "paused for now");
   await expect(ring).not.toHaveAttribute("aria-valuenow", /.+/);
 
   // The live region carries the sentence, at most once per ten seconds.
@@ -2981,6 +2990,7 @@ test("the pipeline ring fills as the room checks places and goes away when drain
     paused: null,
   });
   await expect(page.getByTestId("count-progress")).toHaveCount(0);
+  expect(Math.abs((await countHeight()) - heightWithoutRing)).toBeLessThan(1);
   await browserContext.close();
 });
 

@@ -678,11 +678,20 @@ stands as a still dashed ring beside its text.
 One widget in the count block replaces the lookup and refinement lines once
 the server sends `pipeline` frames: a 16 px determinate ring (`--spoke-ink-soft`
 on `currentColor`, fill on the settle duration, static under reduced motion)
-beside "checked N of M places for K needs" and, while anything is in flight,
-"· N reading · N checking". `role="progressbar"` with `aria-valuemin`,
-`aria-valuemax`, `aria-valuenow` (omitted while paused) and `aria-valuetext`
-carrying the sentence; one `aria-live` summary at most every 10 s. Drained:
-nothing is drawn. Whole-area fill keeps the slot while it runs.
+with `N/M` in mono beside it.
+
+It rides **in the count's head row, right of the number** (amended
+2026-09-04), not as a line under the block. As its own line it appeared and
+disappeared with every lookup and the block changed height under the reader;
+a count that jumps is a count nobody trusts. In the head row a lookup starting
+or finishing costs no height at all.
+
+The sentence it used to print — "checked N of M places for K needs", and
+"· N reading · N checking" while anything is in flight — stays on
+`aria-valuetext`, where it is read rather than measured. `role="progressbar"`
+with `aria-valuemin`, `aria-valuemax`, `aria-valuenow` (omitted while paused)
+and that `aria-valuetext`; one `aria-live` summary at most every 10 s.
+Drained: nothing is drawn. Whole-area fill keeps the slot while it runs.
 
 Every place in the pipeline carries one displayed stage, drawn with the
 map's own ring vocabulary and no new colour or animation:
