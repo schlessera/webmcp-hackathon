@@ -69,6 +69,7 @@ services:
       DATABASE_URL: postgres://webmcp:${POSTGRES_PASSWORD:-webmcp}@db:5432/webmcp
       NODE_ENV: production
       PORT: "4173"
+      ROOM_LIMIT: ${ROOM_LIMIT:-}
       BUILD_ID: ${SOURCE_COMMIT:-coolify}
       DEMO_SECRET_KEY: ${DEMO_SECRET_KEY:?set a non-default DEMO_SECRET_KEY in Coolify}
       ORIGIN_TRIAL_TOKEN: ${ORIGIN_TRIAL_TOKEN:-}

@@ -153,7 +153,7 @@ app.get("/api/areas", async () => ({ areas: areaSummaries() }));
 // Room creation is unauthenticated and mints rows (room, participants,
 // invite secrets, a candidate pool): cap it per IP like the exchange route.
 const roomAttempts = new Map<string, { count: number; windowStart: number }>();
-const ROOM_LIMIT = 10;
+const ROOM_LIMIT = Number(process.env.ROOM_LIMIT) || 10;
 const ROOM_WINDOW_MS = 60 * 60_000;
 
 /** One bucket for both halves of opening a room: reading a goal costs a model
