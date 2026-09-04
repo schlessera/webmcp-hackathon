@@ -3021,19 +3021,40 @@ body { overflow: hidden; }
 .region-asof { font-size: var(--spoke-size-meta); color: var(--spoke-ink-ghost); }
 
 /* --- Handing someone a way in ------------------------------------------ */
+/* Exactly an avatar's geometry, so it reads as one more thing in the row
+   rather than a control bolted onto it. Drawn in --spoke-act because adding
+   someone is an action; the avatars beside it are identity and never are
+   (CLAUDE.md §2). */
 .add-person {
-  margin-left: 6px;
-  padding: 10px 12px;          /* reaches 44px without the + growing (§13) */
-  min-height: var(--spoke-tap-min);
-  min-width: var(--spoke-tap-min);
+  position: relative;
+  flex: none;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   font-family: var(--spoke-font-display);
   font-weight: var(--spoke-weight-display);
-  font-size: var(--spoke-size-title);
+  font-size: var(--spoke-size-body);
   line-height: 1;
   color: var(--spoke-act-text);
   background: var(--spoke-act-tint);
   border: var(--spoke-border) solid var(--spoke-act);
   border-radius: var(--spoke-radius-avatar);
+}
+/* The tap target reaches 44px AROUND the drawn box instead of growing it
+   (CLAUDE.md §13). Centred on the mark, so the extra area is symmetrical and
+   never overlaps the avatar stack's own hit area on the left more than the
+   header padding on the right. */
+.add-person::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: var(--spoke-tap-min);
+  height: var(--spoke-tap-min);
+  transform: translate(-50%, -50%);
 }
 
 .invite-dialog {
@@ -3529,7 +3550,19 @@ body { overflow: hidden; }
 html, body, #root { height: 100%; overflow: hidden; }
 
 /* ── Header: roster disclosure (W12) ──────────────────────────────────── */
-.roster { position: relative; flex: none; }
+/* The avatar stack and the control that adds to it sit on one line: the +
+   belongs beside the people, not under them. */
+/* The avatar stack and the control that adds to it sit on one line: the +
+   belongs beside the people, not under them. The gap is the + button's own
+   hit-area overhang (44px around a 26px mark, so 9px a side), which keeps
+   that target off the last avatar rather than stealing its right edge. */
+.roster {
+  position: relative;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--spoke-gap-group);
+}
 .avatars {
   border: none;
   background: none;
