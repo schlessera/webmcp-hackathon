@@ -2885,7 +2885,13 @@ export function MapView({
             latitude={selectedExplore.location.lat}
             anchor="bottom"
             offset={[0, -8]}
-            style={{ zIndex: 7 }}
+            /* Above every marker. The ladder below tops out at 16 (the
+               origin mark), but a HOVERED marker is lifted to 20 by the
+               :has(:hover) rule in styles.css, so 19 would still let a
+               pointer bring a neighbouring label out over this card on
+               desktop. 21 clears that too. Reading the thing you just
+               opened through someone else's label was the bug. */
+            style={{ zIndex: 21 }}
           >
             <div
               className="explore-card"

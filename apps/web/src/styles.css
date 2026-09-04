@@ -135,12 +135,16 @@ body { overflow: hidden; }
 /* Phone: map, then the brief, then the pinned composer. The rail owns the
    scroll so the map and composer stay put — only the brief moves (§11). */
 .rail {
-  flex: 1;
+  flex: none;
   min-height: 0;
   display: flex;
   flex-direction: column;
 }
-.map-column { flex: none; }
+/* Phone: the map takes the slack. The brief is a list bounded to about two
+   rows and scrolls past that (below), so everything the shell does not need
+   goes to the thing the room is actually looking at. Desktop overrides all
+   of this into a side rail further down. */
+.map-column { flex: 1; min-height: clamp(240px, 42vh, 380px); display: flex; }
 
 .connect-screen {
   height: 100%;
@@ -272,8 +276,8 @@ body { overflow: hidden; }
 
 .map-region {
   position: relative;
-  flex: none;
-  height: clamp(240px, 42vh, 380px);
+  flex: 1;
+  height: auto;
   background: var(--spoke-surface-sunk);
   border-top: var(--spoke-border) solid var(--spoke-line);
   border-bottom: var(--spoke-border) solid var(--spoke-line);
@@ -1066,9 +1070,16 @@ body { overflow: hidden; }
    The only scrolling region. */
 
 .brief {
-  flex: 1;
+  flex: none;
+  /* About two needs, then it scrolls. The brief is the room's list and the
+     map is what the room is looking at; on a phone the list should not take
+     half the screen to say so. */
+  max-height: clamp(150px, 21vh, 210px);
   min-height: 0;
   overflow-y: auto;
+  /* The bottom edge is now usually a cut, so fade it: a half-shown row has
+     to read as "there is more below", not as a rendering fault. */
+  mask-image: linear-gradient(to bottom, var(--spoke-ink) calc(100% - 14px), transparent);
   padding: 13px var(--spoke-pad-screen) 16px;
   display: flex;
   flex-direction: column;
@@ -1532,7 +1543,7 @@ body { overflow: hidden; }
 
 .composer {
   flex: none;
-  padding: 0 var(--spoke-pad-screen) 20px;
+  padding: 0 var(--spoke-pad-screen) 10px;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -2705,7 +2716,7 @@ body { overflow: hidden; }
     background: var(--spoke-surface);
     border-right: var(--spoke-border) solid var(--spoke-line-quiet);
   }
-  .rail .brief { padding-top: 16px; }
+  .rail .brief { flex: 1; max-height: none; mask-image: none; padding-top: 16px; }
   .rail .composer,
   .rail .arrival-bar {
     background: var(--spoke-surface);
