@@ -272,7 +272,51 @@ the visible copy.
 - A clarification gives its server-authored choices and **“Or say it in your
   words”** with **“Use this”**. A choice's needs join the pending rows; the
   person can still leave any of them out.
-- The invites screen repeats the room goal above the per-person links.
+- A clarification says how many of its choices apply: **"Pick one"** for a
+  fork, **"Pick any that apply"** for a set, whose action is **"Use these"**.
+
+## Opening a room (2026-09-04)
+
+The three screens before a room, in the order a product would ask.
+
+- **Who and what.** **"Your name"**, then **"What are you trying to do?"**
+  with **"In your own words. One outing or several."** underneath. The
+  placeholder rotates through the three published examples, which are the
+  same strings the WebMCP tool description carries and
+  `docs/PLAN-ONBOARDING-AND-MULTISTEP.md` §8 lists. Change them in all three
+  or none. The action is **"Work out what that takes"**.
+- **What it takes.** Headed **"What that takes"**, with **"One place to
+  find."** or **"N places to find, in order."** — absolute, never a
+  percentage. Each box is **"Step N of M"**; a later one adds **"after that,
+  near there"**, because that is what the room will actually do. A box's
+  pending rows keep **"From what you said"** and **"Leave out"**. The action
+  is **"Open the room"**.
+- **The region.** The demo's one limitation, said in the product's voice and
+  not apologised for: Spokes is **"built to work anywhere"**, world-wide
+  venue data is out of scope for a hackathon, so it runs on two prepared
+  regions. Tagged **"demo limit"** so nobody mistakes it for a feature. Each
+  region gives counts of the classes THIS plan needs, its facts on record,
+  and its as-of date — all server-measured.
+
+## Adding someone
+
+- The control is **"Add someone"**; the dialog says **"Send this link, or let
+  them point a phone at the code."**
+- The rules are stated, not enforced silently: **"Each link is for one
+  person. Once it is used, it stays theirs."** and **"Unused links stop
+  working after an hour."**
+- A link's state is a phrase, never a status: **"not used yet"**,
+  **"Sarah joined"**, **"expired"**.
+- A refusal names nobody: **"This link is already in use. Ask for a new
+  one."** Who holds it is the room's business.
+
+## Being handed a link
+
+- Third person for whoever started it — **"Alex is working this out with a
+  group."** — then the goal verbatim, then **"1 person is in so far."**
+- Accounts are offered and refused in the same breath rather than hidden:
+  **"Log in"**, disabled, under **"The demo has no accounts. Join as a guest
+  instead."**
 
 ## Distance referents
 

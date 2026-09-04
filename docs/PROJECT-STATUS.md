@@ -3,7 +3,7 @@
 **Last updated:** 2026-09-03, after the WebMCP Challenge deadline.
 **HEAD:** `37e9208` on `main`. **Live:** <https://spokes.alainschlesser.com>
 (deployed build `37e9208` — `main` and production are in step). **Tool
-contract:** version 3, 22 tools.
+contract:** version 3, 24 tools.
 
 This is the single source of truth for anyone picking the work up. It replaces
 the 2026-09-02 version of this file, which predates roughly 313 commits.
@@ -46,7 +46,7 @@ place to meet. People state needs at three privacy levels, watch eligibility
 recompute live, hit and resolve impasses through quantified counterfactuals with
 in-page consent, reach an organizer-committed agreement, and hand off to
 navigation. Each person's agent participates in the same room through WebMCP —
-22 tools on `document.modelContext` carrying two protocols (`negotiation/v1` and
+24 tools on `document.modelContext` carrying two protocols (`negotiation/v1` and
 `spatial-destination/v1`).
 
 The room is domain-agnostic by construction: every control the client draws
@@ -162,7 +162,7 @@ feasibility fact.
 
 ### WebMCP surface
 
-22 tools defined once in `packages/contracts/src/tools.ts` and registered at page
+24 tools defined once in `packages/contracts/src/tools.ts` and registered at page
 load — 10 negotiation, 12 spatial. Unauthenticated calls return a structured
 `not_authenticated` rather than being absent. Result budgets: 1,500 characters,
 8,000 for `sync_session`. `CommitAgreement` and `ConfirmPrivateRequest`
@@ -299,7 +299,7 @@ working tree.
 
 1. No narrated video. The submission is frozen, so this can only improve the
    Devpost portfolio entry, not the judged submission.
-2. The manual ChatGPT gate — the 22 tools exercised end to end in ChatGPT's
+2. The manual ChatGPT gate — the 24 tools exercised end to end in ChatGPT's
    in-app browser against the live URL — has never been run and recorded. The
    deploy and the origin-trial token are both in place, so nothing blocks it.
    `docs/VALIDATION-SPIKE-1-AUTOMATED-DEMO.md` lane 5 has the ten steps.
@@ -388,7 +388,7 @@ working tree.
   beats. `docs/README.md` — an August 31 index that omits half the corpus.
   `docs/PROTOCOLS.md` — self-marked superseded. `docs/MVP-AND-RISKS.md` — its
   open-decisions list is fully resolved and carries no caveat.
-- `docs/protocols/INTERACTION-AND-BINDING.md` §2.3 is headed "22 tools" and
+- `docs/protocols/INTERACTION-AND-BINDING.md` §2.3 is headed "24 tools" and
   enumerates 21: `confirm_fact` is documented nowhere in the corpus.
 
 ---

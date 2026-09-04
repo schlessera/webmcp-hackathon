@@ -84,7 +84,7 @@ since WebMCP itself carries only tool names/descriptions/schemas:
 The `conduct` string is the application's one paragraph of protocol
 instruction to the model — kept short because it rides in a tool result.
 
-### 2.3 The tool surface (22 tools)
+### 2.3 The tool surface (24 tools)
 
 Names ≤30 chars, descriptions ≤500 chars, parameter descriptions ≤150 chars,
 results ≤1.5K chars (Chrome budget guidance), except `sync_session`, whose
@@ -93,6 +93,20 @@ lossless delta pages. All schemas use
 `additionalProperties: false`, `enum` over free strings, and stable IDs.
 **No free-text catch-all parameters** — the one deliberate exception is
 `note` fields, capped and documented as optional.
+
+Opening a room (2026-09-04). Two tools sit before any room exists, and are
+the only ones that answer without a participant token:
+
+| Tool | RO¹ | UGC² | Notes |
+|---|---|---|---|
+| `describe_regions` | ✓ | | The demo's prepared regions, with places on record and fact coverage. States the bound itself, so an agent that has the answer has the caveat. |
+| `open_room` | | | A goal in ordinary words becomes a room, and the page enters it. The agent states the goal; the page distils it into steps. |
+
+The division of labour is deliberate: an agent that chose step classes and
+composed needs itself would be a second implementation of the planner, and
+the two would drift. `open_room` runs the same `POST /api/plans/preview` and
+`POST /api/rooms` the onboarding screens run, so an agent-opened room and a
+person-opened room are the same room.
 
 Negotiation tools:
 
@@ -131,7 +145,7 @@ participant-authored text (requirement notes, veto notes, feed lines) or
 provider content. ³ Read-only from the session's perspective; mutates only
 the caller's local view (documented in the description).
 
-The 22-tool surface is static and each entry has a non-overlapping command or
+The 24-tool surface is static and each entry has a non-overlapping command or
 read role. Consequential apply/commit commands remain page-only and are not
 part of this count.
 

@@ -133,6 +133,41 @@ this place offer &lt;subject&gt;?", labelled with the subject itself. The step's
 subject, else the kind) and falls back to the class label. `when` is the first
 time concept's window.
 
+## More than one place (D2, 2026-09-04)
+
+"Dinner, then the new film" is two places, and the room now runs both. Stage
+A returns a `steps` LIST instead of one `placeClass`, and every concept
+carries the 1-based `step` it belongs to, so stage B runs per step against
+that step's own facets: a cuisine routes on a food step, a subject becomes a
+question on a cinema step. A concept whose step number is outside the list —
+the sentence and the split disagreeing — falls to step 1, and everything the
+pre-parser found (times, distances, budgets) belongs to step 1 by
+construction, because a sentence states those about the outing it starts
+with.
+
+Most goals are one step, and the instructions say so twice: a second step
+needs a sequence word (`then`, `after that`, `afterwards`, `dann`, `danach`)
+or two outings named one after the other. Buying or trying something is one
+step — the place that sells it — with the product as a `subject`.
+
+**The relation is always `then`.** A later step is searched around wherever
+the step before it settled, because that is the only thing the room can
+actually do for a group that has to get there. There is no third relation
+kind to invent.
+
+**No area yet.** The region is chosen after the plan is read, so
+`POST /api/plans/preview` takes no `areaId` in the ordinary case: facets come
+from the union of every area's snapshot rather than one of them, `classes`
+comes back empty, and the page sends its own IANA `timezone` so "tonight"
+means tonight where the organizer is. Passing an `areaId` still works and
+still returns that area's counts, which is what the older path did.
+
+**Clarification gained a shape.** `mode: "one" | "many"` — a fork, or a set
+the page draws as checkboxes — and a nullable `stepId` saying which box the
+question belongs to. Existing single-choice clarifications set `"one"`
+explicitly, so the field is never absent. Only the first question a plan
+raises is asked; a later step's ambiguity waits until that step is live.
+
 **Referents before the room exists.** "Sarah's subway station" names a
 participant who has not arrived, and the landmark index is keyed by name, not
 by kind, so the design's "Which station?" would have no answers to offer. The

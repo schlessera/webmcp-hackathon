@@ -176,6 +176,33 @@ others, never first.
   tool surface and screens agent-private conditions held in memory. Replies
   are a card in the brief, never a chat pane. Accepting a proposal marks you
   ready; the stage card names what staging waits on.
+- **A room can be a sequence (2026-09-04).** `docs/PLAN-ONBOARDING-AND-MULTISTEP.md`.
+  A goal decomposes into 1–3 steps (`rooms.steps`, `rooms.active_step_id`).
+  The room runs **one at a time**: the active step owns the pool, the map and
+  the live needs. Committing an agreement settles that step and opens the
+  next, re-centred on the place just agreed — which is the §8 exception, not
+  a violation of it, because a commit is an explicit decision. Which candidate
+  rows are live is ONE rule, in `apps/server/src/live-pool.ts`; a query that
+  enumerates a pool without mentioning `LIVE_POOL` has forgotten steps exist.
+  A room with an empty `steps` array behaves exactly as rooms did before, and
+  `room_demo` is one of those.
+- **The region question is not the product's (2026-09-04).** Onboarding asks
+  name → goal → plan, and only then which of the two prepared regions. That
+  order is deliberate: putting the region first teaches people Spokes is a
+  tool for two neighbourhoods. The dialog is drawn plainer than the app
+  around it and tagged "demo limit", the same move the `{ }` drawer makes.
+  Never promote it into the product flow.
+- **A link is one person's (2026-09-04).** `+` beside the avatars mints a
+  `room_invites` link; the first claim binds it to that device's hash, and it
+  stays that person's way back in. Several may be outstanding at once —
+  minting never revokes. Unused links expire in an hour. **A refusal names
+  nobody**: "This link is already in use" is the whole message, because who
+  is in a room is not something a URL hands to whoever tries it.
+- **Onboarding is agent-reachable (2026-09-04).** `describe_regions` and
+  `open_room` are the only tools that answer without a participant token. The
+  agent states a high-level goal; the page distils it. Never move step-class
+  choice or need composition into a tool argument — that would be a second
+  planner, and the two would drift.
 - **Applied 2026-09-01.** `styles.css` is built on `tokens.css`; the old
   `:root` palette and the legacy `--spoke` token are gone (not aliased). The
   only colour literals outside `tokens.css` are the documented GL-paint pairs
