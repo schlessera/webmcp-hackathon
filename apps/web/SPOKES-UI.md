@@ -167,6 +167,15 @@ only on `moveend` and viewport resize, never during a drag. A card must remain
 inside both sides of the map band; if neither orientation fits, draw the dot
 only.
 
+The map's own overlays own their corners. A card is refused any placement that
+would land in the count block's rectangle or the controls' (`.map-top-right`) —
+those two are measured live, because both size to their text — and the place
+keeps its bare dot instead. The rule holds in the last-resort pass too: a name
+under a solid overlay is not a name. Every control sits at `z-index: 20`, above
+even a selected sticker (14) and the starting-point mark (16), so a button is
+never behind a label; the count block (4) and the delta chip (5) stay under the
+markers, which is why the count block earns a reserved rectangle instead.
+
 A name card always stacks above every unlabelled dot, regardless of either
 place's state. DOM marker wrappers use two explicit tiers: dot-only markers
 at 1–3 by state, and carded markers at 10+, with selected, settled, staged
@@ -295,7 +304,8 @@ present; the round dot continues to mean here now.
 ### Find a place, and the layers control
 
 Both live in one right-anchored row at the map's top (`.map-top-right`,
-`z-index: 6`), so the count block keeps the top-left corner it owns.
+`z-index: 20` — in front of every marker), so the count block keeps the
+top-left corner it owns and no name card is drawn into either corner.
 
 **Find a place** (`MapFind.tsx`) is a `Find a place` chip until it is asked
 for, then a field of `min(300px, 100vw − 190px)` with the matches beneath it

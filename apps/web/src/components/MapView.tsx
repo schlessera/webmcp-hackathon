@@ -655,6 +655,12 @@ export function MapView({
     }
   }, [beginOriginDrag]);
   const exploreActionRef = useRef<HTMLButtonElement>(null);
+  /* The two fixed overlays a name must not hide behind: the count block and
+     the map's own controls. Measured, not assumed — both size to their text,
+     and `overlayTick` re-runs the name pass when either changes size. */
+  const countBlockRef = useRef<HTMLDivElement>(null);
+  const topRightRef = useRef<HTMLDivElement>(null);
+  const [overlayTick, setOverlayTick] = useState(0);
   const focusExploreAction = useRef(false);
   const ownScopeCenter = useRef<string | null>(null);
   const exploreTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1177,6 +1183,31 @@ export function MapView({
     const width = map.getContainer().clientWidth;
     const height = map.getContainer().clientHeight;
     const placed: Array<{ x: number; y: number; w: number }> = [];
+
+    /* The count block and the controls already own their corners. A card
+       there would be read through a solid overlay, or hidden under one, so
+       the place keeps its bare dot and the name goes to a place that has
+       room for it. Rectangles are in map-container pixels. */
+    const container = map.getContainer().getBoundingClientRect();
+    const reserved: Array<{ x: number; y: number; w: number; h: number }> = [];
+    for (const element of [countBlockRef.current, topRightRef.current]) {
+      const box = element?.getBoundingClientRect();
+      if (!box || box.width === 0) continue;
+      reserved.push({
+        x: box.left - container.left,
+        y: box.top - container.top,
+        w: box.width,
+        h: box.height,
+      });
+    }
+    const hitsReserved = (left: number, top: number, w: number, h: number) =>
+      reserved.some(
+        (box) =>
+          left < box.x + box.w &&
+          box.x < left + w &&
+          top < box.y + box.h &&
+          box.y < top + h,
+      );
     const tryPlace = (c: CandidateSummary, protectDots: boolean) => {
       const own = dots.find((d) => d.id === c.candidateId);
       if (!own || own.x < 0 || own.x > width || own.y < STICKER_H / 2 || own.y > height - STICKER_H / 2) {
@@ -1192,6 +1223,7 @@ export function MapView({
             ? point.x - STICKER_ANCHOR_PX
             : point.x + STICKER_ANCHOR_PX - w;
         if (left < 4 || left + w > width - 4) continue;
+        if (hitsReserved(left, point.y - STICKER_H / 2, w, STICKER_H)) continue;
         const collides = placed.some(
           (p) =>
             Math.abs(p.y - point.y) < STICKER_H &&
@@ -1252,7 +1284,13 @@ export function MapView({
           side === "left"
             ? point.x - STICKER_ANCHOR_PX
             : point.x + STICKER_ANCHOR_PX - w;
-        if (left >= 4 && left + w <= width - 4) placements.set(candidate.candidateId, side);
+        if (
+          left >= 4 &&
+          left + w <= width - 4 &&
+          !hitsReserved(left, point.y - STICKER_H / 2, w, STICKER_H)
+        ) {
+          placements.set(candidate.candidateId, side);
+        }
       }
     }
     return placements;
@@ -1266,6 +1304,7 @@ export function MapView({
     markerStates,
     viewTick,
     collisionOffsets,
+    overlayTick,
   ]);
 
   /* Draw order and the dashed filter are layout facts baked into the source,
@@ -1770,6 +1809,16 @@ export function MapView({
     focusExploreAction.current = false;
     setSelectedExploreRef(place.ref);
   };
+
+  useEffect(() => {
+    const targets = [countBlockRef.current, topRightRef.current].filter(
+      (element): element is HTMLDivElement => element !== null,
+    );
+    if (targets.length === 0) return;
+    const observer = new ResizeObserver(() => setOverlayTick((tick) => tick + 1));
+    for (const target of targets) observer.observe(target);
+    return () => observer.disconnect();
+  }, [loaded]);
 
   const viewportSettled = () => {
     const map = mapRef.current;
@@ -2694,7 +2743,12 @@ export function MapView({
 
       <div className="map-wash" aria-hidden="true" />
 
-      <div className="count-block" data-state={countState} data-testid="count-block">
+      <div
+        className="count-block"
+        data-state={countState}
+        data-testid="count-block"
+        ref={countBlockRef}
+      >
         {countState === "settled" ? (
           <>
             <div className="count-settled">Settled</div>
@@ -2784,7 +2838,7 @@ export function MapView({
         </div>
       )}
 
-      <div className="map-top-right">
+      <div className="map-top-right" ref={topRightRef}>
         <MapFind roomId={roomId} near={viewportCenter} onChoose={chooseFound} />
         <MapLayers
           active={layers}
