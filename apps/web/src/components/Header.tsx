@@ -107,8 +107,16 @@ export function Header({
   return (
     <header className="header">
       <div className="header-titles">
-        <div className="header-title" data-testid="room-title">
-          {title ? title : <Wordmark />}
+        {/* The wordmark stays: a room's name is added after it, not in place
+            of it, so the app never loses its own identity to its content. */}
+        <div className="header-title">
+          <Wordmark />
+          {title && (
+            <span className="header-title-sep" aria-hidden="true">·</span>
+          )}
+          <span className="header-title-name" data-testid="room-title">
+            {title ?? ""}
+          </span>
         </div>
         <div
           className="header-subtitle"

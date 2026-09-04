@@ -51,10 +51,17 @@ composer            pinned bottom, 20px from edge
 
 | Part | Spec |
 |---|---|
-| Title | `--spoke-font-display` 700 / 15px, `--spoke-ink`, single line, ellipsis |
+| Title | glyph + `Spokes`, then `·` and the room's name, `--spoke-font-display` 700 / 15px, `--spoke-ink`, single line |
 | Subtitle | `--spoke-font-text` 500 / 11px, `--spoke-ink-soft` |
 | Avatars | 26px squircle `--spoke-radius-avatar`, 2px `--spoke-ground` ring, −6px overlap, alternating rotation −4° / 3° / −2° |
 | `{ }` | 22px, borderless, `--spoke-ink-soft` at 70%, 9px mono |
+
+The wordmark is permanent. A room's name — its goal, or the committed place
+once the room agrees — is appended after a `--spoke-ink-ghost` separator, never
+substituted for the wordmark: the app does not lose its own identity to its
+content. The wordmark holds its width and the name is what ellipses when the
+header runs out of room. Before a room has a name, the separator and the name
+are both absent.
 
 The subtitle is **state, not metadata** — it changes with the room:
 "Sunday 10:00 · Mitte" → "nothing works for all three" (`--spoke-unsure-text`)

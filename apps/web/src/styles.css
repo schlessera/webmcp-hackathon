@@ -182,6 +182,17 @@ body { overflow: hidden; }
   gap: 7px;
 }
 
+/* The wordmark holds its width; the room's name is what gives way when the
+   header runs out of room. */
+.header-title > [data-testid="wordmark"] { flex: none; }
+.header-title-sep { flex: none; color: var(--spoke-ink-ghost); }
+.header-title-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.header-title-name:empty { display: none; }
+
 .header-subtitle {
   font-weight: var(--spoke-weight-body);
   font-size: var(--spoke-size-meta);
