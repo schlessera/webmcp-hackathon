@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { LayersIcon } from "./MapIcons.tsx";
 
 /**
  * What the map draws under the room (SPOKES-UI "Layers").
@@ -8,8 +9,9 @@ import { useEffect, useRef, useState } from "react";
  * marks, counts and rings are never behind a switch, because a viewer must
  * never be able to turn off what the room decided.
  *
- * The control is one chip until it is asked for, so the map keeps its top
- * edge, and each row is a plain checkbox — a disclosure, not navigation.
+ * The control is one round icon button until it is asked for, so the map
+ * keeps its top edge, and each row is a plain checkbox — a disclosure, not
+ * navigation.
  */
 
 export type MapLayerKey = "buildings" | "explore" | "landmarks" | "transit";
@@ -56,7 +58,7 @@ export function MapLayers({ active, onToggle }: Props) {
       <button
         ref={chipRef}
         type="button"
-        className="map-nav-action"
+        className="map-icon-button"
         data-testid="map-layers"
         aria-expanded={open}
         aria-label={
@@ -64,8 +66,8 @@ export function MapLayers({ active, onToggle }: Props) {
         }
         onClick={() => setOpen((value) => !value)}
       >
-        <span className="map-nav-chip" data-on={count > 0 ? "true" : undefined}>
-          Layers
+        <span className="map-icon-face" data-on={count > 0 ? "true" : undefined}>
+          <LayersIcon />
         </span>
       </button>
       {open && (

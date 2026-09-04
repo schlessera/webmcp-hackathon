@@ -217,15 +217,18 @@ Each states what's true, then the one thing to do.
 
 ## Finding a place, and layers
 
-- Find control: **“Find a place”** — both the chip and the field's
-  placeholder. It finds by name; never offer to find "restaurants near you"
-  or any other kind of place.
+- Find control: a magnifier button labelled **“Find a place”**, which is also
+  the field's placeholder. It finds by name; never offer to find "restaurants
+  near you" or any other kind of place.
 - Nothing matched: **“No place here goes by that name.”** Never "No results".
-- Once a place is chosen the chip carries its name, with a `✕` beside it
-  labelled **“Stop showing <name>”**. The place's own card takes the suffix
-  **“· found”**, in the same family as “· proposed”, “· staged”, “· settled”.
-- Layers control: **“Layers”**, and its rows read **“Buildings in 3D”**,
-  **“Places not in the room”**, **“Landmarks”**, **“Transit lines”**.
+- Once a place is chosen the find button says so by inverting and reads
+  **“Showing <name>. Find another place.”**, with a `✕` beside it labelled
+  **“Stop showing <name>”**. The name itself stays on the map: the place's own
+  card takes the suffix **“· found”**, in the same family as “· proposed”,
+  “· staged”, “· settled”.
+- Layers control: a stacked-planes button labelled **“Layers, none on”** or
+  **“Layers, 2 on”**; its rows read **“Buildings in 3D”**, **“Places not in
+  the room”**, **“Landmarks”**, **“Transit lines”**.
 - “Search here” keeps its own meaning — moving the room's area to the middle
   of the map. Never call finding a place a search in visible copy.
 

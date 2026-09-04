@@ -318,16 +318,21 @@ present; the round dot continues to mean here now.
 
 ### Find a place, and the layers control
 
-Both live in one right-anchored row at the map's top (`.map-top-right`,
-`z-index: 20` — in front of every marker), so the count block keeps the
-top-left corner it owns and no name card is drawn into either corner. The row
-takes what the count block leaves of the band (`--count-block-w`, measured),
-wrapping rather than shrinking a control; an open field takes the whole band,
-being transient and asked for. Below 560px the count block is most of the
-band, so the row sits under it (`--count-block-h`) instead of beside it.
+Both are round icon buttons in a column at the map's top-right corner
+(`.map-top-right`, `z-index: 20` — in front of every marker): find above,
+layers below. A 32px face inside a 44px tap box (§13 — the padding reaches
+44px, the drawn circle does not), `--spoke-surface` on a `--spoke-line` ring
+with the drop shadow, and a single-stroke glyph in `currentColor`
+(`MapIcons.tsx`). One button's width, whatever the count block opposite is
+saying, so neither control is ever pushed into a second row or squeezed.
 
-**Find a place** (`MapFind.tsx`) is a `Find a place` chip until it is asked
-for, then a field of `min(300px, 100vw − 190px)` with the matches beneath it
+Glyphs here are affordances, not state: the map's state vocabulary is still
+dots and rings (CLAUDE.md, "Marks, not glyphs"). Each button carries its words
+in `aria-label` — "Find a place", "Layers, 2 on" — because the glyph is not
+the name.
+
+**Find a place** (`MapFind.tsx`) is the magnifier button until it is asked
+for, then a field of `min(300px, 100vw − 96px)` with the matches beneath it
 in a `--spoke-surface` card. Matching runs server-side over the room area's
 snapshot — the same rows the explore layer draws — by name only, forgiving
 accents, punctuation, word order and one wrong letter. At most 8 matches, each
@@ -335,9 +340,10 @@ a ≥44px row with the name above its place class. ↓/↑ move, Enter chooses,
 Escape clears then closes, and the match count goes out on `aria-live`.
 
 Choosing a match makes it the **target**. The map flies to it and centres on
-it (an explicit action, the §8 exception), and the chip becomes the target's
-name beside a `✕`: the map always says what it is centred on, and the one
-control that lets it go sits next to it. Tapping the name searches again.
+it (an explicit action, the §8 exception), and the find button inverts —
+`--spoke-ink` face, `--spoke-surface` glyph — with a `✕` button beside it.
+The corner does not repeat the name: the place carries it on the map, on its
+own card. Pressing the find button again searches for something else.
 
 The target is drawn, not selected. Its card is forced into the named set
 whatever its rank, sits at `z-index: 15`, takes the suffix `· found`, and
@@ -356,12 +362,12 @@ map on desktop and a full screen over it on mobile:
   place the viewer asked to see, so the target is drawn and its detail is a
   second tap on the card.
 
-Dismissing the target with `✕` returns the chip to `Find a place` and closes
-whatever the target opened.
+Dismissing the target with `✕` returns the find button to its plain state and
+closes whatever the target opened.
 
-**Layers** (`MapLayers.tsx`) is a `Layers` chip whose panel carries one
-checkbox per optional layer: buildings in 3D, places not in the room,
-landmarks, transit lines. The chip's border goes to `--spoke-ink` while any
+**Layers** (`MapLayers.tsx`) is the stacked-planes button whose panel carries
+one checkbox per optional layer: buildings in 3D, places not in the room,
+landmarks, transit lines. The button's ring goes to `--spoke-ink` while any
 layer is on. Every layer is *context under the room* and is painted in the
 plate's own family (`MAP_THEME.layers`) — never in a state colour, which would
 read as a verdict about a place. Nothing the room decided is ever behind a

@@ -878,37 +878,64 @@ body { overflow: hidden; }
   position: absolute;
   top: 14px;
   right: 14px;
-  /* The count block owns the other corner and sizes to its own text, so the
-     controls take what is left of the row. `--count-block-w` is measured;
-     the fallback is a wide guess, which errs towards a narrower control. */
-  max-width: calc(100% - var(--count-block-w, 200px) - 28px);
-  flex-wrap: wrap;
-  justify-content: flex-end;
   /* Above every marker (a selected sticker reaches 14, the origin mark 16):
      a control the user is reaching for is never behind a label. */
   z-index: 20;
   display: flex;
-  align-items: flex-start;
+  flex-direction: column;
+  align-items: flex-end;
   gap: 6px;
 }
 
-/* An open field is a transient, user-asked-for state, and it is worth more
-   width than the count block's corner: while it is open the row takes the
-   whole band. */
-.map-top-right:has(.map-find) { max-width: calc(100% - 28px); }
-
-/* On a phone the count block is most of the band, and a control squeezed
-   into what is left is unusable. Below it, then — still the map's top, still
-   out of the count's way, and full width for the field. */
-@media (max-width: 559px) {
-  .map-top-right {
-    top: calc(14px + var(--count-block-h, 74px) + 8px);
-    max-width: calc(100% - 28px);
-  }
+/* Two round buttons in a column — find above layers — so the controls cost
+   one button's width whatever the count block opposite them is saying. */
+.map-icon-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* The drawn face is 32px; the padding carries it to the 44px tap box
+     without growing what is drawn (§13). */
+  width: var(--spoke-tap-min);
+  height: var(--spoke-tap-min);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  color: var(--spoke-ink);
+}
+.map-icon-face {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: var(--spoke-border) solid var(--spoke-line);
+  border-radius: 50%;
+  background: var(--spoke-surface);
+  box-shadow: var(--spoke-shadow-drop);
+  color: inherit;
+}
+/* A layer is on: the ring goes to ink, a quiet "something is set". */
+.map-icon-face[data-on="true"] { border-color: var(--spoke-ink); }
+/* The map is holding a target: the button inverts, because this state has a
+   dismiss button next to it and has to be worth dismissing. Ink, not one of
+   the four state colours — a found place is not a verdict (§2). */
+.map-find-row .map-icon-face[data-on="true"] {
+  background: var(--spoke-ink);
+  border-color: var(--spoke-ink);
+  color: var(--spoke-surface);
+}
+.map-icon-button:focus-visible .map-icon-face {
+  outline: 2px solid var(--spoke-ink);
+  outline-offset: 2px;
 }
 
+/* Dismissing a target sits beside the find button, so the column keeps its
+   right edge and neither button can take the other's tap. */
+.map-find-row { display: flex; align-items: center; gap: 2px; }
+
 .map-find {
-  width: min(300px, calc(100vw - 190px));
+  width: min(300px, calc(100vw - 96px));
   min-width: 160px;
 }
 
@@ -979,30 +1006,7 @@ body { overflow: hidden; }
   font-size: var(--spoke-size-micro);
 }
 
-/* Holding a target: the chip names it, the ✕ lets it go. Two buttons, each
-   its own 44px box, so neither tap can take the other. */
-.map-find-target {
-  display: flex;
-  align-items: flex-start;
-  gap: 4px;
-  max-width: min(300px, calc(100vw - 190px));
-}
-.map-find-target-name {
-  display: block;
-  max-width: 140px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.map-find-clear .map-nav-chip {
-  padding-inline: 8px;
-  font-size: var(--spoke-size-micro);
-}
-
 .map-layers { position: relative; }
-.map-layers .map-nav-chip[data-on="true"] {
-  border-color: var(--spoke-ink);
-}
 
 .map-layers-panel {
   position: absolute;

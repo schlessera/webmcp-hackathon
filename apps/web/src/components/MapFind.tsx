@@ -1,11 +1,13 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { fetchPlaceSearch } from "../api.ts";
+import { ClearIcon, FindIcon } from "./MapIcons.tsx";
 import type { ExplorePlace } from "../spatial-types.ts";
 
 /**
  * Find a place by name (CLAUDE.md §1: by name, never by kind).
  *
- * A collapsed chip until it is asked for, so the map keeps its top edge. The
+ * A round icon button until it is asked for, so the map keeps its top edge
+ * and the controls never crowd the count block. The
  * matches come from the same snapshot the explore layer draws, so choosing one
  * always lands on a place the room can bring in — the caller decides what
  * "choose" means (centring the map on it, marking it, opening it), this only
@@ -106,39 +108,39 @@ export function MapFind({ roomId, near, target, onChoose, onClear }: Props) {
   };
 
   if (!open) {
-    return target ? (
-      <div className="map-find-target" data-testid="find-target">
+    /* Holding a target, the button says so — an ink ring, and a dismiss
+       button beside it. The name itself is on the map, on the card the
+       target carries, so the corner does not have to repeat it. */
+    return (
+      <div className="map-find-row" data-testid={target ? "find-target" : undefined}>
+        {target && (
+          <button
+            type="button"
+            className="map-icon-button"
+            data-testid="find-clear"
+            aria-label={`Stop showing ${target.name}`}
+            onClick={onClear}
+          >
+            <span className="map-icon-face">
+              <ClearIcon />
+            </span>
+          </button>
+        )}
         <button
           ref={chipRef}
           type="button"
-          className="map-nav-action map-find-open"
+          className="map-icon-button"
           data-testid="find-place"
+          aria-label={
+            target ? `Showing ${target.name}. Find another place.` : "Find a place"
+          }
           onClick={openField}
         >
-          <span className="map-nav-chip" data-on="true">
-            <span className="map-find-target-name">{target.name}</span>
+          <span className="map-icon-face" data-on={target ? "true" : undefined}>
+            <FindIcon />
           </span>
         </button>
-        <button
-          type="button"
-          className="map-nav-action map-find-clear"
-          data-testid="find-clear"
-          aria-label={`Stop showing ${target.name}`}
-          onClick={onClear}
-        >
-          <span className="map-nav-chip" aria-hidden="true">✕</span>
-        </button>
       </div>
-    ) : (
-      <button
-        ref={chipRef}
-        type="button"
-        className="map-nav-action map-find-open"
-        data-testid="find-place"
-        onClick={openField}
-      >
-        <span className="map-nav-chip">Find a place</span>
-      </button>
     );
   }
 

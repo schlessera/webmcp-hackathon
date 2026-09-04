@@ -670,9 +670,6 @@ export function MapView({
   const deltaChipRef = useRef<HTMLDivElement>(null);
   const topRightRef = useRef<HTMLDivElement>(null);
   const [overlayTick, setOverlayTick] = useState(0);
-  /** The count block's measured box, so the controls opposite it can take
-   * what is left of the row — and, on a phone, sit under it instead. */
-  const [countBlockBox, setCountBlockBox] = useState({ width: 0, height: 0 });
   const focusExploreAction = useRef(false);
   const ownScopeCenter = useRef<string | null>(null);
   const exploreTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -2072,11 +2069,7 @@ export function MapView({
       topRightRef.current,
     ].filter((element): element is HTMLDivElement => element !== null);
     if (targets.length === 0) return;
-    const observer = new ResizeObserver(() => {
-      setOverlayTick((tick) => tick + 1);
-      const box = countBlockRef.current?.getBoundingClientRect();
-      setCountBlockBox({ width: box?.width ?? 0, height: box?.height ?? 0 });
-    });
+    const observer = new ResizeObserver(() => setOverlayTick((tick) => tick + 1));
     for (const target of targets) observer.observe(target);
     return () => observer.disconnect();
   }, [loaded, Boolean(bestRelaxation) && !settled]);
@@ -2092,14 +2085,6 @@ export function MapView({
       data-explore-count={explorePlaces.length}
       data-layers={Object.entries(layers).filter(([, on]) => on).map(([key]) => key).join(" ")}
       data-pitch={pitch}
-      style={
-        countBlockBox.width > 0
-          ? ({
-              "--count-block-w": `${Math.round(countBlockBox.width)}px`,
-              "--count-block-h": `${Math.round(countBlockBox.height)}px`,
-            } as CSSProperties)
-          : undefined
-      }
     >
       {tileStyle && (
       <Map
