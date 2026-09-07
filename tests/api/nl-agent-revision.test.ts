@@ -1,6 +1,7 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { Participant } from "../../apps/server/src/auth.ts";
 import { submitCommand } from "../../apps/server/src/engine.ts";
+import { approveAgentAction } from "../../apps/server/src/nl/approvals.ts";
 import { runAgent } from "../../apps/server/src/nl/agent.ts";
 import { hold, release } from "../../apps/server/src/nl/holder.ts";
 import { setTransport } from "../../apps/server/src/nl/openai.ts";
@@ -101,10 +102,11 @@ describe("R2 in-page agent revision discipline", () => {
     expect(competing.ok).toBe(true);
 
     const outcome = await agent;
-    expect(outcome.actions).toHaveLength(1);
-    expect(outcome.actions[0]).toMatchObject({ ok: false });
-    expect(outcome.actions[0].effect).toContain("sync_required");
-    expect(secondInput).toContain("sync_required");
+    expect(outcome.actions).toEqual([]);
+    expect(outcome.pendingAction).toBeDefined();
+    expect(await approveAgentAction(actor, outcome.pendingAction!.id))
+      .toMatchObject({ ok: false, error: { code: "sync_required" } });
+    expect(secondInput).toBe("");
 
     const organizer = await room.pool.query(
       "SELECT ready_state FROM participants WHERE id = $1",
@@ -317,7 +319,7 @@ describe("R3 page-held screening invalidation", () => {
 });
 
 describe("R7 partial NL turns", () => {
-  it("returns and persists a completed action when the next model round fails", async () => {
+  it("stops before a second model round and persists only a proposal until approval", async () => {
     const actor: Participant = {
       id: participantId("sarah"),
       roomId: room.roomId,
@@ -352,25 +354,14 @@ describe("R7 partial NL turns", () => {
     });
 
     const outcome = await runAgent(actor, "keep contributing", null);
-    expect(outcome).toMatchObject({ partial: true, failureCategory: "model" });
-    expect(outcome.actions).toHaveLength(1);
-    expect(outcome.actions[0]).toMatchObject({ tool: "set_ready_state", ok: true });
-    expect(outcome.reply).toContain("completed changes");
-    const stored = await room.pool.query(
-      `SELECT tool, ok, effect FROM nl_agent_actions
-        WHERE participant_id = $1 ORDER BY id DESC LIMIT 1`,
-      [actor.id],
-    );
-    expect(stored.rows[0]).toMatchObject({ tool: "set_ready_state", ok: true });
-    const after = Number(
-      (
-        await room.pool.query(
-          "SELECT count(*)::int AS count FROM nl_agent_actions WHERE participant_id = $1",
-          [actor.id],
-        )
-      ).rows[0].count,
-    );
-    expect(after).toBe(before + 1);
+    expect(outcome.partial).toBeUndefined();
+    expect(outcome.actions).toEqual([]);
+    expect(round).toBe(1);
+    const after = Number((await room.pool.query(
+      "SELECT count(*)::int AS count FROM nl_agent_actions WHERE participant_id = $1", [actor.id],
+    )).rows[0].count);
+    expect(after).toBe(before);
+    expect((await approveAgentAction(actor, outcome.pendingAction!.id)).ok).toBe(true);
     expect(
       (await room.pool.query("SELECT ready_state FROM participants WHERE id = $1", [actor.id]))
         .rows[0].ready_state,
@@ -458,10 +449,9 @@ describe("R14 NL resource bounds", () => {
 
     const outcome = await runAgent(actor, "mark me ready, then undo it", null);
     expect(outcome.partial).toBeUndefined();
-    expect(outcome.actions).toHaveLength(2);
-    expect(outcome.actions[0]).toMatchObject({ ok: true });
-    expect(outcome.actions[1]).toMatchObject({ ok: false });
-    expect(outcome.actions[1].effect).toContain("Only one mutation");
+    expect(outcome.actions).toEqual([]);
+    expect(outcome.pendingAction).toBeDefined();
+    expect((await approveAgentAction(actor, outcome.pendingAction!.id)).ok).toBe(true);
     expect(
       (await room.pool.query("SELECT ready_state FROM participants WHERE id = $1", [actor.id]))
         .rows[0].ready_state,

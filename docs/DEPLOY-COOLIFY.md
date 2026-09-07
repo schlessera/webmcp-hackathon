@@ -27,7 +27,9 @@ outbound proxy variables passed through to the app service.
 | Var | Required | Notes |
 |---|---|---|
 | `DEMO_SECRET_KEY` | **yes** | Any strong random string. HMAC key for guest invite secrets. Must be stable across redeploys or existing invite links break. The compose refuses to seed if it is unset. |
-| `APP_URL` | recommended | The public URL Coolify assigns (e.g. `https://spokes.example.coolify.app`). The seed prints participant invite URLs against it. |
+| `APP_URL` | **yes** | Exact public HTTPS origin. Used for origin checks and printed invite URLs; the Hetzner bootstrap sets it from `APP_DOMAIN`. |
+| `TRUSTED_PROXIES` | **yes** | Actual ingress proxy IPs/CIDRs. Use an isolated trusted proxy network or explicit proxy addresses; never trust arbitrary forwarded headers. |
+| `ROOM_LIMIT` | optional | Combined room-creation and plan-preview requests per IP per hour; defaults to `50`. |
 | `ORIGIN_TRIAL_TOKEN` | for the ChatGPT/WebMCP path | Chrome WebMCP origin-trial token registered **for the deployed origin** (see §4). Without it the page still works as a normal web app, but ChatGPT's built-in browser will not discover the WebMCP tools on the hosted origin. |
 | `OPENROUTER_API_KEY` | recommended | Enables the natural-language surface, matrix evaluation, menu reading, and model-backed refinement through OpenRouter. Leave both provider keys empty for a deterministic no-model deployment. |
 | `OPENROUTER_PROVIDERS` | optional | Comma-separated OpenRouter provider slugs to pin, in order (`allow_fallbacks` off). Unset: free routing among endpoints that honour the request. Pin when benchmark runs must be comparable. |
@@ -65,7 +67,7 @@ outbound proxy variables passed through to the app service.
 | `LISTINGS` | optional | Set to `0` to disable DataForSEO listings. Enabled when both DataForSEO credentials exist. |
 | `PROXY_URL` | optional | Authenticated outbound proxy URL for venue pages, robots, and non-Commons image hosts. Treat it as a secret; it is never logged. |
 | `PROXY` | optional | Set to `0` to force all proxy-eligible traffic direct; defaults to enabled when `PROXY_URL` is present. |
-| `POSTGRES_PASSWORD` | optional | Defaults to `webmcp`. Set a real one for a public deployment. |
+| `POSTGRES_PASSWORD` | **yes** | Existing database password; no production default. The Hetzner bootstrap generates it once on first deployment. Preserve it across redeploys. |
 | `SOURCE_COMMIT` | auto | Coolify injects this; it becomes `BUILD_ID` so clients detect new deploys and reload. |
 
 ## 3. Domain and ingress
@@ -115,3 +117,11 @@ tool discovery on the hosted origin depends on it.
   changed. Set it once and leave it.
 - **ChatGPT lists no site tools**: `ORIGIN_TRIAL_TOKEN` missing or registered
   for the wrong origin (§4).
+# Security rollout (September 2026)
+
+Before deploying these changes, follow
+[the security review's rollout checklist](SECURITY-REVIEW-2026-09-07.md#rollout-and-verification).
+Production Compose now requires `APP_URL`, `TRUSTED_PROXIES` (the actual proxy
+IPs/CIDRs) and a non-default `POSTGRES_PASSWORD`. Migrations 026–028 isolate
+confirmed facts and revoke creator-known legacy member sessions. Members must
+use the newer join links; local fixture access is disabled in production.

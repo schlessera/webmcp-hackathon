@@ -267,7 +267,7 @@ Transport-agnostic, like the negotiation command set. Mutations carry
 | `FocusDestination { candidateId }` | local | pans/highlights the caller's own map view; **no shared state change** |
 | `PlanArrival { mode, pickupNote? }` | mutate | per-participant walk/bike/car mode and note; emits `arrival_plan_updated` |
 | `AttestAttribute { candidateId, key, status, confidence, note, sourceUrl? }` | mutate | records shared participant-supplied evidence |
-| `ConfirmFact { candidateId, criterionId, lean, note?, sourceUrl? }` | mutate | permanently records person-verified evidence for every room holding the place |
+| `ConfirmFact { candidateId, criterionId, lean, note?, sourceUrl? }` | mutate | records person-verified evidence only in the current room |
 | `UnconfirmFact { candidateId, criterionId }` | mutate | confirmer/organizer withdrawal of a permanent fact |
 | `PrepareNavigation { candidateId?, from? }` | read | one-click handoff links for that candidate or the committed destination (§9) |
 
@@ -407,8 +407,8 @@ its sentence in the shared attestation record.
 
 `ConfirmFact { baseRevision, candidateId, criterionId, lean, note?, sourceUrl? }`
 records what a person verified themselves. It uses the attestation merge path
-but is keyed globally by `(osm_ref, criterion_id)`, has no TTL, and applies to
-every room holding that OpenStreetMap ref. Its read-time fact is
+but is keyed by `(room_id, osm_ref, criterion_id)`, has no TTL, and applies only to
+the room that recorded it. Guest confirmations never affect other rooms. Its read-time fact is
 `verified_true` / `verified_false` at confidence **0.95**, source
 `person:confirmed`. `UnconfirmFact` removes it and is available only to the
 recorded confirmer or the current room's organizer.

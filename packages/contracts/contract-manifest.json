@@ -1,6 +1,6 @@
 {
   "toolContractVersion": "3",
-  "sha256": "78700a38f96bced68d5377e5307d96314962587b2efc430dd3386cc454cf4b28",
+  "sha256": "af2876ab62f05b5ef68bb918553eefa6108e716431a2bbd9f278d6201022769c",
   "manifest": {
     "capabilityManifest": {
       "agreement": {
@@ -7365,7 +7365,7 @@
       },
       {
         "annotations": {},
-        "description": "Record what you verified yourself; this is kept permanently for every room",
+        "description": "Record what you verified yourself; this confirmation is shared only within this room",
         "inputSchema": {
           "additionalProperties": false,
           "properties": {

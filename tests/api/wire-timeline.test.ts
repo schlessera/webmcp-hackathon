@@ -268,15 +268,16 @@ describe("wire timeline: the agent's tool calls", () => {
     const outcome = await runAgent(actor, "mark me ready", null);
 
     expect(outcome.partial).toBeUndefined();
-    expect(outcome.meta.rounds).toBe(2);
+    expect(outcome.meta.rounds).toBe(1);
     // The deferred third call left no step: nothing ran.
-    expect(outcome.meta.calls).toHaveLength(2);
+    expect(outcome.meta.calls).toHaveLength(1);
     for (const call of outcome.meta.calls) {
       expect(Object.keys(call).sort()).toEqual(["ms", "ok", "round", "tool"]);
       expect(call.ms).toBeGreaterThanOrEqual(0);
     }
     expect(outcome.meta.calls[0]).toMatchObject({ tool: "get_spatial_context", round: 1, ok: true });
-    expect(outcome.meta.calls[1]).toMatchObject({ tool: "set_ready_state", round: 1, ok: true });
+    expect(outcome.pendingAction).toBeDefined();
+    expect(outcome.actions).toEqual([]);
     expect(JSON.stringify(outcome.meta.calls)).not.toContain("arguments");
   });
 });

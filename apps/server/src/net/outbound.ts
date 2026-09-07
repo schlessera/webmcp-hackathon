@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { isIP } from "node:net";
 import { lookup } from "node:dns/promises";
-import { Pool, ProxyAgent, fetch as undiciFetch } from "undici";
+import { Agent, Pool, ProxyAgent, fetch as undiciFetch } from "undici";
+import { lookup as dnsLookup, type LookupAddress, type LookupOptions } from "node:dns";
+import { WorkSlots, WindowBudget, securityLimit } from "../security.ts";
 import { config } from "../config.ts";
 import { pool } from "../db.ts";
 import {
@@ -155,6 +157,9 @@ const sessionRotations = new Map<string, string>();
 const proxyFailures = new Map<string, number[]>();
 const breakerUntil = new Map<string, number>();
 const dnsCache = new Map<string, { addresses: string[]; expiresAt: number }>();
+const outboundSlots = new WorkSlots();
+const outboundHourly = new WindowBudget(securityLimit("OUTBOUND_CALLS_PER_HOUR", 5000), 3_600_000, 1);
+const outboundDaily = new WindowBudget(securityLimit("OUTBOUND_CALLS_PER_DAY", 20_000), 86_400_000, 1);
 let lastProxySuccess = 0;
 let diagnosticLogger: ((fields: Record<string, unknown>, message: string) => void) | null = null;
 let diagnosticTimer: ReturnType<typeof setInterval> | null = null;
@@ -407,11 +412,13 @@ export function isPublicAddress(address: string): boolean {
   }
   if (value.startsWith("::")) return false;
   const first = Number.parseInt(value.split(":")[0] || "0", 16);
-  return Number.isFinite(first) &&
+  // Global unicast only; reject transition, link-local and special-use ranges.
+  return isIP(value) === 6 && (first & 0xe000) === 0x2000 &&
     (first & 0xfe00) !== 0xfc00 &&
     (first & 0xffc0) !== 0xfe80 &&
     (first & 0xff00) !== 0xff00 &&
-    !/^2001:db8(?::|$)/.test(value);
+    !/^2001:(?:0*0|db8|0*2|0*1[0-9a-f])(?::|$)/.test(value) &&
+    !/^2002:/.test(value);
 }
 
 export async function assertPublicTarget(target: URL, allowPublicIp = false): Promise<string[]> {
@@ -600,10 +607,29 @@ function proxyAgent(
   });
 }
 
+/** Validate the DNS result actually handed to the socket, closing the gap
+ * between the earlier URL check and Undici's own connection-time lookup. */
+export const publicLookup = (
+  hostname: string, options: LookupOptions,
+  callback: (error: NodeJS.ErrnoException | null, address: string | LookupAddress[], family?: number) => void,
+): void => {
+  dnsLookup(hostname, { all: true, verbatim: true }, (error, addresses) => {
+    if (error) return callback(error, []);
+    if (!addresses.length || addresses.some(({ address }) => !isPublicAddress(address))) {
+      return callback(new Error("non-public network target"), []);
+    }
+    const selected = addresses.filter((row) => !options.family || row.family === options.family);
+    if (!selected.length) return callback(new Error("no public address for family"), []);
+    if (options.all) callback(null, selected);
+    else callback(null, selected[0].address, selected[0].family);
+  });
+};
+const directAgent = new Agent({ connect: { lookup: publicLookup, timeout: CONNECT_TIMEOUT_MS } });
+
 const productionTransport: OutboundTransport = async (url, init, context) => {
   return undiciFetch(url, {
     ...init,
-    ...(context.dispatcher ? { dispatcher: context.dispatcher } : {}),
+    dispatcher: context.dispatcher ?? directAgent,
   } as Parameters<typeof undiciFetch>[1]) as unknown as Response;
 };
 
@@ -705,7 +731,19 @@ async function oneAttempt(
     success: false,
   };
   try {
-    const response = await (testTransport ?? productionTransport)(target.toString(), {
+    const release = outboundSlots.acquire("all", securityLimit("OUTBOUND_CONCURRENCY", 24));
+    if (!release) throw new Error("outbound capacity reached");
+    // Kept until the timeout as well as stream completion: unread bodies
+    // cannot permanently pin capacity. release() is idempotent.
+    signal.addEventListener("abort", release, { once: true });
+    const close = () => { signal.removeEventListener("abort", release); release(); };
+    if (!outboundHourly.take("all") || !outboundDaily.take("all")) {
+      close();
+      throw new Error("outbound budget reached");
+    }
+    let response: Response;
+    try {
+    response = await (testTransport ?? productionTransport)(target.toString(), {
       method: options.method,
       headers,
       body: options.body,
@@ -719,6 +757,7 @@ async function oneAttempt(
       referrer: options.referrer,
       referrerPolicy: options.referrerPolicy,
     }, { route, session, country: options.country, dispatcher });
+    } catch (error) { close(); throw error; }
     event.latencyMs = Date.now() - started;
     if (route === "proxy") lastProxySuccess = Date.now();
     const statusClass = response.status >= 500 ? "5xx" : response.status >= 400 ? "4xx" : undefined;
@@ -733,6 +772,7 @@ async function oneAttempt(
     const commit = () => {
       if (closed) return;
       closed = true;
+      close();
       void dispatcher?.close();
     };
     // Empty and HEAD responses have no useful body to wait for.
@@ -781,6 +821,7 @@ async function networkOutboundFetch(url: string | URL, options: OutboundOptions)
   let session = sessionRotations.get(baseSession) ?? baseSession;
   let method = options.method;
   let body = options.body;
+  const headers = new Headers(options.headers);
 
   for (let redirects = 0; redirects <= MAX_REDIRECTS; redirects += 1) {
     await assertPublicTarget(current);
@@ -798,11 +839,11 @@ async function networkOutboundFetch(url: string | URL, options: OutboundOptions)
       try {
         response = await (hostRoute === "proxy" ? limit.use(() => oneAttempt(
           current,
-          { ...options, method, body },
+          { ...options, method, body, headers },
           hostRoute,
           session,
           proxyEndpoint,
-        )) : oneAttempt(current, { ...options, method, body }, hostRoute, undefined));
+        )) : oneAttempt(current, { ...options, method, body, headers }, hostRoute, undefined));
         break;
       } catch (error) {
         lastError = error;
@@ -825,6 +866,11 @@ async function networkOutboundFetch(url: string | URL, options: OutboundOptions)
     if (redirects === MAX_REDIRECTS) throw new Error("too many redirects");
     const next = new URL(location, current);
     if (!/^https?:$/.test(next.protocol)) throw new Error("redirected to a non-fetchable URL");
+    if (next.origin !== current.origin) {
+      headers.delete("authorization");
+      headers.delete("cookie");
+      headers.delete("proxy-authorization");
+    }
     // The next loop rejects literal/private targets before transport sees them.
     current = next;
     if (response.status === 303 || ((response.status === 301 || response.status === 302) && method === "POST")) {

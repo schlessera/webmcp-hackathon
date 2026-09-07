@@ -559,6 +559,10 @@ export function nlCondition(text: string, signal?: AbortSignal): Promise<unknown
   return post("/api/nl/condition", { text }, signal);
 }
 
+export function reviewAgentAction(id: string, decision: "approve" | "dismiss"): Promise<unknown> {
+  return post(`/api/nl/actions/${encodeURIComponent(id)}/${decision}`, {});
+}
+
 /**
  * Before a room exists (components/Start.tsx): the area registry joined with
  * what was measured, and room creation. Neither carries a participant token;

@@ -77,10 +77,11 @@ export async function loadAttestations(
   ).rows as AttestationRow[];
 }
 
-/** Global, non-expiring facts for the OSM refs represented in a read. */
+/** Participant confirmations are visible only within their originating room. */
 export async function loadConfirmedFacts(
   q: pg.PoolClient | pg.Pool,
   osmRefs: string[],
+  roomId: string,
 ): Promise<ConfirmedFactRow[]> {
   if (osmRefs.length === 0) return [];
   return (
@@ -88,9 +89,9 @@ export async function loadConfirmedFacts(
       `SELECT osm_ref, criterion_id, lean, note, source_url,
               confirmed_by_name, confirmed_by_participant, room_id, confirmed_at
          FROM confirmed_facts
-        WHERE osm_ref = ANY($1)
+        WHERE osm_ref = ANY($1) AND room_id = $2
         ORDER BY osm_ref, criterion_id`,
-      [osmRefs],
+      [osmRefs, roomId],
     )
   ).rows as ConfirmedFactRow[];
 }

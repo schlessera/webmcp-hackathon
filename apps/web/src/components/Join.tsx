@@ -23,9 +23,10 @@ interface Props {
   onJoined(room: { roomId: string }): void;
 }
 
-type Failure = "in_use" | "expired" | "unknown" | "invalid" | "network";
+type Failure = "in_use" | "full" | "expired" | "unknown" | "invalid" | "network";
 
 const FAILURE_COPY: Record<Failure, string> = {
+  full: "This room is full. Ask the organizer to open a new room.",
   in_use: COPY.joinInUse,
   expired: COPY.joinExpired,
   unknown: COPY.joinUnknown,

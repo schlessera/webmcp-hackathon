@@ -15,6 +15,42 @@
         "value": "4px",
         "createdAt": "2026-09-03T21:12:57.655Z",
         "reason": "same calc-offset false positive: calc(var(--spoke-radius-block) + 4px) is concentric with its inner image, landing.css:572"
+      },
+      {
+        "rule": "design-system-font-size",
+        "value": "7px",
+        "files": [
+          "apps/web/src/styles.css"
+        ],
+        "createdAt": "2026-09-07T09:51:39.865Z",
+        "reason": "Agent: DESIGN.md lines 322-323 and 513 explicitly require 7px map attribution; the type-ramp detector omits this documented exception."
+      },
+      {
+        "rule": "design-system-font-size",
+        "value": "9px",
+        "files": [
+          "apps/web/src/styles.css"
+        ],
+        "createdAt": "2026-09-07T09:51:40.037Z",
+        "reason": "Agent: DESIGN.md lines 465-466 explicitly specifies a 9px mono drawer control; the detector only reads the general type ramp."
+      },
+      {
+        "rule": "design-system-radius",
+        "value": "7px",
+        "files": [
+          "apps/web/src/styles.css"
+        ],
+        "createdAt": "2026-09-07T09:51:40.206Z",
+        "reason": "Agent: DESIGN.md scope-chip component and line 401 explicitly specify 7px corners; the detector omits component-specific radii."
+      },
+      {
+        "rule": "design-system-radius",
+        "value": "2px",
+        "files": [
+          "apps/web/src/styles.css"
+        ],
+        "createdAt": "2026-09-07T09:51:40.488Z",
+        "reason": "Agent: styles.css documents an 8px square sharing mark distinct from round presence; 2px preserves that semantic geometry. The same radius keeps the documented 7px attribution plates rectangular rather than pill-shaped."
       }
     ]
   }

@@ -30,15 +30,19 @@ export function demoInviteSecret(participantId: string): string {
 export async function exchangeInviteSecret(
   inviteSecret: string,
 ): Promise<{ token: string; participant: Participant } | null> {
+  if (!/^[a-f0-9]{32}$/.test(inviteSecret)) return null;
   const row = (
     await pool.query(
       `SELECT p.id, p.room_id, p.display_name, p.role, p.ready_state
          FROM invite_secrets s JOIN participants p ON p.id = s.participant_id
-        WHERE s.secret_hash = $1`,
+        WHERE s.secret_hash = $1 AND s.created_at > now() - interval '7 days'`,
       [sha256(inviteSecret)],
     )
   ).rows[0];
   if (!row) return null;
+  // The old batch-creation flow gave the creator every member's credential.
+  // Members now join through device-bound claims; fixtures are local only.
+  if (row.role !== "organizer" && !legacyMemberInvitesAllowed()) return null;
   const token = randomBytes(32).toString("hex");
   await pool.query(
     "INSERT INTO participant_tokens (token_hash, participant_id) VALUES ($1, $2)",
@@ -52,16 +56,21 @@ export async function authenticateToken(
   token: string,
   client?: pg.PoolClient,
 ): Promise<Participant | null> {
+  if (!/^[a-f0-9]{64}$/.test(token)) return null;
   const q = client ?? pool;
   const row = (
     await q.query(
       `SELECT p.id, p.room_id, p.display_name, p.role, p.ready_state
          FROM participant_tokens t JOIN participants p ON p.id = t.participant_id
-        WHERE t.token_hash = $1`,
+        WHERE t.token_hash = $1 AND t.created_at > now() - interval '24 hours'`,
       [sha256(token)],
     )
   ).rows[0];
   return row ? rowToParticipant(row) : null;
+}
+
+export function legacyMemberInvitesAllowed(): boolean {
+  return config.dev && process.env.ALLOW_LEGACY_MEMBER_INVITES === "1";
 }
 
 /** A participant by id — for server-initiated work on their behalf (their

@@ -383,7 +383,7 @@ export async function loadEligibilityInputs(
   const refs = (candidates.rows as CandidateRow[]).map((c) => c.osm_ref).filter((r): r is string => Boolean(r));
   const [enrichments, confirmedFacts] = await Promise.all([
     loadCached(q, refs),
-    loadConfirmedFacts(q, refs),
+    loadConfirmedFacts(q, refs, roomId),
   ]);
   const candidateById = new Map((candidates.rows as CandidateRow[]).map((candidate) => [candidate.id, candidate]));
   const areaId = typeof room.rows[0]?.area_id === "string" ? room.rows[0].area_id as string : undefined;

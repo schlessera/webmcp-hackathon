@@ -1,6 +1,6 @@
 services:
   db:
-    image: postgres:17.6-alpine
+    image: postgres:17.11-alpine
     environment:
       POSTGRES_USER: webmcp
       POSTGRES_PASSWORD: webmcp
@@ -30,6 +30,7 @@ services:
     environment:
       DATABASE_URL: postgres://webmcp:webmcp@db:5432/webmcp
       NODE_ENV: ${APP_ENV:-development}
+      ALLOW_LEGACY_MEMBER_INVITES: "1" # local demo fixtures; ignored in production
       PORT: "4173"
       ORIGIN_TRIAL_TOKEN: ${ORIGIN_TRIAL_TOKEN:-}
       DEMO_SECRET_KEY: ${DEMO_SECRET_KEY:-local-dev-only}
