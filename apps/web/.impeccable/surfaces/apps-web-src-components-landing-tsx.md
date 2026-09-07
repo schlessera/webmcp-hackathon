@@ -22,7 +22,7 @@ FINISH: Finish review, its scoped verdict, this completed surface record, and pr
 
 ## Constraints
 
-Keep the seven hotlinked image paths, global tokens, brand identity, and room behavior. No invented adoption, performance, or privacy guarantees. Screenshot scenarios are labeled. Browser requirements link to official WebMCP documentation. The design system remains unchanged; record only the landing surface at handoff.
+Keep the seven hotlinked image paths, global tokens, brand identity, and room behavior. No invented adoption, performance, or privacy guarantees. Screenshot scenarios are documented in asset provenance. Browser requirements link to official WebMCP documentation. The design system remains unchanged; record only the landing surface at handoff.
 
 ## Shipped surface
 
@@ -80,7 +80,7 @@ images need not all appear in the landing narrative.
 
 The hero loads eagerly with high fetch priority; supporting images load lazily.
 Explicit dimensions reserve space, alt text describes each state, and the hero
-caption identifies scripted demo scenarios. Each WebP has embedded EXIF capture
+caption describes the shared needs. Each WebP has embedded EXIF capture
 provenance and a matching JSON sidecar. No generated or retouched UI is used.
 
 [The asset README](../../public/landing/README.md) owns the scene inventory,

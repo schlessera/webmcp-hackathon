@@ -98,7 +98,7 @@ export function Landing({ onStart }: Props) {
                 <img src="/landing/hero-desktop.webp" width="1440" height="900" alt="A shared Berlin map with four places still working for the group, shared needs, and the effect of a private condition." loading="eager" fetchPriority="high" decoding="async" />
               </picture>
             </div>
-            <figcaption><span>Everyone&rsquo;s needs, in the same place.</span><span>Current app · scripted demo scenarios</span></figcaption>
+            <figcaption>Everyone&rsquo;s needs, in the same place.</figcaption>
           </figure>
         </section>
 
