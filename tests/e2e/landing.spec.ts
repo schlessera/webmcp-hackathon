@@ -6,7 +6,7 @@ import { createTestRoom, type TestRoom, DATABASE_URL } from "../api/helpers.ts";
 
 /**
  * The front door. `/` with no invite is the landing page; "Start a room"
- * reveals the area picker under `#start` and the back button returns; an
+ * opens goal-first planning under `#start` and the back button returns; an
  * `#invite=` link never shows the landing at all — it goes straight to the
  * room, which is what every existing spec and every shared link relies on.
  */
@@ -135,8 +135,7 @@ test("the root is the landing page, and Start a room opens the picker", async ()
   const landing = page.getByTestId("landing");
   await expect(landing).toBeVisible();
   await expect(page.getByRole("heading", { level: 1 })).toContainText("Decide together");
-  // The product half never names the wire; the drawer half does.
-  await expect(landing.getByText("Spokes is a hackathon entry.")).toBeAttached();
+  await expect(landing.getByRole("heading", { name: "Your agent gets a seat at the map." })).toBeAttached();
   await expect(page.getByTestId("start")).toHaveCount(0);
 
   await page.getByTestId("landing-start").click();
@@ -369,6 +368,28 @@ test("nothing on the landing forces a sideways scroll at 360", async () => {
   });
   expect(widths.doc[0]).toBe(widths.doc[1]);
   expect(widths.landing[0]).toBe(widths.landing[1]);
+  await context.close();
+});
+
+test("landing links reach the agent section and open the privacy explanation", async () => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, reducedMotion: "reduce" });
+  const page = await context.newPage();
+  await page.goto(`${BASE}/`);
+  await page.getByRole("link", { name: "For agents and builders" }).click();
+  await expect(page.locator("#for-agents")).toBeInViewport();
+  await expect(page.locator(".ld-top")).toHaveAttribute("data-ink", "true");
+
+  await page.getByRole("link", { name: "How private information is handled" }).click();
+  const privacy = page.locator("#privacy-details");
+  await expect(privacy).toHaveAttribute("open", "");
+  await expect(privacy.locator("summary")).toBeFocused();
+  await expect(privacy).toContainText("server memory");
+  await expect(privacy).toBeInViewport();
+
+  // A shared section URL reaches the same disclosure after a fresh load.
+  await page.reload();
+  await expect(privacy).toHaveAttribute("open", "");
+  await expect(privacy).toBeInViewport();
   await context.close();
 });
 

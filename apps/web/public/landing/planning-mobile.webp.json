@@ -1,0 +1,9 @@
+{
+  "prompt": "Browser screenshot, not AI-generated. The current onboarding review displays two sequential steps, outdoor dinner then a film. The model transport uses the repository's scripted plan fixture; the real API validates and interprets it. Captured from the current Spokes app using scripts/capture-landing.ts. Test participants and requirements; venue evidence comes from checked-in fixtures and is not a fresh factual verification. No DOM or pixel content edits. Source commit: a8d682926086d9bb5978a664f0474f0bad93b8d6.",
+  "createdAt": "2026-09-07T15:08:57.421Z",
+  "sourceCommit": "a8d682926086d9bb5978a664f0474f0bad93b8d6",
+  "viewport": {
+    "width": 430,
+    "height": 932
+  }
+}
