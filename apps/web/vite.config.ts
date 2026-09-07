@@ -17,7 +17,9 @@ export default defineConfig({
     port: 5173,
     strictPort: true,
     proxy: {
-      "/api": { target: "http://127.0.0.1:4173", changeOrigin: true },
+      // The API checks Origin against Host. Preserve the browser's host
+      // through the dev proxy so same-origin requests pass that check.
+      "/api": { target: "http://127.0.0.1:4173", changeOrigin: false },
       "/ws": { target: "ws://127.0.0.1:4173", ws: true },
     },
   },

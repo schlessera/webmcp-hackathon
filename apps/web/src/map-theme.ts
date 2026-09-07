@@ -33,6 +33,8 @@ export const MAP_THEME = {
   plate: "#e9e5da",
   /** Cheap snapshot places beneath the room's DOM stickers. */
   exploreDot: { color: "#a8a291", opacity: 0.55, stroke: "rgba(51, 65, 54, 0.55)" },
+  /** --spoke-ink: a narrow triangle tapering from the head to the POI. */
+  pinNeedle: { color: "#334136", width: 3 },
   /** The circle a distance need reaches, drawn as a dashed outline only: no
    * fill, no dimming, so it never competes with the scope ring's mask. Green
    * when it is measured from a place, the owner's person colour when it is

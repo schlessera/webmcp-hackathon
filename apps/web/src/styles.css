@@ -349,6 +349,31 @@ body { overflow: hidden; }
   width: var(--spoke-tap-min);
   height: var(--spoke-tap-min);
   cursor: pointer;
+  pointer-events: auto;
+  transform: translate(var(--map-pin-shift-x, 0px), var(--map-pin-shift-y, 0px));
+}
+.map-pin-needles {
+  position: absolute;
+  inset: 0;
+  width: 100%; height: 100%;
+  pointer-events: none;
+}
+
+/* Only the raised target owns taps; its now-empty geographic wrapper must
+   let taps through to neighbouring canvas dots. */
+.map-region .maplibregl-marker:has(> .marker) { pointer-events: none; }
+
+/* The head and its hit target rise together. Needles stay behind all of the
+   marker's artwork and never intercept a map gesture. */
+.marker-needle {
+  position: absolute;
+  left: 50%; top: 50%;
+  width: 1px; height: 1px;
+  overflow: visible;
+  z-index: -1;
+  pointer-events: none;
+  opacity: var(--map-pin-visible, 0);
+  fill: var(--spoke-ink);
 }
 
 /* Real geography piles stickers on top of each other in dense clusters, where
