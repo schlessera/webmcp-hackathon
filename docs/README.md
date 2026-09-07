@@ -25,6 +25,10 @@ data, privacy, and operational boundaries.
 | [DEMO-RUNBOOK.md](DEMO-RUNBOOK.md) | Repeatable local demonstration and validation workflow |
 | [DEPLOY.md](DEPLOY.md) | Caddy/Hetzner deployment, checks, secrets, rollback, and fixture reset |
 | [DEPLOY-COOLIFY.md](DEPLOY-COOLIFY.md) | Production Compose environment reference and optional, unverified Coolify setup |
+| [Repository README](../README.md) and [PRODUCT.md](../PRODUCT.md) | Setup, product behavior, and brand principles |
+| [COPY.md](../apps/web/COPY.md) and [SPOKES-UI.md](../apps/web/SPOKES-UI.md) | Current interface copy, interaction rules, and known wording gaps |
+| [FACETS.md](../apps/server/FACETS.md) | Implemented classification, evidence, and progress contracts |
+| [Data attribution](../packages/contracts/data/ATTRIBUTION.md) | Snapshot licenses, runtime sources, and cache handling |
 
 The landing page links directly to the WebMCP binding and Known limitations.
 Executable contracts in [packages/contracts](../packages/contracts/src) and

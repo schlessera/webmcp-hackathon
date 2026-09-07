@@ -148,10 +148,9 @@ These behaviors are enforced by the [command engine](../apps/server/src/engine.t
 - **The tool view is abbreviated.** The current catalog has 24 tools, but
   tool results have output budgets. Spatial context omits the full plan,
   facets, and detailed needs; candidate inspection omits much of the page's
-  evidence ledger and images. Some catalog descriptions overstate behavior,
-  including claims about soft ranking and lookup never producing verified
-  evidence. Follow the [binding reference](protocols/INTERACTION-AND-BINDING.md)
-  for actual behavior.
+  evidence ledger and images. See the
+  [binding reference](protocols/INTERACTION-AND-BINDING.md) for the fields and
+  budgets available to agents.
 - **Stale writes require catch-up; retries need care.** All stale mutations
   are rejected; commutative rebasing is not implemented. Server idempotency
   lasts ten minutes and binds the entire request, including its revision.

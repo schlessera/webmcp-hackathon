@@ -21,11 +21,10 @@ import type {
 } from "./spatial-types.ts";
 
 /**
- * Gate 1: register the full static tool catalog through
- * document.modelContext.registerTool() AT PAGE LOAD — never after
- * authentication completes; late registration races ChatGPT's discovery
- * snapshot. Until the invite-token exchange finishes, tools return a
- * structured not_authenticated result rather than being absent.
+ * Start the full static catalog registration through document.modelContext
+ * at page load. Registration proceeds asynchronously alongside mounting and
+ * authentication. Room tools can report not_authenticated until exchange
+ * finishes; phase/identity state does not change the catalog.
  * Feature-detected: the page is fully usable without WebMCP.
  */
 
@@ -483,8 +482,7 @@ async function openRoomFromGoal(
   await exchangeInvite(organizer.inviteSecret);
   const invite = await mintInvite();
 
-  // Take the page into the room. This is what an agent's caller sees as "we
-  // are in the map view now".
+  // Schedule navigation into the room; this callback does not await its mount.
   window.setTimeout(() => {
     window.location.assign(`/#invite=${organizer.inviteSecret}`);
     window.location.reload();
@@ -506,7 +504,7 @@ async function openRoomFromGoal(
           inviteNote: "One person per link, and unused links expire in an hour.",
         }
       : {}),
-    next: "The page is now in the room. Call sync_session, then get_spatial_context.",
+    next: "After the page enters the room, call sync_session, then get_spatial_context.",
   };
 }
 
@@ -564,8 +562,8 @@ async function executeTool(
       return spatialNavigationRaw(args ?? {}, signal);
 
     case "focus_destination": {
-      // Page-local presentation only: pans/highlights this viewer's map.
-      // No server call, no shared state (SPATIAL-PROTOCOL invariant 3).
+      // Selects on this viewer's map without a negotiation command. The
+      // mounted page reports viewing presence, which can start enrichment.
       const candidateId = (args as { candidateId?: unknown })?.candidateId;
       if (typeof candidateId !== "string") {
         return {
@@ -612,13 +610,12 @@ async function executeTool(
       // designed catch-up path, not something to paper over client-side.
       const input =
         args && typeof args === "object" ? (args as Record<string, unknown>) : {};
-      // R15: aborting a mutation request cannot prove it did not commit. It is
-      // safe to expose cancellation only because pass 1 attaches the same
-      // invocation's idempotency key to the command transport.
+      // Aborting a request cannot prove it did not commit. A fresh tool call
+      // receives a fresh key, so an ambiguous result needs a state check.
       const result = await runCommand(commandType, input, signal);
       if (result.ok) {
-        // UI-before-return: the visible map/panels reflect the change before
-        // the agent's tool call resolves (agents plan against what they see).
+        // Refresh the page store before returning when the read succeeds;
+        // this does not await a React paint or guarantee a successful refetch.
         // A grant beyond the delegated bound also lands here as ok:true — the
         // refreshed outstanding list carries staged:true, which is what makes
         // the in-page confirm card visible; no error branch is involved.

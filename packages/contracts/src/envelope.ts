@@ -2,7 +2,8 @@ import type { ToolError } from "./errors.ts";
 import type { CapabilityManifest, Visibility } from "./manifest.ts";
 import type { RoomStepView } from "./steps.ts";
 
-/** Shared result envelope — INTERACTION-AND-BINDING.md §3. Tools always resolve, never reject. */
+/** HTTP result shapes — INTERACTION-AND-BINDING.md §3. The WebMCP binding
+ * compacts successful reads and can reject on transport or unexpected errors. */
 
 export interface OutstandingEvaluationRequest {
   type: "evaluation_request";
@@ -63,7 +64,7 @@ export interface Delta {
   /** Last stored revision consumed by this page. This is deliberately not
    * the room revision while `truncated` is true. */
   throughRevision?: number;
-  /** R1: explicit escape hatch for a backlog beyond the replay safety cap;
+  /** Explicit escape hatch for a backlog beyond the replay safety cap;
    * callers must replace projections from a full sync instead of skipping. */
   resyncRequired?: "backlog_too_large";
 }
@@ -74,12 +75,12 @@ export interface SuccessEnvelope {
   /** ≤200 chars */
   effect?: string;
   /** True when the command was accepted but its consequence is STAGED pending
-   * the human's in-page confirmation (over-bound consent grants). */
+   * in-page confirmation (agreement or an over-bound consent grant). */
   staged?: boolean;
   outstanding: OutstandingItem[];
   syncHint?: { eventsSinceYourLastSync: number };
   /** True when this envelope was served from the idempotency store: the
-   * logical action had already committed and this HTTP attempt was a retry. */
+   * logical action already succeeded, possibly only as a staged change. */
   replayed?: true;
 }
 
@@ -124,19 +125,18 @@ export interface ParticipantSummary {
 export interface Feasibility {
   state: "feasible" | "fragile" | "infeasible" | "uncertain";
   eligible: number;
-  /** Satisfy every need on a likely fact (§8.2): counted, never folded into eligible. */
+  /** Satisfy active hard needs using likely evidence (§8.2); separate from eligible. */
   likely: number;
   uncertain: number;
-  /** Fail a need on a likely fact: counted, never folded into excluded. */
+  /** Fail an active hard need on likely evidence; separate from excluded. */
   unlikely: number;
   excluded: number;
 }
 
 /**
- * sync_session result — NEGOTIATION-PROTOCOL.md §6.1 extended with the
- * environment versions Gate 5 needs (buildId, toolContractVersion).
- * Without sinceRevision: manifest present, delta absent (first connection).
- * With sinceRevision: delta present, manifest absent.
+ * sync_session result — NEGOTIATION-PROTOCOL.md §6.1, including the running
+ * buildId and toolContractVersion. With neither sinceRevision nor cursor:
+ * manifest present, delta absent. With either: delta present, manifest absent.
  */
 export interface SyncSessionResult {
   ok: true;
@@ -189,11 +189,11 @@ export interface CandidateSummary {
   /** For likely / unlikely: the product of the confidences of the likely
    * facts the classification rests on (§8.2). Absent otherwise. */
   confidence?: number;
-  /** Redacted, ≤60 characters: cites evidence status and shared requirements
-   * only. Omitted when eligibility is `eligible`. */
+  /** Viewer-projected, ≤60 characters: may describe shared needs or the
+   * viewer's own private needs. Omitted when eligibility is `eligible`. */
   why?: string;
-  /** Minutes on foot from this viewer's origin, falling back to the current
-   * scope centre, recomputed per read. */
+  /** Straight-line walking estimate from this viewer's origin, falling back
+   * to the current scope centre; recomputed per read, without routing. */
   walkMin: number;
   /** null when the place has no price band on record — never coerced to 0. */
   priceLevel: number | null;
@@ -204,9 +204,9 @@ export interface CandidateSummary {
   image?: { url: string; width: number; height: number; blurhash: string };
 }
 
-/** One participant's PUBLIC stance on a proposal. A stance the viewer may not
- * see (a peer's private one) reads "none", exactly like no stance at all —
- * the veto boolean is what carries a private rejection. */
+/** One participant's projected stance: the viewer's own or a shared stance.
+ * A peer's private stance reads "none" here; aggregate proposal fields can
+ * still report its effect, including a standing veto. */
 export interface ProposalStance {
   participantId: string;
   stance: "accept" | "veto" | "none";
@@ -217,8 +217,8 @@ export interface ProposalView {
   candidateId: string;
   status: "open" | "withdrawn" | "vetoed" | "staged" | "committed";
   /** One entry per participant, in roster order. Carries the viewer's own
-   * stance plus shared-visible ones; everything else reads "none", so private
-   * stances stay indistinguishable from silence. */
+   * stance plus shared-visible ones; peer-private stances read "none" in
+   * this field. Aggregate staging and veto fields still report their effects. */
   stances: ProposalStance[];
   /** A standing veto blocks agreement; reported as a boolean, never a count. */
   vetoStands: boolean;
@@ -226,8 +226,8 @@ export interface ProposalView {
   /**
    * The §3.7 precondition as it stands, so the page can say who staging
    * waits on instead of offering a button that fails. `notReady` names people
-   * (readiness is roster-public); `unaccepted` is a count only, because a
-   * private stance must stay indistinguishable from silence.
+   * (readiness is roster-public); `unaccepted` counts participants without
+   * an accept or abstain, without naming whose stance is missing.
    */
   staging: { ready: boolean; notReady: string[]; unaccepted: number; vetoStands: boolean };
 }
@@ -245,10 +245,9 @@ export interface ArrivalPlanView {
 }
 
 /**
- * What is askable about the current candidate set (FACETS.md §1). Every
- * control in the UI is generated from these: the client renders `label`
- * verbatim and branches on `type`, never on domain. There is deliberately no
- * category or domain field.
+ * Askable facts about the current candidate set (FACETS.md §1). Facet
+ * controls use the server-authored label and branch on type. These records
+ * have no category or domain field.
  */
 export interface FacetValueCount {
   value: string;
@@ -262,7 +261,7 @@ export interface Facet {
   /** The only string the UI shows. Server-authored, lowercase, domain-natural. */
   label: string;
   type: "boolean" | "enum" | "numeric" | "temporal" | "text";
-  /** `unknown` is mandatory: unverified is a state the UI draws. `likely`
+  /** `unknown` is mandatory. `likely`
    * and `unlikely` count graded facts (§8.2); absent means zero. */
   counts: { yes?: number; likely?: number; unlikely?: number; no?: number; unknown: number };
   /** enum only. */
@@ -290,7 +289,7 @@ export interface ActiveNeed {
   ruledOut: number;
   /** How many come back if it were dropped from the current set. */
   wouldReturn: number;
-  /** How many this need alone leaves unverified. */
+  /** How many this need alone leaves uncertain; excludes likely/unlikely. */
   unknown: number;
   /** How many this need alone leaves as a guess FOR it (§8.2). */
   likely?: number;
@@ -320,9 +319,9 @@ export interface ActiveNeed {
 }
 
 /**
- * A peer's private need, reduced to its effect (FACETS.md §4 / invariant 5):
- * never the predicate, the value, or the places it removed. `topic` is the
- * owner's opt-in scope hint, omitted when they gave none.
+ * A peer's private need, reduced here to its owner and ruled-out count
+ * (FACETS.md §4). This record omits the predicate and removed place IDs.
+ * `topic` is the owner's opt-in scope hint, omitted when they gave none.
  */
 export interface PrivateEffect {
   /** participantId of the owner. */
@@ -334,8 +333,8 @@ export interface PrivateEffect {
 /**
  * Where the room's places came from, so the page can say so. Present when
  * the room was seeded from an area (docs/DATA-QUALITY.md); absent for bare
- * fixtures. `dataAsOf` is the extract timestamp: the moment the facts were
- * true in OpenStreetMap, never the moment they were read.
+ * fixtures. `dataAsOf` is the source extract timestamp, not a guarantee
+ * that the recorded facts are still true or a live verification time.
  */
 export interface AreaView {
   areaId: string;
@@ -346,36 +345,34 @@ export interface AreaView {
   kind: "osm-snapshot" | "curated";
   source: string;
   dataAsOf: string;
-  /** How many places the room started with, and how many named places the
-   * data holds within the wide radius of its centre. */
+  /** Current live pool size, and the source's named-place count within its
+   * wide focus radius. */
   poolSize: number;
   focusVenues: number;
 }
 
 /**
- * The room's pool of places as it stands (SPATIAL-PROTOCOL §5.5): how many
- * candidate rows the room holds, the ceiling it may grow to, and whether the
- * data behind it can offer more (a city snapshot: yes; a curated fixture: no).
+ * The active step's live pool (SPATIAL-PROTOCOL §5.5): its current size and
+ * ceiling, and whether a prepared area snapshot can supply exploration rows.
  */
 export interface PoolView {
-  /** Candidate rows currently in this additive room pool. */
+  /** Candidate rows in the active step's live pool. */
   size: number;
-  /** Hard ceiling for candidate rows in one room. */
+  /** Hard ceiling for candidate rows in the active step's live pool. */
   cap: number;
   /** Whether the area's snapshot can supply viewport exploration rows. */
   explorable: boolean;
   /** True while snapshot venues remain to be added from the current circle
    * and the room has not reached `cap`. */
   filling: boolean;
-  /** Snapshot venues inside the current circle, clamped to `cap`; the whole-
-   * area fill's convergence count for an otherwise unmodified room. */
+  /** Automatic fill target: at least the live size, incorporating prepared
+   * places for the active step and circle, up to `cap`. */
   target: number;
 }
 
 /**
- * One place from the data behind the map that is NOT (yet) in the room —
- * the explore layer a participant pans through. `candidateId` is set when
- * the place already is a candidate, so the page draws it once.
+ * One prepared-area place in the map's explore layer. It may already be in
+ * the live pool; `candidateId` then lets the page avoid drawing it twice.
  */
 export interface ExplorePlace {
   ref: string;
@@ -395,32 +392,25 @@ export interface SpatialContextResult {
   ok: true;
   revision: number;
   phase: string;
-  /** The room's goal, verbatim as the organizer typed it. Optional so older
-   * servers keep the same contract. */
+  /** The room's stored goal, when present. */
   goal?: string;
-  /** The room's plan: the sequence of places the goal decomposed into, with
-   * the one it is on marked active and the ones behind it keeping the place
-   * they settled on. Empty for a room without a plan, which is how every
-   * room behaved before plans existed — so this is optional, and a client
-   * that ignores it sees exactly what it saw before. */
+  /** The room's plan: ordered steps, their status and any settled destination.
+   * Omitted for rooms without a plan; the active step owns the live pool. */
   steps?: RoomStepView[];
   activeStepId?: string | null;
   scope: ScopeView | null;
   area?: AreaView;
   pool?: PoolView;
-  /** Process-local background fact refinement. Optional so older servers and
-   * clients retain the same context contract. */
+  /** Process-local background fact refinement, when available. */
   refine?: {
     active: boolean;
-    /** Places still needing work for an ACTIVE need. Background vocabulary and
-     * stale-fact sweeps are excluded, so this cannot climb while nothing in
-     * the room changes — a count that grows is a count nobody can trust. */
+    /** Places still needing work for active needs. General vocabulary and
+     * stale-fact sweeps are excluded; changing facts or needs can change it. */
     queued: number;
     /** The same number under its earlier name, kept for existing readers. */
     tier1Queued: number;
     checkedToday: number;
-    /** Why nothing is moving: out of model budget, or nobody is present.
-     * `null` while the loop is working. */
+    /** Reported pause reason: model budget or idle room; null otherwise. */
     paused: "budget" | "idle" | null;
     budgetLeft: { calls: number; searches: number };
   };
@@ -429,9 +419,9 @@ export interface SpatialContextResult {
    * candidates array carries more: out-of-scope places are returned excluded
    * so the map can fade them in place rather than re-layout. */
   total: number;
-  /** Places currently satisfying every active need. */
+  /** In-scope places classified eligible against every active hard need. */
   matching: number;
-  /** Places that likely satisfy every active need (§8.2). */
+  /** In-scope places satisfying active hard needs using likely evidence (§8.2). */
   likely: number;
   candidates: CandidateSummary[];
   facets: Facet[];
@@ -453,14 +443,14 @@ export interface DossierLinkView {
   source: string;
 }
 
-/** A rating the place published about itself, or an award on record. Never
- * a review-site score: none is redistributable (docs/ENRICHMENT-SOURCES.md). */
+/** A rating from a place's own website or a configured Google listing source.
+ * The source and label identify where it was observed. */
 export interface DossierRating {
   value: number;
   best: number;
   count?: number;
   source: string;
-  /** Server-authored: "as published by the place". */
+  /** Server-authored attribution, e.g. "as published by the place" or "on Google". */
   label: string;
 }
 
@@ -504,7 +494,7 @@ export interface CandidateDossier {
     confidence: number;
     /** Participant who supplied an attestation, when this fact is attested. */
     attestedBy?: string;
-    /** Present when a permanent, cross-room person confirmation decided it. */
+    /** Present when a named person confirmation in this room decided it. */
     confirmedByName?: string;
     confirmedByParticipant?: string;
     confirmedAt?: string;

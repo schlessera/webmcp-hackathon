@@ -1,9 +1,10 @@
 # webmcp-hackathon — Spokes
 
-Monorepo: `apps/web` (React + Vite client), `apps/server` (decision engine,
-WebSocket + MCP), `packages/contracts` (shared types + venue data),
-`packages/protocols`. `make update` takes a checkout from `git pull` to a
-running demo stack; `docs/` carries the product, architecture and demo docs.
+Monorepo: `apps/web` (React + Vite client and WebMCP adapter), `apps/server`
+(decision engine, HTTP, WebSocket, evidence and model services), and
+`packages/contracts` (shared types and place data). `make update` rebuilds,
+migrates, restarts, and seeds the local demo after a checkout is updated.
+`docs/README.md` distinguishes current references from historical records.
 
 # Spokes UI invariants
 
@@ -36,7 +37,7 @@ If you find yourself writing a domain word into chrome, that's the bug.
 
 | Token | Means |
 |---|---|
-| `--spoke-works` | satisfies every active need (and the user's own commit) |
+| `--spoke-works` | meets active must-haves on the available evidence (and the user's own commit); guesses retain their separate mark |
 | `--spoke-unsure` | data missing or unverified — **not** a failure |
 | `--spoke-scope` | who may see: private, agent-only |
 | `--spoke-act` | someone moved: proposal, agent action, staged consent |
@@ -61,19 +62,26 @@ lacking a value, and never show unknown as a red/negative state.
 
 ## 5. Privacy: effects are public, contents are not
 
-A private need's **effect** on the count is always visible. Its **content**
-never leaves its owner's client.
+A private need's **effects** can be visible while its **content** is omitted
+from peers' views. Application-private text reaches the application server
+and durable storage. The built-in agent's held condition reaches server
+memory and tool-less interpretation/screening providers, but stays out of
+requirement/event records and the tool-calling model's context. An external
+agent can keep its condition outside Spokes and submit verdicts.
 
 - ✅ "A private condition ruled two out"
-- ❌ naming the condition, its value, or the places it removed
+- ❌ naming a peer's private condition/value or tying its predicate to a place
 - ❌ hiding that anything happened
 
-Peers receive `privateEffects` (coarse), owners receive the full need. Don't
-route a private predicate through shared state "just for rendering".
+Peers can receive ownership metadata, optional hints, counts, and aggregate
+per-place effects. Owners receive their stored need; an external agent's
+retained text is not stored there. These projections do not promise anonymity
+or prevent small-group inference. Never send a private predicate to a peer
+"just for rendering". See `docs/KNOWN-LIMITATIONS.md` for the full boundary.
 
 ## 6. Nothing protocol-shaped in the main UI
 
-Tool names, JSON, MCP vocabulary, version strings, connection internals,
+In room controls, tool names, JSON, MCP vocabulary, version strings, connection internals,
 timing, raw payloads — all of it lives behind the `{ }` drawer and nowhere
 else. The drawer is deliberately small and unstyled-looking. If a wire
 concept surfaces in the main UI, it's a bug.
@@ -92,9 +100,10 @@ returners grow from their dot. Never re-fit bounds, never re-centre, never
 re-layout as a result of a filter change. The user's spatial memory is the
 product.
 
-Exception: an explicit user action (search, "show me", opening a place).
+Exceptions: explicit focus/search, a shared scope-center change, or a
+committed plan step that opens the next search around its settled place.
 
-Second exception (2026-09-03): the **explore layer** — the places behind the
+The **explore layer** — the places behind the
 map that are not in the room yet — is loaded for the viewport the user has
 panned to. Loading follows the viewport; the viewport never follows the data.
 
@@ -102,7 +111,7 @@ panned to. Loading follows the viewport; the viewport never follows the data.
 
 `spoke-pop` (selected sticker idle), `spoke-breathe` (would come back),
 `spoke-busy` (a lookup is running: a dashed ring turning around the dot, the
-need row, the panel line — added 2026-09-03 at the user's request) and the
+need row, the panel line) and the
 420ms settle. Everything else is instant. Respect `prefers-reduced-motion` —
 the tokens zero all four; busy then renders as a standing dashed ring plus
 text, never nothing.
@@ -114,7 +123,7 @@ element jumps to its anchor.
 ## 10. Counts are absolute, deltas are signed
 
 "6 still work / of 34 · 3 unsure". Never percentages. Deltas as `−19`, `+3`,
-`34→15`. Phrase an offer as a consequence — "+3 if 'step-free' went optional" —
+`34→15`. Phrase an offer as a consequence — "+3 if the search widened" —
 not an instruction.
 
 ## 11. Layout invariants
@@ -127,7 +136,8 @@ not an instruction.
   controls (find, layers, the nav chips) 20. A name card is refused any
   placement inside a readout's or a control's measured rectangle.
 - Attribution stays 7px and must never grow.
-- No nav bar, tab bar, or hamburger. The room is the whole app.
+- No nav bar, tab bar, or hamburger inside the active room. Landing and
+  onboarding have their own entry flow.
 
 ## 12. Copy
 
@@ -151,32 +161,39 @@ others, never first.
 ## Working notes
 
 - Design source of truth: `docs/design/Spokes - Mapview Redesign.dc.html`
-  (133 KB, imports whole). Frames: `4a` (locked layout), `7a`–`7d` (flow), `8a`–`8f` (details,
+  (design reference). Frames: `4a` (locked layout), `7a`–`7d` (flow), `8a`–`8f` (details,
   drawer, desktop, consent, brand), `9b` (accent decision).
 - Font: Bricolage Grotesque, self-hosted (`apps/web/public/fonts/README.md`). Display
   family for anything that names or counts; system sans for anything that
   explains; mono for numerals-in-context and the drawer.
 - When the design and this file disagree, this file wins — then fix the design
   or tell the designer.
-- **Marks, not glyphs (2026-09-02).** Off the map, a state is drawn with the
+- **Marks, not glyphs.** Off the map, a state is drawn with the
   map's own dot vocabulary (`.mark[data-mark]` in `styles.css`): filled works,
   hollow unsure ring, small grey out, scope dot, dashed ghost, hollow act. No
   ✓ ✗ ● characters in chrome. Map states: `selected → settled → staged →
   vetoed → proposed → return → works/likely/unsure/unlikely/out`.
-- **Graded evidence (2026-09-02, amended 2026-09-03).** Five statuses — yes /
+- **Graded evidence.** Five statuses — yes /
   likely / unlikely / no / unknown — each with a confidence
   (`packages/contracts/src/status.ts`, SPATIAL-PROTOCOL §8.2). A guess is
-  drawn **dashed**. It now *counts in the big number*, which the client reads
+  drawn **dashed**. A likely match *counts in the big number*, which the client reads
   as `matching + likely`, and the subline breaks that down ("of 34 · 4 of them
   likely · 3 unsure"). A guess still never rules a place out, never makes a
   room feasible, and never moves a delta: `matching`, the impasse arithmetic
   and the relaxation deltas stay eligible-only on the wire.
-- **Your agent in the page (2026-09-02).** `docs/NL-AGENT.md`. Fast tier
-  routes a composer sentence into typed needs; smart tier acts through the
-  tool surface and screens agent-private conditions held in memory. Replies
-  are a card in the brief, never a chat pane. Accepting a proposal marks you
-  ready; the stage card names what staging waits on.
-- **A room can be a sequence (2026-09-04).** `docs/PLAN-ONBOARDING-AND-MULTISTEP.md`.
+- **Your agent in the page.** `docs/NL-AGENT.md`. Sentence interpretation
+  returns typed needs for the ordinary command path. Tool-calling mutations
+  become owner-only review cards with exact arguments and a five-minute,
+  single-use approval. Private-condition screening uses a separate tool-less
+  model. Replies and reviews belong in the brief. A suggestion is not an
+  applied action; approving an agreement stage does not commit it. External
+  WebMCP agents do not use the built-in approval wrapper.
+- **Agreement.** Every participant must be ready and accepted or abstained,
+  with no veto. Accepting marks the person ready; abstaining does not. The
+  organizer stages and confirms. The nonce binds to an authenticated
+  participant channel, not proof of a human gesture. Disconnected members
+  still count, and evidence-based eligibility is not a commitment gate.
+- **A room can be a sequence.** `docs/protocols/SPATIAL-PROTOCOL.md` §5.5.
   A goal decomposes into 1–3 steps (`rooms.steps`, `rooms.active_step_id`).
   The room runs **one at a time**: the active step owns the pool, the map and
   the live needs. Committing an agreement settles that step and opens the
@@ -184,27 +201,31 @@ others, never first.
   a violation of it, because a commit is an explicit decision. Which candidate
   rows are live is ONE rule, in `apps/server/src/live-pool.ts`; a query that
   enumerates a pool without mentioning `LIVE_POOL` has forgotten steps exist.
-  A room with an empty `steps` array behaves exactly as rooms did before, and
-  `room_demo` is one of those.
-- **The region question is not the product's (2026-09-04).** Onboarding asks
+  Readiness carries forward, but new proposals need fresh stances. Rooms with
+  an empty `steps` array, including `room_demo`, use the single-decision flow.
+- **The region question is not the product's.** Onboarding asks
   name → goal → plan, and only then which of the two prepared regions. That
   order is deliberate: putting the region first teaches people Spokes is a
   tool for two neighbourhoods. The dialog is drawn plainer than the app
   around it and tagged "demo limit", the same move the `{ }` drawer makes.
   Never promote it into the product flow.
-- **A link is one person's (2026-09-04).** `+` beside the avatars mints a
+- **A link is one person's.** `+` beside the avatars mints a
   `room_invites` link; the first claim binds it to that device's hash, and it
   stays that person's way back in. Several may be outstanding at once —
-  minting never revokes. Unused links expire in an hour. **A refusal names
+  minting never revokes. Unused links expire in an hour; bearer tokens expire
+  after 24 hours and organizer recovery after seven days. Claimed member
+  recovery has no final lifetime or self-service revocation. **A refusal names
   nobody**: "This link is already in use" is the whole message, because who
   is in a room is not something a URL hands to whoever tries it.
-- **Onboarding is agent-reachable (2026-09-04).** `describe_regions` and
+- **Onboarding is agent-reachable.** `describe_regions` and
   `open_room` are the only tools that answer without a participant token. The
   agent states a high-level goal; the page distils it. Never move step-class
   choice or need composition into a tool argument — that would be a second
-  planner, and the two would drift.
-- **Applied 2026-09-01.** `styles.css` is built on `tokens.css`; the old
-  `:root` palette and the legacy `--spoke` token are gone (not aliased). The
-  only colour literals outside `tokens.css` are the documented GL-paint pairs
-  in `src/map-theme.ts` and the favicon data URI. Remaining gaps and the
-  session record: `docs/REDESIGN-HANDOFF.md`.
+  planner, and the two would drift. `open_room` uses the preview/creation
+  endpoints and schedules navigation, without stopping at the page's review
+  screen. The catalog has 24 tools; native registration starts before mount
+  and completes asynchronously.
+- **Styles.** `styles.css` uses `tokens.css`. Documented colour-literal
+  exceptions are GL-paint pairs in `src/map-theme.ts` and the favicon data
+  URI. Current boundaries are in `docs/KNOWN-LIMITATIONS.md`; dated design
+  handoffs record their original scope.

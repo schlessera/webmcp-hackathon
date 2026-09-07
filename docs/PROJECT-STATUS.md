@@ -50,7 +50,10 @@ The room combines a MapLibre map, a brief, a composer, place details, and the
 Changing the candidate set preserves the map's position; a participant can
 pan, search, inspect places, and bring additional candidates into the room.
 Holding an owned need previews the set without it and restores the view on
-release, with a keyboard equivalent.
+release, with a keyboard equivalent. The optional **Buildings in 3D** layer
+tilts the map and raises place heads on thin needles pointing to their map
+locations. Labels keep the same anchors; turning it off retracts the pins,
+and reduced-motion settings make the change immediate.
 
 Needs have Shared, Private, and Agent only visibility. Time-window requirements
 are supported using the area's timezone and the available opening-hours data.

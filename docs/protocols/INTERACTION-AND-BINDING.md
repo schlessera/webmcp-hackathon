@@ -182,10 +182,8 @@ looking at a place, and the server can start enrichment. It does not pan
 other participants' maps. Its read-only hint does not mean the focus is private
 or free of background work.
 
-Some catalog descriptions currently overstate behavior: soft needs do **not**
-yet affect ranking, and evidence adjudication can mark an explicit venue/chain
-statement verified. Lookup is not restricted to likely results. Use the
-behavior documented here when interpreting those descriptions.
+Soft needs do not affect ranking. Evidence adjudication can mark an explicit
+venue/chain statement verified; lookup is not restricted to likely results.
 
 ## 3. Results, errors, and output budgets
 
@@ -474,8 +472,7 @@ needs do not rank candidates. There is no commutative stale-write rebase,
 participant removal/room closing, plan editing/reopening, transit routing,
 or protocol-level meeting-point negotiation.
 
-The binding also has abbreviated plan/evidence output, descriptions that
-currently overstate some behavior, uneven callback validation/error
+The binding also has abbreviated plan/evidence output, uneven callback validation/error
 normalization, and retry/visible-completion limits described above. The
 [limitations document](../KNOWN-LIMITATIONS.md) covers data quality, location
 handling, model boundaries, and deployment constraints in more detail.
