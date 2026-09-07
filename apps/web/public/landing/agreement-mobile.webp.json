@@ -1,0 +1,9 @@
+{
+  "prompt": "Browser screenshot, not AI-generated. All three participants accept The Barn; the organizer stages and confirms the choice, opening the real settled arrival and navigation UI. Captured from the current Spokes app using scripts/capture-landing.ts. Test participants and requirements; venue evidence comes from checked-in fixtures and is not a fresh factual verification. No DOM or pixel content edits. Source commit: a8d682926086d9bb5978a664f0474f0bad93b8d6.",
+  "createdAt": "2026-09-07T15:08:48.317Z",
+  "sourceCommit": "a8d682926086d9bb5978a664f0474f0bad93b8d6",
+  "viewport": {
+    "width": 430,
+    "height": 932
+  }
+}
