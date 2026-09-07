@@ -247,6 +247,9 @@ export async function claimInvite(
     ).rows[0] as { phase: string; revision: number } | undefined;
     if (!room) return { kind: "unknown" as const };
 
+    const size = (await client.query("SELECT count(*)::int AS n FROM participants WHERE room_id = $1", [invite.room_id])).rows[0].n as number;
+    if (size >= 24) return { kind: "full" as const };
+
     const participantId = `p_${randomBytes(4).toString("hex")}`;
     await client.query(
       "INSERT INTO participants (id, room_id, display_name, role) VALUES ($1, $2, $3, 'member')",
@@ -295,6 +298,8 @@ export async function claimInvite(
   });
 
   switch (outcome.kind) {
+    case "full":
+      return { ok: false, status: 409, error: "room_full" };
     case "unknown":
       return { ok: false, status: 404, error: "unknown_invite" };
     case "expired":

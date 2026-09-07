@@ -1,4 +1,11 @@
 import { config, type LlmReasoningEffort } from "../config.ts";
+import { WindowBudget, WorkSlots, securityLimit } from "../security.ts";
+
+// Every real provider attempt, including retries and background jobs, shares
+// these process-wide ceilings. No queue grows while a provider is slow.
+const modelHourly = new WindowBudget(securityLimit("LLM_CALLS_PER_HOUR", 600), 3_600_000, 1);
+const modelDaily = new WindowBudget(securityLimit("LLM_CALLS_PER_DAY", 2000), 86_400_000, 1);
+const modelSlots = new WorkSlots();
 
 /**
  * The one door to language models. Callers speak the existing Responses-shaped
@@ -179,6 +186,12 @@ async function responseFetch(
   body: Record<string, unknown>,
   timeoutMs: number,
 ): Promise<unknown> {
+  const release = modelSlots.acquire("provider", securityLimit("LLM_CONCURRENCY", 6));
+  if (!release) throw new NlError("Model capacity reached", 429, 60_000);
+  if (!modelHourly.take("all") || !modelDaily.take("all")) {
+    release();
+    throw new NlError("Model budget reached", 429, 3_600_000);
+  }
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -193,16 +206,20 @@ async function responseFetch(
       signal: controller.signal,
     });
     if (!response.ok) {
-      const detail = (await response.text()).slice(0, 300);
+      // Preserve only the compatibility signal needed for flex fallback;
+      // provider error prose can echo private input and must not reach logs.
+      const detail = (await response.text()).slice(0, 1000);
+      const reason = /service[_ -]?tier|\bflex\b/i.test(detail) ? "unsupported service_tier" : "request failed";
       throw new NlError(
-        `${provider} ${response.status}: ${detail}`,
+        `${provider} ${reason} (${response.status})`,
         response.status,
         retryAfterMs(response),
       );
     }
-    return response.json();
+    return await response.json();
   } finally {
     clearTimeout(timer);
+    release();
   }
 }
 
@@ -329,7 +346,7 @@ function requestBody(call: Call, provider: Provider, privatePath: boolean): Reco
     if (call.include) body.include = call.include;
     body.reasoning = { effort };
   }
-  if (call.maxOutputTokens) body.max_output_tokens = call.maxOutputTokens;
+  body.max_output_tokens = Math.min(call.maxOutputTokens ?? 1700, 8000);
   return body;
 }
 
@@ -413,7 +430,7 @@ function recordMetrics(raw: RawResponse, call: Call, serviceTier: ServiceTier): 
 
 function higherOutputCap(body: Record<string, unknown>): number {
   const current = Number(body.max_output_tokens ?? 1_000);
-  return Math.ceil(current * 2);
+  return Math.min(8000, Math.ceil(current * 2));
 }
 
 async function respondWithPolicy(call: Call, privatePath: boolean): Promise<Reply> {
@@ -456,7 +473,7 @@ async function respondWithPolicy(call: Call, privatePath: boolean): Promise<Repl
       502,
     );
   }
-  if (raw.error) throw new NlError(raw.error.message ?? `${provider} error`, 502);
+  if (raw.error) throw new NlError(`${provider} response error`, 502);
 
   const output = raw.output ?? [];
   const texts: string[] = [];

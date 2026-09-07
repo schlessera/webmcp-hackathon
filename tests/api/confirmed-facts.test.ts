@@ -1,6 +1,7 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { questionKey } from "@webmcp-hackathon/contracts";
 import type { Participant } from "../../apps/server/src/auth.ts";
+import { approveAgentAction } from "../../apps/server/src/nl/approvals.ts";
 import { runAgent } from "../../apps/server/src/nl/agent.ts";
 import { setTransport } from "../../apps/server/src/nl/openai.ts";
 import {
@@ -88,7 +89,7 @@ describe("permanent confirmed facts", () => {
   let revision = 0;
   let otherRevision = 0;
 
-  it("makes the same place eligible immediately in this and another room", async () => {
+  it("makes a place eligible only in the confirming room", async () => {
     const need = await command(room.tokens.joe, "SubmitRequirement", {
       baseRevision: revision,
       visibility: "shared",
@@ -124,7 +125,23 @@ describe("permanent confirmed facts", () => {
     expect((await context(room.tokens.org)).body.candidates.find((c) => c.candidateId === firstId))
       .toMatchObject({ eligibility: "eligible", why: "Sarah confirmed it" });
     expect((await context(other.tokens.org)).body.candidates.find((c) => c.candidateId === otherId))
+      .toMatchObject({ eligibility: "uncertain" });
+    const foreignDelete = await command(other.tokens.org, "UnconfirmFact", {
+      baseRevision: otherRevision, candidateId: otherId, criterionId: "dog-friendly",
+    });
+    expect(foreignDelete.body).toMatchObject({ ok: false, error: { code: "not_found" } });
+    const foreignWrite = await command(other.tokens.org, "ConfirmFact", {
+      baseRevision: otherRevision, candidateId: otherId, criterionId: "dog-friendly", lean: false,
+    });
+    expect(foreignWrite.body.ok).toBe(true);
+    otherRevision = foreignWrite.body.revision!;
+    expect((await context(room.tokens.org)).body.candidates.find((c) => c.candidateId === firstId))
       .toMatchObject({ eligibility: "eligible", why: "Sarah confirmed it" });
+    const removeForeign = await command(other.tokens.org, "UnconfirmFact", {
+      baseRevision: otherRevision, candidateId: otherId, criterionId: "dog-friendly",
+    });
+    expect(removeForeign.body.ok).toBe(true);
+    otherRevision = removeForeign.body.revision!;
     const fact = (await inspect(room.tokens.joe, firstId)).body.candidates[0].attributes
       .find((attribute) => attribute.key === "dog-friendly");
     expect(fact).toMatchObject({
@@ -136,7 +153,7 @@ describe("permanent confirmed facts", () => {
     });
   });
 
-  it("allows only the confirmer or organizer to withdraw, and withdrawal reverses both rooms", async () => {
+  it("allows only the confirmer or organizer to withdraw, without changing another room", async () => {
     const denied = await command(room.tokens.joe, "UnconfirmFact", {
       baseRevision: revision,
       candidateId: firstId,
@@ -245,7 +262,9 @@ describe("permanent confirmed facts", () => {
       };
     });
     const outcome = await runAgent(actor, "confirm dogs are welcome at The Barn", null);
-    expect(outcome.actions).toMatchObject([{ tool: "confirm_fact", ok: true }]);
+    expect(outcome.actions).toEqual([]);
+    expect(outcome.pendingAction).toBeDefined();
+    expect((await approveAgentAction(actor, outcome.pendingAction!.id)).ok).toBe(true);
     expect((await room.pool.query(
       "SELECT lean FROM confirmed_facts WHERE osm_ref = $1 AND criterion_id = 'dog-friendly'",
       [osmRef],

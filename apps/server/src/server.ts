@@ -33,7 +33,7 @@ const validateLookupInput = readAjv.compile(LOOK_UP_PLACES_INPUT);
 const validateNavigationInput = readAjv.compile(PREPARE_NAVIGATION_INPUT);
 const validateLandmarksInput = readAjv.compile(FIND_LANDMARKS_INPUT);
 import { config } from "./config.ts";
-import { authenticateToken, exchangeInviteSecret } from "./auth.ts";
+import { exchangeInviteSecret } from "./auth.ts";
 import { submitCommand, type CommandOrigin } from "./engine.ts";
 import { syncSession } from "./sync.ts";
 import {
@@ -54,6 +54,7 @@ import { pool } from "./db.ts";
 import { say } from "./nl/say.ts";
 import { offlinePlan, planPreview } from "./nl/plan.ts";
 import { runAgent } from "./nl/agent.ts";
+import { approveAgentAction } from "./nl/approvals.ts";
 import { heldFor, hold, release, screenPending } from "./nl/holder.ts";
 import { LIVE_POOL } from "./live-pool.ts";
 import { claimInvite, inviteContext, listInvites, mintInvite } from "./invites.ts";
@@ -71,11 +72,18 @@ import {
  * Logging discipline (NEGOTIATION-PROTOCOL.md invariant 5): request bodies are
  * never logged; command log lines carry correlation ID, actor, type, outcome.
  */
+import { installHttpSecurity, requestActor, trustedProxies } from "./security.ts";
+
 const app = Fastify({
+  trustProxy: trustedProxies(),
+  bodyLimit: 65_536,
+  requestTimeout: 30_000,
+  connectionTimeout: 120_000,
   logger: { level: process.env.LOG_LEVEL ?? "info" },
   disableRequestLogging: true,
 });
 export { app };
+installHttpSecurity(app, !config.dev);
 startOutboundDiagnosticLogging((fields, message) => app.log.info(fields, message));
 
 // HTTP payloads negotiate Brotli or gzip. This onSend-based plugin is
@@ -106,20 +114,7 @@ app.get("/api/meta", async () => ({
   nl: config.nlEnabled,
 }));
 
-// Minimal exchange rate limit: invite secrets are bearer credentials and each
-// successful call mints a token row — cap brute force and row growth per IP.
-const exchangeAttempts = new Map<string, { count: number; windowStart: number }>();
-const EXCHANGE_LIMIT = 30;
-const EXCHANGE_WINDOW_MS = 60_000;
-
 app.post("/api/session/exchange", async (req, reply) => {
-  const now = Date.now();
-  const entry = exchangeAttempts.get(req.ip);
-  if (!entry || now - entry.windowStart > EXCHANGE_WINDOW_MS) {
-    exchangeAttempts.set(req.ip, { count: 1, windowStart: now });
-  } else if (++entry.count > EXCHANGE_LIMIT) {
-    return reply.code(429).send({ error: "too many exchange attempts; retry later" });
-  }
   const body = req.body as { inviteSecret?: string };
   if (typeof body?.inviteSecret !== "string") {
     return reply.code(400).send({ error: "inviteSecret required" });
@@ -155,20 +150,6 @@ app.post("/api/session/exchange", async (req, reply) => {
  * secret, and one of them mints a participant and a token. They therefore
  * carry the same per-IP cap as the exchange above, for the same reason.
  */
-const inviteAttempts = new Map<string, { count: number; windowStart: number }>();
-const INVITE_LIMIT = 30;
-const INVITE_WINDOW_MS = 60_000;
-
-function overInviteBudget(ip: string): boolean {
-  const now = Date.now();
-  const entry = inviteAttempts.get(ip);
-  if (!entry || now - entry.windowStart > INVITE_WINDOW_MS) {
-    inviteAttempts.set(ip, { count: 1, windowStart: now });
-    return false;
-  }
-  return ++entry.count > INVITE_LIMIT;
-}
-
 app.post("/api/invites", async (req, reply) => {
   const actor = await bearer(req);
   if (!actor) return reply.code(401).send(notAuthenticated);
@@ -192,9 +173,6 @@ app.get("/api/invites", async (req, reply) => {
 });
 
 app.get("/api/invites/:secret/context", async (req, reply) => {
-  if (overInviteBudget(req.ip)) {
-    return reply.code(429).send({ error: "too many invite lookups; retry later" });
-  }
   const { secret } = req.params as { secret: string };
   const context = await inviteContext(secret);
   if (!context) return reply.code(404).send({ error: "unknown_invite" });
@@ -202,9 +180,6 @@ app.get("/api/invites/:secret/context", async (req, reply) => {
 });
 
 app.post("/api/invites/:secret/claim", async (req, reply) => {
-  if (overInviteBudget(req.ip)) {
-    return reply.code(429).send({ error: "too many join attempts; retry later" });
-  }
   const { secret } = req.params as { secret: string };
   const body = (req.body ?? {}) as { displayName?: unknown; deviceId?: unknown };
   const claimed = await claimInvite(secret, body.displayName, body.deviceId);
@@ -238,24 +213,6 @@ app.post("/api/invites/:secret/claim", async (req, reply) => {
 // measured from each area's extract. Public and static; nothing per-user.
 app.get("/api/areas", async () => ({ areas: areaSummaries() }));
 
-// Room creation is unauthenticated and mints rows (room, participants,
-// invite secrets, a candidate pool): cap it per IP like the exchange route.
-const roomAttempts = new Map<string, { count: number; windowStart: number }>();
-const ROOM_LIMIT = Number(process.env.ROOM_LIMIT) || 10;
-const ROOM_WINDOW_MS = 60 * 60_000;
-
-/** One bucket for both halves of opening a room: reading a goal costs a model
- * call, and creating the room mints rows. True when the caller is over it. */
-function overRoomBudget(ip: string): boolean {
-  const now = Date.now();
-  const entry = roomAttempts.get(ip);
-  if (!entry || now - entry.windowStart > ROOM_WINDOW_MS) {
-    roomAttempts.set(ip, { count: 1, windowStart: now });
-    return false;
-  }
-  return ++entry.count > ROOM_LIMIT;
-}
-
 /**
  * Read a goal into the steps it takes, before any room exists.
  *
@@ -266,9 +223,6 @@ function overRoomBudget(ip: string): boolean {
  * gets the counts too, which is what the older single-area path did.
  */
 app.post("/api/plans/preview", async (req, reply) => {
-  if (overRoomBudget(req.ip)) {
-    return reply.code(429).send({ error: "too many rooms opened from here; retry later" });
-  }
   const body = (req.body ?? {}) as { areaId?: unknown; goal?: unknown; timezone?: unknown };
   let area: AreaDefinition | null = null;
   if (typeof body.areaId === "string") {
@@ -316,9 +270,6 @@ app.post("/api/plans/preview", async (req, reply) => {
 });
 
 app.post("/api/rooms", async (req, reply) => {
-  if (overRoomBudget(req.ip)) {
-    return reply.code(429).send({ error: "too many rooms opened from here; retry later" });
-  }
   const body = (req.body ?? {}) as {
     areaId?: unknown;
     organizerName?: unknown;
@@ -374,11 +325,7 @@ app.post("/api/rooms", async (req, reply) => {
   };
 });
 
-async function bearer(req: { headers: Record<string, unknown> }) {
-  const header = String(req.headers.authorization ?? "");
-  if (!header.startsWith("Bearer ")) return null;
-  return authenticateToken(header.slice(7));
-}
+const bearer = requestActor;
 
 const notAuthenticated = {
   ok: false,
@@ -393,6 +340,7 @@ const notAuthenticated = {
 app.get("/api/diag/outbound", async (req, reply) => {
   const actor = await bearer(req);
   if (!actor) return reply.code(401).send(notAuthenticated);
+  if (!config.dev) return reply.code(404).send({ error: "not found" });
   return { ...outboundDiagnostics(), providers: outboundProviderCounts() };
 });
 
@@ -412,7 +360,7 @@ app.get("/api/places/:kind/:id/images/:idx", async (req, reply) => {
   const image = await loadPlaceImage(pool, osmRef, idx);
   if (!image) return reply.code(404).send({ error: "image not found" });
   const etag = `"${createHash("sha256").update(image.bytes).digest("base64url")}"`;
-  reply.header("cache-control", "public, max-age=86400");
+  reply.header("cache-control", "private, max-age=86400");
   reply.header("etag", etag);
   if (req.headers["if-none-match"] === etag) return reply.code(304).send();
   return reply.type(image.mime).send(image.bytes);
@@ -963,6 +911,7 @@ app.post("/api/nl/say", async (req) => {
           ...(routed.needs.length ? { needs: routed.needs } : {}),
           reply: outcome.reply,
           actions: outcome.actions,
+          ...(outcome.pendingAction ? { pendingAction: outcome.pendingAction } : {}),
           // R7: additive page-private fields preserve already committed steps
           // and tell the composer to retain the person's words for retry.
           ...(outcome.partial
@@ -1006,6 +955,22 @@ app.post("/api/nl/say", async (req) => {
     .update(stableJson({ route: "/api/nl/say", body: req.body }))
     .digest("hex");
   return runIdempotentNlTurn(actor.id, rawKey, requestHash, execute);
+});
+
+app.post("/api/nl/actions/:id/approve", async (req, reply) => {
+  const actor = await bearer(req);
+  if (!actor) return reply.code(401).send(notAuthenticated);
+  const { id } = req.params as { id: string };
+  if (!/^[a-f0-9]{64}$/.test(id)) return reply.code(404).send({ error: "not found" });
+  return approveAgentAction(actor, id);
+});
+
+app.post("/api/nl/actions/:id/dismiss", async (req, reply) => {
+  const actor = await bearer(req);
+  if (!actor) return reply.code(401).send(notAuthenticated);
+  const { id } = req.params as { id: string };
+  await pool.query("DELETE FROM nl_pending_actions WHERE id = $1 AND participant_id = $2", [id, actor.id]);
+  return { ok: true };
 });
 
 app.post("/api/nl/condition", async (req) => {

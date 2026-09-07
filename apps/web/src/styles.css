@@ -479,7 +479,7 @@ body { overflow: hidden; }
 .sticker-chip {
   font-size: 9.5px;
   font-weight: var(--spoke-weight-body);
-  border-radius: 5px;
+  border-radius: var(--spoke-radius-badge);
   padding: 1px 5px;
   background: var(--spoke-works-tint);
   color: var(--spoke-works-text);
@@ -647,7 +647,7 @@ body { overflow: hidden; }
   width: 18px; height: 18px;
   border-radius: var(--spoke-radius-avatar);
   border: 1.5px solid var(--spoke-surface);
-  font-size: 8px;
+  font-size: var(--spoke-size-micro);
   font-weight: var(--spoke-weight-strong);
   letter-spacing: 0.01em;
   color: var(--spoke-surface);
@@ -1175,7 +1175,7 @@ body { overflow: hidden; }
 
 .need-toggle {
   width: 36px; height: 21px;
-  border-radius: 11px;
+  border-radius: var(--spoke-radius-chip);
   flex: none;
   position: relative;
   border: none;
@@ -1407,7 +1407,7 @@ body { overflow: hidden; }
   border: var(--spoke-border) solid var(--spoke-line);
   background: var(--spoke-surface);
   box-shadow: var(--spoke-shadow-drop);
-  border-radius: 10px;
+  border-radius: var(--spoke-radius-card);
   padding: 8px 13px;
   min-height: var(--spoke-tap-min);
   font-weight: var(--spoke-weight-strong);
@@ -1504,7 +1504,7 @@ body { overflow: hidden; }
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 8.5px;
+  font-size: var(--spoke-size-micro);
   font-weight: var(--spoke-weight-strong);
   color: var(--spoke-surface);
   background: var(--spoke-person-1);
@@ -1679,7 +1679,7 @@ body { overflow: hidden; }
   display: flex;
   flex-direction: column;
   border: var(--spoke-border) solid var(--spoke-line);
-  border-radius: 10px;
+  border-radius: var(--spoke-radius-card);
   background: var(--spoke-surface);
   box-shadow: var(--spoke-shadow-lift);
   overflow: hidden;
@@ -1755,7 +1755,7 @@ body { overflow: hidden; }
   display: inline-flex;
   flex: none;
   border: var(--spoke-border) solid var(--spoke-line);
-  border-radius: 11px;
+  border-radius: var(--spoke-radius-card);
   overflow: hidden;
   box-shadow: var(--spoke-shadow-drop);
 }
@@ -1784,7 +1784,7 @@ body { overflow: hidden; }
   padding: 14px;
   font-family: var(--spoke-font-display);
   font-weight: var(--spoke-weight-display);
-  font-size: 14px;
+  font-size: var(--spoke-size-title);
   color: var(--spoke-surface);
   cursor: pointer;
 }
@@ -1945,7 +1945,7 @@ body { overflow: hidden; }
 .details-title {
   font-family: var(--spoke-font-display);
   font-weight: var(--spoke-weight-display);
-  font-size: 20px;
+  font-size: var(--spoke-size-title);
   line-height: 1.2;
   letter-spacing: -0.02em;
   color: var(--spoke-ink);
@@ -1966,7 +1966,7 @@ body { overflow: hidden; }
   margin-top: 13px;
   padding: 9px 11px;
   border: var(--spoke-border) solid var(--spoke-works);
-  border-radius: 11px;
+  border-radius: var(--spoke-radius-card);
   background: var(--spoke-works-tint);
 }
 .verdict-dot {
@@ -2343,7 +2343,7 @@ body { overflow: hidden; }
   font-size: 9.5px;
   color: var(--spoke-works-pop);
   background: var(--spoke-drawer-accent-tint);
-  border-radius: 5px;
+  border-radius: var(--spoke-radius-badge);
   padding: 2px 7px;
 }
 
@@ -2354,7 +2354,7 @@ body { overflow: hidden; }
   margin: 0 12px 12px;
   padding: 11px 12px;
   background: var(--spoke-drawer-well);
-  border-radius: 10px;
+  border-radius: var(--spoke-radius-card);
   font-size: 10.5px;
   line-height: 1.8;
 }
@@ -2657,10 +2657,9 @@ body { overflow: hidden; }
   align-items: center;
   gap: 10px;
   padding: 10px 13px;
-  border-radius: 11px;
+  border-radius: var(--spoke-radius-card);
   background: var(--spoke-ink);
   color: var(--spoke-surface);
-  border-left: 3px solid var(--spoke-unsure);
   font-weight: var(--spoke-weight-body);
   font-size: var(--spoke-size-detail);
 }
@@ -3694,3 +3693,10 @@ details.drawer-section > summary::before {
   color: var(--spoke-drawer-ink-soft);
 }
 details.drawer-section[open] > summary::before { content: "−"; }
+/* Exact proposed values stay readable on narrow screens and with long text. */
+.agent-review { overflow-wrap: anywhere; }
+.agent-review dl { margin-block: 1em; }
+.agent-review dl > div { margin-block: .65em; }
+.agent-review dt { text-transform: capitalize; font-weight: 600; }
+.agent-review dd { margin-inline-start: 0; white-space: pre-wrap; unicode-bidi: plaintext; }
+.agent-review .card-actions { flex-wrap: wrap; }

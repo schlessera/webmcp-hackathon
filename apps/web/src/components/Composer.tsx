@@ -197,6 +197,7 @@ interface SayResult {
   reply?: string | null;
   choices?: Array<{ label: string; payload: Payload }>;
   actions?: Array<{ tool: string; ok: boolean; effect: string }>;
+  pendingAction?: import("../spatial-store.ts").AgentReply["pendingAction"];
   partial?: boolean;
   failureCategory?: string;
   meta?: {
@@ -445,6 +446,7 @@ export function Composer({ facets, activeNeeds, placeCount, hasOwnOrigin, timezo
         spatial.pushAgentReply({
           text: result.reply ?? "",
           actions: result.actions ?? [],
+          pendingAction: result.pendingAction,
           answer: result.intent === "ask",
         });
         void spatial.refetch();

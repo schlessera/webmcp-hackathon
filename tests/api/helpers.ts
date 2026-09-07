@@ -77,6 +77,7 @@ export async function startServer(options: TestServerOptions = {}): Promise<Test
         PORT: String(port),
         SERVE_STATIC: "1", // skip Vite middleware in API tests
         ENRICH_NETWORK: "0", // no venue or Wikidata lookups from a test server
+        ALLOW_LEGACY_MEMBER_INVITES: "1", // local three-person fixtures only
         // A server must opt into the global background filler. Otherwise a
         // parallel suite can discover and mutate another suite's area rooms.
         POOL_FILL: "0",

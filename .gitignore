@@ -11,3 +11,6 @@ data/osm/
 
 # throwaway probes
 *.tmp.mts
+
+.env.*
+!.env.example

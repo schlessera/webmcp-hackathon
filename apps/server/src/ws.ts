@@ -1,4 +1,4 @@
-import type { Server } from "node:http";
+import type { Server, IncomingMessage } from "node:http";
 import { WebSocketServer, WebSocket } from "ws";
 import {
   TOOL_CONTRACT_VERSION,
@@ -25,6 +25,7 @@ import { pipelineScheduler } from "./pipeline/scheduler.ts";
 import { clearInteractiveFocus, openCandidate, previewCandidate } from "./spatial.ts";
 import { prefetchKey, prefetchManager } from "./pipeline/prefetch.ts";
 import { noteRefinementPresence } from "./refine/worker.ts";
+import { allowedOrigin, socketClientIp, WindowBudget, WorkSlots } from "./security.ts";
 
 interface Connection {
   socket: WebSocket;
@@ -93,11 +94,25 @@ async function deliverQueued(item: QueuedBroadcast): Promise<void> {
 const broadcastQueue = new RoomBroadcastQueue<QueuedBroadcast>(deliverQueued);
 
 export function attachWebSocket(server: Server): void {
-  const wss = new WebSocketServer({ server, path: "/ws" });
+  const handshakes = new WindowBudget(60, 60_000);
+  const slots = new WorkSlots();
+  const wss = new WebSocketServer({
+    server, path: "/ws", maxPayload: 4096, perMessageDeflate: false,
+    verifyClient: ({ origin, req }: { origin: string; req: IncomingMessage }) =>
+      allowedOrigin(origin || undefined, req.headers.host) &&
+      wss.clients.size < 256 && handshakes.take(socketClientIp(req)),
+  });
   const lastMergedLookups = new Map<string, string>();
 
-  wss.on("connection", (socket) => {
+  wss.on("connection", (socket, req) => {
     attachSocketErrorHandler(socket);
+    const releaseIp = slots.acquire(`ip:${socketClientIp(req)}`, 64);
+    if (!releaseIp) { socket.close(1013, "connection limit"); return; }
+    const releases = [releaseIp];
+    const messages = new WindowBudget(100, 10_000, 1);
+    let handling = 0;
+    // Reconnect regularly so a revoked or expired credential is checked again.
+    const lifetime = setTimeout(() => socket.close(4001, "reauthenticate"), 15 * 60_000);
     let connection: Connection | null = null;
     // R13: a half-open mobile connection never emits `close` on its own. A
     // pong deadline makes `terminate()` drive the ordinary cleanup path, so
@@ -125,6 +140,11 @@ export function attachWebSocket(server: Server): void {
     }, 5000);
 
     socket.on("message", (raw) => {
+      if (!messages.take("socket") || handling >= 2) {
+        socket.close(1008, "message limit");
+        return;
+      }
+      handling += 1;
       (async () => {
         let message: unknown;
         try {
@@ -237,6 +257,7 @@ export function attachWebSocket(server: Server): void {
         }
         authenticating = true;
         const participant = await authenticateToken(message.token);
+        if (socket.readyState !== WebSocket.OPEN) return;
         if (!participant) {
           authenticating = false;
           send(socket, {
@@ -248,6 +269,11 @@ export function attachWebSocket(server: Server): void {
           return;
         }
         clearTimeout(authTimer);
+        for (const [key, limit] of [[`participant:${participant.id}`, 4], [`room:${participant.roomId}`, 24]] as const) {
+          const done = slots.acquire(key, limit);
+          if (!done) { socket.close(1013, "connection limit"); return; }
+          releases.push(done);
+        }
         connection = {
           socket,
           participantId: participant.id,
@@ -302,10 +328,12 @@ export function attachWebSocket(server: Server): void {
         // Unauthenticated input must never take the server down.
         console.error("ws message handling failed:", err);
         socket.close(1011, "internal error");
-      });
+      }).finally(() => { handling -= 1; });
     });
 
     socket.on("close", () => {
+      clearTimeout(lifetime);
+      for (const done of releases) done();
       clearTimeout(authTimer);
       clearInterval(pingTimer);
       clearInterval(keepaliveTimer);
@@ -581,5 +609,7 @@ function broadcastRoomMessage(roomId: string, message: ServerMessage): void {
 }
 
 function send(socket: WebSocket, message: ServerMessage): void {
+  if (socket.readyState !== WebSocket.OPEN) return;
+  if (socket.bufferedAmount > 1_048_576) { socket.terminate(); return; }
   socket.send(JSON.stringify(message));
 }

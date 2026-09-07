@@ -21,5 +21,7 @@ FROM build AS runtime
 # NODE_ENV decides the serving mode (compose overrides it for development,
 # where the server runs Vite middleware for HMR over the watch-synced sources).
 ENV NODE_ENV=production
+RUN chown -R node:node /repo
+USER node
 EXPOSE 4173
 CMD ["node", "apps/server/src/server.ts"]

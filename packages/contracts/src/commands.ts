@@ -519,7 +519,7 @@ export const AttestAttributeInput = Type.Object(
 );
 
 /**
- * A permanent, cross-room fact verified by a person. Only vocabulary keys and
+ * A room-scoped fact verified by a person. Only vocabulary keys and
  * opaque question commitments are accepted: absolute open:* windows expire by
  * meaning, and a private question's words must never enter shared storage.
  */

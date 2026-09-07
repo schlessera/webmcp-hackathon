@@ -9,10 +9,10 @@
 # cloudflared/e2e services.
 services:
   db:
-    image: postgres:17.6-alpine
+    image: postgres:17.11-alpine
     environment:
       POSTGRES_USER: webmcp
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-webmcp}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set a strong POSTGRES_PASSWORD}
       POSTGRES_DB: webmcp
     volumes:
       - dbdata:/var/lib/postgresql/data
@@ -29,7 +29,7 @@ services:
         BUILD_ID: ${SOURCE_COMMIT:-coolify}
     command: ["node", "apps/server/src/migrate.ts"]
     environment:
-      DATABASE_URL: postgres://webmcp:${POSTGRES_PASSWORD:-webmcp}@db:5432/webmcp
+      DATABASE_URL: postgres://webmcp:${POSTGRES_PASSWORD:?set a strong POSTGRES_PASSWORD}@db:5432/webmcp
     depends_on:
       db:
         condition: service_healthy
@@ -45,7 +45,7 @@ services:
         BUILD_ID: ${SOURCE_COMMIT:-coolify}
     command: ["node", "apps/server/src/seed.ts"]
     environment:
-      DATABASE_URL: postgres://webmcp:${POSTGRES_PASSWORD:-webmcp}@db:5432/webmcp
+      DATABASE_URL: postgres://webmcp:${POSTGRES_PASSWORD:?set a strong POSTGRES_PASSWORD}@db:5432/webmcp
       DEMO_SECRET_KEY: ${DEMO_SECRET_KEY:?set a non-default DEMO_SECRET_KEY in Coolify}
       APP_URL: ${APP_URL:-https://example.coolify.app}
     depends_on:
@@ -66,10 +66,18 @@ services:
     expose:
       - "4173"
     environment:
-      DATABASE_URL: postgres://webmcp:${POSTGRES_PASSWORD:-webmcp}@db:5432/webmcp
+      DATABASE_URL: postgres://webmcp:${POSTGRES_PASSWORD:?set a strong POSTGRES_PASSWORD}@db:5432/webmcp
       NODE_ENV: production
+      PUBLIC_ORIGIN: ${APP_URL:?set APP_URL to the HTTPS application origin}
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES:?set the actual reverse proxy IPs or CIDRs}
+      GLOBAL_ROOM_LIMIT: ${GLOBAL_ROOM_LIMIT:-100}
+      LLM_CALLS_PER_HOUR: ${LLM_CALLS_PER_HOUR:-600}
+      LLM_CALLS_PER_DAY: ${LLM_CALLS_PER_DAY:-2000}
+      LLM_CONCURRENCY: ${LLM_CONCURRENCY:-6}
+      OUTBOUND_CALLS_PER_HOUR: ${OUTBOUND_CALLS_PER_HOUR:-5000}
+      OUTBOUND_CALLS_PER_DAY: ${OUTBOUND_CALLS_PER_DAY:-20000}
       PORT: "4173"
-      ROOM_LIMIT: ${ROOM_LIMIT:-}
+      ROOM_LIMIT: ${ROOM_LIMIT:-50}
       BUILD_ID: ${SOURCE_COMMIT:-coolify}
       DEMO_SECRET_KEY: ${DEMO_SECRET_KEY:?set a non-default DEMO_SECRET_KEY in Coolify}
       ORIGIN_TRIAL_TOKEN: ${ORIGIN_TRIAL_TOKEN:-}
@@ -114,6 +122,13 @@ services:
         condition: service_completed_successfully
       seed:
         condition: service_completed_successfully
+    mem_limit: 1536m
+    pids_limit: 256
+    cpus: 2.0
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     restart: unless-stopped
 
 volumes:

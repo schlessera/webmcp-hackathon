@@ -712,24 +712,25 @@ describe("pipeline over HTTP, WebSocket, and PostgreSQL", () => {
 
   it("starts no plan for a read, however many frames the panel answers", async () => {
     const planMarker = `\"candidateId\":\"${clientBId}\"`;
+    const openStart = clientRealtime.frames().length;
     await apiPost(server.baseUrl, "/api/spatial/inspect", clientRoom.tokens.org, {
       candidateIds: [clientBId], intent: "open", force: true,
     });
     await waitFor(
-      () => terminalFrame(clientRealtime.frames(), clientBId, "complete"),
+      () => terminalFrame(clientRealtime.frames().slice(openStart), clientBId, "complete"),
       15_000,
       () => clientRealtime.frames().join("|"),
     );
-    const plans = countLog(planMarker);
     // The room has to be quiet first, or a frame from the open itself would
     // be mistaken for one the reads caused.
     await waitFor(() => {
-      for (const raw of [...clientRealtime.frames()].reverse()) {
+      for (const raw of clientRealtime.frames().slice(openStart).reverse()) {
         const frame = JSON.parse(raw) as { type?: string; pending?: string[] };
         if (frame.type === "lookups") return frame.pending?.includes(clientBId) !== true;
       }
       return false;
     }, 15_000, () => clientRealtime.frames().join("|"));
+    const plans = countLog(planMarker);
     const readStart = clientRealtime.frames().length;
     for (let i = 0; i < 6; i += 1) {
       const read = await apiPost<{ ok: boolean; candidates: Array<{ lookupPending?: boolean }> }>(

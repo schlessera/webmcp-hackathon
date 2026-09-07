@@ -194,6 +194,10 @@ export interface CommandOrigin {
   correlationId: string;
 }
 
+export function validateCommandInput(type: string, input: unknown): boolean {
+  return validators.get(type as CommandType)?.(input) === true;
+}
+
 export async function submitCommand(
   actor: Participant,
   type: string,
@@ -920,6 +924,18 @@ async function submitRequirement(
       "not_found",
       "Unknown requirementId.",
       "Submit without requirementId to create a new requirement, or call sync_session to refresh IDs.",
+    );
+  }
+
+  if (!existing) {
+    // The room transaction is already locked: concurrent submissions cannot
+    // grow an unbounded eligibility matrix or bypass these durable caps.
+    const count = (await client.query(
+      "SELECT count(*)::int AS total, count(*) FILTER (WHERE owner_id = $2)::int AS owned FROM requirements WHERE room_id = $1",
+      [actor.roomId, actor.id],
+    )).rows[0] as { total: number; owned: number };
+    if (count.total >= 128 || count.owned >= 32) return errorOutcome(
+      "invalid_input", "This room has reached its requirement limit.", "Update an existing requirement or open a new room.",
     );
   }
 
@@ -1655,6 +1671,9 @@ async function proposeDestination(
       [actor.roomId],
     )
   ).rows[0].n as number;
+  if (count >= 64) return errorOutcome(
+    "invalid_input", "This room has reached its proposal limit.", "Respond to an existing proposal or open a new room.",
+  );
   const room = (
     await client.query("SELECT revision FROM rooms WHERE id = $1", [actor.roomId])
   ).rows[0];
@@ -1849,17 +1868,12 @@ async function bumpConfirmedFactCandidates(
 }> {
   const affected = (
     await client.query(
-      "SELECT room_id, id FROM candidates WHERE osm_ref = $1 ORDER BY room_id, id",
-      [candidate.osm_ref],
+      "SELECT room_id, id FROM candidates WHERE osm_ref = $1 AND room_id = $2 ORDER BY id",
+      [candidate.osm_ref, actor.roomId],
     )
   ).rows as Array<{ room_id: string; id: string }>;
-  const localEvents = await bumpCandidateMapRevisions(client, actor.roomId, [candidate.id]);
-  // The fact is global, so stale private verdicts in every other room must
-  // stop being authoritative even though only this room receives the event.
-  await client.query(
-    `UPDATE candidates SET map_revision = map_revision + 1
-      WHERE osm_ref = $1 AND room_id <> $2`,
-    [candidate.osm_ref, actor.roomId],
+  const localEvents = await bumpCandidateMapRevisions(
+    client, actor.roomId, affected.map((row) => row.id),
   );
   const grouped = new Map<string, string[]>();
   for (const row of affected) {
@@ -1895,7 +1909,7 @@ async function confirmFact(
        (osm_ref, criterion_id, lean, note, source_url, confirmed_by_name,
         confirmed_by_participant, room_id, confirmed_at)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now())
-     ON CONFLICT (osm_ref, criterion_id) DO UPDATE SET
+     ON CONFLICT (room_id, osm_ref, criterion_id) DO UPDATE SET
        lean = EXCLUDED.lean, note = EXCLUDED.note, source_url = EXCLUDED.source_url,
        confirmed_by_name = EXCLUDED.confirmed_by_name,
        confirmed_by_participant = EXCLUDED.confirmed_by_participant,
@@ -1954,8 +1968,8 @@ async function unconfirmFact(
   const existing = (
     await client.query(
       `SELECT confirmed_by_participant FROM confirmed_facts
-        WHERE osm_ref = $1 AND criterion_id = $2 FOR UPDATE`,
-      [candidate.osm_ref, cmd.criterionId],
+        WHERE osm_ref = $1 AND criterion_id = $2 AND room_id = $3 FOR UPDATE`,
+      [candidate.osm_ref, cmd.criterionId, actor.roomId],
     )
   ).rows[0] as { confirmed_by_participant: string | null } | undefined;
   if (!existing) {
@@ -1973,8 +1987,8 @@ async function unconfirmFact(
     );
   }
   await client.query(
-    "DELETE FROM confirmed_facts WHERE osm_ref = $1 AND criterion_id = $2",
-    [candidate.osm_ref, cmd.criterionId],
+    "DELETE FROM confirmed_facts WHERE osm_ref = $1 AND criterion_id = $2 AND room_id = $3",
+    [candidate.osm_ref, cmd.criterionId, actor.roomId],
   );
   const bumped = await bumpConfirmedFactCandidates(client, actor, candidate);
   const label = (await confirmedCriterionPresentation(client, actor, cmd.criterionId)).label;

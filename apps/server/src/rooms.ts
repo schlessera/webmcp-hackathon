@@ -15,7 +15,7 @@ import {
   type StepWhen,
 } from "@webmcp-hackathon/contracts";
 import { withTransaction } from "./db.ts";
-import { sha256, type Participant } from "./auth.ts";
+import { sha256, legacyMemberInvitesAllowed, type Participant } from "./auth.ts";
 import { submitCommand } from "./engine.ts";
 import { candidatesFor, type DataSource } from "./places.ts";
 import { pool } from "./db.ts";
@@ -219,6 +219,9 @@ export async function createRoom(input: CreateRoomInput): Promise<CreateRoomResu
   if (!organizerName) return { ok: false, status: 400, error: "organizerName required (1–40 characters)." };
   if (!Array.isArray(input.memberNames) || input.memberNames.length > MEMBERS_MAX) {
     return { ok: false, status: 400, error: `memberNames must be an array of at most ${MEMBERS_MAX}.` };
+  }
+  if (input.memberNames.length && !legacyMemberInvitesAllowed()) {
+    return { ok: false, status: 400, error: "Create the organizer first, then invite members with join links." };
   }
   const memberNames: string[] = [];
   for (const raw of input.memberNames) {

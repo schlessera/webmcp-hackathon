@@ -146,6 +146,12 @@ const PENDING_CAP_MS = 8000;
 export const LOOKUP_DEADLINE_MS = 5 * 60_000;
 
 export interface AgentReply {
+  pendingAction?: {
+    id: string;
+    title: string;
+    details: Array<{ label: string; value: string }>;
+    expiresAt: string;
+  };
   id: string;
   text: string;
   /** What the agent changed, for the record row under the reply. */

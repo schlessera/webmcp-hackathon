@@ -358,7 +358,7 @@ const spatialTools: ToolDefinition[] = [
   {
     name: "confirm_fact",
     description:
-      "Record what you verified yourself; this is kept permanently for every room",
+      "Record what you verified yourself; this confirmation is shared only within this room",
     inputSchema: ConfirmFactInput,
     annotations: {},
   },

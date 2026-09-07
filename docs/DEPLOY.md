@@ -60,6 +60,16 @@ An empty result means the deploy cannot touch the schema. A non-empty one means
 reading the migration before pushing, because it runs against live data and
 applied migrations are immutable.
 
+For the September 7 security rollout, back up the database before applying
+migrations 026–028. Configure `TRUSTED_PROXIES` from the actual Docker ingress
+network, retain the existing database password and demo signing key, and set
+`ROOM_LIMIT=50` (combined room creation and plan preview requests per IP/hour).
+The global ceiling remains 100/hour. See
+[the security review](SECURITY-REVIEW-2026-09-07.md) for the full rollout checks.
+Production legacy member URLs no longer authenticate after this rollout;
+members must use newly issued browser-bound join links. Existing organizer
+recovery links expire seven days after creation.
+
 ## What happens on the host
 
 `migrate` runs and must exit 0 before `seed`; `seed` is idempotent and tops up
@@ -143,6 +153,11 @@ The database volume is untouched by any of this. The previous image also still
 exists on the host until it is pruned, so `docker compose … up -d --no-build`
 against the old image is a faster stopgap when the problem is a bad build rather
 than bad code.
+
+Code-only rollback across migration 026 is unsafe: older code expects the
+global confirmation key. Prefer a forward fix, or plan a coordinated restore
+of the pre-migration database backup and its matching image, accounting for
+any writes since that backup.
 
 ## Reset the demo room
 

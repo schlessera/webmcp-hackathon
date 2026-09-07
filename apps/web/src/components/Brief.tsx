@@ -8,6 +8,7 @@ import type {
   PrivateEffect,
 } from "../spatial-types.ts";
 import { COPY, initials, joinNames, personColor, ruledOutLabel } from "../ui/copy.ts";
+import { AgentActionReview } from "./AgentActionReview.tsx";
 
 /**
  * "What matters" — the group's stated needs, each toggleable, each carrying
@@ -633,6 +634,7 @@ export function AgentReplies({
         >
           <div className="card-kicker" data-tone="act">Your agent</div>
           <div className="card-body" data-testid="agent-reply-text">{r.text}</div>
+          {r.pendingAction && <AgentActionReview action={r.pendingAction} onDone={() => onDismiss(r.id)} />}
           {r.clarify && (
             <div
               className="reply-choices"
@@ -662,7 +664,7 @@ export function AgentReplies({
               ))}
             </div>
           )}
-          <div className="card-actions">
+          {!r.pendingAction && <div className="card-actions">
             {r.clarify ? (
               <button className="btn-text" data-testid="clarify-rephrase" onClick={() => onRephrase(r)}>
                 {COPY.clarifyRephrase}
@@ -672,7 +674,7 @@ export function AgentReplies({
                 Got it
               </button>
             )}
-          </div>
+          </div>}
         </div>
       ))}
     </section>

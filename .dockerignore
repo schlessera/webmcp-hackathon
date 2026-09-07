@@ -8,3 +8,8 @@ playwright-report
 *.log
 data
 .env
+
+.env.*
+.agents
+.claude
+.codex

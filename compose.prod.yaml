@@ -5,7 +5,7 @@
 #   docker compose -f compose.coolify.yaml -f compose.prod.yaml up -d --build
 services:
   caddy:
-    image: caddy:2.10-alpine
+    image: caddy:2.11.4-alpine
     restart: unless-stopped
     ports:
       - "80:80"

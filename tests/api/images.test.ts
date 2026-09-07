@@ -196,7 +196,7 @@ describe("place images API", () => {
     });
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toContain("image/webp");
-    expect(response.headers.get("cache-control")).toBe("public, max-age=86400");
+    expect(response.headers.get("cache-control")).toBe("private, max-age=86400");
     const etag = response.headers.get("etag");
     expect(etag).toMatch(/^"[A-Za-z0-9_-]+"$/);
     expect(Buffer.from(await response.arrayBuffer()).subarray(8, 12).toString()).toBe("WEBP");

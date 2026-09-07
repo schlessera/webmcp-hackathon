@@ -98,7 +98,7 @@ export type ClaimOutcome =
       role: "organizer" | "member";
       roomId: string;
     }
-  | { ok: false; reason: "in_use" | "expired" | "unknown" | "invalid" | "network" };
+  | { ok: false; reason: "in_use" | "full" | "expired" | "unknown" | "invalid" | "network" };
 
 /**
  * Take a link, or come back through one this device already took.
@@ -128,7 +128,10 @@ export async function claimInvite(
       };
       return { ok: true, ...body };
     }
-    if (response.status === 409) return { ok: false, reason: "in_use" };
+    if (response.status === 409) {
+      const body = await response.json() as { error?: string };
+      return { ok: false, reason: body.error === "room_full" ? "full" : "in_use" };
+    }
     if (response.status === 410) return { ok: false, reason: "expired" };
     if (response.status === 404) return { ok: false, reason: "unknown" };
     return { ok: false, reason: "invalid" };
