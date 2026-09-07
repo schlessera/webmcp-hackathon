@@ -1,274 +1,243 @@
-# System Architecture
+# System architecture
+
+Implementation reference, checked against `main` on 2026-09-07. Spokes runs a
+shared room with participant-specific views over prepared place data. The
+configured stack is a browser client, one application process, and PostgreSQL;
+external evidence/model providers are optional dependencies.
 
 ## Architectural thesis
 
-Separate facts, mediation, and advocacy:
+Keep source evidence, negotiation rules, and participant advocacy distinct:
 
 ```text
-World-knowledge backend
-        |
-        | Candidate dossiers: facts, sources, timestamps, confidence
-        v
-Shared council and session coordinator
-        |
-        | Participant-specific projections and negotiation commands
-        v
-Personal agents participating through WebMCP
-
-Humans <------> Live participant map views <------> Shared session
+Prepared OSM snapshots       External evidence sources / models
+         |                              |
+         +------> Place records and reusable evidence caches
+                                      |
+Page controls / WebMCP tools / approved built-in agent suggestion
+                                      |
+                     Authenticated application service
+                                      |
+            Command validation, ownership, revisions, consent
+                                      |
+                    PostgreSQL room state and events
+                                      |
+            Viewer-specific HTTP reads and WebSocket updates
+                                      |
+                      Participant browser projection
 ```
 
-An opaque model must not both invent available options and decide which person
-should compromise.
+The implementation shares a domain-aware server engine. Protocol versioning
+and typed payloads separate concepts at the interface; a separately packaged,
+domain-opaque negotiation engine is an architectural goal rather than a
+component currently deployed.
 
 ## Major components
 
 ### Participant web client
 
-- Renders the shared map, activity feed, candidate cards, and personal prompts.
-- Establishes the participant's session identity from a guest invite or account.
-- Receives a server-generated projection rather than the complete session.
-- Registers contextual WebMCP tools on `document.modelContext`.
-- Sends human and WebMCP actions through the same domain command path.
-- Maintains live UI updates through WebSockets or Server-Sent Events.
+[apps/web](../apps/web/) contains the React/Vite client: onboarding, plan
+review, invitation/claim flows, map, brief, place evidence, personal controls,
+and confirmation/review cards. Guest browser credentials establish identity;
+there is no account login.
+
+The client registers a static WebMCP catalog when
+`document.modelContext.registerTool` exists. It remains usable without native
+WebMCP. Page controls and external-agent mutations use the same authenticated
+command API; local map focus and opening a room have separate handlers.
+Detailed registration, compact response, retry, and completion semantics are
+in the [binding reference](protocols/INTERACTION-AND-BINDING.md).
+
+The browser holds server-projected room state and consumes WebSocket frames.
+It requests venue images from the application but loads the OpenFreeMap
+basemap directly. The map is a presentation of room state, not the state store.
 
 ### Authoritative session service
 
-- Stores participants, goals, requirements, visibility, delegation, and state.
-- Appends all accepted commands to a monotonically revisioned event stream.
-- Produces a separately authorized projection for every participant.
-- Enforces optimistic concurrency and rejects or rebases stale operations.
-- Tracks which revision an agent last observed.
-- Records acceptance and consent as explicit events.
+[server.ts](../apps/server/src/server.ts) serves HTTP and the web bundle;
+[ws.ts](../apps/server/src/ws.ts) provides the realtime connection. HTTP reads,
+commands, enrichment-triggering operations, and natural-language routes have
+separate handlers. There is no SSE transport.
+
+[engine.ts](../apps/server/src/engine.ts) validates commands, derives the actor
+from bearer authentication, checks room ownership/role and phase, enforces
+revision and consent rules, and writes domain state/events in transactions.
+All stale domain mutations require catch-up; commutative rebasing is not
+implemented. Idempotency is participant-scoped and bounded in time; the
+[binding's retry limits](protocols/INTERACTION-AND-BINDING.md#31-revisions-catch-up-and-retries)
+apply.
+
+[projection.ts](../apps/server/src/projection.ts),
+[sync.ts](../apps/server/src/sync.ts), and
+[spatial.ts](../apps/server/src/spatial.ts) build the requesting participant's
+view. Authorization removes private predicates before transmission; CSS or
+client hiding is not the privacy boundary.
 
 ### Constraint and council engine
 
-- Separates hard constraints from soft preferences.
-- Applies verified attributes to candidate eligibility.
-- Ranks remaining candidates using aggregate utility and tradeoffs.
-- Detects fragile, infeasible, or uncertain states.
-- Finds small conflicting constraint sets and grounded counterfactuals.
-- Never automatically relaxes a constraint beyond delegated authority.
+[eligibility.ts](../apps/server/src/eligibility.ts) evaluates active hard and
+bounded-negotiable needs against source evidence and current private verdicts.
+It distinguishes decisive, likely, and unknown evidence. Soft/optional needs
+are stored but do not yet supply a utility ranking. Candidate ordering is based
+on classification and distance rather than an optimized group-utility score.
 
-Deterministic logic should decide eligibility and calculate counterfactuals. An
-internal generative model may normalize ambiguous evidence or phrase useful
-explanations, but it must not invent feasibility facts.
+[impasse.ts](../apps/server/src/impasse.ts) finds conflicting requirements and
+bounded counterfactual adjustments. These are heuristics over the current pool,
+not an exhaustive search over all possible outings. Addressed private
+adjustments use delegation bounds, with over-bound grants staged for a separate
+confirmation. The organizer can also change the shared search scope directly;
+that path does not route affected members through consent.
+
+Agreement requires every participant to be ready and to accept or abstain,
+without a veto or unresolved conditional acceptance. The organizer stages and
+then commits. Eligibility classification is informative: the command engine
+does not require the chosen place to be classified eligible before agreement.
 
 ### World-knowledge service
 
-- Searches a bounded geographic and temporal area.
-- Normalizes destinations into stable candidate dossiers.
-- Attaches provenance, retrieval time, and confidence to claims.
-- Supports neutral expansions such as a wider area or later time.
-- Keeps provider-specific APIs behind adapters.
+[places.ts](../apps/server/src/places.ts) queries committed OSM snapshots inside
+the process. Place names/locations/classes, a landmark index, scope filling,
+and viewport exploration do not call a public geocoder. The active plan step
+selects pool classes, and background filling adds places in the current circle
+up to the pool cap.
 
-The POC can prepopulate and cache a selected geographic area to provide
-reliable, low-latency experimentation without pretending to operate at global
-scale.
+[enrich/](../apps/server/src/enrich/) supplements records with venue/menu text,
+Wikidata, optional business listings, evaluated evidence, and images.
+[refine/](../apps/server/src/refine/) schedules continuing work on uncertain
+criteria. Source claims carry provenance, confidence, and observation times;
+models can interpret those sources, including accepting explicit venue claims
+as verified evidence. They do not independently establish real-world truth.
 
-### Refinement scheduler and outbound routing
+[Prepopulation](PREPOPULATE.md) can warm the same caches before rooms exist.
+It creates no participant or negotiation state. Coverage, refresh, and fallback
+rules are in [Data quality](DATA-QUALITY.md); provider/cache handling is in
+[Enrichment sources](ENRICHMENT-SOURCES.md).
 
-The process-global refinement scheduler chooses which named concurrency pool
-may admit an item. It uses room-level deficit round robin, item priority,
-ready-buffer backpressure and the read-only `hostGateOpen(host)` hint. It never
-reserves or mutates host state in the outbound client.
+### Built-in participant agent
 
-Each priority class is indexed by pool, so an admission probe considers only
-work that can use the pool being filled. Queued items are reprioritised against
-the latest room plan and queued work that left the active scope is rejected;
-already-running work finishes and may still populate shared evidence caches.
-All refinement tiers, including the tier-2 and tier-3 vocabulary sweep, skip
-candidates outside the room's current scope.
-Scope and need changes bump the room epoch and wake the planner immediately.
+The [natural-language layer](NL-AGENT.md) interprets needs, previews short plans,
+and supplies an agent that reads one participant's room view. Parsed needs
+return to the page for ordinary submission. Tool-calling mutations become
+participant-bound review cards with stored exact arguments, a five-minute
+expiry, and single-use approval. Approval executes at the original revision
+through the command engine; it does not bypass final agreement or over-bound
+consent checks.
 
-Pool choice and route choice are separate decisions. The scheduler consults
-`routeFor(host, purpose)` when work is enqueued and again when it is dispatched,
-because the circuit breaker may change while it waits. `net/outbound.ts` is the
-route authority at dispatch and still owns purpose routing, the stable direct
-control group, per-host limits, session pacing and the circuit breaker. A
-dispatcher reports the actual route; accounting follows that report rather
-than the enqueue-time prediction. Interactive fetches prefer direct, with one
-same-priority proxy retry for a block-shaped result.
-
-Every dispatch has a kind-specific deadline. Expiry aborts signal-aware fetches,
-settles the item, clears its progress state and releases the pool slot. The room
-planner submits at most 32 places per tick and has its own plan watchdog, so one
-unsettled plan cannot prevent the next replan. Site evaluation releases the
-LLM-matrix slot before its search leg and reacquires it only for post-search
-evaluation.
-
-The scheduler and its progress volume are process-local. The socket-holding
-process emits the room frame; no cross-process counter is claimed.
-
-Asset materialisation does not ride inside the site-fetch slot. Only an
-on-demand place detail can schedule it: image
-bytes use the route-selected proxy/direct pool, Sharp decode/resize uses the
-image-decode pool, and one per-place classifier batch uses the vision pool.
-Background refinement and room warming schedule none of those three stages.
-
-### Realtime transport
-
-The application, not ChatGPT, is the realtime bus. Browser clients receive live
-session projections. ChatGPT is not assumed to maintain a background
-subscription; it catches up through WebMCP on its next interaction.
+Agent-private screening is a separate tool-less model job. The built-in
+condition text reaches the server and its interpretation/screening providers;
+it is held in process memory rather than requirement/event storage. External
+agents can instead retain their condition outside the application and submit
+only content-free declarations and verdicts. The tool-calling built-in model
+does not receive the held condition.
 
 ## State and event model
 
-The canonical event stream has a monotonically increasing revision. Example
-events include:
+PostgreSQL stores room state and revisioned events, not a replay-only event
+sourcing system. Commands can update rows and append several events. Candidate
+facts have their own revisions so changed evidence can invalidate prior
+screening. Presence, viewing focus, and some progress data are transient rather
+than part of the durable event stream.
 
-```text
-participant_joined
-requirement_added
-requirement_changed
-option_proposed
-option_vetoed
-participant_ready
-option_accepted
-meeting_point_selected
-impasse_detected
-private_adjustment_requested
-search_scope_change_proposed
-requirement_relaxed
-impasse_resolved
-```
+| Data | Purpose |
+|---|---|
+| `rooms` | Goal, phase, scope, revision, plan steps and active step |
+| `participants`, token/invite tables | Room membership, role, readiness, private origin, browser-bound guest access |
+| `requirements` | Owner, typed payload, visibility, hardness, delegation, active/withdrawn state, step |
+| `candidates` | Room/step place rows, source records and candidate fact revision |
+| `proposals`, `stances`, `adjustments` | Suggested destinations, participant decisions, private compromise requests |
+| `arrival_plans` | Participant transport choice and optional pickup note |
+| `events` | Revisioned activity used by per-viewer sync and realtime projections |
+| `attestations`, `confirmed_facts` | Participant evidence scoped to its room |
+| `enrichments`, page/search/image caches | Reusable place evidence with source-shaped freshness rules |
+| `nl_pending_actions` | Exact proposed built-in agent commands awaiting owner review |
 
-Every event is stored once but projected differently. A participant may see:
+Examples of actual events include `participant_joined`, `proposal_created`,
+`stance_submitted`, `ready_state_changed`, `impasse_detected`,
+`adjustment_proposed`, `scope_change_applied`, `agreement_committed`,
+`step_advanced`, and `arrival_plan_updated`.
 
-```text
-Joe added a private requirement.
-```
-
-Joe and Joe's authorized agent may instead see the full content. For stronger
-inference minimization, even ownership can be redacted:
-
-```text
-A private requirement was updated.
-```
-
-Client-side hiding is insufficient. The server must omit unauthorized fields
-and events from responses entirely.
+Normal rooms start in `gathering`. A proposal or impasse enters `deliberation`;
+agreement enters `agreed`; arrival planning enters `arrival`. In a multi-step
+plan, committing an intermediate agreement opens the next step and returns to
+`gathering`. The current participant readiness values carry forward. `setup`
+and `closed` exist in the type vocabulary but are not reached by the ordinary
+creation/command flow. There is no close, leave/removal, or settled-step-reopen
+command. See [phase.ts](../apps/server/src/phase.ts) and
+[steps.ts](../apps/server/src/steps.ts).
 
 ## ChatGPT connection and catch-up
 
-WebMCP tool descriptions and schemas are the discovery mechanism. WebMCP does
-not provide a separate standardized application-protocol instruction channel,
-so the application defines a first-connection contract.
+An external WebMCP agent participates through the active browser document.
+`describe_regions` and `open_room` cover creation. Once authenticated,
+`sync_session({})` supplies the first-connection manifest, identity, versions,
+revision, brief, and outstanding decisions. Cursor/revision continuations
+return paged deltas rather than repeating the manifest.
 
-An initial `connect_to_session` or `sync_session` result should include:
+The application WebSocket updates browser projections while an agent is idle.
+There is no assumption that an external conversation is a continuously running
+subscriber. Its next tool interaction catches up to the current room. Tools
+return abbreviated semantic views, so the binding documents omissions from
+full HTTP/page records as well as stale-write and UI-refresh limits.
 
-- Negotiation protocol and map-domain protocol versions.
-- The current participant identity and permissions.
-- Privacy and delegation rules.
-- Current session revision.
-- Current goal and concise participant-specific state.
-- Events since the agent last participated.
-- Supported actions and domain capabilities.
-- Any outstanding decision that requires this participant.
+## Refinement scheduler and outbound routing
 
-Every mutation includes the base revision the agent observed. If the session is
-stale, the application returns a structured `sync_required` result with a
-concise delta rather than silently acting on old information.
+The [pipeline](../apps/server/src/pipeline/) uses a process-local scheduler with
+room fairness, priority, named concurrency pools, bounded ready evidence, and
+deadlines. An interactive pool serves opened places independently of background
+work. Queued work is rechecked against current scope/needs; a completed source
+fetch can still populate reusable caches after focus changes.
 
-The map may already have updated in realtime while ChatGPT was idle. This is not
-fake push. ChatGPT receives the semantic delta when it next invokes a tool.
+Fetch, search, judgement, adjudication, image download, decode, and vision are
+separate work stages. The room planner prioritizes uncertain active needs,
+then stale facts and background vocabulary. Ordinary warming/refinement does
+not materialize images; opening a detail or explicitly prepopulating images
+does. Network waits do not hold a room lock or checked-out database client.
 
-## Asynchronous personal agents
-
-## Interactive lane
-
-Opening a place admits its fetch, search, and model work to a dedicated
-three-slot pool (`POOL_INTERACTIVE` overrides the limit), independent of the
-background sweep. Focus is participant-local: moving to another place demotes
-queued work for the old place and abandons its remaining model/search legs,
-unless another participant is still focused there; an in-flight site read may
-finish into cache. Opens run once per place and needs epoch with a 60-second
-floor (`force` bypasses it), stream queued/site/needs/photos/web progress, and
-spend separate hourly model and search budgets.
-
-A ChatGPT conversation participating through WebMCP is not a continuously
-running daemon. The application therefore stores a bounded delegation policy:
-
-- **Locked:** never relax automatically.
-- **Approval required:** ask the human before changing.
-- **Negotiable range:** may compromise within an explicit bound.
-- **Soft:** optimize when possible but do not block.
-
-The server can continue mediation within that envelope. Anything outside it is
-queued privately until the participant or their agent returns.
+The [outbound client](../apps/server/src/net/outbound.ts) remains the route and
+network-policy authority at dispatch. It checks destinations, DNS at direct
+socket connection, redirects, host pacing, attempt budgets, and circuit state.
+The model transport has separate provider handling and shared resource quotas.
+Source defaults and deployment overrides can differ; see
+[deployment configuration](DEPLOY-COOLIFY.md) rather than assuming a pool-size
+constant is the effective production limit.
 
 ## Privacy boundaries
 
-### What peers may receive
+| Recipient | What it can receive |
+|---|---|
+| Peers | Shared needs/stances, participant roster/readiness, private activity metadata, aggregate compatibility and outstanding counts; opted-in live coordinates through presence |
+| Participant and authorized agent | Their own private predicates/notes and addressed requests, plus the shared view; compact tools can omit page details |
+| Application operator | Stored application-private data and process memory, including a built-in agent's held condition |
+| Sentence/screening model | Submitted text and the context supplied for that tool-less job |
+| Built-in tool-calling model | Participant-visible room context and the current request, excluding the separately held agent-private condition |
+| Evidence evaluator | Public source text and criteria, including application-private criteria where the implementation evaluates them |
+| Search provider | Place identity/city and admissible shared or background-vocabulary words; private criterion text is not used as a query |
 
-- Shared requirements and statements.
-- Aggregate candidate compatibility.
-- Redacted private activity.
-- Group-level explanations and outstanding decisions.
+The existence and aggregate effects of private contributions remain observable;
+owner IDs or optional hints can also appear in authorized views. Access controls
+are not end-to-end encryption or anonymity. Latest origins are stored privately;
+only opt-in live coordinates enter peer presence, without the private label.
 
-### What a participant and their agent may receive
+Guest tokens expire after 24 hours, unclaimed member invitations after one
+hour, and organizer recovery after seven days. Claimed member recovery still
+has no final lifetime or self-service revocation. Confirmation nonces bind to
+an authenticated participant channel, not cryptographic proof of a person
+clicking. [Known limitations](KNOWN-LIMITATIONS.md) and the
+[binding's authority section](protocols/INTERACTION-AND-BINDING.md#5-security-binding)
+describe these boundaries.
 
-- Their own private requirements and delegation policy.
-- Private adjustment requests directed to them.
-- The same shared information every authorized participant receives.
+## Persistence and deployment limits
 
-### What the coordinator may receive
+PostgreSQL persists the room, evidence, and revisioned activity. Realtime
+fan-out/presence, confirmation nonces, held conditions, refinement queues,
+progress, and traffic/model quotas are process-local. There is no shared
+Redis/LISTEN-NOTIFY bus, durable outbox, or shared quota store. Multiple app
+replicas need coordination beyond the current configuration, and process
+restarts reset transient state.
 
-- Application-private requirements needed for server-side evaluation.
-- Agent-private stances without their hidden reasons.
-- Authorization metadata and audit events.
-
-### What the world-knowledge service should receive
-
-- Geographic, temporal, and attribute search queries.
-- No participant identity or personal explanation unless strictly required.
-
-When possible, the coordinator should fetch a broader candidate set and apply
-sensitive filters itself so the provider does not receive a user-linked query.
-
-## Data model sketch
-
-```text
-Room
-  id, revision, goal, area, time, status
-
-Participant
-  id, displayName, role, connectionState
-
-Requirement
-  id, ownerId, domainPayload, hardness, visibility, delegation
-
-Candidate
-  id, facts[], evidence[], freshness, confidence
-
-Proposal
-  id, candidateId, createdAtRevision, status
-
-Stance
-  participantId, proposalId, disposition, visibility, conditions
-
-Agreement
-  proposalId, confirmations[], committedAtRevision
-```
-
-## Core invariants
-
-- UI actions and WebMCP actions invoke the same application commands.
-- The map is a projection, not the authoritative source of session truth.
-- Candidate facts reference evidence and freshness.
-- Every direct remote request goes through the policy-aware outbound client at
-  `apps/server/src/net/outbound.ts`; nothing else calls global `fetch` for a
-  remote host except the deliberately separate OpenAI transport.
-- Personal agents advocate but do not invent map facts.
-- The world backend supplies possibilities but does not negotiate.
-- Only the council commits shared agreement.
-- No participant can alter another participant's requirements.
-- No constraint is relaxed outside its owner's delegated authority.
-- Tool results update the visible UI before returning where appropriate.
-- Protocol versions and domain capabilities are explicit.
-- No work holds a database client outside a transaction. A held client is a
-  client no request can have: background jobs that each kept one as a lock
-  holder took the whole pool at boot and the app could not answer an invite
-  exchange. Serialize with a transaction-scoped lock inside the statement that
-  needs it, or with a process-local gate, never with a session-scoped advisory
-  lock on a pooled connection.
+The application has bounded HTTP/WebSocket, model, outbound, and durable-room
+resource controls. Those controls do not provide edge protection, persistent
+spending ceilings, automated data retention, or verified production restores.
+Operational requirements live in [Deployment](DEPLOY.md); the dated
+[September 7 security review](SECURITY-REVIEW-2026-09-07.md) records the evidence
+and remaining operator work for that review.

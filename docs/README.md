@@ -1,82 +1,65 @@
-# Project Design Documentation
+# Spokes documentation
 
-This directory captures the concept developed for the WebMCP Challenge as of
-August 31, 2026.
+The maintained references below describe the current application. They are
+checked against the implementation as it changes; dated reviews, research,
+and implementation plans remain records of their original scope.
 
-## Current direction
+Start with [Project status](PROJECT-STATUS.md) for what exists and how to
+validate it, or [Known limitations](KNOWN-LIMITATIONS.md) for current product,
+data, privacy, and operational boundaries.
 
-Build a concrete collaborative destination-planning application that also
-serves as a proof of concept for a more general idea:
+## Current references
 
-> Personal AI agents participate in shared web applications through WebMCP,
-> advocate for their users, and reveal only the minimum information needed to
-> reach a collective decision.
+| Document | Purpose |
+|---|---|
+| [PROJECT-STATUS.md](PROJECT-STATUS.md) | Current product and repository state, validation entry points, and remaining work |
+| [KNOWN-LIMITATIONS.md](KNOWN-LIMITATIONS.md) | Limits that still apply; no closed-issue history |
+| [SYSTEM-ARCHITECTURE.md](SYSTEM-ARCHITECTURE.md) | Components, command/read paths, storage, realtime coordination, and trust boundaries |
+| [protocols/INTERACTION-AND-BINDING.md](protocols/INTERACTION-AND-BINDING.md) | The 24-tool WebMCP catalog, actual output shapes/budgets, revisions, identity, consent, and agent boundaries |
+| [protocols/NEGOTIATION-PROTOCOL.md](protocols/NEGOTIATION-PROTOCOL.md) | Current negotiation objects, commands, events, phases, and privacy projections |
+| [protocols/SPATIAL-PROTOCOL.md](protocols/SPATIAL-PROTOCOL.md) | Current spatial payloads, candidate pools, evidence, eligibility, and destination/arrival behavior |
+| [NL-AGENT.md](NL-AGENT.md) | Goal/composer interpretation, built-in agent review, and private screening |
+| [DATA-QUALITY.md](DATA-QUALITY.md) | Prepared regions, data freshness, coverage, and evidence limits |
+| [ENRICHMENT-SOURCES.md](ENRICHMENT-SOURCES.md) | Implemented provider paths, caches, and source handling |
+| [PREPOPULATE.md](PREPOPULATE.md) | Warm a serving database's regional provider caches without creating a room |
+| [DEMO-RUNBOOK.md](DEMO-RUNBOOK.md) | Repeatable local demonstration and validation workflow |
+| [DEPLOY.md](DEPLOY.md) | Caddy/Hetzner deployment, checks, secrets, rollback, and fixture reset |
+| [DEPLOY-COOLIFY.md](DEPLOY-COOLIFY.md) | Production Compose environment reference and optional, unverified Coolify setup |
 
-The visible product is a live, multi-participant map room. Each participant can
-contribute requirements, preferences, vetoes, and approvals through the map,
-the shared application, or their personal ChatGPT. A neutral coordinator finds
-collectively viable destinations, detects impasses, and privately negotiates
-bounded adjustments when necessary.
+The landing page links directly to the WebMCP binding and Known limitations.
+Executable contracts in [packages/contracts](../packages/contracts/src) and
+the server/browser implementation are the authority for exact wire fields.
+A checked-in document does not certify the build currently served by a host.
 
-The map is the first reference application, not the limit of the underlying
-mechanism.
+## Design background and historical snapshots
 
-## Documents
+These explain intent, decisions, or findings at a particular point. They are
+not current implementation checklists or promises about deployed behavior.
 
-- [PRODUCT-CONCEPT.md](PRODUCT-CONCEPT.md) — product thesis, value proposition,
-  actors, and intended experience.
-- [SYSTEM-ARCHITECTURE.md](SYSTEM-ARCHITECTURE.md) — system boundaries, data
-  flows, realtime behavior, privacy model, and relationship to ChatGPT.
-- [PROTOCOLS.md](PROTOCOLS.md) — the original protocol boundary sketch
-  (superseded by the detailed designs below).
-- [protocols/NEGOTIATION-PROTOCOL.md](protocols/NEGOTIATION-PROTOCOL.md) —
-  normative design of `negotiation/v1`: objects, events, privacy tiers,
-  sync discipline, state machines, invariants.
-- [protocols/SPATIAL-PROTOCOL.md](protocols/SPATIAL-PROTOCOL.md) — normative
-  design of `spatial-destination/v1`: IDs, scope, dossiers, domain payloads,
-  spatial commands, eligibility semantics.
-- [protocols/INTERACTION-AND-BINDING.md](protocols/INTERACTION-AND-BINDING.md)
-  — how the protocols compose, the 14-tool WebMCP surface, result envelope,
-  error model, demo sequences, security binding, versioning.
-- [EXPERIENCE-AND-DEMO.md](EXPERIENCE-AND-DEMO.md) — user flows, impasse
-  resolution, three-participant demonstration, and narrative.
-- [MVP-AND-RISKS.md](MVP-AND-RISKS.md) — POC scope, validation work, known risks,
-  mitigations, and deferred opportunities.
-- [VALIDATION-SPIKE-1-AUTOMATED-DEMO.md](VALIDATION-SPIKE-1-AUTOMATED-DEMO.md)
-  — researched critical path and automation design for ChatGPT WebMCP discovery
-  with three parallel participant contexts.
-- [IDEATION-JOURNAL.md](IDEATION-JOURNAL.md) — the exploration that produced the
-  current direction, including discarded concepts, role-play findings, likes,
-  wishes, questions, and concerns.
+| Material | Role |
+|---|---|
+| [PRODUCT-CONCEPT.md](PRODUCT-CONCEPT.md) | Original product thesis and intended experience |
+| [EXPERIENCE-AND-DEMO.md](EXPERIENCE-AND-DEMO.md) | Proposed user journeys, role-play scenario, and demonstration narrative |
+| [MVP-AND-RISKS.md](MVP-AND-RISKS.md) | Time-boxed MVP scope and planning record |
+| [PROTOCOLS.md](PROTOCOLS.md) | Superseded protocol boundary sketch; use the current `protocols/` references |
+| [PLAN-LIVE-DATA-AND-ONBOARDING.md](PLAN-LIVE-DATA-AND-ONBOARDING.md) | Live-data/onboarding implementation-wave plan |
+| [PLAN-ONBOARDING-AND-MULTISTEP.md](PLAN-ONBOARDING-AND-MULTISTEP.md) | Multi-step and invite implementation-wave specification |
+| [REDESIGN-HANDOFF.md](REDESIGN-HANDOFF.md) and [design/HANDOFF.md](design/HANDOFF.md) | Redesign handoffs and mockup context |
+| [design/SYNC.md](design/SYNC.md) | Design-tool synchronization record |
+| [IDEATION-JOURNAL.md](IDEATION-JOURNAL.md) | Exploration and discarded directions |
+| [SUBMISSION.md](SUBMISSION.md) | Submission preparation draft |
+| [VALIDATION-SPIKE-1-AUTOMATED-DEMO.md](VALIDATION-SPIKE-1-AUTOMATED-DEMO.md) | Dated automation/discovery investigation and results |
+| [SECURITY-REVIEW-2026-09-07.md](SECURITY-REVIEW-2026-09-07.md) | Security findings and validation for the reviewed revision |
+| [research/](research/) | Dated provider benchmarks, crawl results, and measurement artifacts |
 
-## Existing reference documents
+Other dated security reports and local submission artifacts retain their own
+scope. Use current references for present behavior and those records for
+historical evidence; do not read old pass counts as a fresh test result.
 
-The repository-root files remain the source material for the challenge and the
-WebMCP technology:
+## Challenge and technology reference material
 
-- [../HACKATHON-OVERVIEW.md](../HACKATHON-OVERVIEW.md)
-- [../HACKATHON-RULES.md](../HACKATHON-RULES.md)
-- [../HACKATHON-RESOURCES.md](../HACKATHON-RESOURCES.md)
-- [../WEBMCP-REFERENCE.md](../WEBMCP-REFERENCE.md)
-
-## Decisions already made
-
-- Build a meaningful standalone product, not a feature inside an existing
-  second-brain project.
-- Keep the underlying negotiation mechanisms reusable and suitable for later
-  open-source extraction.
-- Use a map-based group destination decision as the reference domain.
-- Make async multi-participant collaboration the central differentiator.
-- Treat ChatGPT as a participant through WebMCP, not as the realtime event bus.
-- Keep the application authoritative for state, identity, privacy, and consent.
-- Separate world knowledge, neutral coordination, and personal advocacy.
-- Separate the generic negotiation protocol from the map-domain protocol.
-- Include a minimal impasse resolver in the POC.
-- Use prepared geographic areas for demo reliability while keeping a path to
-  pluggable live data providers.
-- Implement all three privacy tiers fully in v1, including agent-private
-  screening and the progressive disclosure ladder (2026-08-31).
-- Agreement rule for v1: all active participants accept (or abstain), then
-  the organizer commits with an in-page confirmation (2026-08-31).
-- Register a static WebMCP tool surface at page load; express phase and state
-  in tool results, not in dynamic tool registration (2026-08-31).
+The root [hackathon overview](../HACKATHON-OVERVIEW.md),
+[rules](../HACKATHON-RULES.md), [resources](../HACKATHON-RESOURCES.md), and
+[WebMCP reference](../WEBMCP-REFERENCE.md) are background source material.
+For the browser API's present availability, follow the official Chrome links
+in the [binding](protocols/INTERACTION-AND-BINDING.md#21-registration-model-static-surface).

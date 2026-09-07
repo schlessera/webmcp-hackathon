@@ -1,5 +1,7 @@
 # Prepare a demo region
 
+Current CLI reference, checked against the implementation on 2026-09-07.
+
 `pnpm prepopulate` runs the application's ordinary providers ahead of a demo.
 It writes to the same Postgres caches the app reads by OSM reference, so both
 existing and newly opened rooms can reuse the results. It creates no room,
@@ -10,7 +12,7 @@ From this checkout, with Node.js 24+ and dependencies installed:
 
 ```bash
 pnpm prepopulate --area berlin-mitte --dry-run
-pnpm --filter @webmcp-hackathon/server migrate
+node --env-file-if-exists=.env apps/server/src/migrate.ts
 pnpm prepopulate --area berlin-mitte
 ```
 
@@ -19,16 +21,19 @@ precedence. Use the same provider/proxy settings as the application. Postgres
 must already be running and migrations must be current. The preview does not
 connect to Postgres or call providers, and lists unavailable sources explicitly.
 
-For an app deployed through this checkout's Compose configuration, after
-rebuilding the app image and running migrations:
+For the production stack in [DEPLOY.md](DEPLOY.md), run from the host's
+deployment directory after rebuilding the app image and running migrations:
 
 ```bash
-docker compose exec app node apps/server/src/prepopulate.ts --area berlin-mitte --dry-run
-docker compose exec app node apps/server/src/prepopulate.ts --area berlin-mitte
+docker compose -f compose.coolify.yaml -f compose.prod.yaml exec app node apps/server/src/prepopulate.ts --area berlin-mitte --dry-run
+docker compose -f compose.coolify.yaml -f compose.prod.yaml exec app node apps/server/src/prepopulate.ts --area berlin-mitte
 ```
 
 This uses the running app container's database and provider environment. It
 does not need a browser or any participants to stay connected.
+For local development with `compose.yaml`, use `docker compose exec app`
+instead. Neither form reads host environment overrides that were not passed
+into the container.
 
 Select `sf-soma` for San Francisco. The default is every snapshot place within
 2,000 metres of the selected demo centre, including museums, parks and other
@@ -43,7 +48,8 @@ pnpm prepopulate --area berlin-mitte --sources sites,images
 ```
 
 Places run nearest first. `--limit` applies after deduplication and the radius
-filter. The default concurrency is 4, with a maximum of 8. Provider calls use
+filter; `--radius-m` accepts 1–2,000 metres. The default concurrency is 4, with
+a maximum of 8. Provider calls use
 the configured accounts and their usual billing; `--limit` bounds the number
 of places, not a dollar amount. Search uses the selected `SEARCH_PROVIDER`,
 rather than querying every alternative search vendor for the same evidence.
@@ -52,7 +58,7 @@ rather than querying every alternative search vendor for the same evidence.
 |---|---|---|
 | `listings` | DataForSEO category batches, existing name/distance matching, website discovery, hours and normalized claims | Matched listing facts and regional admission: 7 days; failed batch: 1 hour |
 | `sites` | Venue homepage, linked menus, menu image/PDF reading when enabled, tagged Wikidata, and evidence evaluation | Website facts and bounded evaluator text: 7 days; Wikidata: 30 days; failures: 1 hour |
-| `images` | Website/tagged images, Commons discovery, decoding, classification and blurhash generation | Up to 30 days, shortened by origin cache policy; existing image failure backoff applies |
+| `images` | Website/tagged images, Commons discovery, decoding, classification and blurhash generation | 1–30 days; source max-age/s-maxage is clamped to this range; no-store/private/no-cache responses rejected; image failure backoff applies |
 | `search` | One ordinary search for a place's unresolved vocabulary criteria, followed by evidence validation | Validated claims: 7 days; provider-specific snippet policy below |
 
 Listings run first so their discovered websites are available to all later

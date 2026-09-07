@@ -1,691 +1,585 @@
 # Spatial/Map Domain Protocol — `spatial-destination/v1`
 
-Status: initial design, 2026-08-31. This document defines the domain payloads
-and spatial commands carried by [NEGOTIATION-PROTOCOL.md](NEGOTIATION-PROTOCOL.md)
-and bound to WebMCP in [INTERACTION-AND-BINDING.md](INTERACTION-AND-BINDING.md).
+Status: maintained implementation reference, checked 2026-09-07. This document
+covers current spatial payloads and behavior, alongside the
+[negotiation protocol](NEGOTIATION-PROTOCOL.md) and
+[WebMCP binding](INTERACTION-AND-BINDING.md). The executable
+[input schemas](../../packages/contracts/src/commands.ts),
+[read schemas](../../packages/contracts/src/tools.ts), and
+[response types](../../packages/contracts/src/envelope.ts) are the wire
+contract; code comments or descriptions can lag their implementation.
 
 ## 1. Purpose and position
 
-The spatial protocol gives the map UI, human gestures, the world-knowledge
-service, and personal agents **the same referents** for one spatial situation:
-candidates, pins, search scope, routes, and meeting points. It exposes
-semantic state an agent cannot reliably recover from pixels.
+The spatial layer gives the page and personal agents stable references for
+places, search scope, evidence, requirements, proposals, and navigation
+handoff. A selected pin and a tool-selected candidate refer to the same place.
+Participant identity, stances, delegated adjustments, and agreement use the
+negotiation command bus.
 
-It owns spatial facts and interaction semantics. It does **not** own identity,
-privacy, consent, or agreement — any spatial action with negotiation meaning
-(veto a pin, propose a destination) compiles down to a negotiation command.
-
-**Implementation boundary (tool contract v3).** The live wire supports stable
-candidate IDs, circle scope, `walk | bike | car`, an optional pickup note,
-candidate navigation handoff, and absolute time requirement predicates.
-The search scope's `timeWindow`, `transit`, computed routes,
-`routeId`, meeting points, and `meetingPointId` are explicitly deferred. Any
-examples below that mention them reserve future protocol design; they are not
-advertised capabilities or accepted tool arguments today.
+Current support includes circle scopes, prepared venue/landmark data,
+progressive evidence lookup, ordered plans, per-person starting points,
+walk/bike/car arrival choices, and external navigation links. There are no
+computed street routes, route IDs, negotiated meeting points, polygon/bounding-
+box search scopes, or public-transit routing. A transit travel-time requirement
+is accepted but remains uncertain without a travel-time source.
 
 ## 2. Identifier rules
 
-All references are stable, opaque IDs — never labels, coordinates, or screen
-positions:
+| Reference | Meaning and lifetime |
+|---|---|
+| `candidateId` | Room candidate; also the map pin identity. Stable across reclassification/scope changes; settled steps keep their records outside the live pool |
+| Place `ref` | Source reference from the page's explore/search data; input to `AddCandidates` |
+| `scopeId` | Current scope snapshot; a new ID is allocated when scope changes |
+| `landmarkId` | Named public-place reference from `find_landmarks` in this room's area |
+| `stepId` | Ordered plan step; one is active while later ones remain pending |
+| `criterionId` | Evidence question/key behind a need; may be vocabulary, `q:<sha1>`, or a generated value/time criterion |
 
-| ID | Meaning | Stability |
-|---|---|---|
-| `candidateId` (`place_42`) | A destination. The map pin for a candidate **is** the candidate — there is no separate pin ID. | Stable for the session; survives re-ranking and scope changes. |
-| `scopeId` (`scope_2`) | A search-scope snapshot (area + time + transport). | New ID per applied change; previous scopes remain referencable in history. |
-| `routeId` (`route_p_joe_1`) | A computed route for one participant. | **Deferred; not on the v3 wire.** |
-| `meetingPointId` (`meet_1`) | A proposed meeting/pickup point. | **Deferred; not on the v3 wire.** |
+These IDs are distinct. Do not pass a source ref as a candidate ID or infer
+one from a place label. `find_landmarks` accepts a name query; place references
+for `add_candidates` are currently discovered through page HTTP/explore
+surfaces, not a registered general venue-search tool. Coordinates are values
+for scope, origins, and point referents, not place identity.
 
-Implemented tool schemas accept and return candidate/scope IDs. The deferred
-route and meeting-point rows have no accepted tool arguments yet. Free-text
-place names appear only in human-readable fields, never as command arguments.
+A historical candidate can remain inspectable without being eligible for a
+new proposal. `propose_destination` requires membership in the current live
+pool. No callable `routeId` or `meetingPointId` exists.
 
 ## 3. Search scope
 
-The shared spatial question being asked. Owned by the session (shared
-visibility); changes flow through negotiation as `scope_change_proposed` /
-`scope_change_applied`.
+The shared scope is a circle with transport metadata and a place class:
 
-```jsonc
+```json
 {
   "scopeId": "scope_2",
-  "area": { "kind": "circle", "center": { "lat": 52.499, "lng": 13.425 }, "radiusM": 800 },
-  // also: { "kind": "bbox", ... } — polygon deferred
-  "timeWindow": { "start": "2026-09-01T18:30:00+02:00", "end": "2026-09-01T22:00:00+02:00" }, // deferred
-  "transport": ["walk", "transit", "car"], // transit deferred; live enum is walk | bike | car
-  "category": "food"                     // room goal category
+  "area": {
+    "kind": "circle",
+    "center": { "lat": 52.499, "lng": 13.425 },
+    "radiusM": 800
+  },
+  "transport": ["walk", "bike", "car"],
+  "category": "food"
 }
 ```
 
-The protocol design reserves time as a first-class **scope** dimension ("plan
-for later, not now"), but that scope field and transit routing are deferred.
-An absolute window is implemented as a requirement payload (§5.1) and is
-evaluated against opening hours (§8.3). The current scope implementation
-applies circle radius and walk/bike/car modes; implemented neutral impasse
-expansion changes radius only.
+`SetSearchScope` accepts `baseRevision` and at least one of `area` or
+`transport`. The radius is an integer from 100 to 5,000 metres; transport is
+a unique non-empty list of `walk`, `bike`, and/or `car`. It does not accept
+`category`, `timeWindow`, a bounding box, polygon, or transit. Time constraints
+are requirements (§5.1, §8.3). Transport selection does not request routing.
+
+Only the organizer can change shared scope. That command emits proposed and
+applied events in the same transaction; it **does not** request each affected
+participant's consent. A member cannot directly propose a scope change through
+this command. Council-generated radius adjustments have their separate staged
+consent path. Expansion calculations currently test radius only, not later
+times, route networks, or meeting points.
+
+In a multi-step plan, committing an intermediate destination recenters the
+next step's search on that destination and restores the area's narrow radius.
+The new step's place class supplies the scope category. This is a shared plan
+transition, not a local map pan. There is no step editing, reordering, or
+reopening command.
 
 ## 4. Candidate dossier
 
-The unit of world knowledge. Produced by the world-knowledge service,
-consumed by the council and (projected) by participants and agents.
+The HTTP `InspectCandidates` response contains `{ok, revision, candidates}`.
+Each dossier includes stable ID, name, location, category, price level, hours,
+attributes, and `mapRevision`. Available source data can add address, phone,
+links, description, self-published rating, awards, images, per-need verdicts,
+and lookup state. Optional data is not a guarantee that every place has it.
+For example, an attribute row can be:
 
-```jsonc
+```json
 {
-  "candidateId": "place_42",
-  "name": "Garden Cafe Window",
-  "location": { "lat": 52.4981, "lng": 13.4262 },
-  "category": "cafe",
-  "priceLevel": 2,                        // 1–4, provider-normalized
-  "hours": [ { "day": "mon", "open": "09:00", "close": "22:00" } ],
-  "attributes": [
-    {
-      "key": "dog-friendly-outdoor-seating",
-      "status": "verified_true",          // verified_true | verified_false | unverified | unknown
-      "source": "curated:berlin-kreuzberg-2026-08",
-      "observedAt": "2026-08-31T10:00:00Z",
-      "confidence": 0.9
-    }
-  ],
-  "mapRevision": 8                        // bumps when facts change; drives re-screening
+  "key": "outdoor-seating",
+  "status": "likely_true",
+  "source": "infer:model:venue_site",
+  "observedAt": "2026-09-07T10:00:00Z",
+  "confidence": 0.6,
+  "note": "Evidence supporting this reading."
 }
 ```
 
-**Attribute honesty is normative.** Four distinct states — an absent attribute
-(`unknown`), an unverified claim, a verified positive, and a verified negative
-— and eligibility logic must treat them differently: only `verified_false`
-hard-excludes against a hard requirement; `unknown`/`unverified` yields
-`uncertain`, which triggers evidence requests rather than silent exclusion.
+`status`, provenance, confidence, and observation time are separate fields.
+The semantic status vocabulary has five values: `verified_true`,
+`likely_true`, `likely_false`, `verified_false`, and `unknown`. Legacy
+`unverified` data is read as a low-confidence likely value. A disputed fact
+uses `unknown` with a `disputed:` source; it is not a sixth status. A verified
+positive can exclude a negative expectation just as a verified negative can
+exclude a positive expectation.
 
-Attribute `key`s come from a session-scoped controlled vocabulary published in
-the capability manifest (e.g. `vegetarian-options`, `lactose-free-options`,
-`wheelchair-accessible`, `outdoor-seating`, `dog-friendly`, `price-level`,
-`cuisine`). Predicates in requirement payloads and L2 disclosures reference
-these keys, which is what makes them machine-checkable.
+The manifest publishes thirteen attribute keys and their display labels:
+vegetarian, vegan, gluten-free, halal, lactose-free, wheelchair access,
+outdoor seating, dog friendly, wifi, takeaway, delivery, price-level, and
+cuisine. Use the exact machine strings in the manifest. Dossiers can also
+carry hours and authorized generated question/value criteria; not every
+attribute key is accepted by every mutation schema.
+
+`mapRevision` identifies the facts screened for this candidate. It is separate
+from the room event revision. A private verdict stamped with another fact
+revision is not current evidence for this place.
 
 ### 4.1 Projected candidate summary
 
-Full dossiers are too large for tool-result budgets. The standard projection
-in sync results and spatial context is a summary row:
+HTTP spatial context supplies summary rows with `candidateId`, optional source
+`ref`, name, location, category, eligibility, walking estimate, price level,
+optional explanation/confidence, and image summary. Its eligibility classes
+are `eligible`, `likely`, `uncertain`, `unlikely`, and `excluded`.
+`why` is optional, viewer-specific, and capped at 60 characters; eligible rows
+omit it. Unknown price is `null`, not a zero-cost price band.
 
-```jsonc
-{
-  "candidateId": "place_42", "name": "Garden Cafe Window",
-  "eligibility": "eligible" | "uncertain" | "excluded",
-  "why": "meets all shared requirements; 1 private screen pending", // redacted per §7
-  "walkMin": 6, "priceLevel": 2, "imageCount": 1,
-  "image": {
-    "url": "/api/places/node/42/images/0",
-    "width": 960, "height": 640,
-    "blurhash": "LGF=X50Dx@x]G^IaM|-nyCRnaLt5"
-  }
-}
-```
+The HTTP context also carries scope, feasibility, facets, own/shared needs,
+private effects, roster, proposals, agreement, own arrival plan, pool progress,
+and available plan/refinement metadata. `total` is the in-scope denominator;
+out-of-scope candidates can remain in the array as excluded so the page can
+fade them in place.
 
-`why` is optional and is omitted for `eligible` rows; when present it is at
-most 60 characters. Consumers MUST fall back to the structured `eligibility`
-state when it is absent. This is a backward-compatible payload reduction.
-Ordinary HTTP context responses also use content negotiation for gzip and
-Brotli; compression changes transport bytes, not the JSON contract.
-`image` is optional and is the same-origin `idx = 0` image only. It is omitted
-when the place has no image or that row has not received a blurhash yet;
-`imageCount` remains authoritative in either case. Agent projections keep the
-count and drop `image`.
+WebMCP is a smaller projection. `get_spatial_context` begins with at most eight
+candidate rows sorted by eligibility and walking estimate, and omits
+coordinates, detailed needs/facets, pool/refinement state, and plan fields.
+`inspect_candidates` compacts attribute/need rows and drops hours, coordinates,
+and image URLs. The structural encoder can omit further fields to fit its
+budget. A full HTTP dossier or context is not an example of a full tool result;
+see binding §2.4 and §3.
 
 ## 5. Domain payloads for negotiation objects
 
-These are the `payload` shapes the negotiation envelope carries when
-`domain: "spatial-destination/v1"`.
+The following are payload objects nested in `SubmitRequirement`, whose
+visibility, hardness, delegation, and revision fields belong to negotiation.
 
 ### 5.1 Requirement payloads
 
 ```jsonc
-// Attribute predicate (machine-checkable — also the L2 disclosure shape)
+// Positive or negative attribute expectation; key comes from the manifest.
 { "kind": "attribute", "key": "vegetarian-options", "expect": "verified_true" }
+{ "kind": "attribute", "key": "dog-friendly", "expect": "verified_false" }
 
-// Scope predicate
-{ "kind": "scope", "dimension": "walk_min", "max": 15, "referent": { "kind": "landmark", "landmarkId": "node/42" } }
+// Distance from the need owner's starting point (default referent).
 { "kind": "scope", "dimension": "walk_min", "max": 15 }
+{ "kind": "scope", "dimension": "radius_m", "max": 1000 }
 { "kind": "scope", "dimension": "travel_min", "max": 20, "mode": "bike" }
 
-// Budget
+// Explicit distance referent; use an ID returned by find_landmarks.
+{ "kind": "scope", "dimension": "walk_min", "max": 15,
+  "referent": { "kind": "landmark", "landmarkId": "node/42" } }
+
+// Estimated per-person budget, not a live menu quote.
 { "kind": "budget", "perPersonMax": { "amount": 18, "currency": "EUR" } }
-{ "kind": "budget", "perPersonMax": { "amount": 20, "currency": "USD" } }
 
-// Absolute opening-hours window; both instants carry the area's UTC offset
-{ "kind": "time", "window": { "start": "2026-09-04T12:00:00+02:00", "end": "2026-09-04T14:00:00+02:00" }, "phrase": "tomorrow for lunch" }
+// Absolute opening-hours interval, with an optional display phrase.
+{ "kind": "time", "window": {
+    "start": "2026-09-08T12:00:00+02:00", "end": "2026-09-08T14:00:00+02:00"
+  }, "phrase": "tomorrow for lunch" }
 
-// Exclusion (temporary preference: "not Italian today")
+// Cuisine set membership; values are bounded strings, not arbitrary fields.
 { "kind": "exclusion", "key": "cuisine", "values": ["italian"], "lifetime": "session" }
 { "kind": "inclusion", "key": "cuisine", "values": ["asian", "vietnamese"], "lifetime": "session" }
+
+// Bounded free-text need; evidence may later answer its question criterion.
+{ "kind": "text", "text": "A quiet place to talk" }
 ```
 
-`travel_min` requires `mode` (`walk`, `bike`, `car`, or `transit`). Walk,
-bike and car use the shared straight-line speed conventions; transit remains
-pending until a travel-time source exists. Budgets are compared only in the
-area's currency, so a currency mismatch is pending rather than exclusion.
+`travel_min` requires `mode: walk | bike | car | transit`. Walk, bike, and car
+use straight-line distance divided by fixed speed assumptions; they do not
+account for streets, barriers, traffic, or transfers. Transit remains pending.
+Plain walking summaries use the same estimate, rounded to at least one minute.
+
+Budget currency is `EUR` or `USD`. Comparison is against the area's currency;
+a mismatch remains uncertain. The published price bands estimate upper
+per-person EUR amounts of 10, 15, 25, and 40 for levels 1–4. Missing price
+remains uncertain. Cuisine values allow one to eight entries of up to 60
+characters. `lifetime: "durable"` is accepted but does not promote a preference
+into a user profile or another room. Text and time phrases are capped at
+200 characters. Text needs are never assumed satisfied just because they
+were accepted by the input schema.
 
 ### 5.2 Delegation bounds
 
-```jsonc
-{ "dimension": "radius_m", "max": 1500 }          // scope requirement, negotiable up to
-{ "dimension": "per_person_eur", "max": 20 }      // budget, negotiable up to
-```
+A requirement's optional bound is `{dimension, max}` where dimension is
+`radius_m`, `per_person_eur`, or `walk_min`. These describe delegated authority,
+not a universal optimizer. Current council generators propose radius expansion,
+next-band EUR budgets, or cuisine inclusion/exclusion removal. Of these,
+budget grants can satisfy a matching `negotiable` per-person bound; scope and
+cuisine changes need their addressee's page confirmation when staged.
+No generator currently uses every accepted bound dimension.
 
-### 5.3 Stance condition / reason payloads
+### 5.3 Stance reasons
 
-```jsonc
-// future condition on conditionally_accept (deferred; current tool has no condition argument)
-{ "kind": "attribute", "key": "outdoor-seating", "expect": "verified_true" }
-
-// veto reason (optional, from the map's reason menu)
-{ "kind": "history", "note": "visited too recently" }
-```
+A stance reason is optional `{kind: "history" | "domain", note?: string}`,
+with a 200-character note cap. Agent-private stances omit it. There is no
+spatial conditions payload on `conditionally_accept`; that disposition blocks
+agreement until the participant replaces it with accept or abstain and meets
+the readiness requirement. Text in a reason is not an executable condition.
 
 ### 5.4 Adjustment change payloads
 
+Current generated examples include:
+
 ```jsonc
 { "dimension": "radius_m", "from": 800, "to": 1400 }
-{ "dimension": "time_start", "from": "18:30", "to": "19:00" }
-{ "dimension": "per_person_eur", "from": 15, "to": 18 }
+{ "dimension": "per_person_eur", "from": 15, "to": 25 }
+{ "dimension": "exclusion", "from": ["italian"], "to": [] }
+{ "dimension": "inclusion", "from": ["vietnamese"], "to": [] }
 ```
 
-### 5.5 Pool growth
+The council tests wider radii in 200-metre increments up to 2,000 metres and
+uses the next published price band for budget relaxation. It reports the
+recomputed eligible count as projected gain. These examples are server-authored
+request data; `resolve_private_request` takes only request ID and grant/deny,
+not an arbitrary replacement `change`. No time-start adjustment is generated.
 
-The room pool is shared, additive state. The explore layer is not part of the
-pool and has no negotiation effect until a participant dispatches
-`AddCandidates {refs}`. Any participant may do that during gathering or
-deliberation. The server MUST resolve every ref against the room area's loaded
-snapshot, ignore refs already represented by an `osm_ref`, and reject a change
-that would take the room above `POOL_CAP` (2,500 candidate rows).
+### 5.5 Pool growth and plan steps
 
-A snapshot-backed room synchronously starts with 60 venues from its narrow
-scope circle. The source order is distance then stable ref; the existing 100 m
-grid thinning and deterministic greedy farthest-point selection spread that
-first batch across the circle. After creation, the server MUST add every
-remaining snapshot venue inside the current scope circle nearest-first in
-stable batches, without blocking room creation. A radius or centre change
-recomputes missing refs for the new circle. Existing candidates are never
-removed, jobs resume from persisted candidate refs after a restart, and every
-write is bounded by `POOL_CAP`.
+The **active step's** pool is shared and additive. Scope changes can add
+places but do not delete existing candidates. A snapshot-backed room starts
+with up to 60 spread-out places from the selected class within its narrow
+circle. Background fill adds matching snapshot venues within the current
+circle in bounded batches, up to `POOL_CAP = 2500` live candidate rows.
+The prepared extract still bounds what can be discovered.
 
-Interim batches emit only a presentation-only `facts` realtime frame with
-`reason: "pool"` and the inserted candidate IDs. It carries no room revision.
-When the fill run completes, the server emits one shared `candidates_added`
-event with `actor_id = null` and payload `{ "source": "pool", "count": N }`
-for the whole run. It projects at existence level for every viewer as "N more
-places on the map." The fill plan is cached in memory per room and `scopeId`;
-a changed scope replaces it. Snapshot planning and candidate-ref reads happen
-without the room write lock. Only the final headroom check and insert hold it.
+The page's explore layer displays source places before they join the pool.
+Any participant can submit `AddCandidates {baseRevision, refs}` with one to
+40 distinct refs during gathering/deliberation. The server resolves them
+against the room's area, ignores those already in the live pool, and enforces
+the pool ceiling. Adding places does not move another participant's viewport.
 
-The spatial context's `pool` object has additive fields `filling` and `target`:
-`filling` is true while the current circle still has missing snapshot venues
-and the cap has not been reached; `target` is the total snapshot venue count in
-that circle clamped to the cap. `size`, `cap`, and `explorable` retain their
-existing meanings. Pool growth never moves, fits, or recentres a participant's
-map.
+Fill progress sends presentation-only `facts` frames with `reason: "pool"`;
+the completed fill emits a shared `candidates_added` event. HTTP context's
+`pool` has `size`, `cap`, `explorable`, `filling`, and `target`; `target` accounts
+for the current pool and bounded circle plan. Fill planning is process-local,
+with persisted candidate refs supporting resumption.
 
-### 5.6 Hint taxonomy (L1 disclosure)
+Committing an intermediate step keeps its candidate and requirement records
+but takes them out of the active decision. The next step gets its own seeded
+pool and scope, centered on the previous settlement. Its pending goal-derived
+needs are submitted through the ordinary command path. Candidate IDs continue
+uniquely within the room; they are not recycled between steps. Past records
+are history, not members of the next step's live pool.
 
-The categorical hints an agent-private owner may reveal, one enum value, no
-free text: `dietary`, `accessibility`, `budget`, `distance`, `time`,
-`personal-history`, `atmosphere`, `other`.
+### 5.6 Optional hint taxonomy
 
-### 5.7 Candidate image payload measurement
+`scopeHint` on an agent-private declaration can contain
+`affects: "candidate-eligibility"` and one optional category:
+`dietary`, `accessibility`, `budget`, `distance`, `time`, `personal-history`,
+`atmosphere`, or `other`. A hint is deliberate coarse disclosure and may be
+shown with the private need's owner/effect. It is not inferred secretly from
+the private condition. The manifest's disclosure ladder has no implemented
+escalation request workflow.
 
-Measured 2026-09-03 from a serialized, completed 343-place Berlin context
-(compact JSON, no whitespace). The existing valid image cache supplied 76
-first images, or 22.16% coverage. A serialized `image` object was 110–115
-bytes (112.79 bytes mean); including its property name and separator added
-121.79 bytes per carrying candidate on average.
+### 5.7 Image payloads and budgets
 
-| Coverage | Images | Uncompressed delta | Gzip delta |
-|---|---:|---:|---:|
-| Measured | 76 / 343 (22.16%) | 9,256 B | 2,881 B |
-| Every place | 343 / 343 | 41,813 B | 10,725 B |
+Images are optional venue evidence, not required candidate identity. HTTP
+context may include an `imageCount` and the first stored image's same-origin
+route, dimensions, and blurhash; the thumbnail is absent until its placeholder
+is available. Dossiers can carry more images and source/credit metadata.
+These protected image routes require participant authentication; the page
+fetches blobs rather than exposing a third-party image URL in its map rows.
 
-The measured coverage is below the +25 KB uncompressed target. The every-place
-case is not: it exceeds the target by 16,213 bytes (using 25 × 1,024 bytes).
-The worst-case row was measured by serializing the same real context with a
-same-origin route and a distinct valid 4 × 3 blurhash on every candidate, not
-by multiplying an average row size.
+WebMCP projections retain only the count. Image URLs and detailed photo metadata
+do not fit the ordinary tool result's purpose or budget. HTTP compression
+reduces transport bytes without changing the underlying JSON fields. Image
+coverage varies by extract, source availability, and completed lookup work;
+there is no fixed coverage percentage in the protocol.
 
 ## 6. Spatial commands
 
-Transport-agnostic, like the negotiation command set. Mutations carry
-`baseRevision` and follow the same sync discipline.
+### 6.1 Reads and lookup initiation
 
-| Command | Kind | Effect |
+| Read/tool role | Input besides authentication | Result or effect |
 |---|---|---|
-| `GetSpatialContext` | read | scope, feasibility counts, candidate summaries, current proposal, selection state |
-| `InspectCandidates { candidateIds[1..3] }` | read | full dossiers (side-by-side when >1 — this is "compare") |
-| `FindLandmarks { query }` | read | ranked named landmarks in the room's area for resolving a distance referent |
-| `SetSearchScope { area?, transport? }` | mutate | **organizer only**; applies circle scope and walk/bike/car modes, emits `scope_change_proposed` + `_applied` |
-| `SetOrigin { position, label?, source }` | mutate | updates the acting participant's application-private starting position |
-| `SetOriginSharing { shared }` | mutate | changes the acting participant's live-position opt-in without rewriting the origin |
-| `AddCandidates { refs[1..40] }` | mutate | brings snapshot places from the explore layer into the shared room pool, additively and subject to the pool ceiling |
-| `LookUpPlaces { candidateIds[], keys? }` | read | starts bounded provider lookup for current places |
-| `ProposeDestination { candidateId }` | mutate | emits negotiation `proposal_created` with `domainRef` |
-| `FocusDestination { candidateId }` | local | pans/highlights the caller's own map view; **no shared state change** |
-| `PlanArrival { mode, pickupNote? }` | mutate | per-participant walk/bike/car mode and note; emits `arrival_plan_updated` |
-| `AttestAttribute { candidateId, key, status, confidence, note, sourceUrl? }` | mutate | records shared participant-supplied evidence |
-| `ConfirmFact { candidateId, criterionId, lean, note?, sourceUrl? }` | mutate | records person-verified evidence only in the current room |
-| `UnconfirmFact { candidateId, criterionId }` | mutate | confirmer/organizer withdrawal of a permanent fact |
-| `PrepareNavigation { candidateId?, from? }` | read | one-click handoff links for that candidate or the committed destination (§9) |
+| `GetSpatialContext` | Empty tool input | Scope, candidates, feasibility, proposals; HTTP has additional page data |
+| `InspectCandidates` | `candidateIds[1..3]`, optional `intent`, `force` | Current dossiers; `intent: "open"` can start fact work, `"read"` is passive |
+| `FindLandmarks` | `query` (1–100 characters) | Ranked landmark IDs, names, kinds, locations |
+| `LookUpPlaces` | `candidateIds[1..3]`, optional `keys[1..6]`, `force` | Starts bounded lookup and returns records after a bounded wait; work may continue |
+| `PrepareNavigation` | Optional `candidateId`, `from: {lat,lng}` | External navigation handoff links |
+| `FocusDestination` | `candidateId` | Pan/highlight caller's map; mounted page publishes viewing presence and can start enrichment |
 
-Negotiation-meaningful map actions do **not** get spatial commands: vetoing a
-pin is `RespondToProposal { proposalId, disposition: "reject", reason: {…} }`.
-The map resolves pin → candidate → proposal and dispatches the negotiation
-command. One command model, two entry surfaces.
+`LookUpPlaces` can perform paid I/O and cache writes and has no read-only
+annotation. `InspectCandidates` retains a read-only hint despite the optional
+interactive-open behavior. Passing multiple IDs reads records for comparison;
+it does not itself open a comparison panel. `force` means a requested refresh,
+not a promise of new facts or cancellation of source caches.
+
+HTTP context additionally accepts `excludeRequirementId` for a temporary
+counterfactual preview of an owned/shared need. This is not a registered
+`get_spatial_context` argument. Sources and budgets can leave a lookup partial,
+unknown, or unchanged without making the overall read fail.
+
+### 6.2 Mutating commands
+
+Every command in this table also requires `baseRevision` and obeys negotiation
+revision/phase rules.
+
+| Command | Other input | Authority/effect |
+|---|---|---|
+| `SetSearchScope` | `area?`, `transport?` | Organizer directly applies shared scope |
+| `SetOrigin` | `position`, `label?`, `source: "device" | "stated"` | Set own application-private origin |
+| `SetOriginSharing` | `shared` | Page-only own live-location opt-in |
+| `AddCandidates` | `refs[1..40]` | Add discovered places to the shared live pool |
+| `ProposeDestination` | `candidateId` | Create proposal on current pool candidate |
+| `PlanArrival` | `mode`, `pickupNote?` | Own walk/bike/car plan after agreement |
+| `AttestAttribute` | `candidateId`, `key`, `status`, `confidence`, `note`, `sourceUrl?` | Shared, named participant evidence |
+| `ConfirmFact` | `candidateId`, `criterionId`, `lean`, `note?`, `sourceUrl?` | Room-scoped person confirmation |
+| `UnconfirmFact` | `candidateId`, `criterionId` | Page-only withdrawal by confirmer or organizer |
+
+`PlanArrival` accepts a pickup **note**, not a meeting-point ID or transport
+reservation. Only the caller's full arrival plan is returned in their spatial
+context; the shared event announces arrival mode. Veto/accept actions are
+negotiation `RespondToProposal`, not independent spatial mutations.
 
 ### 6.3 Origins
 
-An origin is where one participant starts from:
-`{ lat, lng, label, source: fixture | device | stated, updatedAt }`. A real
-client reads and refreshes it from device geolocation; fixtures and stated
-positions make the same model usable when that is unavailable. `SetOrigin`
-has no target participant: identity comes from the authenticated session and a
-participant can update only their own origin. It has the same phase gate as
-`SetReadyState`.
+The stored origin is `{lat, lng, label, source, updatedAt}`. Source can also be
+`fixture` for seeded data; external updates accept only `device` or `stated`.
+There is no target participant argument: authentication determines ownership.
+Origin/sharing changes use the same live-phase gates as readiness.
 
-The durable origin and its label are application-private. The server and owner
-get the full value; every peer summary omits `origin` entirely and an
-`origin_updated` event projects to peers at existence level only. Its effect
-on eligibility counts remains visible. The event payload omits coordinates so
-the append-only event log cannot become location history. A scope need is measured from its
-owner's origin, falling back to the shared scope centre when that owner has no
-origin. Candidate `walkMin` and the walk facet are measured from the viewer's
-origin with the same fallback. The implicit shared search-circle constraint
-always remains centred on the room scope.
+The durable origin and label are application-private. Peer roster rows omit
+`origin`; `origin_updated` records an existence change without storing a
+coordinate history in the event log. The server overwrites the participant's
+current origin. It can affect eligibility even while live sharing is off.
+A need with no explicit referent uses its owner's origin, with scope-center
+fallback. Candidate `walkMin` uses the viewer's own origin with that fallback.
+The shared circle constraint always uses the room's scope center.
 
-Sharing is independently opt-in and off by default. `SetOriginSharing`
-changes it with the same owner-only identity and phase gate. An
-`origin_sharing_changed` event projects at existence level: peers learn only
-that Sarah is showing where they are, or stopped. While sharing is on and the
-participant has an open socket, the presence frame carries `{ participantId,
-lat, lng, updatedAt }`; it never carries the label. Switching off or closing
-the last socket removes the row in the next frame. The position is overwritten
-in `participants.origin`: there is no positions table and no location history.
+Live sharing is separately opt-in and off by default. While opted in with an
+open socket, presence carries participant ID, coordinates, and update time,
+without the label. Disabling sharing or closing the last socket removes that
+live row. It does not erase the durable private origin. No origin-history
+table or route/location tracking service is implemented. Physical location
+can still be inferred from revealed ranges and changing outcomes; the
+[limitations document](../KNOWN-LIMITATIONS.md) describes that boundary.
 
 ### 6.4 Referents
 
-A scope requirement may say what its distance is measured from with an
-optional `referent`: `self`, `scopeCenter`, `candidate`, `participant`,
-`point`, or `landmark`. An absent referent is `self`, preserving every scope
-need written before this addition. Candidate, participant and landmark
-references use stable IDs; a bare point carries latitude/longitude and an
-optional reader-facing label.
+A scope requirement's optional `referent` accepts `self`, `scopeCenter`,
+`candidate`, `participant`, `point`, or `landmark`. Candidate, participant,
+and landmark variants carry their stable ID; point carries latitude/longitude
+and an optional label. Omission is `self`.
 
-Resolution is per read. `self` uses the need owner's origin and falls back to
-the shared scope centre. `scopeCenter` uses that centre; `candidate` uses the
-candidate's current location; `point` uses its coordinates; and `landmark`
-uses the area's in-process landmark snapshot. A deleted candidate, unknown
-landmark, missing participant, or otherwise unresolved reference is pending:
-it never rules a place out. Several scope requirements remain independent
-hard requirements, so a place must lie within all of them.
+Resolution occurs on read. A candidate referent must resolve in the live pool;
+unknown places, candidates outside that pool, missing landmarks, or absent origins can
+leave a need pending rather than excluding a place. A participant referent is
+resolvable to the referenced participant or while that participant has opted
+into sharing.
+Unauthorized viewers get a private/unresolved referent without coordinates
+or a location-revealing label. Spatial readers can consequently see different
+eligible/uncertain counts. Server-internal evaluation without a viewer uses
+the requirement owner's entitlement.
 
-A participant referent is measurable only by that participant or while that
-participant has opted to share their position. For every other reader it is
-pending, and its label says only “where someone starts from”: neither a name
-used as a location nor coordinates cross the privacy boundary. The need's
-public effect remains visible. Consequently two readers can honestly see
-different eligible/uncertain counts for the same room when only one is
-entitled to a participant referent. This is an intentional privacy consequence,
-not a synchronization error.
+The schema also accepts optional `stepId` on referents, but the current
+resolver does not use it. Do not rely on it to anchor a need to a different
+step's chosen place. The implemented cross-step behavior is the automatic
+recentering on agreement described in §3 and §5.5.
 
 ## 7. Gesture ↔ command ↔ event mapping
 
-| Human gesture on the map | Command dispatched | Resulting event(s) |
-|---|---|---|
-| Tap a pin | `FocusDestination` (local) | none (local UI) |
-| Open a pin's card, tap "Details" | `InspectCandidates` | none (read) |
-| Long-press two pins, "Compare" | `InspectCandidates[2]` | none (read) |
-| Drag the search-radius handle | `SetSearchScope` | `scope_change_proposed` (+ `_applied`) |
-| Pin card → "Propose this" | `ProposeDestination` | `proposal_created` |
-| Pin card → "Veto…" + reason menu | `RespondToProposal(reject)` | `stance_submitted` |
-| Pin card → "Works for me" | `RespondToProposal(accept)` | `stance_submitted` |
-| "I'm done adding" toggle | `SetReadyState` | `ready_state_changed` |
-| Starting-point control → drag or device location | `SetOrigin` | `origin_updated` |
-| "Show where you are" switch | `SetOriginSharing` | `origin_sharing_changed` |
-| Arrival panel → mode + pickup note | `PlanArrival` | `arrival_plan_updated` |
-| "Navigate" button | `PrepareNavigation` | none (read) |
+The exact presentation controls can change without changing these meanings:
 
-An agent invoking the equivalent tool produces the identical command, so both
-surfaces update every projection identically and immediately. **Tool results
-return only after the local UI reflects the change** (agents plan against
-what they can see). Concretely, a mutation waits for a projection read at least
-as new as its returned room revision; joining an older in-flight read queues
-and awaits a successor rather than resolving against stale map state.
+| Page action | Protocol operation | Shared transition |
+|---|---|---|
+| Focus a place | Local selection plus viewing presence | Peers can see viewing activity; enrichment may start |
+| Inspect or compare places | Inspect dossiers | Optional asynchronous evidence work |
+| Change shared area | `SetSearchScope` | Scope proposed and applied by organizer |
+| Bring an explored place into the room | `AddCandidates` | `candidates_added` |
+| Propose a place | `ProposeDestination` | `proposal_created` |
+| Accept or veto a proposal | `RespondToProposal` | `stance_submitted`; accept may also change readiness |
+| Set a need aside/restore it | `SetRequirementActive` | `requirement_toggled` |
+| Change readiness | `SetReadyState` | `ready_state_changed` |
+| Set own starting point/sharing | `SetOrigin` / `SetOriginSharing` | Origin/sharing event plus allowed presence projection |
+| Attest/confirm a fact | `AttestAttribute` / `ConfirmFact` | `attribute_attested` and possible screening work |
+| Record arrival mode/note | `PlanArrival` | `arrival_plan_updated` |
+| Open directions | `PrepareNavigation` | None; external handoff |
+
+Both page and agent commands use the same server authorization and domain
+semantics. After a successful WebMCP room mutation, the adapter awaits a
+projection refresh targeting its returned revision. This is best effort:
+failed reads can retain the previous view, and the callback does not await
+a React paint. Local focus and onboarding have their own completion behavior.
+See binding §3.2 rather than assuming an unconditional UI-before-return rule.
 
 ## 8. Eligibility semantics
 
-The council's deterministic check per candidate, per current requirement set:
+Classification uses the live pool and currently active hard needs. The shared
+circle is an implicit hard distance constraint. Inactive and prior-step needs
+are not in force. **Soft needs do not currently rank candidates.**
 
-```text
-for each hard requirement:
-    shared / application-private → evaluate predicate against dossier
-        verified_false vs expectation      → excluded (cite requirement class only)
-        unknown / unverified               → uncertain (evidence request)
-        satisfied                          → pass
-    agent-private (L0/L1)                  → consult recorded screening verdict
-        unacceptable → excluded            (never cite owner or reason)
-        no verdict yet → uncertain         (screening request outstanding)
-    agent-private (L2 predicate granted)   → evaluate server-side like application-private
-soft requirements & preferences            → scoring only, never exclusion
-```
+| Evidence against a hard need | Consequence |
+|---|---|
+| Verified contradiction or deterministic bound failure | `excluded` |
+| Likely evidence against it | `unlikely` |
+| Unknown evidence, missing referent, or absent/stale private screen | `uncertain` |
+| Likely evidence satisfying it | `likely` |
+| Every applicable check satisfied without unresolved/likely evidence | `eligible` |
 
-Public explanation strings for exclusions cite **evidence status and shared
-requirements only** ("no verified vegetarian options") or aggregates
-("excluded by a private requirement") — never a private owner or reason.
+Precedence is `excluded > unlikely > uncertain > likely > eligible`. A
+negative expectation reverses which evidence agrees with the need. Current
+private `unacceptable` verdicts exclude; `acceptable` passes the private
+screen; `needs_info` remains uncertain. No disclosure-granted L2 predicate
+path exists.
 
-### 8.1 Attestations (amendment, 2026-09-02)
+`matching` counts eligible only; `likely` is separate. The page can combine
+matching and likely in its headline while showing their breakdown. Feasibility
+and adjustment gains use verified eligible counts. Confidence is a product of
+relevant likely facts, not a calibrated success probability or soft-preference
+score. A likely claim does not become verified by multiplying confidences.
 
-Where the record is silent, a participant may say what they found out:
-`AttestAttribute { candidateId, key, status: verified_true | verified_false,
-confidence, note, sourceUrl? }` (tool `attest_attribute`). Attestations are
-**shared** evidence, stored per room and per (place, fact, participant), and
-merged into the dossier **at read time** — the source record is never
-rewritten. Precedence:
+Explanations are viewer-specific: an owner can see their private reason,
+while peers receive shared explanations or aggregate private effects.
+The per-place `needs` projection combines all peer-private needs into one
+worst-verdict row with `private: true`, without their IDs or labels. The
+separate `privateEffects` array can identify an owner and count. This provides
+content redaction, not anonymous participation or protection from inference.
 
-```text
-source fact verified (osm:* / curated:*)
-    attestation agrees                     → unchanged
-    attestation contradicts                → unverified, source "disputed:…", both sides shown
-source fact unknown / unverified
-    one attester, or all agree             → attested status, source "agent:<participantId>"
-    attesters disagree                     → unverified, source "disputed:…"
-```
+### 8.1 Attestations and confirmed facts
 
-"Disputed" is a source prefix on an `unknown` fact with both sides on
-record. An attestation at confidence ≥ 0.7 is a verified fact for
-eligibility exactly like a record fact; below that it is a likely fact
-(§8.2). The ledger names the attester and their note. Attestations never
-cross rooms. The attestable-key union includes both the closed attribute
-vocabulary and question criterion keys matching `q:<40 lowercase hex>`; a
-person may therefore confirm or contradict a free-text need without placing
-its sentence in the shared attestation record.
+`AttestAttribute` accepts a boolean manifest key (excluding `price-level` and
+`cuisine`) or `q:<40 lowercase hex>`, `status: verified_true | verified_false`,
+confidence from zero to one, a required 1–200-character note, and optional
+source URL. It records shared, named evidence per room/place/key/participant.
+The source record is not rewritten; attestations merge at read time.
 
-#### Confirmed facts (amendment, 2026-09-03)
+An agreeing attestation leaves a verified record intact. A contradiction with
+verified record data, or disagreeing attesters without a decisive record,
+produces `unknown` with a `disputed:` source. Otherwise the latest agreeing
+participant evidence takes its stated lean, verified at confidence at least
+0.7 and likely below that. Supplied notes are shared evidence: the external
+agent must not put a private condition into an attestation note.
 
-`ConfirmFact { baseRevision, candidateId, criterionId, lean, note?, sourceUrl? }`
-records what a person verified themselves. It uses the attestation merge path
-but is keyed by `(room_id, osm_ref, criterion_id)`, has no TTL, and applies only to
-the room that recorded it. Guest confirmations never affect other rooms. Its read-time fact is
-`verified_true` / `verified_false` at confidence **0.95**, source
-`person:confirmed`. `UnconfirmFact` removes it and is available only to the
-recorded confirmer or the current room's organizer.
+`ConfirmFact` accepts manifest vocabulary or a question hash, boolean `lean`,
+and optional note/source URL. It requires a candidate backed by a permanent
+source ref. The row is keyed by `(room_id, osm_ref, criterion_id)`, has no TTL,
+and influences **only that room**. Its merged source is `person:confirmed`,
+verified at confidence 0.95. It supersedes lookup/inference/guess/ordinary
+attestation; a contradiction with verified OSM/curated record remains a
+visible dispute. Confirmations are participant assertions, not proof of an
+independent verification process.
 
-The precedence order is record (`osm:*` / `curated:*`), looked-up facts,
-inference over published material, kind-of-place guesses, room attestations,
-then confirmed facts. A confirmed fact therefore replaces every looked-up,
-inferred, guessed or room-attested answer. It does not silently replace a
-contradictory verified OSM/curated record: that combination reads as
-`unknown`, source `disputed:<record-source>|person:confirmed`, and the ledger
-shows both the record and the named confirmer.
+Only the recorded confirmer or room organizer can `UnconfirmFact`; that
+command has no registered WebMCP tool. Confirmation rejects raw question text,
+`open:*` time windows, and synthetic value criterion IDs. For an owned private
+question, optional confirmation note/source URL are forced to null. Question
+labels and dossier rows remain viewer-authorized. Cross-room private question
+rows are not published as a global facts feed.
 
-Only a vocabulary key or `q:<40 lowercase hex>` is storable. An `open:*`
-absolute window is rejected because it becomes meaningless later; synthetic
-value criteria and raw question sentences are rejected too. For a private
-question, the permanent row stores only the `q:` hash, lean, confirmer name/id,
-origin room and timestamp; `note` and `source_url` are forced to null, so they
-cannot be used to smuggle the sentence into shared storage. The owner may see
-the answer alongside the label recovered from their requirement. A peer or a
-participant in another room receives neither that label nor the opaque `q:`
-row. Its shared event says only “a question”. A shared question may put its
-authorized requirement label in the event.
+### 8.2 Graded evidence and fact revisions
 
-### 8.2 Graded evidence (amendment, 2026-09-02)
+Evidence can come from prepared OSM/curated records, venue sites and menus,
+Wikidata, configured structured listing providers, model interpretation,
+category guesses, attestations, and confirmations. Availability depends on
+configured sources, extract coverage, budgets, and completed work. A stored
+fact's source and timestamp remain meaningful even when the source is old.
 
-A fact is one of five things, and every fact carries the confidence of
-whoever said it:
+A model inference is normally likely, but validated explicit venue statements
+can become verified. Matrix evidence must cite a real span and meet its
+source/host checks; a focused adjudication can verify explicit venue/chain
+answers after separately checking the quote and publisher. Third-party claims
+remain graded evidence. A model saying it is certain is insufficient. The
+current exact gates and confidence bands live in
+[evaluate.ts](../../apps/server/src/enrich/evaluate.ts),
+[adjudicate.ts](../../apps/server/src/enrich/adjudicate.ts), and
+[the evidence cache](../../apps/server/src/enrich/cache.ts).
 
-| status | reads as | who says it |
-| --- | --- | --- |
-| `verified_true` | yes | the record, the venue's own markup or explicit own-site prose, a person who checked (≥ 0.7) |
-| `likely_true` | likely | a Google business listing (`listing:google`, 0.65), a word on the menu (0.6), the kind of place (0.4–0.9), a partial value ("limited", 0.5), a reading of a menu photo, a person less sure (< 0.7) |
-| `likely_false` | unlikely | the same, leaning the other way; an unavailable Google listing attribute is 0.65 rather than unknown |
-| `verified_false` | no | as for yes |
-| `unknown` | — | nobody said anything; also a disputed fact |
+Cached claims use a source-aware merge: absent/abstaining new evidence does
+not by itself erase a claim, stronger same-lean evidence may replace it, and
+opposite evidence must pass the conflict rules. A conflicting reread can
+retain a fact with a disagreement note. Consequently “Look again” does not
+promise a new answer, a correction, or a verified fact. Participant evidence
+merges after automatic evidence according to §8.1.
 
-`unverified` is retired: old data carrying it is read as `likely_true` at
-no more than 0.5.
+A free-text need becomes a question criterion keyed by `q:<sha1>` of its
+normalized text. Equivalent normalized wording can reuse evidence. The hash
+is an identifier, not encryption: a short question can be guessed. A question
+row/label is returned only when the need is shared or owned by the viewer;
+the cross-room evidence cache does not store the normalized private sentence
+as its label. Value-specific cuisine criteria distinguish requested value
+sets; time criteria distinguish absolute windows.
 
-Only the two verified statuses rule a place in or out. A likely fact yields
-two further classifications:
-
-```text
-per candidate, over every active hard need:
-    a verified fact contradicting a need   → excluded
-    a likely fact leaning against a need   → unlikely   (confidence = product of such facts)
-    an unknown fact                        → uncertain
-    a likely fact leaning with a need      → likely     (confidence = product of such facts)
-    everything verified and satisfied      → eligible
-precedence: excluded > unlikely > uncertain > likely > eligible
-```
-
-`likely` and `unlikely` are drawn (dashed mark) and explained ("vegan
-options likely") apart from eligible and excluded. `matching`, the impasse
-arithmetic and the relaxation deltas count `eligible` only: a guess never
-makes a room feasible and never rules a place out. The candidate's
-`confidence` travels on the wire.
-
-Display differs from the wire, deliberately. The client's big number is
-`matching + likely` — a guess with a reason is an option the room can act on
-— and the subline breaks it down ("of 34 · 4 likely · 3 unsure").
-The sum is computed in the client; no field on the wire carries it, and
-`matching` keeps its eligible-only meaning for every other consumer.
-
-Precedence of sources when a dossier is read: the record (`osm:*`,
-`curated:*`), then looked-up facts (`web:*`, `wikidata:*`) into open slots,
-then structured Google listing evidence (`listing:google`) below an explicit
-venue statement and always below the verified floor,
-then guesses (`guess:*`) into slots still unknown, then attestations
-(`agent:*`), which may dispute any of the above, then permanent confirmed
-facts (`person:confirmed`) under the dispute rule in §8.1.
-
-`mapRevision` is the candidate fact-version boundary. Every path that changes
-the merged facts MUST increment it in the same transaction. A private
-screening verdict records the `mapRevision` it evaluated and is authoritative
-only while that value still matches. After any bump, older verdicts are ignored,
-the affected place returns to uncertain, an owner-only `evaluation_requested`
-is re-issued for each active agent-private owner, and a page-held condition is
-woken to screen the changed place again. This applies equally to attestations
-and provider-fact refreshes; fact-producing handlers do not choose whether
-private screening becomes stale.
-The screening command carries this value back as additive
-`screenedMapRevision`. The verdict writer never substitutes a newer database
-read: missing or older values remain non-authoritative, and values ahead of the
-candidate are invalid. The in-page screening loop also submits the room
-revision of its dossier read, so a lookup or attestation between inspection and
-write produces `sync_required` rather than rebasing the old judgment.
-
-#### Criteria and questions (amendment, 2026-09-03)
-
-A **criterion** is the independently answerable unit of evidence for one
-place. A vocabulary need uses
-`{ id, kind: "key", key, label }`; a free-text need uses
-`{ id, kind: "question", text, label }`. The text is trimmed, whitespace is
-collapsed, case is folded and one trailing question mark or full stop is
-removed. Its dossier/cache key is `q:<sha1(normalized text)>`, so equivalent
-wording shares evidence without putting the sentence into a machine field.
-The hash is an identity commitment, not a secret: a short question may be
-guessable. The cross-room enrichment cache therefore stores the `q:` key and
-its evidence fields but never the normalized sentence or its label. A dossier
-renders a question row only when the viewer owns the corresponding need or the
-need is shared, and takes its label from that viewer-authorized requirement,
-never from the cache. An unauthorized `q:` row is omitted completely.
-
-Shared and application-private needs may reach the server-side matrix evaluator.
-That matrix is a plain model call over text already held by the server and has
-no tools. Application-private permits this evaluation but does not permit its
-sentence to enter an outbound search query, any prompt on a call with
-`web_search` enabled, shared storage, or a peer's dossier. A search query
-contains the place name, the city, and criterion words admitted by one of two
-rules: a criterion behind an active need travels only when that need is shared,
-and a criterion behind no active need travels only when its label is server
-vocabulary from `ATTRIBUTE_LABELS`. The second rule is what lets the background
-sweep keep improving the whole pool: it runs over every place regardless of
-what anyone wants, so its query is evidence of nobody's need. A question
-criterion carries a person's own sentence and so travels only as an active
-shared need. A place with no admitted criterion causes no search. Combined search excludes private criteria
-from its tool-enabled call entirely. Agent-private needs are evaluated in the
-owner's agent context and never enter server-side criterion harvesting.
-
-A matrix claim is record-grade only when all of these hold: the model marks it
-`explicit: true`, its evidence is a validated span from a `web` or `menu`
-venue-site text bucket, its cited URL has the same hostname as the place's OSM
-`website` tag. Host matching is exact after lowercasing and stripping one leading `www.`;
-sibling subdomains and merely registrable-domain matches do not count. Such a
-claim is graded at **0.72**, receives source `web:<host>`, and may become
-`verified_true` or `verified_false`, giving an explicit prose statement the
-same record standing as facts parsed from the venue's own schema.org markup.
-
-Every claim that fails any part of that gate remains graded evidence on the
-ordinary ladder: venue-site inference at no more than 0.60, domain-scoped
-search at 0.55, open-web evidence at 0.50, and name/category evidence at 0.45.
-A participant attestation may also verify a `q:` question key. No evidence
-keeps the place `unknown`; abstention is not a negative answer.
-
-#### Evidence never regresses on re-read
-
-Evidence cached for one `(place, criterion)` merges monotonically. An abstain,
-an omitted model cell, or a search pass that finds nothing cannot replace an
-existing claim. It may create an omission marker only when that cell has no
-claim. If a fresh claim has the same lean, it replaces the stored claim only
-when its confidence is higher **or** its source bucket is higher. A fresh
-opposite lean replaces the stored claim only when it is explicit and its
-bucket is equal or higher. Every other opposite lean retains the claim and its
-status, and sets its displayed note to exactly `another read leaned the other
-way`.
-
-The comparison order, highest first, is:
-
-| rank | bucket | stored source shape |
-|---:|---|---|
-| 5 | record | `web:<host>` (validated record-grade own-site statement) |
-| 4 | own-site explicit | `infer:<model>:venue_site` or `:menu`, `explicit: true` |
-| 3 | own-site inferred | `infer:<model>:venue_site` or `:menu`, not explicit |
-| 2 | domain search | `infer:<model>:domain_search` |
-| 1 | open web | `infer:<model>:open_web_search` |
-| 0 | name/category | `infer:<model>:name_category` and legacy unbucketed inference |
-
-Name/category is last because it is generic contextual inference without a
-quoted external source; even an open-web span has a stronger evidence basis.
-A previously validated span disappearing from newly fetched text is absence,
-not disproof: the claim and its original `observedAt` remain unchanged.
-Consequently **Look again** may add a fact, strengthen one, or record a
-contradiction, but it cannot silently remove one. The panel's changed-fact
-count uses those durable fact differences, including confidence
-strengthenings and the disagreement note. Attestations still merge after all
-cached inference and therefore retain their existing decisive/disputing
-precedence.
-
-#### Adjudication
-
-A likely inference with a validated evidence span receives one focused second
-read on the fast model. This is not another place × criterion sweep: each cell
-carries only its evidence, a bounded nearby context window, page title and URL,
-publisher identity hints, and the place name/category. The model returns
-`yes | no | unclear`, whether the wording is explicit, a publisher class, and
-one verbatim quote. The server validates the quote and publisher independently.
-
-An explicit `yes` or `no` from a validated `venue` or `chain` becomes
-`verified_true` or `verified_false` at **0.75**, with source
-`adjudicated:<host>` and the quote as the displayed note. A third-party answer
-remains likely at **0.69**. `unclear`, an unsupported quote, or an unproved
-first-party label leaves the fact unchanged. All writes pass through the same
-monotonic resolver: adjudication may flip a likely claim, but never an existing
-verified fact.
-
-First-party publishing is established by either a registrable-domain match
-between the evidence URL and the OSM `website`, or a captured
-`og:site_name`/schema.org `name` matching the place or its brand. Thus a chain
-page can be recognized even when its host differs from the OSM website; a model
-label without either server-checked signal is reduced to `unknown`.
-
-The original matrix stores no whole page. It retains at most **1,200
-characters** with the claim: the evidence span (itself at most 400) plus up to
-400 normalized characters on each side, a 160-character title, and up to six
-120-character publisher names. A fresh in-memory page/proxy cache is preferred
-when available; the stored window is the no-refetch fallback.
-
-Opening a place and **Look again** adjudicate all of that place's likely active
-criterion rows in one call and wait no more than three seconds while the normal
-busy ring is shown. Proactively, when in-scope `matching + likely <= 20`, the
-refinement worker adjudicates the viable set nearest-first, with at most eight
-places per call, and wakes again on need changes. A 30-day cache on
-`(place, criterion, sha256(normalized evidence))`, plus an in-flight guard,
-prevents paying for the same read twice.
-
-Cuisine uses a value-specific key criterion carrying `values` and a literal
-question such as “Does this place serve Italian food?”. Its id is derived from
-the normalized wanted-value set, so a stored Italian answer never suppresses a
-later Japanese question. The resulting criterion fact is consumed directly by
-eligibility. The sourced implication taxonomy remains the fallback: an
-implication may add a place to an inclusion set (for example, `pizza` can
-support Italian), but it never rules a place out of an exclusion set. An
-implied exclusion remains `unlikely`, not `excluded`.
+Fact-changing paths bump candidate `mapRevision` and make older private
+verdicts stale. Fresh screening must return the dossier's revision in
+`screenedMapRevision`, plus the separate room `baseRevision`. Missing/older
+candidate revisions remain non-authoritative and ahead revisions are invalid.
+Photo/progress-only updates need not change eligibility or its fact revision.
+The built-in holder may screen changed candidates while it retains a condition;
+a personal external agent resumes work when it next synchronizes.
 
 ### 8.3 Absolute time windows
 
-A time need has the payload `{ kind: "time", window: { start, end }, phrase? }`.
-`start` and `end` are absolute ISO-8601 instants carrying a UTC offset, with
-`end` later than `start`. Relative words are resolved before submission; the
-predicate never stores "tomorrow" as its clock. The area's IANA timezone
-decides which weekday and wall-clock opening-hours rows those instants touch,
-including midnight crossings.
+A time need stores absolute ISO-8601 `start` and `end`, with `end` after
+`start`. Relative words are resolved before submission; the optional phrase
+is presentation, not the stored clock. The area's IANA timezone determines
+which local opening-hours rows the interval touches, including midnight and
+offset changes.
 
-Verified OpenStreetMap hours covering every minute of the half-open window
-produce `yes`; verified hours with any gap produce `no`. Structured hours
-published only by the place's own site produce `likely` or `unlikely`, never a
-verified answer. A place with no parseable hours is `unknown` and is never
-ruled out for the time need. Reader-facing evidence uses a weekday and wall
-clock span; the absolute timestamps stay on the protocol surface.
+Verified OSM opening hours covering the entire half-open interval satisfy the
+need; a gap contradicts it. Structured venue-site hours produce likely or
+unlikely rather than verified time answers. Missing/unparseable hours remain
+unknown. Unsupported opening-hours syntax, holidays, or live exceptions can
+limit the answer. The protocol checks available hours; it does not confirm
+availability, reservations, event admission, or current opening status with
+the venue. Absolute `open:*` windows cannot be permanently confirmed through
+`ConfirmFact` because their meaning expires.
 
 ## 9. Navigation handoff
 
-`PrepareNavigation` returns provider-agnostic links; the room stays the
-coordination surface, the installed map app is the execution surface:
+`PrepareNavigation {candidateId?, from?}` returns `{ok:true, target, links}`.
+`target` contains candidate ID, name, and location; `links` has `geo`,
+`googleMaps`, and `appleMaps`. An explicit candidate can be used before
+agreement; omitting it requires a committed destination. An explicit `from`
+overrides the caller's saved origin when building directions links.
 
-```jsonc
-{
-  "target": { "candidateId": "place_42", "name": "Garden Cafe Window" },
-  "links": {
-    "geo": "geo:52.4981,13.4262?q=Garden+Cafe+Window",
-    "googleMaps": "https://www.google.com/maps/dir/?api=1&destination=52.4981,13.4262",
-    "appleMaps": "https://maps.apple.com/?daddr=52.4981,13.4262"
-  }
-}
-```
-
-Links are constructed from coordinates the session already holds — no
-provider API call is required at handoff time. When `from` is supplied, the
-Google and Apple directions links start there; otherwise the server uses the
-caller's saved origin when one exists.
+The links are constructed from coordinates already held by the application,
+with no provider request at handoff time. Opening one transfers the coordinates
+to the chosen map provider/application. It does not book transport, confirm
+arrival, calculate a route in Spokes, or turn a pickup note into a meeting
+point. `PlanArrival` records only the caller's selected mode and note.
 
 ## 10. World-knowledge boundary
 
-- The world service receives **scope + attribute queries only** — no
-  participant identity, no requirement ownership, no free-text explanations.
-  The council over-fetches (broader attribute set) and filters sensitively
-  itself, so the provider never sees a user-linked query.
-- Provider access sits behind adapters; the POC uses a prepared, curated area
-  (`source: "curated:…"`) with honest `observedAt` timestamps. Base geography
-  and live overlays are separate layers with separate freshness.
-- The world service proposes possibilities; it never negotiates, ranks whose
-  needs yield, or sees stances.
+Prepared area extracts define the place/landmark discovery boundary. Lookup
+can improve their evidence from configured external sources but does not make
+venue discovery worldwide or guarantee complete/current facts. See
+[ENRICHMENT-SOURCES.md](../ENRICHMENT-SOURCES.md) and
+[Known limitations](../KNOWN-LIMITATIONS.md) for operational scope.
 
-## 11. Invariants (testable)
+Shared and application-private criteria can be evaluated by a tool-less model
+over server-held material. Application-private wording must not enter an
+outbound search query or a prompt that enables search tools. Search admission
+uses active shared criteria, or independent server vocabulary where no active
+private need makes that criterion private. A query can contain place name,
+city, and admitted criterion wording; it is not limited to anonymous generic
+attribute names. No search is made for a place with no admitted criterion.
 
-1. Every implemented spatial command argument that references a place uses a
-   stable candidate ID from §2 — never coordinates-as-identity or labels.
-2. A dossier attribute is one of exactly four states; eligibility treats
-   `unknown` ≠ `verified_false`.
-3. `FocusDestination` never mutates shared session state.
-4. Any spatial action with negotiation meaning produces the corresponding
-   negotiation event — there is no spatial side channel to stances, scope
-   consensus, or agreement.
-5. Exclusion explanations never contain private owner identity or reason.
-6. `mapRevision` changes on any fact change, and screening requests are
-   re-issued for affected candidates.
-7. Scope mutations outside the caller's authority always route through
-   `scope_change_proposed` and consent — including the organizer's, when a
-   bounded-negotiable requirement of another participant is affected.
+External agent-private conditions stay with the agent. In built-in mode the
+server interprets the text with a tool-less model and holds it in memory for
+a separate tool-less screener, so this mode
+has a different server/provider exposure boundary. Neither no-storage request
+settings nor encrypted transport prove provider retention behavior. The room's
+evidence service does not acquire authority to change someone's stance,
+relax a requirement, or commit agreement.
+
+## 11. Invariants and limits
+
+Current guarantees are stable place references, owner-derived mutation
+authority, explicit five-state evidence, independent map viewports, common negotiation
+semantics for map actions, and privacy-aware projections. Candidate fact
+revisions bind private screening to the evidence read. Tests cover
+[eligibility](../../tests/unit/eligibility.test.ts),
+[attestation merging](../../tests/unit/attestations.test.ts),
+[room confirmations](../../tests/api/confirmed-facts.test.ts), and
+[multi-step behavior](../../tests/api/steps.test.ts).
+
+Do not extend those guarantees into unsupported claims:
+
+1. An organizer scope change is directly authorized; it is not affected-member
+   scope consensus.
+2. Content-private needs can expose owners, counts, and aggregate candidate
+   effects, and location-dependent effects can support inference.
+3. A likely/unknown candidate is not a verified match; a verified fact is only
+   as sound and fresh as the admitted evidence behind it.
+4. A local tool result is compact and its visible completion best effort,
+   rather than a complete dossier or guaranteed rendered frame.
+5. Transit routing, meeting-point negotiation, cross-step referent resolution,
+   soft ranking, and durable preference reuse are not implemented merely
+   because related design vocabulary exists.

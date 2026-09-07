@@ -1,452 +1,481 @@
 # Protocol Interaction and WebMCP Binding
 
-Status: initial design, 2026-08-31. Companion to
-[NEGOTIATION-PROTOCOL.md](NEGOTIATION-PROTOCOL.md) and
-[SPATIAL-PROTOCOL.md](SPATIAL-PROTOCOL.md). This document defines how the two
-protocols compose, and their single concrete binding to WebMCP: the tool
-surface, shared result envelope, error model, security posture, and evolution
-rules.
+Implementation reference, checked against `main` on 2026-09-07. This describes
+the binding Spokes currently ships. The companion
+[negotiation](NEGOTIATION-PROTOCOL.md) and
+[spatial](SPATIAL-PROTOCOL.md) documents also contain design goals; deferred
+behavior is called out here and in [Known limitations](../KNOWN-LIMITATIONS.md).
+
+The executable sources are the [tool catalog](../../packages/contracts/src/tools.ts),
+[command schemas](../../packages/contracts/src/commands.ts),
+[response types](../../packages/contracts/src/envelope.ts), and
+[browser adapter](../../apps/web/src/webmcp.ts).
 
 ## 1. Layering
 
 ```text
-┌──────────────────────────────────────────────────────────────┐
-│ Transports:  WebMCP tools │ UI gestures │ WS/SSE projections │
-├──────────────────────────────────────────────────────────────┤
-│ Binding layer (this doc): tool schemas, result envelope,     │
-│ error model, identity derivation, output budgets             │
-├──────────────────────────────────────────────────────────────┤
-│ negotiation/v1: identity, privacy, revisions, requirements,  │
-│ stances, adjustments, consent, agreement    (domain-opaque)  │
-├──────────────────────────────────────────────────────────────┤
-│ spatial-destination/v1: scope, candidates, dossiers, routes, │
-│ arrival — typed payloads + spatial commands                  │
-└──────────────────────────────────────────────────────────────┘
+Page controls / external WebMCP agent / approved built-in agent action
+                              │
+                    authenticated HTTP
+                              │
+       command bus: authorization, revisions, consent, domain rules
+                              │
+              PostgreSQL state and revisioned events
+                              │
+             viewer-specific HTTP reads + WebSocket updates
+                              │
+                        page projection
 ```
 
-Composition rules (normative):
-
-1. The negotiation layer treats every spatial payload as opaque but typed; it
-   validates the envelope, the spatial validator validates the payload.
-2. Spatial commands with negotiation meaning **compile to negotiation
-   commands** (veto pin → `RespondToProposal`). No spatial side channel exists
-   for stances, consent, scope consensus, or agreement.
-3. The negotiation engine never touches map state except by emitting events
-   the spatial layer projects. The map is a projection, not a source of truth.
-4. UI gestures and WebMCP tools converge on the same command bus; a command's
-   effects are indistinguishable across entry surfaces.
-5. The two protocol versions evolve independently and are both declared in the
-   capability manifest.
+1. Negotiation supplies participant identity, requirements, stances,
+   adjustments, readiness, and agreement. Spatial payloads supply place
+   criteria, search scope, evidence, destinations, and arrival plans. The
+   implementation shares an engine; a separately reusable, domain-opaque
+   negotiation package remains an architectural goal.
+2. A veto on a map pin uses `RespondToProposal`, just like an agent stance.
+   Domain commands use the same authorization and revision checks.
+3. The shared map reflects server state. `focus_destination` changes the
+   caller's map focus; the mounted page can publish viewing presence and
+   start enrichment for that place. Realtime delivery uses WebSocket; catch-up uses
+   HTTP sync. There is no SSE transport.
+4. Page gestures and WebMCP mutations converge on the same
+   [command bus](../../apps/server/src/engine.ts). The built-in tool-calling
+   agent proposes a command for owner approval before it reaches that bus
+   (§5.5). Reads and enrichment have separate endpoints and can start
+   background work without becoming negotiation commands.
+5. The manifest declares negotiation and domain protocol versions separately.
 
 ## 2. WebMCP binding
 
 ### 2.1 Registration model: static surface
 
-All tools are registered once at page load via
-`document.modelContext.registerTool()` (feature-detected; the page is fully
-usable without WebMCP). **No state-gated registration in v1**: ChatGPT's
-in-app browser binds tools at page level and may not observe mid-conversation
-`toolchange`; it also supports neither declarative form tools nor tools in
-iframes. Therefore:
+The page feature-detects `document.modelContext.registerTool()` and starts
+registering the entire catalog once, before React mounts. Registration is
+asynchronous and bootstrap does not await its completion, so it can overlap
+rendering and authentication. Tools stay registered across room phases;
+authorization and phase failures are results. The page remains usable when
+WebMCP is unavailable.
 
-- Imperative API only, registered from the top-level document.
-- Phase applicability lives in **results** (`phase_unavailable` error with
-  guidance), not in tool presence.
-- If a schema must change incompatibly, the tool is **renamed**
-  (`…_v2`) rather than re-registered under the same name (schema-swap race in
-  the spec; see WEBMCP-REFERENCE.md §6.11).
+Spokes uses imperative registration in the top-level document. This is an
+application choice, not a claim that WebMCP lacks dynamic discovery,
+declarative tools, or frame support. Chrome currently documents all of those;
+its API remains experimental. Native use requires a browser with WebMCP
+enabled, for example through Chrome's testing flag or an applicable origin
+trial. See [Chrome's overview](https://developer.chrome.com/docs/ai/webmcp)
+and [imperative API](https://developer.chrome.com/docs/ai/webmcp/imperative-api).
+
+`?shim=webmcp` installs a test dispatcher only when the native API is absent.
+It records schemas and invokes the same callbacks, but does not implement
+native discovery or schema validation. Passing shim tests proves application
+integration, not browser or agent-host compatibility.
 
 ### 2.2 First-connection contract
 
-The agent's first `sync_session` call (no `sinceRevision`) returns the
-capability manifest — this is how the page *teaches* the agent both protocols,
-since WebMCP itself carries only tool names/descriptions/schemas:
+Before a room exists, call `describe_regions`, then `open_room` with `goal`,
+`organizerName`, and a returned `regionId`. Opening previews the goal, creates
+the plan and room, authenticates its organizer, mints one member invitation,
+and schedules navigation into the room. It uses the same preview and creation
+endpoints as onboarding, but does not pause at the page's plan-review screen.
+It can fall back to a single food step if preview returns no steps.
 
-```jsonc
-{
-  "protocols": { "negotiation": "v1", "domain": "spatial-destination/v1" },
-  "capabilities": ["destination-search", "map-selection",
-                   "navigation-handoff", "private-screening", "impasse-resolution"],
-  "privacy": {
-    "allowedVisibilities": ["shared", "application-private", "agent-private"],
-    "disclosureLevels": ["verdicts-only", "category-hint", "predicate", "shared"],
-    "hintTaxonomy": ["dietary", "accessibility", "budget", "distance", "time",
-                     "personal-history", "atmosphere", "other"]
-  },
-  "agreement": { "rule": "all-accept-organizer-commit" },
-  "attributeVocabulary": ["vegetarian-options", "lactose-free-options",
-                          "wheelchair-accessible", "outdoor-seating",
-                          "dog-friendly", "price-level", "cuisine"],
-  "conduct": "You act for exactly one participant. Submit only what your user authorizes. Private info can stay private: use visibility levels and screening verdicts instead of disclosing. Mutations need baseRevision from your last sync."
-}
-```
+Once authenticated in a room, call `sync_session({})`. Omit **both**
+`sinceRevision` and `cursor` to receive the manifest. The sync result also
+includes identity, phase, room revision, `buildId`, `toolContractVersion`, a
+brief, participant presence/readiness, and outstanding decisions. A
+continuation returns a delta instead of the manifest (§3.1).
 
-The `conduct` string is the application's one paragraph of protocol
-instruction to the model — kept short because it rides in a tool result.
+The [live manifest](../../packages/contracts/src/manifest.ts) contains:
+
+| Field | Current value or meaning |
+|---|---|
+| `protocols` | `negotiation: "v1"`, `domain: "spatial-destination/v1"` |
+| `capabilities` | `destination-search`, `map-selection`, `navigation-handoff`, `private-screening`, `impasse-resolution` |
+| `privacy.allowedVisibilities` | `shared`, `application-private`, `agent-private` |
+| `privacy.disclosureLevels` | `verdicts-only`, `category-hint`, `predicate`, `shared` |
+| `privacy.hintTaxonomy` | `dietary`, `accessibility`, `budget`, `distance`, `time`, `personal-history`, `atmosphere`, `other` |
+| `agreement.rule` | `all-accept-organizer-commit`; readiness and accept/**abstain** rules are detailed in §4.5 |
+| `attributeVocabulary` | `vegetarian-options`, `vegan-options`, `gluten-free-options`, `halal-options`, `lactose-free-options`, `wheelchair-accessible`, `outdoor-seating`, `dog-friendly`, `wifi`, `takeaway`, `delivery`, `price-level`, `cuisine` |
+| `attributeLabels` | Human-readable labels for those keys |
+| `priceLevelEur` | Estimated upper per-person bands: `1 → 10`, `2 → 15`, `3 → 25`, `4 → 40` |
+| `conduct` | Act for one participant, submit authorized changes, use privacy controls, and supply the last synced revision |
+
+The disclosure-level strings are vocabulary, **not an implemented disclosure
+request workflow**. Outstanding items currently cover candidate evaluation,
+stances, and adjustments. `resolve_private_request` resolves adjustments only.
 
 ### 2.3 The tool surface (24 tools)
 
-Names ≤30 chars, descriptions ≤500 chars, parameter descriptions ≤150 chars,
-results ≤1.5K chars (Chrome budget guidance), except `sync_session`, whose
-additive 8K allowance carries an intact first-connection manifest and complete
-lossless delta pages. All schemas use
-`additionalProperties: false`, `enum` over free strings, and stable IDs.
-**No free-text catch-all parameters** — the one deliberate exception is
-`note` fields, capped and documented as optional.
+The tables match the registered catalog: two opening tools, ten negotiation
+tools, and twelve spatial tools. **RO** and **UGC** report the actual
+`readOnlyHint` and `untrustedContentHint` annotations. They are hints, not an
+authorization or content-sanitization boundary.
 
-Opening a room (2026-09-04). Two tools sit before any room exists, and are
-the only ones that answer without a participant token:
-
-| Tool | RO¹ | UGC² | Notes |
+| Opening tool | RO | UGC | Behavior |
 |---|---|---|---|
-| `describe_regions` | ✓ | | The demo's prepared regions, with places on record and fact coverage. States the bound itself, so an agent that has the answer has the caveat. |
-| `open_room` | | | A goal in ordinary words becomes a room, and the page enters it. The agent states the goal; the page distils it into steps. |
+| `describe_regions` | ✓ | | Prepared regions, place classes, and recorded fact coverage; no participant required |
+| `open_room` | | | Creates a room from a goal and enters it; no prior participant required |
 
-The division of labour is deliberate: an agent that chose step classes and
-composed needs itself would be a second implementation of the planner, and
-the two would drift. `open_room` runs the same `POST /api/plans/preview` and
-`POST /api/rooms` the onboarding screens run, so an agent-opened room and a
-person-opened room are the same room.
+| Negotiation tool | RO | UGC | Behavior |
+|---|---|---|---|
+| `sync_session` | ✓ | ✓ | Manifest on first connection; paginated events on catch-up; identity and outstanding decisions |
+| `submit_requirement` | | | Create/update the caller's need; agent-private declarations contain no payload or note |
+| `withdraw_requirement` | | | Withdraw the caller's need |
+| `set_requirement_active` | | | Set the caller's need aside or restore it |
+| `evaluate_candidates` | | | Up to ten verdicts for the caller's agent-private needs |
+| `respond_to_proposal` | | ✓ | Accept, reject, abstain, or conditionally accept; accepting also marks the caller ready |
+| `resolve_private_request` | | | Grant/deny an addressed adjustment; over-bound grants stage for page confirmation |
+| `set_ready_state` | | | Mark the caller ready or contributing |
+| `set_origin` | | | Set the caller's private starting point; live sharing is a separate page control |
+| `confirm_agreement` | | | Organizer stages a proposal for final page confirmation |
 
-Negotiation tools:
+| Spatial tool | RO | UGC | Behavior |
+|---|---|---|---|
+| `find_landmarks` | ✓ | | Resolve a name to landmark IDs and locations in the room's area |
+| `get_spatial_context` | ✓ | ✓ | Compact scope, feasibility, candidates, proposals, agreement, and outstanding work |
+| `inspect_candidates` | ✓ | ✓ | Compact records for one to three IDs; optional `intent` (open/read) and `force` |
+| `set_search_scope` | | | Organizer directly changes the room's area/transport scope |
+| `add_candidates` | | | Add up to 40 stable place refs discovered through the page's explore layer |
+| `look_up_places` | | | Start lookup for one to three candidates, optionally focusing up to six `keys`; supports `force` |
+| `propose_destination` | | | Create a shared proposal for a current candidate |
+| `focus_destination` | ✓ | | Pan/highlight the caller's map; viewing presence and enrichment can follow |
+| `plan_arrival` | | | Record the caller's walk/bike/car plan and optional pickup note after agreement |
+| `confirm_fact` | | | Record a fact the caller verified, shared within this room |
+| `attest_attribute` | | | Add shared participant evidence, confidence, and a note |
+| `prepare_navigation` | ✓ | | Build `geo:`, Google Maps, and Apple Maps handoff links from held coordinates |
 
-| Tool | RO¹ | UGC² | Command | Notes |
-|---|---|---|---|---|
-| `sync_session` | ✓ | ✓ | SyncSession | First call returns manifest; later calls return delta + brief + outstanding |
-| `submit_requirement` | | | SubmitRequirement | Upsert by optional `requirementId`; `visibility: agent-private` sends declaration only (no payload) |
-| `withdraw_requirement` | | | WithdrawRequirement | |
-| `set_requirement_active` | | | SetRequirementActive | Owner sets a need aside or restores it without withdrawing it |
-| `evaluate_candidates` | | | EvaluateCandidates | Bulk verdicts for agent-private screening; ≤10 per call |
-| `respond_to_proposal` | | ✓ | RespondToProposal | Stances incl. veto; `reason` optional. `conditionally_accept` carries no condition and blocks commit until re-stanced |
-| `resolve_private_request` | | | ResolvePrivateRequest | Grant/deny adjustment & disclosure requests; grants outside delegated bounds are **staged** pending in-page confirmation |
-| `set_ready_state` | | | SetReadyState | |
-| `set_origin` | | | SetOrigin | Updates only the acting participant's private starting point |
-| `confirm_agreement` | | | ConfirmAgreement | Organizer only; **stages** — human commits in the page UI |
+Snake-case room mutations map to the equivalent PascalCase command
+(`confirm_fact` → `ConfirmFact`, for example). Spatial reads, sync, opening,
+and local focus use dedicated handlers. `CommitAgreement`,
+`ConfirmPrivateRequest`, `SetOriginSharing`, and `UnconfirmFact` have page
+controls but no registered tool. The built-in agent's approval endpoint is
+also outside this catalog.
 
-Spatial tools:
+Schemas use closed objects, bounded arrays/strings, enums, and stable IDs.
+Free text is intentionally supported for goals, names, search queries, text
+needs, reasons, and notes. A text need can become a question criterion with
+evidence; it is not automatically treated as satisfied. Fetch current IDs
+from results rather than inventing candidate, requirement, or proposal IDs.
 
-| Tool | RO¹ | UGC² | Command | Notes |
-|---|---|---|---|---|
-| `get_spatial_context` | ✓ | ✓ | GetSpatialContext | Scope + feasibility + candidate summary rows |
-| `find_landmarks` | ✓ | | read | Resolve a named landmark before stating a distance need |
-| `inspect_candidates` | ✓ | ✓ | InspectCandidates | 1–3 dossiers; 2–3 = comparison view |
-| `set_search_scope` | | | SetSearchScope | **Organizer only**; applies area/transport scope for the room |
-| `add_candidates` | | | AddCandidates | Adds stable refs from the explore layer to the room pool |
-| `look_up_places` | ✓ | | read | Starts bounded fact lookup for 1–3 places |
-| `propose_destination` | | | ProposeDestination | |
-| `focus_destination` | ✓³ | | FocusDestination | Local presentation only; no shared state |
-| `plan_arrival` | | | PlanArrival | Walk/bike/car mode and optional pickup note; routing and meeting points are deferred |
-| `attest_attribute` | | | AttestAttribute | Records shared participant-supplied evidence |
-| `prepare_navigation` | ✓ | | PrepareNavigation | Handoff links from held coordinates |
+### 2.4 What an agent actually receives
 
-¹ `annotations.readOnlyHint: true`.
-² `annotations.untrustedContentHint: true` — result may embed
-participant-authored text (requirement notes, veto notes, feed lines) or
-provider content. ³ Read-only from the session's perspective; mutates only
-the caller's local view (documented in the description).
+Tool results are compact projections, not copies of the full page API.
+`get_spatial_context` starts with at most eight candidates, ordered by
+eligibility then walking estimate. It omits the HTTP context's detailed
+facets/needs, origins, pool/refinement progress, and plan fields (`goal`,
+`steps`, `activeStepId`). Further budget compaction may remove more.
+Proposal summaries expose `accepts` counted from viewer-visible accept
+stances, `vetoStands`, and the caller's `ownStance`; that count is not a tally
+of peers' hidden private stances.
 
-The 24-tool surface is static and each entry has a non-overlapping command or
-read role. Consequential apply/commit commands remain page-only and are not
-part of this count.
+`inspect_candidates` returns compact attribute/verdict summaries and each
+candidate's `mapRevision`. It omits detailed provenance rows, hours,
+coordinates, and image URLs; images become a count. Passing two or three IDs
+reads several records but does not open the page's comparison panel. Use
+`intent: "read"` for a passive reread; `intent: "open"` can initiate background
+fact work despite the read-only annotation. Omitting `intent` also starts
+lookup/adjudication, with a bounded wait before returning. `look_up_places` can perform
+paid I/O and cache writes, so it has no read-only hint.
 
-### 2.4 Description discipline
+`focus_destination` has no negotiation command, but the mounted page reports
+its selected place through WebSocket viewing presence. Peers can see who is
+looking at a place, and the server can start enrichment. It does not pan
+other participants' maps. Its read-only hint does not mean the focus is private
+or free of background work.
 
-Descriptions state capability positively and distinguish **execution from
-initiation** (staging tools say "stages X for the user to confirm on the
-page"). Example:
+Some catalog descriptions currently overstate behavior: soft needs do **not**
+yet affect ranking, and evidence adjudication can mark an explicit venue/chain
+statement verified. Lookup is not restricted to likely results. Use the
+behavior documented here when interpreting those descriptions.
 
-> `confirm_agreement` — "Stage the group agreement on a proposal for final
-> confirmation. Requires organizer role, all participants ready, and no
-> standing veto. The human confirms on the page; this does not commit by
-> itself."
+## 3. Results, errors, and output budgets
 
-## 3. Shared result envelope and error model
+A registered callback returns a WebMCP text-content wrapper. Its `content`
+array contains one `{type: "text", text: "<serialized JSON>"}` entry, and
+`truncated` reports whether encoding required compaction.
 
-Every tool **resolves** (never rejects — rejected promises lose all detail)
-with one of:
+The embedded JSON for a successful **command** has `ok`, `revision`, and
+`outstanding`, with optional `effect`, `staged`, `syncHint`, and `replayed`.
+`staged: true` means the requested consequence still awaits confirmation.
+`replayed: true` identifies a successful idempotency replay. Read, opening,
+and local-focus results have their own shapes; not every success has a room
+revision or outstanding list.
 
-```jsonc
-// success
-{
-  "ok": true,
-  "revision": 48,
-  "effect": "Vetoed Cedar Table. 2 candidates remain eligible.",  // ≤200 chars
-  "outstanding": [ /* decisions now pending for THIS participant */ ],
-  "syncHint": { "eventsSinceYourLastSync": 3 }    // present when the agent is behind
-}
-
-// failure
-{
-  "ok": false,
-  "error": {
-    "code": "sync_required",
-    "message": "Session moved from revision 44 to 48.",
-    "recovery": "Review the delta, then retry with baseRevision 48."
-  },
-  "delta": { /* included for sync_required */ }
-}
-```
-
-Error codes (closed enum):
-
-| Code | Meaning | Recovery guidance in result |
-|---|---|---|
-| `sync_required` | Stale `baseRevision`, non-rebasable command | Delta included; reconsider and retry |
-| `not_authorized` | Role/ownership violation | States required role; never leaks target's existence details |
-| `invalid_input` | Failed server-side validation (schemas are hints, not enforcement) | Names the field, received value, and actual allowed values when the field is closed |
-| `not_found` | Unknown stable ID | Suggests `get_spatial_context`/`sync_session` to refresh IDs |
-| `phase_unavailable` | Command not applicable in current phase | States current phase and applicable actions |
-| `consent_required` | Action exceeds delegated authority | States that the human must confirm on the page |
-| `bound_exceeded` | Adjustment outside a delegation envelope | Returns the bound's dimension and limit (owner only) |
-| `temporarily_unavailable` | Cancellation, transport/parse failure, or unexpected server failure | Sync the room to check an ambiguous outcome before deciding whether to try again |
-
-Design intents:
-
-- **Self-correcting errors**: every failure tells the model what to do next.
-- **Output budget**: `effect` and `brief` strings are capped; candidate lists
-  are summary rows (≤8 by default) with counts for the remainder; full detail
-  is pull-based via `inspect_candidates`. Every registered tool crosses one
-  structural encoder: its final text block is valid JSON at ≤1,500 characters,
-  retains the shared error shape, and reports counts of omitted array items,
-  object fields, and string characters. `sync_session` uses its declared 8K
-  allowance instead: the manifest is never compacted, and an oversized delta
-  becomes a smaller forward page with a continuation cursor before encoding.
-  Its events are never deleted after `throughRevision` has been chosen.
-- **Cancellation**: read tools pass the invocation's abort signal through to
-  their fetch. Mutation cancellation is an ambiguous outcome and is safe to
-  retry only with the pass-1 idempotency key.
-- **UI-before-return**: mutation results resolve only after the local view
-  reflects at least the result's `revision`, so an agent inspecting the page
-  sees consistent state. A caller joining an older in-flight projection read
-  waits for the queued revision-targeted successor.
-
-### 3.1 Reliable mutation and event delivery
-
-HTTP mutation requests MAY carry `Idempotency-Key`. The browser generates one
-key for the logical mutation, separate from per-attempt correlation IDs, and
-reuses it after `sync_required` catch-up and any transport retry. For ten minutes the server
-binds `(participant, key)` to the canonical request hash and completed
-response. A success is stored in the command transaction; a failure is stored
-after its transaction has rolled back. An identical repeat returns that
-response without a second mutation, event sequence, broadcast, or confirmation
-nonce; the same key with a different body returns `invalid_input`. This header
-is additive and clients that omit it retain the existing
-at-most-once-per-request behavior.
-
-`POST /api/nl/say` uses the same participant-scoped header for the complete
-natural-language turn. Duplicate turns serialize before model work and replay
-the completed response, so retrying an ambiguous request cannot run the agent's
-mutations twice.
-
-The browser maintains two revision values. `knownRoomRevision` is advanced by
-sync, welcome, event, and HTTP success and is safe as the base for a new page
-gesture. `projectedThroughRevision` is advanced only by an in-order event frame
-or by fully consumed delta pages. Every welcome starts catch-up from the latter,
-even when it equals `knownRoomRevision`, because an HTTP response is not proof
-that the corresponding WebSocket frame arrived.
-
-Server event frames are serialized per room and MAY include additive
-`fromRevision`, the revision immediately before the frame's first stored event.
-A client that sees `fromRevision` differ from its projection watermark MUST
-discard that frame as a direct update and invoke paginated sync. Participant-
-private `outstanding` responses are revision-gated so a slower old sync cannot
-overwrite a newer one.
-
-`sync_session` accepts additive optional `cursor`, returned by a truncated
-delta. Events are forward pages over stored revisions; `throughRevision`
-advances across viewer-omitted events. Callers continue until `truncated` is
-false before advancing to the room head. `resyncRequired:
-"backlog_too_large"` explicitly requires replacement from a full state read;
-the server never silently advances past an unreplayed backlog.
-Cursor targets above the current room revision are clamped to the room head;
-a cursor whose consumed revision is already ahead is rejected as
-`invalid_input`, matching the non-cursor `sinceRevision` guard.
-
-The single serving process sends WebSocket ping control frames every 30
-seconds and terminates a connection that has not ponged within 45 seconds.
-Termination uses normal close cleanup, so advisory presence and viewing state
-expire after half-open network loss. Browser reconnects use randomized
-exponential backoff capped at 15 seconds. Cross-process presence and event
-fan-out remain deferred.
-
-## 4. End-to-end sequences (demo beats)
-
-### 4.1 Join and first sync (async catch-up built in)
+The shared failure shape is `{ok:false,error:{code,message,recovery}}`, with
+an optional `delta` for `sync_required`. The
+[closed error enum](../../packages/contracts/src/errors.ts) is:
 
 ```text
-Agent                    Page (tools)              Session server
-  │  sync_session()          │                          │
-  │─────────────────────────>│  SyncSession             │
-  │                          │─────────────────────────>│ derive identity from
-  │                          │                          │ page session token
-  │  manifest + brief +      │<─────────────────────────│
-  │  revision 12 + outstanding                          │
-  │<─────────────────────────│                          │
+sync_required          not_authorized       invalid_input
+not_found              phase_unavailable    consent_required
+bound_exceeded         not_authenticated    upgrade_required
+temporarily_unavailable
 ```
 
-### 4.2 Agent-private requirement and screening
+Most command/transport failures use this shape. It is not universal: some
+read errors lack recovery text, and the callback wrapper rethrows unexpected
+exceptions after recording diagnostics. Callers must handle promise rejection
+as well as `{ok:false}`.
 
-```text
-Joe's agent: submit_requirement { visibility: "agent-private",
-             hardness: "hard", delegation: { mode: "approval_required" } }
-  → event private_requirement_declared (rev 15)
-  → peers' feeds: "Joe added a private requirement."   [existence/aggregate]
-  → council: affected candidates → uncertain; emits evaluation_requested
+Application budgets are 30 characters per tool name, 500 per description,
+150 per parameter description, 200 per effect/note, and 400 per sync brief.
+Serialized result JSON normally has a 1,500-character allowance;
+`sync_session` and **any result containing `delta`** receive 8,000. These are
+JavaScript string-length limits, not byte limits or browser-enforced quotas.
 
-Joe's agent (next turn): sync_session { sinceRevision: 15 }
-  → outstanding: [{ type: "evaluation_request", candidateIds: [ ... ] }]
-Joe's agent: evaluate_candidates { verdicts: [ …acceptable/unacceptable… ] }
-  → evaluation_recorded (rev 17); eligibility recomputed
-  → peers' maps update: "2 candidates are no longer eligible." (no owner, no reason)
-```
+The adapter compacts ordinary results structurally, preserves valid JSON,
+and reports `truncated` plus omitted item/field/character counts. A manifest
+or delta that still exceeds its allowance fails explicitly instead of
+silently deleting protocol state. A compact result is not an exhaustive
+candidate list or evidence ledger.
 
-### 4.3 Veto from the map, agent catches up
+### 3.1 Revisions, catch-up, and retries
 
-```text
-Sarah (UI): pin card → Veto → reason "visited too recently"
-  → RespondToProposal(reject) → stance_submitted (rev 23)
-  → all projections update live via WS/SSE
+Every revisioned mutation carries `baseRevision`. The server rejects all
+stale mutations with `sync_required`; there is no commutative stale-write
+rebase. Consume missed events, reconsider the action, then submit against
+the current revision.
 
-Organizer's ChatGPT (was idle): respond_to_proposal { baseRevision: 20, … }
-  → { ok: false, error: sync_required, delta: [rev 21–23 projected] }
-  → agent reads delta ("Sarah vetoed Cedar Table"), reconsiders, retries at 23
-```
+For incremental sync, send `sinceRevision`; while `delta.truncated` is true,
+continue with its opaque `cursor`. `throughRevision` is the last stored
+event consumed by that page, including events omitted by the viewer's privacy
+projection. It can trail the response's room-head `revision`. Do not skip to
+the head while pages remain. `resyncRequired: "backlog_too_large"` requests a
+fresh full projection. A future `sinceRevision` or a cursor whose consumed
+revision is ahead of the room is rejected. A cursor's target revision is
+clamped to the room head.
 
-### 4.4 Impasse → private adjustment → consent → recovery
+The browser separates its latest known room revision from its consumed
+projection watermark. Ordered WebSocket frames carry continuity information;
+a gap triggers catch-up. Sockets use 30-second pings, expire without a pong
+after 45 seconds, and reconnect with jittered backoff. This is one process's
+fan-out, not durable cross-worker delivery.
 
-```text
-Council: 0 eligible, screening resolved → impasse_detected (rev 30)
-  room feed (all): "No option satisfies every confirmed requirement.
-                    The council is privately checking adjustments."
-  minimal conflict set → { Joe's budget req, scope radius }
-  adjustments: [{ radius 800→1400, +3 candidates, needs organizer },
-                { budget 15→18 EUR, +2, needs Joe, withinDelegatedBound: false }]
+HTTP command idempotency is participant-scoped for ten minutes. A key binds
+the canonical **entire request body, including `baseRevision`**. An identical
+retry can replay the stored result. After a known stale rejection, changing
+the revision requires a new key; reusing the old key with changed arguments
+is invalid.
 
-Joe's next sync → outstanding: [{ type: "adjustment_request", adj… }]  (private)
-Joe's agent: resolve_private_request { requestId, decision: "grant" }
-  → { ok: false → NO — returns ok with staged: true }  … consent_required path:
-  → result: "Grant staged. Joe must confirm on the page." + page shows confirm card
-  → adjustment_grant_staged (owner-only revisioned event; no peer projection)
-Joe (UI): taps Confirm → adjustment_resolved, requirement_relaxed (rev 33)
-  → recompute → impasse_resolved; feeds: "Search adjusted. 3 new candidates."
-  (owner and reason never published)
-```
+There are remaining browser integration gaps: the page's automatic stale
+retry currently reuses its explicit key after changing the revision, and a
+fresh WebMCP invocation generates a new key. Reinvoking a tool after an
+ambiguous timeout therefore does not guarantee exactly-once execution.
+Inspect current state before repeating a consequential action. See
+[the command client](../../apps/web/src/api.ts) and
+[page command runner](../../apps/web/src/App.tsx).
 
-### 4.5 Agreement and arrival
+### 3.2 Cancellation and visible completion
 
-```text
-All participants: set_ready_state(ready); stances on prop_3 all accept/abstain
-Organizer agent: confirm_agreement { proposalId: "prop_3" }
-  → agreement_staged; page shows commit card to organizer (human)
-Organizer (UI): Confirm → agreement_committed (rev 41) → phase: arrival
-Each participant: plan_arrival { mode, pickup? } → arrival_plan_updated
-Each participant: prepare_navigation → geo/google/apple links (one click)
-```
+Abort signals reach authenticated read/command fetches and landmark lookup.
+Aborting a mutation does not prove it failed to commit. `open_room` checks
+cancellation before and after preview, but its subsequent creation, exchange,
+and invitation calls are not cancelled through that signal.
+
+After a successful room mutation the adapter awaits a spatial refetch
+targeting the returned revision. This normally updates the page store before
+returning. A failed refetch can retain the previous projection, and there is
+no React paint barrier. `open_room` schedules navigation rather than waiting
+for the room view to mount. These are best-effort presentation guarantees.
+
+## 4. Interaction sequences
+
+### 4.1 Open or join, then orient
+
+An organizer can open through onboarding or `describe_regions` → `open_room`.
+A member claims a `#join=` invitation on the page. After authentication,
+`sync_session({})` establishes identity and revision; `get_spatial_context({})`
+provides candidate IDs and the current decision state. Inspect relevant
+candidates before proposing or screening them. Opening a room is not a
+decision on a destination.
+
+### 4.2 Private requirements and screening
+
+For an external agent, `submit_requirement` with `visibility: "agent-private"`
+registers a declaration with hardness/delegation and no payload or note.
+The agent retains the condition. When `outstanding` contains an
+`evaluation_request`, inspect its candidate IDs and send up to ten verdicts
+through `evaluate_candidates`. The call carries `baseRevision` and a
+`verdicts` array; each item carries `candidateId`, `verdict` (`acceptable`,
+`unacceptable`, or `needs_info`), and the dossier's `mapRevision` as
+`screenedMapRevision`. `needs_info` also requires `infoNeeded`. Verdicts cover
+the participant's active agent-private conditions together, rather than
+selecting a requirement ID.
+See the [input schemas](../../packages/contracts/src/commands.ts) for the
+exact object shapes.
+
+Verdicts with missing or old candidate revisions remain stale. Changed
+facts increment `mapRevision` and generate new screening work for active
+private needs. A private rejection affects eligibility without publishing
+the condition. It does not hide every effect or the existence/ownership of
+the need (§5.6). The built-in agent's different data path is described there.
+Its screening adapter currently omits the required `infoNeeded` field when
+producing `needs_info`; a batch containing that verdict is rejected and can
+leave screening pending. External callers can submit the valid schema above.
+
+### 4.3 Propose and respond
+
+`propose_destination` creates a proposal; `respond_to_proposal` records a
+participant's stance on it. `reject` is a veto while it stands. A reason is
+optional; agent-private stances are disposition-only. Shared stances may be
+named in the page, while peers' private stances are hidden and aggregate
+blocking effects remain visible. `conditionally_accept` has no executable
+condition workflow and blocks agreement until replaced.
+
+### 4.4 Impasse and adjustments
+
+When hard needs leave no eligible candidate, the engine can identify a
+minimal conflict set using greedy deletion and offer bounded adjustments.
+Current suggestions include radius expansion, a higher EUR price band, and
+relaxing cuisine inclusion/exclusion. This is not an exhaustive optimizer or
+a guarantee that a compromise exists.
+
+An `adjustment_request` appears only for its addressee. They can deny it;
+an authorized grant within a delegated bound applies immediately. An
+over-bound grant returns success with `staged: true`, then needs the page
+confirmation in §5.4. Locked/protected needs cannot be silently relaxed.
+Organizer `set_search_scope` remains a separate direct authority path and
+does not route through affected members' consent.
+
+### 4.5 Agreement, subsequent steps, and arrival
+
+To stage an agreement, **every participant must be ready and have accepted
+or abstained**, with no standing veto. Accepting also marks that participant
+ready; abstaining does not. Disconnected participants still count. The
+organizer calls `confirm_agreement`, then confirms on the page.
+
+Commit rechecks the blockers. If they changed, a successful
+`agreement_stage_aborted` effect reopens the proposal instead of committing.
+Neither proposing nor committing requires the candidate to be classified
+eligible: evidence-based feasibility and the group's decision are separate.
+
+For a plan with another step, commit settles the current destination,
+deactivates its needs, replaces the live candidate pool for the next step,
+searches around the chosen location, and returns to `gathering`. For the
+final step, commit enters `agreed`; the first `plan_arrival` enters `arrival`.
+`prepare_navigation` supplies external handoff links. It does not calculate a
+street route or book transport. Plans currently contain at most three steps.
 
 ## 5. Security binding
 
-Beyond the per-protocol invariants:
+### 5.1 Participant identity and lifetime
 
-1. **Identity**: the room-scoped invite secret arrives in the URL fragment and
-   is exchanged for a participant token held in `sessionStorage` (tab-scoped —
-   a session cookie would collide across tabs in one browser profile). Every
-   tool call inherits it. Tool arguments contain no `actorId`,
-   `participantId`-as-self, or role claims.
-   WebSocket authentication also requires the loaded page's `clientBuildId`
-   and `clientToolContractVersion`; either mismatch is rejected before the
-   participant joins presence.
-2. **Validation**: the browser does not enforce `inputSchema`; the server (and
-   the page shim before dispatch) re-validates every argument against the
-   closed vocabularies. Unknown enum values → `invalid_input`.
-3. **Injection defenses**: all participant-authored and provider text returned
-   through tools rides in structured JSON fields on tools marked
-   `untrustedContentHint`, with length caps (`note` ≤200 chars). Feed
-   projections are server-composed template strings, not raw user text, where
-   redaction applies.
-4. **Consequential actions have no agent tool route, and carry a confirmation
-   nonce**: committing agreement and applying an over-bound grant are
-   two-step — the negotiation tool (`confirm_agreement`,
-   `resolve_private_request`) only *stages*, and the applying command
-   (`CommitAgreement`, `ConfirmPrivateRequest`) is registered in
-   `COMMAND_SCHEMAS` but bound to no WebMCP tool, so a personal agent — the
-   threat model that matters here, a prompt-injected model acting through the
-   tool surface — cannot reach it; only an in-page UI gesture dispatches it.
+The server derives room, participant, and role from the bearer token, never
+from a caller-selected actor ID. Tokens are held in `sessionStorage`, with
+an in-memory fallback, and expire after 24 hours. New member links use
+`#join=`: an unused link expires after one hour and its first claim binds it
+to a browser-held secret in `localStorage`. Same-browser recovery can mint a
+fresh token. Organizer recovery uses `#invite=` and expires after seven days.
 
-   That binding-layer control is backed by a server-side one. Staging mints a
-   **confirmation nonce**: 24 random bytes, 120-second TTL, single-use, bound
-   to room + participant + subject kind + subject ID. It is delivered *only*
-   as a `confirmation` frame on that participant's realtime channel — never in
-   the command result, so it never reaches the agent surface — and the
-   applying command must carry it back or the server answers
-   `consent_required`. A dropped socket loses that tab's copy, so the channel
-   re-issues the existing live nonce for anything still staged on `welcome`;
-   another tab authenticating does not revoke it. Only an actual restage
-   replaces the credential. Nonces live in the server process, never on disk.
+Claimed member-link recovery has no final expiry or self-service revocation.
+Browser binding proves possession, not a person's identity. Read the
+[invite implementation](../../apps/server/src/invites.ts) and
+[authentication rules](../../apps/server/src/auth.ts) for the exact checks.
 
-   **What this does and does not buy.** It closes the blind replay: a caller
-   holding a participant's bearer token can no longer POST `CommitAgreement`
-   from a script without ever touching the page. It is not proof that a human
-   made a page gesture. The realtime channel authenticates with the same
-   bearer token, so the same token holder can open a socket, be re-issued a
-   nonce, and apply — they just have to speak the page's protocol and be
-   connected inside the window. The honest claim is narrow: the applying
-   commands are bound to a live page session, to one subject, and to a
-   120-second single-use window. The residual case remains a participant
-   acting as themselves, in their own room, on their own decisions. ChatGPT
-   additionally runs its own per-invocation safety review; ours does not rely
-   on it.
-5. **Least exposure**: no `exposedTo` in v1 (no cross-origin consumers); the
-   `tools` permissions policy stays default (`'self'`).
-6. **Privacy testable at the wire**: the projection test suite asserts
-   private fields never appear in any other participant's tool result, WS
-   frame, or HTTP response body (NEGOTIATION-PROTOCOL invariant 1).
+### 5.2 Validation and versions
+
+The server validates command inputs with Ajv, then checks ownership, role,
+revision, phase, and command-specific rules. Sync and major spatial POST
+reads also have server schemas. Not every browser callback independently
+validates its entire published schema: local focus, landmark lookup,
+context, and onboarding have narrower checks. The test shim adds no schema
+validation.
+
+Command requests carry `x-tool-contract-version`; a mismatch returns
+`upgrade_required`. WebSocket authentication checks build/contract versions.
+Read endpoints are not uniformly version-gated. Reload when the page
+reports an incompatible environment rather than carrying IDs or schemas
+across deployments.
+
+### 5.3 Untrusted content and origin boundaries
+
+Participant text and venue/provider content are untrusted data, including
+when a tool does not carry `untrustedContentHint`. Hints do not sanitize
+content or authorize actions. Notes have bounded lengths, and server
+projection controls which viewer can receive private fields.
+
+Spokes does not opt into cross-origin WebMCP exposure. Production responses
+block framing and use CSP and other browser security headers. Native WebMCP
+origin/permission rules still depend on the browser; see the Chrome links
+in §2.1. No particular external agent host's per-call review behavior is
+assumed by this binding.
+
+### 5.4 Page confirmation: authority, not proof of a human gesture
+
+`ConfirmAgreement` and over-bound adjustment grants only stage their
+consequence. Their applying commands, `CommitAgreement` and
+`ConfirmPrivateRequest`, have no WebMCP route. The server mints a random
+24-byte, single-use nonce valid for 120 seconds, bound to room, participant,
+confirmation kind, and subject. It is delivered on that participant's
+authenticated realtime channel, never in the tool result.
+
+The page submits the nonce with the applying command. Restaging replaces
+the previous nonce; reconnecting receives the existing live nonce when
+available. The registry is process-local. A bearer-token holder can open
+their own authenticated socket and obtain their nonce, so this is a
+participant-authority boundary, not cryptographic evidence that a person
+clicked. See [confirmation.ts](../../apps/server/src/confirmation.ts).
+
+### 5.5 Built-in agent action review
+
+The built-in tool-calling model can read as its participant and propose a
+mutation. The server stores its exact command arguments and original
+revision, then returns an owner-only review card. Approval uses a random
+256-bit action ID, is participant-bound and single-use, and expires after
+five minutes. Only one current suggestion is retained per participant.
+Approval executes the stored command through normal authorization and
+consent checks; it cannot substitute new arguments.
+
+This is separate from §5.4: approving a suggested agreement stage does not
+also commit it. It is also separate from ordinary need interpretation and
+tool-less private screening. External WebMCP agents retain the authority of
+their participant session and do not use this built-in approval wrapper.
+See [approvals.ts](../../apps/server/src/nl/approvals.ts).
+
+### 5.6 Privacy boundary
+
+| Mode | Where the condition goes | What other participants can learn |
+|---|---|---|
+| Shared | Application and room projections | Requirement content and shared actions |
+| Application-private | Application server and durable room state; owner projection | Eligibility effects and private-need metadata, not the predicate/text |
+| Agent-private, external agent | Agent retains the condition; server receives a declaration and candidate verdicts | Existence/ownership and decision effects, not the retained condition |
+| Agent-private, built-in agent | Text reaches the server, is held in process memory, and is sent to tool-less interpretation and screening models | The same projected effects; text is omitted from requirement/event records and the tool-calling model's context |
+
+Private effects can include an owner's participant ID, counts, an optional
+hint, and per-place aggregate verdicts. Private events use reduced
+projections, but the whole system does not promise anonymous ownership or
+protection against inference in a small group. Application-private storage
+is operator-accessible; these are access controls, not end-to-end encryption.
+
+Restarting loses built-in agent-held condition text, so it must be re-entered
+for fresh screening. Provider routing/no-storage request settings do not
+independently establish provider retention guarantees. See
+[Known limitations](../KNOWN-LIMITATIONS.md) and the
+[security review](../SECURITY-REVIEW-2026-09-07.md) for the current threat model.
 
 ## 6. Versioning and evolution
 
-- Manifest declares `negotiation: v1` and `domain: spatial-destination/v1`;
-  they version independently.
-- **Additive** changes (new optional fields, new enum values the server
-  tolerates, new tools) do not bump versions.
-- **Breaking** schema changes to a tool rename the tool (`_v2` suffix) —
-  never a schema swap under a stable name.
-- A future second domain (scheduling, purchasing…) reuses `negotiation/v1`
-  unchanged: new domain string, new payload validators, new domain tool set.
-  That boundary — everything in NEGOTIATION-PROTOCOL.md with zero spatial
-  imports — is the future `negotiation-core` package seam. Extraction waits
-  until after the vertical slice works (MVP-AND-RISKS.md).
-- Correcting a capability that never had a callable implementation does not
-  remove a tool or accepted result field. Pass 3 therefore withdraws the
-  unsupported `meeting-points` advertisement while retaining tool contract v3.
-- The contract hash derives runtime schemas from the exported response and
-  realtime types; optional output fields cannot change without moving the
-  committed manifest hash.
+Current [versions](../../packages/contracts/src/versions.ts) are negotiation
+`v1`, domain `spatial-destination/v1`, and tool contract `"3"`. The repository
+generates its contract hash from executable schemas and response/message
+types. Build identity additionally detects page/server deployment mismatch.
 
-## 7. Resolved and open questions
+The current policy keeps compatible optional fields and accepted inputs
+additive. Breaking changes require an explicit compatibility decision;
+renaming an incompatible tool avoids replacing a discovered schema in place.
+Do not infer the catalog count from the version number: the current v3
+catalog has 24 tools. A future domain should extend the domain vocabulary
+and commands while preserving negotiation meanings; that portability has
+not yet been demonstrated with a second backend.
 
-Resolved in this design:
+## 7. Current implementation boundaries
 
-- Privacy tiers: all three fully, including screening loop and the four-level
-  disclosure ladder (decision 2026-08-31).
-- Agreement: all-accept + organizer-commit, staged with in-page confirmation
-  (decision 2026-08-31).
-- Static tool surface; imperative API only; plain-JSON results.
-- Merged sketch tools: `connect_to_session`+`sync_session` → `sync_session`;
-  `update_requirement` → `submit_requirement` upsert; `offer_relaxation` →
-  owner edits own requirement or grants an adjustment;
-  `request_user_approval` → server-initiated `outstanding` + in-page confirm;
-  `compare_destinations` → `inspect_candidates[2..3]`;
-  `set_search_area`/`set_planning_time` → `set_search_scope`;
-  `calculate_meeting_point`/`preview_route` → `plan_arrival`.
+The manifest's disclosure escalation L1–L3 has no request workflow. Soft
+needs do not rank candidates. There is no commutative stale-write rebase,
+participant removal/room closing, plan editing/reopening, transit routing,
+or protocol-level meeting-point negotiation.
 
-Still open (do not block the vertical slice):
-
-1. Whether commutative-rebase (§6.2 case 2 in NEGOTIATION-PROTOCOL) ships in
-   v1 or everything non-current returns `sync_required` (simpler, safer
-   default for the POC).
-2. Exact `brief`/delta wording templates per event × projection level.
-3. Whether `evaluate_candidates` needs a "re-screen changed candidates only"
-   nudge in `outstanding` payloads (likely yes via `mapRevision`).
-4. Scoring model after hard constraints pass (weighted soft-requirement
-   satisfaction — details with implementation).
-5. Minimal-conflict-set algorithm choice (greedy deletion is likely enough
-   for POC-scale requirement counts).
+The binding also has abbreviated plan/evidence output, descriptions that
+currently overstate some behavior, uneven callback validation/error
+normalization, and retry/visible-completion limits described above. The
+[limitations document](../KNOWN-LIMITATIONS.md) covers data quality, location
+handling, model boundaries, and deployment constraints in more detail.

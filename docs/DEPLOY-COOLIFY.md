@@ -1,43 +1,50 @@
-# Deploying Spokes on Coolify
+# Production Compose configuration
 
-> **Superseded as a deployment path.** Production runs Caddy in front of the
-> compose stack on a plain Docker host — see **`docs/DEPLOY.md`**, which is the
-> playbook to follow. Coolify was prepared and abandoned at the gate; nothing
-> below has been exercised against a live Coolify resource.
->
-> The **environment-variable table in §2 is still authoritative** and applies to
-> the Hetzner deployment unchanged, as does the origin-trial section (§4). Keep
-> this file for those two; ignore §§1, 3, 5 and 6.
+Maintained configuration reference, checked against the repository on
+2026-09-07. Use [DEPLOY.md](DEPLOY.md) for the configured Caddy/Hetzner
+workflow. The base file is named `compose.coolify.yaml`; it is also usable as
+the basis of a Coolify resource, but that alternative has not been validated
+against a live resource in this documentation review.
 
+## 1. Stack and optional Coolify setup
 
-The app is a single Docker image (Fastify API + WebSocket + the pre-built React
-bundle) plus Postgres. `compose.coolify.yaml` is a deploy-ready compose that
-Coolify can run directly; local development uses `compose.yaml` with the same
-outbound proxy variables passed through to the app service.
+The production image contains Fastify, WebSocket handling, and the prebuilt
+React bundle. The base Compose runs Postgres plus one-shot migration and seed
+services before starting the app. The app uses a non-root image user, drops
+Linux capabilities, and has memory/CPU/process limits. It expects one app
+process for realtime state and quotas.
 
-## 1. Create the resource
+For Coolify, create a Docker Compose resource using
+[compose.coolify.yaml](../compose.coolify.yaml), supply the environment below,
+and route its domain to the `app` service's internal port 4173. Validate the
+platform's proxy network, health checks, WebSocket upgrades, and release
+label yourself. The Caddy deployment instead adds
+[compose.prod.yaml](../compose.prod.yaml).
 
-1. In Coolify: **New Resource → Docker Compose**, pointed at this git repo.
-2. Set the compose file path to `compose.coolify.yaml`.
-3. Coolify builds the `Dockerfile` (production stage: `NODE_ENV=production`,
-   server serves the pre-built web bundle via `@fastify/static`).
+## 2. Environment variables
 
-## 2. Environment variables (set in Coolify)
+The table describes **production Compose defaults and pass-throughs**. Bare
+Node defaults can differ: for example, the refinement worker defaults to
+1,000 model and 750 search calls per room/hour, while this Compose sets
+200 and 150. A host `.env` value only reaches a container when Compose passes
+it. Check [server config](../apps/server/src/config.ts),
+[security admission](../apps/server/src/security.ts), and the Compose file
+when adding overrides.
 
 | Var | Required | Notes |
 |---|---|---|
-| `DEMO_SECRET_KEY` | **yes** | Any strong random string. HMAC key for guest invite secrets. Must be stable across redeploys or existing invite links break. The compose refuses to seed if it is unset. |
+| `DEMO_SECRET_KEY` | **yes** | Strong stable HMAC key for deterministic local demo fixture secrets. Compose requires it for seed and app. Ordinary room recovery/join secrets are random. |
 | `APP_URL` | **yes** | Exact public HTTPS origin. Used for origin checks and printed invite URLs; the Hetzner bootstrap sets it from `APP_DOMAIN`. |
 | `TRUSTED_PROXIES` | **yes** | Actual ingress proxy IPs/CIDRs. Use an isolated trusted proxy network or explicit proxy addresses; never trust arbitrary forwarded headers. |
 | `ROOM_LIMIT` | optional | Combined room-creation and plan-preview requests per IP per hour; defaults to `50`. |
-| `ORIGIN_TRIAL_TOKEN` | for the ChatGPT/WebMCP path | Chrome WebMCP origin-trial token registered **for the deployed origin** (see §4). Without it the page still works as a normal web app, but ChatGPT's built-in browser will not discover the WebMCP tools on the hosted origin. |
-| `OPENROUTER_API_KEY` | recommended | Enables the natural-language surface, matrix evaluation, menu reading, and model-backed refinement through OpenRouter. Leave both provider keys empty for a deterministic no-model deployment. |
+| `ORIGIN_TRIAL_TOKEN` | for origin-trial enablement | Chrome WebMCP token for the exact deployed origin when using the origin trial. Browser/host support must be verified separately (§4). |
+| `OPENROUTER_API_KEY` | recommended | Enables the natural-language surface, matrix evaluation, menu reading, and model-backed refinement through OpenRouter. Leave both provider keys empty for a no-model deployment; other network-backed sources can still run. |
 | `OPENROUTER_PROVIDERS` | optional | Comma-separated OpenRouter provider slugs to pin, in order (`allow_fallbacks` off). Unset: free routing among endpoints that honour the request. Pin when benchmark runs must be comparable. |
 | `OPENAI_API_KEY` | fallback only | Enables the retained OpenAI Responses backend when `LLM_PROVIDER=openai`, or when no OpenRouter key exists. |
 | `LLM_PROVIDER` | optional | `openrouter` or `openai`. Defaults to OpenRouter when `OPENROUTER_API_KEY` exists, otherwise OpenAI. |
 | `LLM_MODEL` | optional | Default for every LLM job; defaults to `openai/gpt-5.6-luna`. |
 | `LLM_REASONING_EFFORT` | optional | Reasoning effort for every LLM job; defaults to `high`. Accepts `none`, `minimal`, `low`, `medium`, or `high`. |
-| `LLM_MODEL_ROUTE` | optional | Composer understanding/routing model. Empty inherits `LLM_MODEL`. |
+| `LLM_MODEL_ROUTE` | optional | Composer/goal understanding model. Empty inherits `LLM_MODEL`. |
 | `LLM_MODEL_JUDGE` | optional | Matrix, inference, adjudication, screening, and built-in-search model. Empty inherits `LLM_MODEL`. |
 | `LLM_MODEL_AGENT` | optional | Participant tool-loop model. Empty inherits `LLM_MODEL`. |
 | `LLM_MODEL_VISION` | optional | Place-image and menu-reader model. Empty inherits `LLM_MODEL`. |
@@ -48,80 +55,80 @@ outbound proxy variables passed through to the app service.
 | `REFINE_IDLE_STOP_MS` | optional | How long refinement remains alive after the last room participant leaves; defaults to `600000`. |
 | `REFINE_TICK_MS` | optional | Working-loop interval in milliseconds; defaults to `1000`. |
 | `REFINE_IDLE_TICK_MS` | optional | Empty-queue polling interval in milliseconds; defaults to `30000`. |
-| `REFINE_PLAN_WATCHDOG_MS` | optional | Maximum wait for one room plan before replanning; defaults to `REFINE_TICK_MS * 120`. |
 | `REFINE_MODEL_CALLS_PER_HOUR` | optional | Per-room model-call budget; defaults to `200`. |
 | `REFINE_SEARCHES_PER_HOUR` | optional | Per-room search budget; defaults to `150`. |
-| `PIPELINE_TIMEOUT_FETCH_SITE_MS` | optional | Site-dispatch deadline in milliseconds; defaults to `30000`. |
-| `PIPELINE_TIMEOUT_FETCH_ASSET_MS` | optional | Asset-dispatch deadline in milliseconds; defaults to `30000`. |
-| `PIPELINE_TIMEOUT_FETCH_SEARCH_MS` | optional | Search-dispatch deadline in milliseconds; defaults to `45000`. |
-| `PIPELINE_TIMEOUT_PROCESS_JUDGE_MS` | optional | Matrix-judging deadline in milliseconds; defaults to `120000`. |
-| `PIPELINE_TIMEOUT_PROCESS_ADJUDICATE_MS` | optional | Adjudication deadline in milliseconds; defaults to `120000`. |
-| `PIPELINE_TIMEOUT_PROCESS_VISION_MS` | optional | Vision deadline in milliseconds; defaults to `60000`. |
-| `PIPELINE_TIMEOUT_PROCESS_DECODE_MS` | optional | Image-decode deadline in milliseconds; defaults to `30000`. |
-| `SEARCH_PROVIDER` | optional | Search provider: `parallel`, `openai`, or `tavily`. Parallel is always the default; `openai` names the built-in search path, which now runs through OpenRouter. |
+| `SEARCH_PROVIDER` | optional | Search provider: `parallel` (default), `openai`, or `tavily`. `openai` selects model-backed search through the configured LLM backend. |
 | `PARALLEL_API_KEY` | when using Parallel | Parallel Search credential. Results are cached per room under its End Customer restriction. |
-| `PARALLEL_SEARCH_MODE` | optional | Parallel search processor; `turbo` by default (same price as `fast`, quicker, slightly lower quality), `fast` when quality matters more than latency. |
+| `PARALLEL_SEARCH_MODE` | optional | Parallel search processor; defaults to `turbo`. Check provider support before overriding. |
 | `TAVILY_API_KEY` | when `SEARCH_PROVIDER=tavily` | Tavily credential for the optional fallback search provider. |
-| `DATAFORSEO_LOGIN` | when listings are enabled | DataForSEO API login for one structured business-listings batch per room pool. |
-| `DATAFORSEO_PASSWORD` | when listings are enabled | DataForSEO API password. Treat it as a secret; it is never logged. |
+| `DATAFORSEO_LOGIN` | when listings are enabled | DataForSEO login for structured business-listing enrichment, including regional prepopulation. |
+| `DATAFORSEO_PASSWORD` | when listings are enabled | DataForSEO password. Treat it as a secret. |
 | `LISTINGS` | optional | Set to `0` to disable DataForSEO listings. Enabled when both DataForSEO credentials exist. |
-| `PROXY_URL` | optional | Authenticated outbound proxy URL for venue pages, robots, and non-Commons image hosts. Treat it as a secret; it is never logged. |
+| `PROXY_URL` | optional | Authenticated outbound proxy URL for eligible venue/page/image traffic. Treat it as a secret. Proxy-side DNS is outside direct-fetch address validation. |
 | `PROXY` | optional | Set to `0` to force all proxy-eligible traffic direct; defaults to enabled when `PROXY_URL` is present. |
 | `POSTGRES_PASSWORD` | **yes** | Existing database password; no production default. The Hetzner bootstrap generates it once on first deployment. Preserve it across redeploys. |
-| `SOURCE_COMMIT` | auto | Coolify injects this; it becomes `BUILD_ID` so clients detect new deploys and reload. |
+| `SOURCE_COMMIT` | auto | Release label passed as `BUILD_ID`; the Hetzner bootstrap writes it from `.commit`. Set it explicitly for another deployment workflow. |
+| `GLOBAL_ROOM_LIMIT` | optional | Combined room creation and plan preview ceiling across clients; production Compose defaults to 100/hour. |
+| `LLM_CALLS_PER_HOUR` / `LLM_CALLS_PER_DAY` | optional | Process-wide model admission ceilings; defaults 600/hour and 2,000/day. |
+| `LLM_CONCURRENCY` | optional | Process-wide simultaneous model calls; default 6. |
+| `OUTBOUND_CALLS_PER_HOUR` / `OUTBOUND_CALLS_PER_DAY` | optional | Process-wide outbound admission ceilings; defaults 5,000/hour and 20,000/day. |
 
-## 3. Domain and ingress
 
-- Assign the domain to the **`app`** service, port **4173**, in the Coolify UI
-  (or set `SERVICE_FQDN_APP`). Coolify's proxy terminates TLS and routes to
-  `app:4173` over the internal network — that is why the compose exposes the
-  port instead of binding it to the host.
-- WebSockets: the app serves `/ws` on the same port/origin, so no extra proxy
-  config is needed — Coolify's proxy upgrades it automatically.
-- Health check hits `/api/meta`; Coolify waits for it before routing.
+The base Compose derives `DATABASE_URL` from `POSTGRES_PASSWORD`, sets
+`NODE_ENV=production` and `PORT=4173`, and maps `APP_URL` to `PUBLIC_ORIGIN`.
+The Caddy overlay additionally requires `APP_DOMAIN`; keep it consistent
+with the HTTPS origin. Trusted proxy addresses must correspond to the actual
+isolated ingress network, not arbitrary client-supplied forwarding headers.
 
-## 4. Chrome WebMCP origin trial (for the ChatGPT demo)
+Additional code-level switches such as `ENRICH_NETWORK`, `MENU_READER`,
+`REFINE_PLAN_WATCHDOG_MS`, and `PIPELINE_TIMEOUT_*` require an explicit
+container environment override if used. They are not passed through by the
+base production Compose. See [refinement settings](../apps/server/src/refine/worker.ts)
+and [pipeline deadlines](../apps/server/src/pipeline/scheduler.ts).
 
-WebMCP (`document.modelContext`) is behind a Chrome origin trial. The token is
-**origin-specific**, so the localhost token used during the spike does not cover
-the Coolify domain. Register the deployed origin at the Chrome Origin Trials
-console for the WebMCP trial, put the token in `ORIGIN_TRIAL_TOKEN`, and
-redeploy. The server injects it as an `Origin-Trial` response header on every
-document response (including the Vite/static-served HTML). The page degrades
-cleanly without it — it is fully usable as a normal web app; only ChatGPT's
-tool discovery on the hosted origin depends on it.
+Provider quotas and application admission limits do not impose a currency
+spending cap. Set provider-side controls separately. Quotas here are
+process-local and reset on restart; see [Known limitations](KNOWN-LIMITATIONS.md).
 
-## 5. After deploy
+## 3. Ingress and health
 
-- `migrate` runs once and gates `app`; `seed` runs once (idempotent) and tops
-  up `room_demo` with the 31 Berlin Mitte venues and the three participants.
-- The two area snapshots (`packages/contracts/data/areas/`) ship inside the
-  image; the area picker and `POST /api/rooms` need no extra service, volume
-  or environment variable (`docs/DATA-QUALITY.md`, "Engine decision").
-- Get the participant invite links from the `seed` container logs (the
-  organizer link carries `?surface=chatgpt` for ChatGPT's built-in browser), or
-  regenerate them locally with `node scripts/open-participants.mjs` pointed at
-  `APP_URL`. The links embed the guest secret in the URL fragment — treat the
-  logs as secret-bearing.
-- Redeploying keeps the database volume; the seed tops up rather than wiping, so
-  a session's widened search scope survives a redeploy. To reset the demo room
-  to its initial 800 m scope, run `node apps/server/src/seed.ts --reset` against
-  the deployment (Coolify **Execute Command** on the `app` container) — scoped
-  to `room_demo`, it never touches the volume.
+Serve the public page, API, and `/ws` on the same HTTPS origin. The app's
+internal port is 4173. Caddy handles TLS and forwards WebSocket upgrades;
+an alternative proxy must do the same. The app health check requests
+`/api/meta`, and production responses enforce origin/browser security
+boundaries. A responding health endpoint does not test model providers,
+venue sources, room creation, or native WebMCP.
 
-## 6. Reset / troubleshooting
+## 4. Chrome WebMCP enablement
 
-- **Map stuck on "Loading the shared map…"**: `room_demo.scope` is NULL — an old
-  row from before this slice. Run the seed with `--reset` once.
-- **Invite link says not authenticated after a redeploy**: `DEMO_SECRET_KEY`
-  changed. Set it once and leave it.
-- **ChatGPT lists no site tools**: `ORIGIN_TRIAL_TOKEN` missing or registered
-  for the wrong origin (§4).
-# Security rollout (September 2026)
+The application registers tools through `document.modelContext` when the
+browser exposes it. For an origin-trial-enabled browser, register the exact
+deployed HTTPS origin and set `ORIGIN_TRIAL_TOKEN`; the server supplies the
+response header. Check the token's scope and expiry. Local testing can use
+Chrome's WebMCP testing flag instead. Native availability and tool discovery
+also depend on the browser and agent host.
 
-Before deploying these changes, follow
-[the security review's rollout checklist](SECURITY-REVIEW-2026-09-07.md#rollout-and-verification).
-Production Compose now requires `APP_URL`, `TRUSTED_PROXIES` (the actual proxy
-IPs/CIDRs) and a non-default `POSTGRES_PASSWORD`. Migrations 026–028 isolate
-confirmed facts and revoke creator-known legacy member sessions. Members must
-use the newer join links; local fixture access is disabled in production.
+See [Chrome's current WebMCP documentation](https://developer.chrome.com/docs/ai/webmcp)
+and [the application binding](protocols/INTERACTION-AND-BINDING.md).
+The page remains usable without WebMCP.
+
+## 5. Data and invitations
+
+Berlin and San Francisco snapshots ship inside the image; room creation does
+not need a separate geographic query service. Optional runtime enrichment
+requires the configured providers. [Prepopulation](PREPOPULATE.md) can warm
+the serving database's caches before a demo.
+
+Seed creates/updates `room_demo`. Its logs include secret-bearing fixture
+links. Seeded member recovery links are available only with explicit local
+development fixture support; production members claim newly minted,
+browser-bound `#join=` links. Follow [the demo runbook](DEMO-RUNBOOK.md) for
+an isolated local fixture and [DEPLOY.md](DEPLOY.md) for deliberate resets.
+
+## 6. Release checks
+
+Run the release checks in [DEPLOY.md](DEPLOY.md), inspect migration/seed exit
+status, compare the served `buildId` with the intended release, and validate
+HTTPS and realtime behavior. Keep the existing database password and volume
+across redeploys. App code rollback does not undo migrations. Credentials,
+backups, restore testing, and provider spending controls are operator-owned.
