@@ -3728,3 +3728,140 @@ test("a declared impasse with likely places left counts them and still offers th
   await expect(page.getByTestId("ways-out")).toBeVisible();
   await expect(page.getByTestId("way-out-need-veg")).toContainText("+4");
 });
+
+for (const device of [
+  { name: "desktop", width: 1180, height: 900, reducedMotion: "no-preference" as const, deviceScaleFactor: 1 },
+  { name: "mobile", width: 390, height: 844, reducedMotion: "no-preference" as const, deviceScaleFactor: 2 },
+  { name: "reduced motion", width: 1180, height: 900, reducedMotion: "reduce" as const, deviceScaleFactor: 1 },
+]) {
+  test(`3D pins reveal their needles and keep raised heads clickable on ${device.name}`, async ({ browser }, testInfo) => {
+    const browserContext = await browser.newContext({
+      viewport: { width: device.width, height: device.height },
+      reducedMotion: device.reducedMotion,
+      deviceScaleFactor: device.deviceScaleFactor,
+    });
+    const page = await browserContext.newPage();
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    page.on("console", (message) => {
+      if (message.type() === "error" && /layer|image|paint|expression/i.test(message.text())) errors.push(message.text());
+    });
+    const context = fixture();
+    setWholeAreaPool(context, 120, 120);
+    // Give the canvas click target clearance from the phone's six name cards.
+    context.candidates[60].location.lng += 0.003;
+    const explore = Array.from({ length: 8 }, (_, index) => ({
+      ref: `node/pin-explore-${index}`, name: `Explore ${index}`, category: "place",
+      location: candidateAtMeters("", -700 + index * 190, 500, "eligible").location,
+    }));
+    await mockApi(page, { context, outstanding: [], explore });
+    const socket = await scriptedSocket(page, context.revision);
+    await page.goto(`${BASE}/?shim=webmcp#invite=abcdef123456`);
+    await socket.welcomed;
+    await closeDrawer(page);
+    const region = page.getByTestId("map-region");
+    await expect(region).toHaveAttribute("data-loaded", "true");
+    const lift = () => page.locator(".maplibregl-map").evaluate((element) =>
+      parseFloat((element as HTMLElement).style.getPropertyValue("--map-pin-lift")));
+    await expect.poll(lift).toBe(0);
+    await expect(page.locator(".marker-needle").first()).toHaveCSS("opacity", "0");
+    const initial = await page.evaluate(() => window.__spokesMapStats!());
+
+    await page.getByTestId("map-layers").click();
+    const animationSamples = page.evaluate(() => new Promise<number[]>((resolve) => {
+      const samples: number[] = [];
+      const started = performance.now();
+      const sample = () => {
+        const map = document.querySelector<HTMLElement>(".maplibregl-map")!;
+        samples.push(parseFloat(map.style.getPropertyValue("--map-pin-lift")));
+        if (performance.now() - started < 750) requestAnimationFrame(sample);
+        else resolve(samples);
+      };
+      requestAnimationFrame(sample);
+    }));
+    await page.getByTestId("layer-buildings").check();
+    if (device.reducedMotion !== "reduce") {
+      await page.waitForTimeout(100);
+      await page.screenshot({ path: testInfo.outputPath(`pins-tilting-${device.name}.png`) });
+    }
+    await expect(region).toHaveAttribute("data-pitch", "48");
+    await expect.poll(lift).toBeGreaterThan(30);
+    await expect.poll(lift).toBeLessThan(32);
+    const samples = await animationSamples;
+    expect(samples.some((value) => value > 0.1 && value < 30)).toBe(device.reducedMotion !== "reduce");
+    await expect(page.locator(".marker-needle").first()).toHaveCSS("opacity", "1");
+    await page.getByTestId("map-layers").click();
+    const raised = await page.evaluate(() => window.__spokesMapStats!());
+    expect(raised.center[0]).toBeCloseTo(initial.center[0], 9);
+    expect(raised.center[1]).toBeCloseTo(initial.center[1], 9);
+    expect(raised.zoom).toBe(initial.zoom);
+    await page.screenshot({ path: testInfo.outputPath(`pins-${device.name}.png`) });
+
+    const glOnly = raised.glOnly!;
+    expect(glOnly).not.toBeNull();
+    // The raster contains visible stems, but the rendered head's centre is
+    // cut away: a translucent/hollow fill cannot show a needle through it.
+    const ink = await page.locator(".map-pin-needles").evaluate((element, point) => {
+      const canvas = element as HTMLCanvasElement;
+      const ratio = canvas.width / canvas.clientWidth;
+      const context = canvas.getContext("2d")!;
+      const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+      return {
+        atHead: context.getImageData(Math.round(point[0] * ratio), Math.round(point[1] * ratio), 1, 1).data[3],
+        visible: pixels.some((value, index) => index % 4 === 3 && value > 0),
+      };
+    }, glOnly.point);
+    expect(ink.atHead).toBe(0);
+    expect(ink.visible).toBe(true);
+    // A peer opening a place gives it a label without opening this viewer's
+    // details panel (which legitimately resizes the desktop map).
+    const peerViews = (candidateId: string | null) => socket.send({
+      type: "presence", present: ["p_org", "p_sarah"],
+      viewing: candidateId ? [{ participantId: "p_sarah", candidateId }] : [],
+    });
+    peerViews(glOnly.candidateId);
+    const promotedPin = page.getByTestId(`pin-${glOnly.candidateId}`);
+    await expect(promotedPin).toHaveAttribute("data-named", "true");
+    const promotedHead = await promotedPin.evaluate((element) => {
+      const pin = element.getBoundingClientRect();
+      const map = element.closest(".maplibregl-map")!.getBoundingClientRect();
+      return [pin.x + pin.width / 2 - map.x, pin.y + pin.height / 2 - map.y];
+    });
+    expect(promotedHead[0]).toBeCloseTo(glOnly.point[0], 3);
+    expect(promotedHead[1]).toBeCloseTo(glOnly.point[1], 3);
+    await page.screenshot({ path: testInfo.outputPath(`pins-canvas-to-label-${device.name}.png`) });
+    peerViews(null);
+    await expect(promotedPin).toHaveCount(0);
+
+    // Naming an existing DOM dot must also leave both its head and its entire
+    // triangle unchanged, throughout the cross-fade and on returning to a dot.
+    const bareId = await page.locator('.marker[data-state="works"][data-named="false"]').last().getAttribute("data-candidate-id");
+    const bare = page.getByTestId(`pin-${bareId}`);
+    const geometry = () => bare.evaluate((element) => {
+      const box = element.getBoundingClientRect();
+      return { x: box.x + box.width / 2, y: box.y + box.height / 2, stem: element.querySelector(".marker-needle path")!.getAttribute("d") };
+    });
+    const beforeLabel = await geometry();
+    peerViews(bareId);
+    await expect(bare).toHaveAttribute("data-named", "true");
+    expect(await geometry()).toEqual(beforeLabel);
+    await page.screenshot({ path: testInfo.outputPath(`pins-label-${device.name}.png`) });
+    expect(await geometry()).toEqual(beforeLabel);
+    peerViews(null);
+    await expect(bare).toHaveAttribute("data-named", "false");
+    expect(await geometry()).toEqual(beforeLabel);
+
+    const bounds = (await region.boundingBox())!;
+    await page.mouse.click(bounds.x + glOnly.point[0], bounds.y + glOnly.point[1]);
+    await expect.poll(() => page.evaluate(() => window.__spokesMapStats!().selected)).toBe(glOnly.candidateId);
+    await page.getByTestId("details-close").click();
+
+    await page.getByTestId("map-layers").click();
+    await page.getByTestId("layer-buildings").uncheck();
+    await expect(region).toHaveAttribute("data-pitch", "0");
+    await expect.poll(lift).toBe(0);
+    await expect(page.locator(".marker-needle").first()).toHaveCSS("opacity", "0");
+    expect(errors).toEqual([]);
+    await browserContext.close();
+  });
+}

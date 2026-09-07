@@ -5,6 +5,10 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import "../map-worker.ts";
 import { BASEMAP_SOURCE, MAP_THEME, TILE_STYLE } from "../map-theme.ts";
 import { loadTileStyle, type TileStyle } from "../map-style.ts";
+import {
+  bindMapPins, canvasPinPoint, roomPinPoint, pinStemPath, GL_MARK_RADIUS,
+  PIN_CIRCLE_PAINT, PIN_ICON_LAYOUT, PIN_ICON_PAINT,
+} from "../map-pins.ts";
 import { spatial } from "../spatial-store.ts";
 import { fetchAreaLandmarks, type AreaLandmark } from "../api.ts";
 import type {
@@ -73,15 +77,7 @@ const ARC_SWEEP = Math.PI * 1.5;
 const DOM_MARKER_CAP = 60;
 const MARK_SOURCE_MAX_ZOOM = 12;
 const PLACE_COLLATOR = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
-const GL_MARK_RADIUS = {
-  out: 4,
-  unsure: 8,
-  unlikely: 6,
-  likely: 5.5,
-  return: 7,
-  act: 9.5,
-  works: 7.5,
-} as const;
+
 
 function displayPixelRatio(): number {
   if (typeof window === "undefined") return 1;
@@ -443,8 +439,13 @@ export function MapView({
     const map = mapRef.current;
     const c = candidates.find((cand) => cand.candidateId === candidateId);
     if (!map || !c) return null;
-    const p = map.project([c.location.lng, c.location.lat]);
-    return { x: p.x, y: p.y };
+    const marker = map.getContainer().querySelector<HTMLElement>(`[data-candidate-id="${CSS.escape(candidateId)}"]`);
+    if (marker) {
+      const box = marker.getBoundingClientRect();
+      const band = map.getContainer().getBoundingClientRect();
+      return { x: box.x + box.width / 2 - band.x, y: box.y + box.height / 2 - band.y };
+    }
+    return roomPinPoint(map.getMap(), c.candidateId, [c.location.lng, c.location.lat]);
   }, [candidates]);
   const hoverableId = useCallback(
     (candidateId: string | null): string | null =>
@@ -843,7 +844,7 @@ export function MapView({
     for (const c of candidates) {
       let p: { x: number; y: number };
       try {
-        p = map.project([c.location.lng, c.location.lat]);
+        p = roomPinPoint(map.getMap(), c.candidateId, [c.location.lng, c.location.lat]);
       } catch {
         continue;
       }
@@ -1164,7 +1165,7 @@ export function MapView({
     const dots: Array<{ id: string; x: number; y: number }> = [];
     for (const c of domCandidates) {
       try {
-        const p = map.project([c.location.lng, c.location.lat]);
+        const p = roomPinPoint(map.getMap(), c.candidateId, [c.location.lng, c.location.lat]);
         const offset = collisionOffsets.get(c.candidateId) ?? [0, 0];
         dots.push({ id: c.candidateId, x: p.x + offset[0], y: p.y + offset[1] });
       } catch {
@@ -1517,7 +1518,7 @@ export function MapView({
         (candidate) => !domCandidateIds.has(candidate.candidateId),
       );
       const glOnlyPoint = map && glOnlyCandidate
-        ? map.project([glOnlyCandidate.location.lng, glOnlyCandidate.location.lat])
+        ? roomPinPoint(map, glOnlyCandidate.candidateId, [glOnlyCandidate.location.lng, glOnlyCandidate.location.lat])
         : null;
       const transition = map?.getLayer("mark-dots")
         ? map.getPaintProperty("mark-dots", "circle-radius-transition") as { duration?: number }
@@ -1763,6 +1764,12 @@ export function MapView({
     const frame = requestAnimationFrame(() => exploreActionRef.current?.focus());
     return () => cancelAnimationFrame(frame);
   }, [selectedExplore]);
+
+  useEffect(() => {
+    const map = mapRef.current?.getMap();
+    if (!loaded || !map) return;
+    return bindMapPins(map);
+  }, [loaded, collisionOffsets]);
 
   /* 3D is a camera state as much as a layer: extruded bodies only read as
      bodies from an angle. An explicit toggle is the user's own action, so
@@ -2285,7 +2292,7 @@ export function MapView({
             const geometry = feature.geometry;
             if (geometry.type !== "Point") continue;
             const [lng, lat] = geometry.coordinates as [number, number];
-            const point = map?.project([lng, lat]);
+            const point = map && canvasPinPoint(map.getMap(), [lng, lat], true);
             if (!point) continue;
             const distance = (point.x - event.point.x) ** 2 + (point.y - event.point.y) ** 2;
             if (distance <= TAP_REACH * TAP_REACH && distance < nearest) {
@@ -2380,6 +2387,7 @@ export function MapView({
             type="circle"
             layout={{ visibility: layers.explore ? "visible" : "none" }}
             paint={{
+              ...PIN_CIRCLE_PAINT,
               "circle-radius": 4,
               "circle-color": MAP_THEME.exploreDot.color,
               "circle-opacity": [
@@ -2461,6 +2469,7 @@ export function MapView({
             type="circle"
             layout={{ "circle-sort-key": ["get", "sortKey"] }}
             paint={{
+              ...PIN_CIRCLE_PAINT,
               "circle-radius": [
                 "match", ["feature-state", "status"],
                 "out", GL_MARK_RADIUS.out,
@@ -2486,6 +2495,8 @@ export function MapView({
                 ["==", ["feature-state", "status"], "out"], MAP_THEME.marks.outOpacity,
                 1,
               ],
+              "circle-stroke-opacity": ["case", ["boolean", ["feature-state", "hidden"], false], 0, 1],
+              "circle-stroke-opacity-transition": { duration: 0 },
               "circle-stroke-color": [
                 "match", ["feature-state", "status"],
                 "unsure", MAP_THEME.marks.unsure,
@@ -2514,12 +2525,14 @@ export function MapView({
             type="symbol"
             filter={["==", ["get", "dashed"], true]}
             layout={{
+              ...PIN_ICON_LAYOUT,
               "icon-image": ringImageId(MARK_DASH_IMAGE, ringPixelRatio),
               "icon-allow-overlap": true,
               "icon-ignore-placement": true,
               "symbol-sort-key": ["get", "sortKey"],
             }}
             paint={{
+              ...PIN_ICON_PAINT,
               "icon-color": [
                 "match", ["feature-state", "status"],
                 "unlikely", MAP_THEME.marks.unsure,
@@ -2543,11 +2556,13 @@ export function MapView({
               id="mark-busy"
               type="symbol"
               layout={{
+                ...PIN_ICON_LAYOUT,
                 "icon-image": ringImageId(MARK_BUSY_IMAGE, ringPixelRatio),
                 "icon-allow-overlap": true,
                 "icon-ignore-placement": true,
               }}
               paint={{
+                ...PIN_ICON_PAINT,
                 "icon-color": [
                   "match", ["feature-state", "status"],
                   "out", MAP_THEME.marks.out,
@@ -2574,11 +2589,13 @@ export function MapView({
               id="mark-arc"
               type="symbol"
               layout={{
+                ...PIN_ICON_LAYOUT,
                 "icon-image": ringImageId(MARK_ARC_IMAGE, ringPixelRatio),
                 "icon-allow-overlap": true,
                 "icon-ignore-placement": true,
               }}
               paint={{
+                ...PIN_ICON_PAINT,
                 "icon-color": [
                   "match", ["feature-state", "status"],
                   "out", MAP_THEME.marks.out,
@@ -2677,13 +2694,21 @@ export function MapView({
         )}
         {domCandidates.map((c) => {
           const state = stateOf(c);
+          const offset = collisionOffsets.get(c.candidateId) ?? [0, 0];
+          const clearance = (state === "return" ? 9 : GL_MARK_RADIUS[glStatusOf(state)]) - 0.5;
+          const map = mapRef.current?.getMap();
+          const ground = map?.project([c.location.lng, c.location.lat]);
+          const head = map && roomPinPoint(map, c.candidateId, [c.location.lng, c.location.lat]);
+          const shiftX = head && ground ? head.x - ground.x : 0;
+          const shiftY = head && ground ? head.y - ground.y : 0;
           const viewers = viewersOf.get(c.candidateId) ?? [];
           return (
             <Marker
               key={c.candidateId}
               longitude={c.location.lng}
               latitude={c.location.lat}
-              offset={collisionOffsets.get(c.candidateId) ?? [0, 0]}
+              offset={offset}
+              subpixelPositioning
               anchor="center"
               style={{
                 zIndex: c.candidateId === targetCandidateId
@@ -2707,6 +2732,9 @@ export function MapView({
             >
               <div
                 className="marker"
+                style={{ "--map-pin-shift-x": `${shiftX}px`, "--map-pin-shift-y": `${shiftY}px` } as CSSProperties}
+                data-lng={c.location.lng}
+                data-lat={c.location.lat}
                 data-state={state}
                 data-named={named.has(c.candidateId)}
                 data-target={c.candidateId === targetCandidateId || undefined}
@@ -2755,6 +2783,14 @@ export function MapView({
                   }
                 }}
               >
+                <svg className="marker-needle" aria-hidden="true">
+                  <path
+                    d={pinStemPath(-shiftX - offset[0], -shiftY - offset[1], clearance)}
+                    data-offset-x={offset[0]}
+                    data-offset-y={offset[1]}
+                    data-clearance={clearance}
+                  />
+                </svg>
                 <i className="marker-dot" aria-hidden="true" />
                 {/* In progress: a dashed ring turning around the dot (§9,
                     spoke-busy). Its own element, so the animated transform
