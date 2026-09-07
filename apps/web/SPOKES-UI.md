@@ -1,9 +1,11 @@
 # Spokes — component spec
 
-Anatomy, states and do/don't for every component in the redesign.
-Colours are token names from `tokens.css`; **never** a raw hex.
+Current component anatomy and behavior, with the design rules that govern
+changes. Colours are token names from [tokens.css](src/tokens.css);
+**never** a raw hex. Copy rules and known wording gaps are in
+[COPY.md](COPY.md); documenting a gap does not mean the component is fixed.
 
-Reference mockups live in `Spokes - Mapview Redesign.dc.html`:
+Reference mockups live in [Spokes — Mapview Redesign](<../../docs/design/Spokes - Mapview Redesign.dc.html>):
 `4a` (locked phone layout), `7a`–`7d` (flow states), `8a`–`8f` (details,
 drawer, desktop, consent, brand), `9b` (accent decision).
 
@@ -15,16 +17,21 @@ Four meanings, four colours, no overlap. This is the spine of the whole UI.
 
 | Token | Means | Example |
 |---|---|---|
-| `--spoke-works` | satisfies every active need | solid pin, "6 still work", your commit button |
+| `--spoke-works` | works, or a positive selection/settlement control | solid pin, "6 still work", your settle button |
 | `--spoke-unsure` | data missing or unverified | hollow pin, "3 unknown", `?` badge |
 | `--spoke-scope` | who may see | "private", "agent only", "only you" |
-| `--spoke-act` | someone moved | proposal sticker, agent staged, consent card |
+| `--spoke-act` | an action or decision boundary | proposal sticker, agent staged, consent card |
 | `--spoke-out` | ruled out | 8px grey dot, no border, no label |
 
 **Do not** borrow another meaning's colour for visual emphasis. If two
 meanings coincide (a background agent action that is also agent-only), show
 **both** marks — see `8d` card 3, which carries a violet `agent only` scope
-badge beside a woad `acting now` chip.
+badge beside a woad `screening needed` chip.
+
+The visual meaning is not an agreement guarantee. The headline count includes
+likely places, optional needs do not rank candidates, and a selected or
+settled sticker can be green without clearing every hard need. Agreement
+checks stances and readiness, not a separate feasibility threshold.
 
 ---
 
@@ -38,8 +45,8 @@ brief               scrollable, fixed height
 composer            pinned bottom, 20px from edge
 ```
 
-- The header flows straight out of the status bar (mockup `4a`). No
-  containing card — that was the old design and it wasted ~120px.
+- The header flows straight out of the status bar (mockup `4a`), without a
+  containing card.
 - The map is **edge to edge**, bounded by rules, never a rounded card.
 - Only the brief scrolls. Header, map and composer are fixed.
 
@@ -72,7 +79,7 @@ Absent participants use `--spoke-person-idle`.
 Person identity uses its own five-hue family: cobalt, magenta, teal-ink,
 ochre-brown and plum (`--spoke-person-1..5`). None is a semantic or grey hue.
 The same five colour the ends of the wordmark glyph; the mark and wordmark
-are specified in `SPOKES-BRAND.md`.
+are specified in [SPOKES-BRAND.md](SPOKES-BRAND.md).
 Against the composited fallback map ground (`--spoke-surface-sunk` under the
 18% works colour wash), the five contrast ratios are 6.67:1, 5.85:1, 5.56:1,
 5.77:1 and 7.42:1 respectively.
@@ -86,31 +93,51 @@ outside tap, or on the row again. It is a disclosure, not navigation.
 fill, no label. Everything protocol-shaped lives behind it.
 
 For a goal-first room, the unresolved header title is the room goal verbatim.
-After agreement, the committed place keeps the title as before. A legacy room
+After agreement, the committed place supplies the title. A legacy room
 without a supplied goal receives the server's area-based goal and uses the
 same line; the client never composes a domain label there.
 
-### Before the room: goal review
+### Before the room: plan review
 
-The Start screen keeps the area picker and names, with one optional, one-line
-goal field above them. A class selector is always present and contains only
-server-provided classes; the compatibility fallback is the single server
-default class. Start is a pre-room screen and scrolls vertically within the
-viewport; the room's “only the brief scrolls” invariant begins after entry.
+Onboarding scrolls vertically within the viewport; the room's “only the brief
+scrolls” rule begins after entry. The current flow has three screens:
 
-A non-empty goal opens a dashed review card before creation:
-
-- `From what you said`, then the server title and selected class;
-- every parsed need as a dashed pending row with the map's ghost mark;
-- a `Leave out` control whose target is at least 44 px;
-- clarification choices plus one free-text field when requested;
-- one final `Open the room` action carrying only the needs still shown.
+1. `Your name` and `What are you trying to do?`, followed by `Work out what
+   that takes`. The goal can describe one outing or several.
+2. `What that takes`, with one to three ordered step boxes. Each has `Step
+   N of M`, a server-authored `Kind of place` selector, and `From what you
+   said` pending rows with `Leave out`. Later steps say `after that, near
+   there` and can be removed before creation. Clarifications offer their
+   server-authored choices. `Open the room` continues with the reviewed plan.
+3. The region choice explains the demo's prepared Berlin Mitte and San
+   Francisco data, with server-measured counts and snapshot dates. Choosing
+   a region opens the room with the retained needs.
 
 Pending here means “not in the room yet”. It never borrows works or unsure,
-and it has no count. Reading the goal and opening the room use the standard
-`spoke-busy` ring; no fifth loading animation is introduced. A failed or
-timed-out review becomes the same class-only card and never disables room
-creation. The invites screen repeats the goal above the invite links.
+and it has no candidate count. Reading the goal and opening the room use the
+standard `spoke-busy` ring. If interpretation fails, the class selector and
+room creation remain available; the screen preserves a path to continue.
+
+For plans with more than one step, the room header adds an ordered strip:
+the active step says `now`, settled steps name their place, and pending steps
+show their class. These are status items, not selectable tabs. Settling an
+intermediate step recenters the next search near the chosen place. Each new
+proposal needs fresh stances, while readiness carries forward. There is no
+post-creation plan editor or way to reopen a completed step.
+
+### Invites and joining
+
+`Add someone` opens a dialog with a link and QR code for one person. Its
+actions are `Copy link` / `Copied`, native `Share` when supported, and `New
+link`. Unused links expire after an hour; a claimed link belongs to that
+participant's browser and can recover them there. It is not a reusable group
+link or a way to transfer an occupied seat to another browser.
+
+The join preview names the organizer, repeats the goal, lists plan step
+titles and classes, and gives the participant count and area. It does not
+expose private needs or the full roster. A name field and `Join` / `Joining…`
+complete guest entry. The disabled `Log in` control is paired with the
+explicit explanation that the demo has no accounts.
 
 ---
 
@@ -137,7 +164,7 @@ proposed → would come back → works / unsure / out.
 Stickers sit at −3° to +3°. Vary the angle between neighbours; never align
 two adjacent stickers to the same rotation.
 
-Name slots go out in rank order (amended 2026-09-03):
+Name slots go out in rank order:
 
 1. open — this viewer has the place open, or a peer is looking at it (the
    card is what the panel and the presence badge hang off);
@@ -157,11 +184,11 @@ nameable, but with 18 slots the last two ranks only take one when the live
 options have not, so the visible effect is small. A card on an unlikely or
 ruled-out place is drawn muted — quiet or ghost rule, no drop shadow, name in
 `--spoke-ink-soft`, the state's own dot — readable without ever reading as an
-option. A ruled-out place that wins no slot keeps its bare 8px dot, and the
-leaver fade is unchanged. A proposal whose status is vetoed or withdrawn has
+option. A ruled-out place that wins no slot keeps its bare 8px dot and fades
+in place. A proposal whose status is vetoed or withdrawn has
 left the table and falls back to the place's eligibility rank. When a place
 leaves the named set, its card collapses onto its own dot over the settle
-duration — the scale runs about the anchor, so the dot never moves (§8).
+duration — the scale runs about the anchor, so the dot never moves (§10).
 
 Every card has two mirrored orientations, recorded as `data-side` for the
 side carrying the dot: `left` puts the dot left of the name and extends the
@@ -210,9 +237,10 @@ mark keeps nearest-dot routing, and keyboard selection is unchanged.
 ### Scope ring
 
 Dashed 1.5px circle at 40% opacity, with everything outside dimmed 8% via an
-SVG mask. When an agent widens the area, draw the **proposed** radius as a
-second, fainter dashed ring (`8d`, `7b`) so the change is visible before it
-is accepted.
+SVG mask. An outstanding private adjustment offer draws its **proposed**
+radius as a second, fainter dashed ring (`8d`, `7b`) so the change is visible
+before acceptance. This preview does not mean every direct scope change uses
+the private adjustment flow.
 
 ### You mark
 
@@ -249,19 +277,18 @@ holds at most three choice pills. Each is a keyboard-reachable button with a
 44px minimum target; choosing one states the corresponding need and dismisses
 the card.
 
-### Refinement (2026-09-03)
+### Refinement
 
-The room keeps looking things up on its own (docs/ENRICHMENT-SOURCES.md,
-"Continuous refinement"). What the page shows, and only this:
+The room keeps looking things up on its own (see
+[continuous refinement](../../docs/ENRICHMENT-SOURCES.md)). The page shows:
 
 - Places being worked on carry the busy ring (the `lookups` frame with
   `reason.kind: "refine"` drives it exactly like a need-triggered lookup).
-- The count block's progress slot says `looking up N · M to go` while the
-  frame names places; whole-area fill still wins the slot while it runs.
-- A quiet mono line under the count, `.count-refine`: `checked N places
-  for K needs · M to go` from the context's `refine` view; `paused for
-  now` when the room is out of budget. Announced to screen readers at most
-  once every 10 s (`aria-live="polite"`, batched), never per frame.
+- The count's head-row progress slot carries the ring and available counts;
+  whole-area fill wins while it runs. There is no progress line below it.
+- Sentences such as `looking up N · M to go`, `checked N places for K needs
+  · M to go`, and `paused for now` are accessible progress text. The live
+  summary is batched at most once every 10 s, never per frame.
 - A question need (criterion `q:`) that has answers shows `· looked up`
   beside its label; its badges are the live likely / unlikely / unknown.
 - In the place panel a web-derived fact carries a citation link,
@@ -282,15 +309,16 @@ of 34 · 4 likely · 3 unsure   ← 10px mono
 The big number is confirmed plus likely: a guess with a reason is an option
 the room can act on. The subline breaks that number down ("4 likely"),
 and unsure and unlikely stay counted apart from it. The wire keeps
-`matching` eligible-only (SPATIAL-PROTOCOL §8.2); the sum is a display
+`matching` eligible-only ([spatial protocol](../../docs/protocols/SPATIAL-PROTOCOL.md)); the sum is a display
 decision, made in the client. The delta chip stays on the eligible-only
 base, so its `+3` and `−19` are about confirmed gain and loss.
 
 - Normal: `--spoke-works` fill, cream text.
 - Impasse (0): `--spoke-unsure` fill.
 - Pre-need (nothing ruled out): `--spoke-surface` fill, `--spoke-ink` text,
-  and the number counts *places*, not survivors — "14 green spaces".
-- Agreed: shrinks to a two-line "Settled / 18 min from you" chip.
+  and the number counts *places*, not survivors — `14 places`, with
+  `nothing ruled out yet` underneath.
+- Agreed: shrinks to `Settled`, with `18 min from you` when travel is known.
 
 ### Delta chip
 
@@ -301,14 +329,16 @@ refused its rectangle, which is measured while the chip is mounted.
 
 ### Presence
 
-No cursors (REDESIGN-HANDOFF D4). A person who has a place **open** is drawn
+No cursors. A person who has a place **open** is drawn
 on that place: an 18px squircle with their initials in their person colour,
 1.5px `--spoke-surface` ring, `--spoke-shadow-drop`, peeking out from behind
 the sticker's right edge (translated 60% past it, stacked under the card) —
 or from behind the bare dot when the place has no name card. Several
 viewers overlap by −7px like the header avatars. Never the viewer's own
 initials, never a semantic colour. It rides on the presence frame
-(`viewing`), so it is gone the moment the panel closes or the tab does.
+(`viewing`) and clears when the panel closes or disconnection is detected.
+Opening or focusing a place can therefore be visible to peers; it is not a
+private reading action.
 
 An opted-in live position rides on the same presence frame as `positions` and
 disappears when sharing stops or the person's last socket closes. This is the
@@ -320,14 +350,14 @@ present; the round dot continues to mean here now.
 
 Both are round icon buttons in a column at the map's top-right corner
 (`.map-top-right`, `z-index: 20` — in front of every marker): find above,
-layers below. A 32px face inside a 44px tap box (§13 — the padding reaches
+layers below. A 32px face inside a 44px tap box (§11 — the padding reaches
 44px, the drawn circle does not), `--spoke-surface` on a `--spoke-line` ring
 with the drop shadow, and a single-stroke glyph in `currentColor`
 (`MapIcons.tsx`). One button's width, whatever the count block opposite is
 saying, so neither control is ever pushed into a second row or squeezed.
 
 Glyphs here are affordances, not state: the map's state vocabulary is still
-dots and rings (CLAUDE.md, "Marks, not glyphs"). Each button carries its words
+dots and rings. Each button carries its words
 in `aria-label` — "Find a place", "Layers, 2 on" — because the glyph is not
 the name.
 
@@ -340,7 +370,7 @@ a ≥44px row with the name above its place class. ↓/↑ move, Enter chooses,
 Escape clears then closes, and the match count goes out on `aria-live`.
 
 Choosing a match makes it the **target**. The map flies to it and centres on
-it (an explicit action, the §8 exception), and the find button inverts —
+it (an explicit action, the §10 exception), and the find button inverts —
 `--spoke-ink` face, `--spoke-surface` glyph — with a `✕` button beside it.
 The corner does not repeat the name: the place carries it on the map, on its
 own card. Pressing the find button again searches for something else.
@@ -375,9 +405,12 @@ switch.
 
 - **Buildings in 3D** — `fill-extrusion` from the basemap's own building
   layer, beneath the first label layer, `render_height` where OSM has one and
-  6m where it does not. Turning it on pitches the camera to 48°, which is a
-  camera state, not an animation; reduced motion arrives at the same pitch
-  instantly.
+  6m where it does not. Turning it on pitches the camera to 48°. Room and
+  explore pin heads lift with the pitch, joined by thin needles to their
+  original geographic points; named cards keep the corresponding pin
+  anchors. Turning it off retracts the pins as the camera returns flat.
+  Reduced motion arrives at either state instantly. Pin geometry lives in
+  [map-pins.ts](src/map-pins.ts).
 - **Places not in the room** — the explore dots' own visibility. On by
   default; while off, the layer takes no taps either.
 - **Landmarks** — the area snapshot's landmark rows (the same rows a distance
@@ -397,8 +430,9 @@ requirement, not a UI element. Never let it grow.
 
 ## 4. Brief — "What matters"
 
-The group's stated needs, each toggleable. **This replaces all predefined
-filter controls.** Every row comes from data; the app ships zero domain chips.
+The group's stated needs, with toggles on the viewer's own rows. **This
+replaces all predefined filter controls.** Every row comes from data; the
+app ships zero domain chips.
 
 Header: `WHAT MATTERS` (display 800, 12px, uppercase) + count badge.
 
@@ -422,26 +456,30 @@ Header: `WHAT MATTERS` (display 800, 12px, uppercase) + count badge.
 | Just applied | `--spoke-works` | `--spoke-works` | `−3` in `--spoke-works-text` |
 | Has unknowns | `--spoke-unsure` | `--spoke-unsure` | `3 unknown` badge |
 | Private (yours) | `--spoke-scope` | `--spoke-scope` | `private` badge |
-| Agent-only (other's) | 1.5px dashed `--spoke-line` | none | `agent only` badge |
+| Private or agent-only (other's) | 1.5px dashed `--spoke-line` | none | `private` badge |
 | Pending (just said) | 1.5px dashed `--spoke-line` | none | busy ring + `checking 12 places…` |
 
-A need is **pending** from the moment it is said until the room has committed
-it and the first round of lookups it triggered has landed (or 8 s, whichever
-first). The row exists at once — the person sees their own words on the
-brief before the server answers — and settles into its real variant when the
-count does. The count block carries the same state: `checking 12 for
-step-free access`. `aria-busy` is set on the brief while a need is pending
-and the count is announced once, when it settles.
+A provisional row appears before the server answers and says `saying it…`;
+an agent-only row keeps the condition out of its displayed label. After
+commitment it can say `checking 12 places…`. Pending presentation ends after
+a 600 ms grace period with no busy places, or at the 8 s cap. That
+cap is not proof that all evidence has arrived. `aria-busy` is set on the
+brief while a need is pending; the count's single head-row slot reports room
+progress separately.
 
 The semantic border is the **only** full-strength line in the design. Neutral
 rows use the tinted line. That way an outline means something.
 
-**Interaction.** Tap toggles. **Press and hold previews the set without it** —
+**Interaction.** Tap toggles your own need. **Press and hold a visible need
+previews the set without it** —
 the map re-settles live and returns on release. This is the core gesture of
 the app; do not replace it with a modal.
 
-**Don't** show another person's private need's content, ever. Show the row as
-dashed with an `agent only` badge and no label text beyond who holds it.
+**Don't** show another person's private need's content, ever. The peer effect
+row is dashed, noninteractive, and says `A private condition` with a `private`
+badge. Only an owner-authorized topic hint can add `about …`; it is not a
+toggle or a hold-preview target. Privacy hides the condition, not necessarily
+its owner or the fact that they acted.
 
 ---
 
@@ -459,8 +497,9 @@ Pinned, 16px inset, 20px from the bottom.
   `--spoke-shadow-lift`, `overflow: hidden`.
 - **Scope selector inline on the left** — a small `--spoke-works-tint` chip
   reading `Shared`, opening to `Private` / `Agent only`. Scope is chosen
-  *before* speaking, never after. Each option carries one line saying what
-  leaves the device and what the room sees, at the point of choice.
+  *before* speaking, never after. Current options summarize who in the room
+  can read the need or its effects; they do not fully explain server and
+  model-provider processing at the point of choice.
 - Input: transparent, no border of its own, 13px / 600, `min-height: 44px`.
 - **Add**: flush right, full bar height, `--spoke-works` fill, cream, divided
   by a 1.5px border. A word, not a glyph — no arrow, no paper plane, no emoji.
@@ -476,7 +515,24 @@ mono after the label. ~28px tall — extend the tap target with padding, don't
 grow the pill.
 
 Pills are **generated from facet keys the server returned for the current
-candidate set** (see `FACETS.md`). Order by count descending. Never hardcode.
+candidate set** (see [FACETS.md](../server/FACETS.md)). Order by count
+descending. Never hardcode.
+
+### Privacy boundary
+
+`Private` hides the text from peers while the server stores and evaluates it;
+natural-language input also goes to the configured model provider. For
+`Agent only`, an external agent can keep the condition and submit a
+content-free declaration plus verdicts. The built-in path sends the condition
+to server memory and the configured interpretation and screening models. It
+omits that text from requirement and event records and the tool-calling
+agent's context, but it is not device-only or hidden from the service.
+
+The held condition is lost on server restart. An outstanding screening request
+does not prove an agent is connected or making progress; the built-in
+`needs_info` response also currently lacks required `infoNeeded` data and can
+cause its result batch to be rejected. Do not turn these states into a promise
+of automatic completion. See [known limitations](../../docs/KNOWN-LIMITATIONS.md).
 
 ---
 
@@ -504,7 +560,8 @@ only cost a row that appeared and vanished under the reader.
 ## 6. Place details
 
 Side panel that pushes the map on ≥980px; full-screen takeover on phone
-(`8a`). Never a bottom sheet — the map is the context and must stay visible.
+(`8a`). Never a bottom sheet. Desktop retains the map beside the reading
+surface; mobile gives the details the full screen.
 
 The panel is **schema-driven**. It renders whatever attribute groups the
 server sends, in server order. There is no restaurant layout, no cinema
@@ -539,6 +596,9 @@ Facts from OpenStreetMap.         ← one sources line for the whole panel
   each", "your agent passed it"); unknown is a state, never a failure.
 - A peer's private need is a row too, reduced to its effect on this place
   ("ruled it out" / "not yet checked" / "passes") — never its content.
+- `Confirm` and `Rule out` record participant evidence for this room, with
+  `undo` available to its confirmer or an organizer. They do not update the
+  shared venue record or prove that a human performed the action.
 - Facts already answered under "Does it fit" do not repeat below; unknown
   facts are a count ("3 not on record"), not a list of question marks.
 - Provenance is one line under the facts, not a column per row.
@@ -593,19 +653,53 @@ Facts from OpenStreetMap.         ← one sources line for the whole panel
 
 ## 7. Consent cards
 
-Three rungs of authority, and the ladder must read as authority — **all three
-are `--spoke-act`**, because in every case an agent moved. Scope badges inside
-them stay `--spoke-scope`.
+Private adjustment decisions use `--spoke-act`; scope badges inside them
+stay `--spoke-scope`. A proposed or staged change is not an applied one.
 
-| Rung | Card | Primary action |
+| State | Card | Primary action |
 |---|---|---|
-| 1 · within the grant | act border + tint | `Accept` |
-| 2 · beyond the grant, staged | act border + tint | `Confirm` (+ `Cancel the grant`) |
-| 3 · agent-only screening in progress | neutral surface, act shadow, `acting now` chip | none — it's status |
+| Proposed adjustment | act border + tint, numeric scope and gain | `Accept` (+ `Decline`) |
+| Beyond the grant, staged | act border + tint | `Confirm` (+ `Cancel the grant`) |
 
-Rung 2 must state the boundary numerically: "Widen from 900 m to 1.4 km —
-beyond the 1.2 km you delegated. Your agent staged it; only this gesture
-applies it."
+State the boundary numerically: "Widen from 900 m to 1.4 km — beyond the
+1.2 km you delegated." An accepted adjustment within the grant applies;
+one beyond it stages for confirmation. The staged card says "Your agent staged
+it for your confirmation." The confirmation path is participant-bound, not
+proof of a human gesture.
+
+An agent-only evaluation request not marked as held by the built-in agent
+gets a separate status card: neutral surface, act shadow, `agent only` and
+`screening needed` chips, and no decision action. The request proves there are
+places awaiting screening, not that an agent is connected and screening
+them. The body explains that peers see compatibility without the condition,
+and that the built-in agent uses Spokes and its model providers to check it.
+A stale declaration after restart can still produce this card.
+
+### Built-in agent action review
+
+[AgentActionReview](src/components/AgentActionReview.tsx) is a separate
+owner-approval card for a tool-calling mutation. It shows the suggested
+action's title and exact stored values, followed by `These are the values
+that will be applied. Review any shared text before approving.` Its buttons
+are `Approve change` and `Dismiss`; approval shows `Saving…` while busy.
+Until approval succeeds, the agent has suggested the change, not made it.
+
+The server keeps one current suggestion per participant for five minutes.
+Approval is single-use and applies the stored arguments at the original room
+revision. Stale, expired, or already consumed suggestions require a fresh
+request. This is not the private adjustment grant or a blanket authorization
+for later actions; direct external-agent tool calls do not use this wrapper.
+Ordinary natural-language need interpretation and private screening also have
+their own paths.
+
+### Agreement
+
+Proposal stances (`Works for me` / `Rule it out`) are separate from readiness.
+The organizer uses `Stage it` and then `Settle it`. Staging needs every active
+participant ready and accepting or abstaining, with no veto; it does not
+check a separate feasibility threshold. Settling an intermediate plan step
+advances the room rather than finishing the whole outing. Fresh proposals
+need fresh stances, while readiness carries forward.
 
 **Don't** let a consent card be dismissed by tapping outside. It is a
 decision, not a notification.
@@ -620,8 +714,8 @@ Header: `{ } under the hood` + `Close`. The reassurance chip
 ("nothing here is needed to use the app") sits on its **own line** beneath —
 it is an aside, not a peer of the title.
 
-Contents: connection state, protocol version, the tool-call log with
-timestamps, raw candidate payload, facet response, room id.
+Contents: connection and contract state, the wire timeline and its filters,
+and expandable diagnostic payloads. Keep protocol details here.
 
 **Everything protocol-shaped lives here and nowhere else.** If a wire concept
 (tool names, JSON, version strings, MCP vocabulary) appears in the main UI,
@@ -633,12 +727,13 @@ it is a bug.
 
 Three columns (`8c`): brief rail left (320px), map centre, details right
 (pushes in, 380px). Chat lives in the user's own client beside the browser —
-the app never renders a chat pane. The in-page agent (`docs/NL-AGENT.md`)
+the app never renders a chat pane. The in-page agent ([NL-AGENT.md](../../docs/NL-AGENT.md))
 keeps that rule: it speaks through the composer and answers as a "Your
 agent" card in the brief, dismissed by the reader.
 
-Agent turns in the transcript name the change they made and its delta, so the
-chat and the map never disagree.
+Agent turns distinguish an answer, an approval request, an applied change,
+and a staged decision. Name a change and its delta only after it happened,
+so the chat and the map never disagree.
 
 ---
 
@@ -675,16 +770,10 @@ stands as a still dashed ring beside its text.
 
 ## The pipeline ring and dot stages
 
-One widget in the count block replaces the lookup and refinement lines once
-the server sends `pipeline` frames: a 16 px determinate ring (`--spoke-ink-soft`
-on `currentColor`, fill on the settle duration, static under reduced motion)
-with `N/M` in mono beside it.
-
-It rides **in the count's head row, right of the number** (amended
-2026-09-04), not as a line under the block. As its own line it appeared and
-disappeared with every lookup and the block changed height under the reader;
-a count that jumps is a count nobody trusts. In the head row a lookup starting
-or finishing costs no height at all.
+One widget **in the count's head row, right of the number** reports progress:
+a 16 px ring (`--spoke-ink-soft` on `currentColor`, fill on the settle
+duration, static under reduced motion) with available counts in mono beside
+it. Starting or finishing a lookup does not change the count block's height.
 
 That head slot is the **only** progress slot, and every kind of progress uses
 it, in this precedence: the whole-area fill (`count-fill`, determinate on
@@ -693,14 +782,16 @@ moves), then the pipeline (`count-progress`), then a lookup (`count-busy`,
 the turning busy ring with the number in flight beside it), then background
 refinement (`count-refine`, the busy ring alone). Where there are honest
 numbers the ring is determinate and shows `done/total`; where there are not,
-it turns. Nothing is drawn under the count block at all.
+it turns. No progress line is drawn below the count; the ordinary total and
+eligibility subline keeps its place.
 
-The sentences these used to print — "checked N of M places for K needs · N
+Progress sentences — "checked N of M places for K needs · N
 reading", "adding places · N of M", "looking up N · M to go", "paused for
 now" — all stay on `aria-valuetext`, where they are read rather than
-measured, and the live region still speaks whichever is running. `role="progressbar"`
-with `aria-valuemin`, `aria-valuemax`, `aria-valuenow` (omitted while paused)
-and that `aria-valuetext`; one `aria-live` summary at most every 10 s.
+measured, and the live region speaks whichever is running. The widget has
+`role="progressbar"` and `aria-valuetext`; it adds numeric min/max/now only
+when a total is known, omitting now while paused. One `aria-live` summary
+runs at most every 10 s.
 Drained: nothing is drawn. Whole-area fill keeps the slot while it runs.
 
 Every place in the pipeline carries one displayed stage, drawn with the

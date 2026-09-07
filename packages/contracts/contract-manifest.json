@@ -1,6 +1,6 @@
 {
   "toolContractVersion": "3",
-  "sha256": "af2876ab62f05b5ef68bb918553eefa6108e716431a2bbd9f278d6201022769c",
+  "sha256": "2c07ee253f37ac843d1ee98f01c55e43d7b3b4975be670cff20928c8f7d4a749",
   "manifest": {
     "capabilityManifest": {
       "agreement": {
@@ -5785,7 +5785,7 @@
         "annotations": {
           "readOnlyHint": true
         },
-        "description": "List the regions this demo can open a room in, with how many places of each kind are on record and how complete their facts are. Spokes is built to work anywhere; world-wide venue data is out of scope for this hackathon, so the demo is bounded to prepared extracts. Call this before open_room. Read-only.",
+        "description": "List prepared regions this demo can open, with place-class counts and fact coverage when available. Discovery is bounded to these local extracts. Call this before open_room and use a returned regionId. No participant token is required; result compaction can omit detail.",
         "inputSchema": {
           "additionalProperties": false,
           "properties": {},
@@ -5795,12 +5795,12 @@
       },
       {
         "annotations": {},
-        "description": "Open a new planning room from a goal stated in ordinary words, and take this page into it. The page works out what the goal takes — the kinds of place, in order, and the criteria the words already state — so state the goal and let it do that. Returns what it built and a link to invite others. After this, call sync_session and use the room's own tools.",
+        "description": "Create a planning room from the user's goal. Automatically accepts the planner's steps without a separate plan review or clarification turn; falls back to a food step if preview is unavailable. Returns the steps and an invitation link when one is minted, then schedules page navigation/reload. Wait for the room to load before sync_session. No participant token is required.",
         "inputSchema": {
           "additionalProperties": false,
           "properties": {
             "goal": {
-              "description": "What the group wants to do, in ordinary words, as the person said it. One outing or several. Do not break it into steps yourself.",
+              "description": "The user's goal in ordinary words. The planner accepts steps automatically here, without a separate review or clarification turn.",
               "maxLength": 300,
               "minLength": 1,
               "type": "string"
@@ -5831,18 +5831,18 @@
           "readOnlyHint": true,
           "untrustedContentHint": true
         },
-        "description": "The first tool to call on this planning page. Connects you to the shared planning session as one participant and returns your identity, protocol versions, current revision, privacy rules, a brief of what happened, and your outstanding decisions. Call without sinceRevision on first connection to receive the capability manifest; call with sinceRevision from your last sync to receive the delta of missed events. Continue every truncated delta with its cursor before acting. Read-only.",
+        "description": "Read the authenticated room as your participant: identity, revisions, privacy rules, brief, roster and outstanding work. Omit both sinceRevision and cursor for the capability manifest; otherwise read missed events. Continue truncated deltas with cursor before acting. The room revision can exceed throughRevision. Before a room exists, use describe_regions then open_room.",
         "inputSchema": {
           "additionalProperties": false,
           "properties": {
             "cursor": {
-              "description": "Opaque continuation from a truncated delta. Pass it back unchanged until truncated is false.",
+              "description": "Opaque delta continuation. Return unchanged until delta.truncated is false; omit with sinceRevision for the first manifest.",
               "maxLength": 512,
               "minLength": 1,
               "type": "string"
             },
             "sinceRevision": {
-              "description": "Revision from your last sync. Omit on first connection to receive the capability manifest.",
+              "description": "Last fully consumed event revision. Omit both sinceRevision and cursor on first connection to receive the manifest.",
               "minimum": 0,
               "type": "integer"
             }
@@ -5853,7 +5853,7 @@
       },
       {
         "annotations": {},
-        "description": "Add or update your own requirement in the shared decision. Choose visibility: shared (room sees content), application-private (only the app evaluates it; peers see aggregate effects), or agent-private (send a declaration only — no payload or note; content stays with you and you screen candidates via evaluate_candidates). Hard requirements exclude candidates; soft ones only rank. Pass requirementId to update.",
+        "description": "Add or update your own need; pass requirementId to update. shared publishes content; application-private stores it for the app and owner, with reduced peer projections; agent-private sends only a declaration, with no payload or note, and you screen via evaluate_candidates. Hard needs affect eligibility; soft needs are stored but do not rank or exclude. Private ownership and decision effects can remain visible.",
         "inputSchema": {
           "additionalProperties": false,
           "properties": {
@@ -6664,7 +6664,7 @@
       },
       {
         "annotations": {},
-        "description": "Withdraw one of your own requirements by requirementId. Eligibility is recomputed immediately.",
+        "description": "Withdraw one of your own needs by requirementId. It stops affecting eligibility, which the server recomputes. Its stored history remains subject to the same visibility rules.",
         "inputSchema": {
           "additionalProperties": false,
           "properties": {
@@ -6688,7 +6688,7 @@
       },
       {
         "annotations": {},
-        "description": "Set one of your own needs aside, or bring it back, without withdrawing it. An inactive need stops ruling candidates out but keeps its place in the brief, so the group can see what would change. Owner-only.",
+        "description": "Set aside or restore one of your own current-step needs without withdrawing it. An inactive need stops affecting eligibility but keeps its row, visibility and history. A need belonging to an already settled step cannot be restored with this tool.",
         "inputSchema": {
           "additionalProperties": false,
           "properties": {
@@ -6716,7 +6716,7 @@
       },
       {
         "annotations": {},
-        "description": "Return bulk screening verdicts (acceptable / unacceptable / needs_info) for candidates against your agent-private requirement. Use when your outstanding list carries an evaluation_request. Verdicts are recorded disposition-only: the room never learns your reason. Include each dossier's mapRevision; old revisions stay stale. Up to 10 per call.",
+        "description": "Record up to 10 candidate verdicts covering all your agent-private needs together, not one requirement. Use candidate IDs from outstanding evaluation_request items. Send verdict: acceptable, unacceptable or needs_info, and each dossier mapRevision as screenedMapRevision; missing or old revisions stay stale. needs_info requires infoNeeded, which the server receives. Keep private condition text out of that field. Each new verdict replaces your prior verdict for that candidate.",
         "inputSchema": {
           "additionalProperties": false,
           "properties": {
@@ -6813,7 +6813,7 @@
         "annotations": {
           "untrustedContentHint": true
         },
-        "description": "Submit your stance on a proposal: accept, reject (a veto that blocks agreement while it stands), abstain, or conditionally_accept. Vetoing a map pin uses this same command. Accepting also marks you ready. conditionally_accept carries no condition yet and blocks commit until you re-stance. reason is optional and never required; agent-private stances are disposition-only.",
+        "description": "Set your stance on an open or vetoed proposal: accept, reject, abstain or conditionally_accept. A rejection blocks agreement while it stands. Accepting also marks you ready; abstaining does not. conditionally_accept carries no condition and blocks commit until replaced. reason is optional; omit it for agent-private stances. Staged, committed and withdrawn proposals reject new stances.",
         "inputSchema": {
           "additionalProperties": false,
           "properties": {
@@ -6900,7 +6900,7 @@
       },
       {
         "annotations": {},
-        "description": "Grant or deny a private adjustment request addressed to you (see your outstanding list). Denying is always safe. A grant within your delegated bound applies immediately; a grant outside it is staged and the human confirms on the page — this tool does not apply it by itself.",
+        "description": "Grant or deny an adjustment request addressed to you in outstanding. A grant within its delegated bound applies immediately; an outside-bound grant returns staged: true and requires page confirmation before applying. Denial closes the request. This tool answers an existing adjustment; it does not change its terms or implement disclosure escalation.",
         "inputSchema": {
           "additionalProperties": false,
           "properties": {
@@ -6937,7 +6937,7 @@
       },
       {
         "annotations": {},
-        "description": "Mark this participant as ready (done contributing) or back to contributing. Agreement can only be staged when every participant is ready.",
+        "description": "Mark yourself ready or contributing. Staging agreement also requires every participant to accept or abstain on the proposal, with no veto or conditional stance. Disconnected participants still count. Readiness carries into subsequent plan steps; each proposal requires its own stances.",
         "inputSchema": {
           "additionalProperties": false,
           "properties": {
@@ -6969,7 +6969,7 @@
       },
       {
         "annotations": {},
-        "description": "Set your starting position. Its label and durable value stay private; the page separately controls the off-by-default live sharing opt-in.",
+        "description": "Set your starting position and optional label. The stored origin is visible to the application and you; the page separately controls live sharing, off by default. Your position can affect shared eligibility even while live sharing is off. This does not change the shared search circle.",
         "inputSchema": {
           "additionalProperties": false,
           "properties": {
@@ -7027,7 +7027,7 @@
       },
       {
         "annotations": {},
-        "description": "Stage the group agreement on a proposal for final confirmation. Requires organizer role, all participants ready, and no standing veto. The human confirms on the page; this does not commit by itself.",
+        "description": "Stage an open proposal for final page confirmation. Organizer only: every participant must be ready and have accepted or abstained, with no veto or conditional stance. Returns staged: true; it does not commit. The page commit rechecks these conditions, then settles the current plan step or opens final arrival planning.",
         "inputSchema": {
           "additionalProperties": false,
           "properties": {
@@ -7053,7 +7053,7 @@
         "annotations": {
           "readOnlyHint": true
         },
-        "description": "Find named landmarks in this room's area before stating a distance need. Returns stable landmark IDs, names, place-type labels and locations, ranked by name match. Read-only.",
+        "description": "Find named landmarks in this room's prepared area before submitting a distance need. Returns stable landmark IDs, names, place-type labels and locations ranked by name match. Use a returned landmarkId in a scope referent. This is a landmark search, not worldwide venue discovery.",
         "inputSchema": {
           "additionalProperties": false,
           "properties": {
@@ -7076,7 +7076,7 @@
           "readOnlyHint": true,
           "untrustedContentHint": true
         },
-        "description": "Read the current spatial situation: search scope (area, transport), feasibility counts, candidate summary rows with eligibility and stable candidateIds, open proposals with stance counts, and any agreement or impasse state. Use candidateIds from here in every other spatial tool. Read-only.",
+        "description": "Read compact scope, feasibility, candidate rows, proposals, agreement and outstanding work. Starts with at most eight candidates ordered by eligibility then walking estimate; further budget compaction may omit rows or fields. Proposal accepts counts only stances visible to you, not every private accept. Use returned candidateIds for inspection and actions. Detailed needs, coordinates and plan fields are omitted. May resume pool fill and preview evidence.",
         "inputSchema": {
           "additionalProperties": false,
           "properties": {},
@@ -7089,7 +7089,7 @@
           "readOnlyHint": true,
           "untrustedContentHint": true
         },
-        "description": "Fetch full dossiers for 1-3 candidates: attributes with graded status (verified_true / likely_true / likely_false / verified_false / unknown) and confidence, sources, freshness, hours, price level, plus links the place publishes (website, menu, reservations), a description and any self-published rating or award. Two or three IDs compare. Read-only.",
+        "description": "Read compact records for 1-3 candidates: graded attributes, brief provenance, need verdicts, mapRevision and available links/metadata. Full hours, coordinates, detailed evidence and image URLs are omitted. intent: read starts no lookup; open returns cached records and starts bounded fact work. Omitting intent starts lookup with a bounded wait. Several IDs read a comparison but do not open the page's comparison panel. Results may be further compacted.",
         "inputSchema": {
           "additionalProperties": false,
           "properties": {
@@ -7104,7 +7104,7 @@
               "type": "array"
             },
             "force": {
-              "description": "Bypass the ten-minute interactive-open cooldown for an explicit Look again.",
+              "description": "With intent open, request another pass even if this need set was already checked. Source caches and provider budgets still apply.",
               "type": "boolean"
             },
             "intent": {
@@ -7118,7 +7118,7 @@
                   "type": "string"
                 }
               ],
-              "description": "\"open\": a person opened it — answer from cache and fast-track the rest. \"read\": re-read the record and start nothing."
+              "description": "read: start no lookup. open: return cache and start bounded work. Omit for lookup with a bounded wait."
             }
           },
           "required": [
@@ -7130,7 +7130,7 @@
       },
       {
         "annotations": {},
-        "description": "Organizer only: change the shared search scope (area circle and/or transport modes). Organizer authority applies the change for the whole room and eligibility is recomputed. Scope is shared state: every participant sees the change.",
+        "description": "Organizer only: change the shared circle and/or walk/bike/car transport modes. Provide area, transport or both. The change applies to the room and recomputes eligibility without collecting affected members' consent. Circle radii are 100-5000 metres. This does not calculate routes or set a planning time.",
         "inputSchema": {
           "additionalProperties": false,
           "properties": {
@@ -7211,7 +7211,7 @@
       },
       {
         "annotations": {},
-        "description": "Bring up to 40 places shown on the page's explore map into the room, using the refs attached to those page places. The page is the discovery path for refs. Additive and shared: nothing is removed, every participant sees the new places, and the room's place ceiling applies.",
+        "description": "Add up to 40 source refs from the page's explore/search places to the active step's shared candidate pool. The page is the discovery path for refs. Already-present refs are ignored; the live pool ceiling applies. This adds places without removing existing ones or moving other participants' viewports.",
         "inputSchema": {
           "additionalProperties": false,
           "properties": {
@@ -7242,7 +7242,7 @@
       },
       {
         "annotations": {},
-        "description": "Ask the server to look up 1-3 places now — their website, Wikidata, menu and an inference over what was found — filling facts the record left unknown as likely/unlikely with a confidence, never as verified. Returns what is known right away; more lands on the page as it arrives. Optionally name the attribute keys that matter.",
+        "description": "Start evidence lookup for 1-3 candidates using configured sources and models; this can spend provider budget and write caches. Validated explicit venue statements may become verified; other evidence can remain likely or unknown. Returns compact records after a bounded wait; unfinished work continues on the page. Optionally focus on keys or request an interactive refresh with force. Refresh does not guarantee new facts.",
         "inputSchema": {
           "additionalProperties": false,
           "properties": {
@@ -7257,7 +7257,7 @@
               "type": "array"
             },
             "force": {
-              "description": "Look again: re-read the site and Wikidata when older than ten minutes, re-run inference for the keys.",
+              "description": "Request an interactive refresh of sources and inference for keys. Source caches, failures and provider budgets still apply.",
               "type": "boolean"
             },
             "keys": {
@@ -7280,7 +7280,7 @@
       },
       {
         "annotations": {},
-        "description": "Create a shared proposal on a candidate so participants can take stances on it. A high rank is never agreement: proposals collect explicit accepts.",
+        "description": "Create a shared proposal on a candidate in the current plan step's live pool so participants can take stances. Uncertain or excluded candidates can also be proposed; classification is advice, not agreement. A candidate with an existing live proposal must use that proposal instead.",
         "inputSchema": {
           "additionalProperties": false,
           "properties": {
@@ -7306,12 +7306,12 @@
         "annotations": {
           "readOnlyHint": true
         },
-        "description": "Pan and highlight one candidate on this participant's own map view. Local presentation only — changes no shared session state and other participants see nothing.",
+        "description": "Select, pan to and highlight a candidate on your page. The page publishes your viewing presence to the room and starts bounded evidence work for the selected place. Other participants can see which place you are viewing; resulting facts may be shared. This does not submit a proposal or stance, or change the shared search circle.",
         "inputSchema": {
           "additionalProperties": false,
           "properties": {
             "candidateId": {
-              "description": "Candidate to pan/highlight on this participant's map view.",
+              "description": "Known candidate to select and pan/highlight; the page shares viewing presence and starts evidence work.",
               "maxLength": 40,
               "type": "string"
             }
@@ -7325,7 +7325,7 @@
       },
       {
         "annotations": {},
-        "description": "Record your arrival plan for the committed destination: transport mode and an optional pickup note. Available once the room has agreed on a destination.",
+        "description": "Record your walk, bike or car arrival mode and optional pickupNote after the final destination is agreed. The mode is shared; the note is private to the application and you. The first plan enters the arrival phase. This stores coordination details; it does not calculate routes, book transport or create a meeting point.",
         "inputSchema": {
           "additionalProperties": false,
           "properties": {
@@ -7365,7 +7365,7 @@
       },
       {
         "annotations": {},
-        "description": "Record what you verified yourself; this confirmation is shared only within this room",
+        "description": "Record a fact you verified for a place with a permanent source reference. Use a vocabulary criterionId or q:<sha1> and boolean lean; open:* time windows and synthetic value IDs are not accepted. The named confirmation applies only in this room and may dispute a verified record. Your private-question note/sourceUrl are discarded. Withdrawal is a page action for the confirmer or organizer.",
         "inputSchema": {
           "additionalProperties": false,
           "properties": {
@@ -7465,7 +7465,7 @@
       },
       {
         "annotations": {},
-        "description": "Record what you found out about a place: a fact the record marks unknown or likely in inspect_candidates, including a q:<sha1> question criterion. Say what you checked in note and how sure you are (confidence 0-1; below 0.7 it is recorded as likely, not verified). Over an unknown fact your attestation lets the room rule on it, labelled with your name; one that contradicts a verified fact marks it disputed instead. Shared with the whole room.",
+        "description": "Add shared, named evidence for a boolean vocabulary key (not price-level or cuisine) or q:<sha1>. Supply verified_true/verified_false, confidence 0-1 and a note stating what you checked. Below 0.7 the answer is likely. Contradictions with verified facts or disagreeing attesters become disputed/unknown. Notes are shared: do not include a private condition. This changes evidence, not a requirement or stance.",
         "inputSchema": {
           "additionalProperties": false,
           "properties": {
@@ -7575,7 +7575,7 @@
         "annotations": {
           "readOnlyHint": true
         },
-        "description": "Get one-click navigation handoff links (geo:, Google Maps, Apple Maps) for a candidate or the committed destination, built from coordinates the session already holds. Read-only.",
+        "description": "Return geo:, Google Maps and Apple Maps handoff links from stored coordinates. Pass candidateId to navigate before agreement, or omit it to use the committed destination. Optional from overrides your saved origin. Returning links does not navigate or calculate a route; opening one sends its coordinates to the selected map application.",
         "inputSchema": {
           "additionalProperties": false,
           "properties": {

@@ -235,7 +235,8 @@ export const SubmitRequirementInput = Type.Object(
     ),
     /**
      * ABSENT when visibility = agent-private: submitting agent-private sends a
-     * declaration only; the server never receives the constraint content.
+     * declaration only; this command carries no constraint content. The
+     * built-in condition endpoint has its own server/model processing path.
      */
     payload: Type.Optional(RequirementPayload),
     scopeHint: Type.Optional(

@@ -1,75 +1,68 @@
-# FACETS — the data contract behind every control
+# Facets, needs, and progress contracts
 
-The redesign has **no predefined filter UI**. Every chip, suggestion and
-attribute row is generated from what the server returns for the current
-candidate set. That requires a capability the server does not have yet.
-This document specifies it.
+Implementation reference, checked against `main` on 2026-09-07. The server
+supplies the facets, need summaries, private effects, and provenance that drive
+the page's controls. This capability is implemented in [facets.ts](src/facets.ts)
+and projected through [spatial.ts](src/spatial.ts).
 
-Until it exists, the composer's suggestion pills and the details panel's
-attribute groups cannot be built correctly — they would have to be hardcoded,
-which is precisely the thing the redesign removes.
-
----
+The authoritative response types are in
+[envelope.ts](../../packages/contracts/src/envelope.ts); realtime types are in
+[realtime.ts](../../packages/contracts/src/realtime.ts). Examples below are
+illustrative excerpts with synthetic IDs/counts, not complete API responses or
+claims about actual places.
 
 ## Why
 
-The old UI shipped food-domain filter buttons. That works for one domain and
-breaks for every other. The app must serve "a park where the dog can run",
-"a museum with the Hilma af Klint show", "a cinema showing it in Japanese",
-"a coworking space with a quiet room" — with the same screens.
-
-The only way that holds is if the **server describes what is askable** about
-the current results, and the client renders whatever it gets.
-
----
+The server describes what is askable about the current places. The client
+renders supplied labels and the appropriate control type rather than inventing
+a separate set of food, park, cinema, or museum filters. Place-class and
+criterion vocabularies remain server data. This does not imply unlimited
+attribute support: the current mapper and evidence sources determine which
+facts can be answered.
 
 ## 1. Facets alongside candidates
 
-Extend the candidate-set response with a `facets` array describing the
-attributes present across the current results.
+The authenticated `POST /api/spatial/context` response contains `facets`,
+`activeNeeds`, `privateEffects`, and the current classification. Counts are
+computed over the current step's **in-scope** candidates. The context can also
+return excluded out-of-scope candidates so the map can keep their positions;
+they do not inflate the facet/count denominator. Compact WebMCP results omit
+some of these page fields; see the
+[binding reference](../../docs/protocols/INTERACTION-AND-BINDING.md#24-what-an-agent-actually-receives).
 
-```jsonc
+```json
 {
-  "candidates": [ /* … as today … */ ],
   "total": 34,
   "facets": [
     {
-      "key": "dog_offleash",           // stable id, never shown
-      "label": "off-leash area",       // the ONLY string the UI shows
-      "type": "boolean",
-      "counts": { "yes": 9, "no": 18, "unknown": 7 },
-      "salience": 0.82
-    },
-    {
-      "key": "wheelchair",
+      "key": "wheelchair-accessible",
       "label": "step-free access",
       "type": "boolean",
       "counts": { "yes": 11, "no": 6, "unknown": 17 }
     },
     {
-      "key": "opening_hours",
-      "label": "open Sunday morning",
-      "type": "temporal",
-      "counts": { "yes": 21, "no": 9, "unknown": 4 }
+      "key": "dog-friendly",
+      "label": "dogs welcome",
+      "type": "boolean",
+      "counts": { "yes": 9, "likely": 2, "no": 18, "unknown": 5 }
     },
     {
-      "key": "language",
-      "label": "screening language",
+      "key": "cuisine",
+      "label": "cuisine",
       "type": "enum",
       "values": [
-        { "value": "de", "label": "German",   "count": 12 },
-        { "value": "en", "label": "English",  "count": 5  },
-        { "value": "ja", "label": "Japanese", "count": 1  }
+        { "value": "italian", "label": "Italian", "count": 8 },
+        { "value": "thai", "label": "Thai", "count": 2 }
       ],
-      "counts": { "unknown": 3 }
+      "counts": { "yes": 10, "no": 0, "unknown": 24 }
     },
     {
-      "key": "walk_minutes",
+      "key": "walk-minutes",
       "label": "walking time",
       "type": "numeric",
       "unit": "min",
       "range": { "min": 3, "max": 34 },
-      "histogram": [ 4, 9, 7, 3, 1 ],
+      "histogram": [4, 9, 7, 3, 11],
       "counts": { "unknown": 0 }
     }
   ]
@@ -78,253 +71,340 @@ attributes present across the current results.
 
 ### Field rules
 
-- `key` — stable, machine-readable, **never rendered**.
-- `label` — human, lowercase, domain-natural. The client renders this
-  verbatim. It is the server's job to make it read well.
-- `type` — one of `boolean` | `enum` | `numeric` | `temporal` | `text`.
-  The client has one renderer per type and no domain branches.
-- The `walking time` numeric facet is recomputed from the viewer's private
-  origin on every read, falling back to the room scope centre when that viewer
-  has no origin. Other participants' origins never enter the facet payload.
-- `counts.unknown` — **mandatory**. Unverified is a first-class state in this
-  UI; a facet without an unknown count cannot render its `?` badge.
-- `counts.likely` / `counts.unlikely` — graded facts (SPATIAL-PROTOCOL §8.2):
-  places where the answer is a guess with a confidence. Absent means zero.
-  Pills count `yes + likely`; the brief row shows "n likely" beside
-  "n unknown"; the count block shows "· n likely" apart from the big number.
-- An enum `values[].count` is the number of places that would be fully
-  `eligible` if that value became an inclusion need. For cuisine, that means a
-  verified exact token or a verified implication whose path confidence is at
-  least `CUISINE_IMPLICATION_SATISFACTION_FLOOR`. The constant is derived from
-  `VERIFIED_CONFIDENCE_FLOOR` (currently 0.7): an implication at or above the
-  verified floor may satisfy, while a lower-confidence implication is a guess
-  and does not enter the value's count. Likely facts and lower-confidence
-  implications remain available as enum values so the parser can route them,
-  but each such place contributes zero to that value's count; selecting one
-  therefore cannot overstate the resulting match count.
-- A facet's `counts.yes` / `likely` / `unlikely` / `no` / `unknown` buckets
-  remain disjoint status totals. They describe the evidence distribution and
-  are independent of an enum value's predicate-specific `count`.
-- `salience` — optional 0–1 hint for ordering. Absent → order by
-  `counts.yes` descending.
+- `key` is the stable machine identifier; `label` is the server-authored text
+  rendered to the participant. Vocabulary keys come from the
+  [manifest](../../packages/contracts/src/manifest.ts).
+- `type` is `boolean`, `enum`, `numeric`, `temporal`, or `text`. Current output
+  supplies vocabulary booleans, a cuisine enum when available, numeric walking
+  and price facets, and temporal facets for authorized active time needs.
+  Free-text questions have need rows rather than reusable text facets.
+- `counts.unknown` is required. The other count fields are optional;
+  `likely`/`unlikely` being absent means zero. Boolean/enum/temporal buckets
+  describe disjoint evidence outcomes, not an intersection with every other
+  active requirement. A numeric facet instead has a range and five histogram
+  buckets, plus its missing-value count.
+- `values[].count` for cuisine counts verified exact matches and sufficiently
+  strong sourced implications for **that inclusion predicate alone**. It does
+  not promise the same count after all the room's other needs are applied.
+  The implication floor is `CUISINE_IMPLICATION_SATISFACTION_FLOOR`, currently
+  0.7. Likely values and weaker implications can remain available with count
+  zero so the sentence parser can still resolve them.
+- Facet array order is render order. The current server sorts booleans by
+  `yes + likely`, then appends cuisine and numeric facets, followed by temporal
+  facets. `salience` is an optional contract field; its absence does not tell
+  the client to resort the entire array.
+- `walk-minutes` uses this viewer's private origin, falling back to the room
+  centre; it is absent if neither is available. It is a straight-line walking
+  estimate, not route-provider time. Other participants' coordinates are not
+  included in the facet.
+- `price-level` exposes approximate per-person bands with `unit: "EUR"` or
+  `"USD"` from the area. It is not a live menu quote or currency conversion.
 
 ### What the client does with it
 
-| Where | Rendering |
+| Surface | Current use |
 |---|---|
-| Composer suggestion pills | top 2–3 facets not already a stated need, as `label` + `counts.yes` |
-| Brief row "n unknown" badge | `counts.unknown` for that need's facet |
-| Details attribute groups | one row per facet the place has a value for |
-| Impasse "ways out" | facets whose relaxation changes the count (see §2) |
+| Composer pills | First three unstated boolean facets with positive `yes + likely`; displays that combined count |
+| Brief | Server-authored `activeNeeds` labels, state, uncertainty, and deltas |
+| Place panel | Per-place facts and `needs` verdicts, with provenance |
+| Counterfactual preview | Server classification with one authorized requirement omitted |
+| Main count | `matching + likely` as places that still work; remaining states separately reported |
 
-**Do not** add a `category` or `domain` field. The client must never branch on
-domain — that reintroduces exactly what we removed.
-
----
+The [composer](../web/src/components/Composer.tsx) consumes the returned order.
+No `category` or `domain` field is part of the `Facet` contract.
 
 ## 2. Counterfactual deltas
 
-The map's `+3 if "step-free" went optional` chip, and the impasse screen's
-quantified ways out, need to know **what the set would be without a need**.
+`activeNeeds` contains shared needs and the viewer's own needs. Despite its
+name, it also retains set-aside rows with `active: false`. Peer-private
+requirements are represented separately (§4).
 
-Computing this client-side means re-running the whole predicate set per need
-on every change. Better on the server, which already has the index.
-
-```jsonc
+```json
 {
+  "matching": 6,
+  "likely": 2,
   "activeNeeds": [
-    { "id": "n1", "label": "dogs can be off-leash", "ruledOut": 19, "wouldReturn": 0 },
-    { "id": "n2", "label": "step-free paths in",    "ruledOut": 3,  "wouldReturn": 3 },
-    { "id": "n3", "label": "water on site",         "ruledOut": 0,  "unknown": 3, "wouldReturn": 2 }
-  ],
-  "matching": 6
-}
-```
-
-- `ruledOut` — how many this need alone eliminates → the `−19` in the row.
-- `wouldReturn` — how many come back if it were dropped → the `+3` chip and
-  the impasse cards.
-- At impasse (`matching: 0`) the client sorts by `wouldReturn` and offers the
-  top two as ways out.
-
-Press-and-hold preview can use `wouldReturn` for the count immediately, then
-reconcile with the real set when it arrives.
-
-### Question needs
-
-A free-text question is a real active need even though it cannot produce a
-reusable facet. Its `ActiveNeed` row carries the stable `criterionId`
-(`q:<sha1>`), plus the same live `ruledOut`, `wouldReturn`, `unknown`, `likely`
-and `unlikely` counts as any other need. The `facets` array deliberately has no
-row for that id: the sentence remains need content, not a new hardcoded control.
-
-Question criteria are refined continuously while the room is present, with a
-ten-minute grace period after it empties. The client can rely on question
-statuses moving only from validated place-site or cited search evidence,
-abstention remaining `unknown`, and `sourceUrl` being present for every
-search-derived fact. `SpatialContextResult.refine` reports whether refinement is
-active, how many places remain queued, the tier-one count for active needs, how
-many places were checked since UTC midnight, and the remaining per-room
-model-call and search budgets.
-
-### Temporal needs
-
-Each active time need produces one `temporal` facet. Its key is the stable
-criterion `open:<start>-<end>` and is never rendered. Its label is composed by
-the server from the absolute window, the room area's IANA timezone, and the
-read-time clock: `open today 18:00–21:00 (Thu)`, `open tomorrow
-12:00–14:00 (Fri)`, or `open Fri 18:00–21:00`. If the area clock cannot be
-used, the fallback reads only weekday and wall clock from the window's written
-offset, never the ISO timestamp.
-
-The five counts are disjoint: `yes` for verified hours covering the window,
-`no` for verified hours that do not, `likely` / `unlikely` for the same answers
-from site-published hours, and `unknown` when no hours can answer. Their sum is
-the current candidate total. Missing hours never become `no`, and one time
-need never shares a facet with another window.
-
----
-
-## 3. Provenance
-
-Unverified is a state the UI draws, so every attribute value needs a source.
-
-```jsonc
-{
-  "id": "place_nordbahnhof",
-  "name": "Park am Nordbahnhof",
-  "attributes": {
-    "dog_offleash":  { "value": true,  "source": "osm",      "confidence": "high" },
-    "wheelchair":    { "value": true,  "source": "osm",      "confidence": "medium" },
-    "water_on_site": { "value": null,  "source": null,       "confidence": null }
-  }
-}
-```
-
-- `value: null` → renders hollow / `?` / "unknown". **Never** rendered as a
-  failure, never silently excluded.
-- `source` → shown in the details panel ("from OpenStreetMap", "the venue says").
-- `confidence: "low"` → renders as unsure even when a value exists.
-
----
-
-## 4. Privacy boundary
-
-A private need is evaluated **without its content reaching the room**. The
-shared response therefore carries the effect only:
-
-```jsonc
-{
-  "privateEffects": [
-    { "owner": "sarah", "ruledOut": 4, "topic": "distance" }
+    {
+      "id": "req_example_1",
+      "criterionId": "wheelchair-accessible",
+      "label": "step-free access",
+      "ruledOut": 3,
+      "wouldReturn": 2,
+      "unknown": 4,
+      "likely": 1,
+      "unlikely": 0,
+      "active": true,
+      "visibility": "shared",
+      "hardness": "hard",
+      "ownerId": "p_example"
+    }
   ]
 }
 ```
 
-- `topic` is a coarse, opt-in category — enough for "one condition about
-  distance exists", never enough to reconstruct the condition.
-- Omit `topic` entirely when the owner hasn't consented to that much.
-- Never include the predicate, the value, or the place ids it removed.
+`ruledOut` counts what that need alone decisively rules out within scope.
+`unknown`, `likely`, and `unlikely` likewise describe that need alone.
+`wouldReturn` is the change in the eligible count if the active need were
+omitted while the other active needs remain. An inactive row has zero
+`wouldReturn`. These deltas use eligible counts; the main display also counts
+likely candidates. The response normalizes non-soft hardness to `hard` for
+this display row; full delegation still belongs to the requirement contract.
 
-The owner's own client receives the full need; peers receive only this.
+A scope need can carry a `referent` label and authorized location, plus a
+`range` circle with centre/radius and optional participant ID. A private or
+unavailable measuring point does not become a coordinate in a peer response.
 
-Question inference follows the same boundary. Its cross-room enrichment-cache
-entry is keyed only by `q:<sha1(normalized sentence)>`; the entry never stores
-the sentence itself, either normalized or as a reader label. The hash is a
-guessable identity commitment, not a secret. On a dossier read, the server
-derives the viewer's permitted criterion ids with `criterionFor`: every shared
-need plus every need the viewer owns. It drops any other `q:` attribute and
-supplies an authorized row's label from the requirement payload, never from
-the cache.
+Press-and-hold uses `excludeRequirementId` on the context read to compute the
+actual counterfactual classification without changing the requirement. Only a
+shared need or one owned by the viewer can be omitted. Unknown and foreign
+private IDs fail the same way. The displayed delta is not permission to relax
+a need; mutation ownership and consent rules still apply.
 
-Shared and application-private needs may reach the server-side matrix evaluator
-over text already held by the application. That call has no tools. A search
-query, or any prompt with `web_search` enabled, may carry a need's words only
-when that need is shared. It may also carry server vocabulary labels for
-criteria behind no active need at all, which is how the background sweep keeps
-working over the whole pool without speaking for anyone. Application-private
-criteria may be evaluated over snippets returned by another criterion's search,
-but never cause a search themselves. Combined
-search excludes them from the tool-enabled call. Agent-private content stays in
-its owner's agent context and is not harvested by the server-side evaluator.
+### Question needs
 
-The same boundary governs a place dossier's `needs[]`. The viewer's own needs
-and every shared need are full rows, each naming its requirement. Every
-**peer-private** need collapses into a single row — `{ private: true, verdict }`
-— with no `requirementId`, no label and no why, carrying the worst verdict any
-of them reaches (`no` > `unlikely` > `unknown` > `likely` > `yes`). One row
-however many such needs exist: a per-need verdict would let a reader pair a
-condition with the places it removes, and a row count would leak how many
-conditions a peer is holding.
+A free-text question has a stable `criterionId` of `q:<sha1>` and the same
+need counts as other criteria. It does not add a new reusable facet whose
+label would expose the question. Source evaluation, private screening where
+applicable, or participant evidence can change the place verdicts.
 
----
+Refinement starts with room activity/creation and can continue for the default
+ten-minute grace period after the room empties. Missing evidence remains
+unknown; a failed model/source request is not a negative answer. The optional
+context `refine` view reports activity, queued active-need places, the
+`tier1Queued` alias, checked-today count, pause reason, and remaining model/search
+budgets. See [continuous refinement](../../docs/ENRICHMENT-SOURCES.md#continuous-refinement).
 
-## 5. What to build first
+### Temporal needs
 
-1. `facets` on the candidate response (§1) — unblocks every data-driven control.
-2. `activeNeeds` deltas (§2) — unblocks the count chip and the impasse screen.
-3. `source` / `confidence` on attributes (§3) — unblocks the unsure state.
-4. `privateEffects` (§4) — unblocks the late-joiner digest and history rows.
+Each distinct authorized active time window can produce a `temporal` facet
+keyed by `open:<start>-<end>`. The server supplies a readable label in the
+area's timezone. Identical window keys share a facet; different windows do
+not. Peers do not receive a temporal facet for someone else's private window.
 
-1 and 2 are the blocking pair. Without them the UI can be built but not
-honestly populated, and the temptation to hardcode domain chips returns.
+The five outcome buckets reflect verified schedule coverage, likely website
+schedule coverage, or unknown hours. Evaluation is deterministic and does not
+send `open:*` predicates to a model. It uses a limited weekly-hours parser;
+public holidays and unsupported syntax are not a complete calendar model.
+See [time, price, and distance](../../docs/DATA-QUALITY.md#time-price-and-distance).
 
----
+## 3. Provenance
+
+A dossier's `attributes` is an **array**, with numeric confidence and explicit
+status/source/observation fields:
+
+```json
+{
+  "candidateId": "pl_example_001",
+  "name": "Example place",
+  "mapRevision": 4,
+  "attributes": [
+    {
+      "key": "wheelchair-accessible",
+      "status": "verified_true",
+      "source": "osm:wheelchair",
+      "observedAt": "2026-08-31T20:21:20Z",
+      "confidence": 0.8
+    },
+    {
+      "key": "price-level",
+      "status": "unknown",
+      "source": "osm:price",
+      "observedAt": "2026-08-31T20:21:20Z",
+      "confidence": 0.6
+    }
+  ]
+}
+```
+
+`status` carries the five-state evidence classification. Missing `value` does
+not mean false, and confidence alone does not replace the status/source rules.
+The contract's numeric confidence is translated into words by the page.
+Optional fields include a reader label for non-vocabulary facts, `note`,
+`sourceUrl`, an attester, and confirmation attribution/time.
+
+Verified labels describe accepted records or assertions, not independent
+inspection. Participant confirmations and attestations affect their originating
+room. Model evaluation can accept an explicit venue statement as verified;
+ordinary likely evidence retains its weaker standing. See
+[evidence and precedence](../../docs/ENRICHMENT-SOURCES.md#evidence-and-precedence).
+Candidate `mapRevision` changes invalidate screening against earlier facts.
+
+## 4. Privacy boundary
+
+Application-private predicates are stored and evaluated by the server but
+omitted from peer need rows. The effect projection can still identify the
+owner and an optional owner-supplied topic:
+
+```json
+{
+  "privateEffects": [
+    { "owner": "p_example", "ruledOut": 4, "topic": "distance" }
+  ]
+}
+```
+
+`topic` is omitted without a supplied category hint. The projection contains
+neither predicate values nor an explicit list of removed place IDs. It is a
+row per active peer-private requirement, so its owner and count are observable;
+it does not guarantee anonymity or prevent inference in a small group.
+
+A dossier uses a more aggregated representation. Its `needs` includes full
+rows for shared requirements and the viewer's own requirements, plus at most
+one peer-private row for that place:
+
+```json
+{
+  "needs": [
+    { "private": true, "verdict": "unknown" }
+  ]
+}
+```
+
+That aggregate contains no requirement ID, label, or explanation. It takes the
+worst peer-private verdict: `no`, then `unlikely`, `unknown`, `likely`, `yes`.
+Its presence and effects are public; private predicates are not.
+
+Question inference entries in the shared OSM-ref cache use the hashed
+criterion ID and do not store the original question or display label. The hash
+is guessable, not encryption. Dossier reads filter question attributes to
+shared needs and needs owned by the viewer, recovering their labels only from
+those authorized requirements.
+
+Application-private criteria can reach a separate tool-less model evaluation
+call over source text already held by the server. Outbound search queries use
+only shared active-need words or the closed server vocabulary for background
+criteria without active needs. A private criterion cannot itself supply search
+terms. Agent-private content is not used by refinement: an external agent can
+hold it outside the application; the built-in agent sends it through server
+interpretation and separate screening and keeps it in process memory. See
+[agent-private conditions](../../docs/NL-AGENT.md#agent-private-conditions) and
+[Known limitations](../../docs/KNOWN-LIMITATIONS.md).
+
+## 5. Reading and updating these views
+
+The full context endpoint supplies counts, facets, need rows, room plan, and
+other participant-visible state. `POST /api/spatial/inspect` supplies dossiers
+for one to three candidate IDs. Page controls mutate the underlying needs or
+facts through the ordinary command path, then refresh their projections.
+Neither a facet selection nor a progress frame is a new source of authority.
+
+When extending these views, update the live TypeScript contracts and the
+server projection together. Reuse server labels, preserve unknown/likely
+states and private-field omission, and check both owner and peer views. The
+WebMCP adapter deliberately compacts results; adding a page field does not
+make it appear automatically in the tool response.
 
 ## 6. Pipeline realtime frames
 
-The server unconditionally emits a process-local pipeline progress frame:
+The server emits process-local presentation frames alongside revisioned room
+activity. These frames describe work and trigger rereads; they are not commands
+or a replacement for room revision checks.
 
-```jsonc
+```json
 {
   "type": "pipeline",
-  "roomId": "room_123",
   "outstanding": { "fetch": 7, "process": 4 },
   "inFlight": { "fetch": 3, "process": 2 },
   "done": 12,
   "total": 28,
   "etaMs": 9400,
-  "paused": null
+  "paused": null,
+  "stalled": [],
+  "stages": [{ "candidateId": "pl_example_001", "stage": "fetching" }],
+  "reset": false,
+  "reason": { "kind": "refine" }
 }
 ```
 
-Only priority-zero and priority-one work contributes to the volume. `total` is
-deduplicated by place and describes the active-need uncertain set, not the
-whole candidate pool. `paused: "budget"` carries budget exhaustion through the
-existing “paused for now” state. Frames are coalesced to at most four per
-second, with an immediate first change for a quiet room and a guaranteed
-clearing frame. The socket-holding process emits the frame; counts are not
-cross-process in Phase A.
+Volume includes priority-zero and priority-one work. `total` is deduplicated
+by place; fetch/process work can overlap, so it is not a sum of arbitrary
+stage counters or the entire pool size. `etaMs` is diagnostic and is not drawn
+as a promised arrival/completion time. `paused` may be `budget`, `idle`, or
+null; absent fields are allowed by the contract.
 
-The compatibility `lookups` frame remains readable by the current client for
-one more release. `pending` stays a `string[]`; the additive `stages` field carries
-the richer state in parallel:
+`stages` is a delta unless `reset: true` makes it a full snapshot. A null stage
+removes that candidate from the stage map. `stalled` names candidates with a
+remembered dispatch timeout; later admission/completion can clear it. Updates
+are coalesced on a 250-ms cadence, with an immediate update for a quiet room
+and clearing updates as work ends. The process holding the sockets supplies
+these counts; there is no cross-process progress store.
 
-```jsonc
+The current client also accepts `lookups` snapshots:
+
+```json
 {
   "type": "lookups",
-  "pending": ["place_a", "place_b"],
+  "pending": ["pl_example_001", "pl_example_002"],
   "stages": [
-    { "candidateId": "place_a", "stage": "fetching" },
-    { "candidateId": "place_b", "stage": "processing" }
+    { "candidateId": "pl_example_001", "stage": "fetching" },
+    { "candidateId": "pl_example_002", "stage": "processing" }
   ]
 }
 ```
 
-Stages are `queued`, `fetching`, or `processing`; absence from both arrays
-means settled. A reason label may name only a shared need. Application-private
-and agent-private question text never enters either frame, an outbound search
-query, or a log line.
+Lookup stages are `queued`, `fetching`, or `processing`; an entry in `pending`
+without a stage is treated as fetching. An empty snapshot clears its lookup
+state. A `reason` label may name only shared need content. Private question
+text does not belong in progress frames.
 
-The client may additionally send `{ "type": "previewing", "candidateId":
-"place_a" }`, or `null` to clear it, with the same validation shape as
-`viewing`. This is presence-like, non-persistent input: it starts only a
-priority-one cache/site/judge prefetch, at most two concurrently, and expires
-after five seconds if `viewing` does not open the place. `viewing` itself starts
-the bounded priority-zero open plan.
+### Previewing and opening a place
 
-`inspect_candidates` accepts the additive optional `intent: "open"`. Its HTTP
-result is the cached dossier immediately; later steps arrive as `facts` frames
-with `reason: "interactive"`, `stage` (`cache`, `site`, `images`,
-`adjudicate`, or `search`) and optional `deadlineExceeded: true` after the soft
-three-second mark. No need label or question text is carried in these frames.
+A client can send `{"type":"previewing","candidateId":"pl_example_001"}`
+or the same object with `candidateId: null` to clear it. These hints are
+validated against the room and remain transient. They start bounded
+cache/site/judge prefetch, at most two places concurrently, with a five-second
+open window. Prefetch has no search, image decode, or vision path.
+
+`viewing` uses the same candidate-ID/null shape and starts the bounded
+interactive open plan. `inspect_candidates` with `intent: "open"` returns the
+cached dossier immediately and can start that plan too. `intent: "read"`
+starts no work; omitted intent retains a compatibility lookup with a bounded
+three-second wait. A successful open is reused within the same needs epoch;
+elapsed time alone does not admit another completed open. Changed needs or
+`force` can allow another pass, subject to the ordinary budgets.
+
+Interactive work publishes `facts` frames using a different stage vocabulary:
+
+```json
+{
+  "type": "facts",
+  "candidateIds": ["pl_example_001"],
+  "reason": "interactive",
+  "stage": "site"
+}
+```
+
+The stages are `queued`, `site`, `needs`, `photos`, and `web`. A terminal
+frame uses `done` and a completion reason:
+
+```json
+{
+  "type": "facts",
+  "candidateIds": ["pl_example_001"],
+  "reason": "interactive",
+  "done": true,
+  "steps": [
+    { "stage": "queued", "ms": 20 },
+    { "stage": "site", "ms": 1200 },
+    { "stage": "needs", "ms": 800 }
+  ],
+  "costUsd": 0.001,
+  "completionReason": "complete"
+}
+```
+
+Completion reasons are `complete`, `floor`, `budget`, `aborted`, or `error`.
+`steps` and `costUsd` are optional diagnostics for the developer drawer;
+`costUsd` in the example is synthetic. `deadlineExceeded` is not part of this
+contract. The page rereads affected dossiers/context so actual evidence and
+classification determine what it displays.
+
+## Verification
+
+Relevant suites cover [facets](../../tests/api/facets.test.ts),
+[facet computation](../../tests/unit/facets.test.ts),
+[question lookup](../../tests/api/question-lookup.test.ts),
+[origins](../../tests/api/origin.test.ts),
+[projection](../../tests/unit/projection.test.ts), and
+[pipeline behavior](../../tests/unit/pipeline.test.ts). Provider quality and
+production concurrency remain separate from contract correctness.

@@ -2,6 +2,7 @@ import { test, expect, chromium, type Browser } from "@playwright/test";
 import { spawn, type ChildProcess } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { TOOL_CONTRACT_VERSION } from "@webmcp-hackathon/contracts";
 import { createTestRoom, type TestRoom, DATABASE_URL } from "../api/helpers.ts";
 
 /**
@@ -130,7 +131,7 @@ test("native Chrome discovers and executes the real tool registry", async () => 
   expect(parsed.ok).toBe(true);
   expect(parsed.identity.participantId).toBe(room.participantIds.org);
   expect(parsed.manifest.protocols.domain).toBe("spatial-destination/v1");
-  expect(parsed.toolContractVersion).toBe("2");
+  expect(parsed.toolContractVersion).toBe(TOOL_CONTRACT_VERSION);
 
   await context.close();
 });

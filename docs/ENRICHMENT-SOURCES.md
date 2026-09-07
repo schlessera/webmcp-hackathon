@@ -303,8 +303,9 @@ due images, adjudicates likely claims, and may search unresolved shared needs.
 Its [per-open budget](../apps/server/src/pipeline/interactive.ts) is one fetch
 pass, one search, three non-vision model calls, and one vision call, with
 additional room/process quotas. Focus changes can abandon remaining work unless
-another participant still has the place open. Successful repeated opens have a
-sixty-second floor; changed needs or `force` can allow another pass.
+another participant still has the place open. After a successful open, the
+same place/needs epoch is suppressed until the needs change or `force`
+requests another pass; elapsed time alone does not currently reopen it.
 
 Facts frames expose stages and completion reasons. Pipeline progress counts
 active work rather than promising a completion time. Speculative hover/focus

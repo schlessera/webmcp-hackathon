@@ -192,7 +192,7 @@ export function ConsentCards({
               {item.delegatedBound
                 ? `Beyond ${boundPhrase(item)}.`
                 : `No limit was delegated for this, so the step from ${changeSpan(item)} is yours to decide.`}
-              {gainSentence(item)} Your agent staged it; only this gesture applies it.
+              {gainSentence(item)} Your agent staged it for your confirmation.
             </div>
             <div className="card-actions">
               <button
@@ -257,7 +257,7 @@ export function ConsentCards({
           <div className="card" data-tone="acting" data-testid="screening-card" key={`eval-${index}`}>
             <div className="card-badges">
               <span className="badge" data-kind="scope">agent only</span>
-              <span className="badge" data-kind="act">acting now</span>
+              <span className="badge" data-kind="act">screening needed</span>
             </div>
             <div className="card-head">
               <span className="card-title">
@@ -265,8 +265,8 @@ export function ConsentCards({
               </span>
             </div>
             <div className="card-body">
-              Against the condition it holds for you. Nothing about it reaches the
-              room, or us.
+              Other people see which places work for you, without the condition.
+              The built-in agent uses Spokes and its model providers to check it.
             </div>
           </div>
         );
