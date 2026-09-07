@@ -9,7 +9,8 @@
     "backfill:blurhash": "node src/backfill-blurhash.ts",
     "reclean:text": "node src/reclean-text.ts",
     "seed": "node src/seed.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepopulate": "node --env-file-if-exists=../../.env src/prepopulate.ts"
   },
   "dependencies": {
     "@fastify/compress": "^9.2.0",

@@ -812,72 +812,19 @@ export async function fetchRoomListings(
         },
       };
     }
-    // The provider rejects a radius under a kilometre, so a tighter scope is
-    // fetched at the floor and the 60 m match rule discards the overshoot.
-    const radiusKm = Math.max(DATAFORSEO_MIN_RADIUS_KM, room.radius_m / 1_000);
-    const coordinate =
-      `${Number(room.center.lat).toFixed(7)},${Number(room.center.lng).toFixed(7)},${Number(radiusKm.toFixed(3))}`;
-    // One request per category batch; an unrecognized pool sends no filter
-    // rather than fetching nothing.
-    const poolClasses = rows.map((row) => row.category ?? "");
-    const batches = listingCategoryBatches(poolClasses);
-    const requests = batches.length ? batches : [null];
-    // The classes the emitted batches actually cover. Built from the batch
-    // contents, not the map, so a class dropped by the per-request cap is
-    // reported as the gap it is rather than counted as asked for.
-    const asked = new Set(batches.flat());
-    const requestedClasses = new Set(
-      batches.length
-        ? poolClasses.filter((placeClass) =>
-            ((LISTING_CATEGORIES as Record<string, readonly string[] | undefined>)[placeClass] ?? [])
-              .some((name) => asked.has(name)))
-        : poolClasses,
-    );
-    const items: DataForSeoListing[] = [];
-    let costUsd = 0;
-    for (const categories of requests) {
-      const response = await listingFetch(
-        "https://api.dataforseo.com/v3/business_data/business_listings/search/live",
-        {
-          method: "POST",
-          headers: {
-            authorization: `Basic ${Buffer.from(`${process.env.DATAFORSEO_LOGIN}:${process.env.DATAFORSEO_PASSWORD}`).toString("base64")}`,
-            "content-type": "application/json",
-          },
-          body: JSON.stringify([{
-            location_coordinate: coordinate,
-            limit: listingRequestLimit(candidates.length, categories?.length ?? DATAFORSEO_CATEGORIES_PER_REQUEST),
-            ...(categories ? { categories } : {}),
-          }]),
-        },
-      );
-      if (!response.ok) {
-        await response.body?.cancel();
-        throw new Error(`DataForSEO returned ${response.status}`);
-      }
-      const parsed = responseListings(await response.json());
-      items.push(...parsed.items);
-      costUsd += parsed.cost ?? DATAFORSEO_REQUEST_USD + DATAFORSEO_ITEM_USD * parsed.items.length;
-    }
+    const result = await fetchListingsForCandidates(candidates, {
+      center: { lat: Number(room.center.lat), lng: Number(room.center.lng) },
+      radiusM: room.radius_m,
+    }, observedAt);
+    const { costUsd } = result;
     unreportedSpendByRoom.set(roomId, (unreportedSpendByRoom.get(roomId) ?? 0) + costUsd);
     await q.query(
       `UPDATE room_listing_fetches
           SET status = 'ok', item_count = $2, cost_usd = $3
         WHERE room_id = $1`,
-      [roomId, items.length, costUsd],
+      [roomId, result.returnedItems, costUsd],
     );
-    const { matches, diagnostics } =
-      matchListingsWithDiagnostics(candidates, items, observedAt, requestedClasses);
-    return {
-      roomId,
-      scopeId: room.scope_id,
-      observedAt,
-      returnedItems: items.length,
-      requests: requests.length,
-      costUsd,
-      matches,
-      diagnostics,
-    };
+    return { ...result, roomId, scopeId: room.scope_id };
   } catch (error) {
     await q.query(
       `UPDATE room_listing_fetches SET status = 'error' WHERE room_id = $1`,
@@ -885,4 +832,66 @@ export async function fetchRoomListings(
     ).catch(() => undefined);
     throw error;
   }
+}
+
+/** Shared provider/matching path for rooms and offline region preparation.
+ * Callers own durable admission and persist only matched, normalized facts. */
+export async function fetchListingsForCandidates(
+  candidates: ListingCandidate[],
+  scope: { center: { lat: number; lng: number }; radiusM: number },
+  observedAt = new Date().toISOString(),
+): Promise<Omit<ListingBatchResult, "roomId" | "scopeId">> {
+  // The provider rejects a radius under a kilometre, so a tighter scope is
+  // fetched at the floor and the 60 m match rule discards the overshoot.
+  const radiusKm = Math.max(DATAFORSEO_MIN_RADIUS_KM, scope.radiusM / 1_000);
+  const coordinate =
+    `${Number(scope.center.lat).toFixed(7)},${Number(scope.center.lng).toFixed(7)},${Number(radiusKm.toFixed(3))}`;
+  // One request per category batch; an unrecognized pool sends no filter
+  // rather than fetching nothing.
+  const poolClasses = candidates.map((candidate) => candidate.placeClass ?? "");
+  const batches = listingCategoryBatches(poolClasses);
+  const requests = batches.length ? batches : [null];
+  // The classes the emitted batches actually cover. Built from the batch
+  // contents, not the map, so a class dropped by the per-request cap is
+  // reported as the gap it is rather than counted as asked for.
+  const asked = new Set(batches.flat());
+  const requestedClasses = new Set(
+    batches.length
+      ? poolClasses.filter((placeClass) =>
+          ((LISTING_CATEGORIES as Record<string, readonly string[] | undefined>)[placeClass] ?? [])
+            .some((name) => asked.has(name)))
+      : poolClasses,
+  );
+  const items: DataForSeoListing[] = [];
+  let costUsd = 0;
+  for (const categories of requests) {
+    const response = await listingFetch(
+      "https://api.dataforseo.com/v3/business_data/business_listings/search/live",
+      {
+        method: "POST",
+        headers: {
+          authorization: `Basic ${Buffer.from(`${process.env.DATAFORSEO_LOGIN}:${process.env.DATAFORSEO_PASSWORD}`).toString("base64")}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify([{
+          location_coordinate: coordinate,
+          limit: listingRequestLimit(candidates.length, categories?.length ?? DATAFORSEO_CATEGORIES_PER_REQUEST),
+          ...(categories ? { categories } : {}),
+        }]),
+      },
+    );
+    if (!response.ok) {
+      await response.body?.cancel();
+      throw new Error(`DataForSEO returned ${response.status}`);
+    }
+    const parsed = responseListings(await response.json());
+    items.push(...parsed.items);
+    costUsd += parsed.cost ?? DATAFORSEO_REQUEST_USD + DATAFORSEO_ITEM_USD * parsed.items.length;
+  }
+  const { matches, diagnostics } =
+    matchListingsWithDiagnostics(candidates, items, observedAt, requestedClasses);
+  return {
+    observedAt, returnedItems: items.length, requests: requests.length,
+    costUsd, matches, diagnostics,
+  };
 }

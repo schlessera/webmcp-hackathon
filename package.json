@@ -12,7 +12,8 @@
     "test:unit": "vitest run tests/unit",
     "test:api": "vitest run tests/api",
     "test:e2e": "pnpm --filter @webmcp-hackathon/web build && playwright test tests/e2e/three-user.spec.ts tests/e2e/spokes-ui.spec.ts tests/e2e/spokes-flow.spec.ts tests/e2e/landing.spec.ts",
-    "test:native": "playwright test tests/e2e/native-webmcp.spec.ts"
+    "test:native": "playwright test tests/e2e/native-webmcp.spec.ts",
+    "prepopulate": "node --env-file-if-exists=.env apps/server/src/prepopulate.ts"
   },
   "devDependencies": {
     "@playwright/test": "1.62.1",

@@ -1469,24 +1469,7 @@ export async function refreshRoomListings(
       )).rows as Array<{ osm_ref: string; listing: ListingFacts | null }>
     : [];
   const previousByRef = new Map(previous.map((row) => [row.osm_ref, row.listing]));
-  if (batch.matches.length > 0) {
-    const values: unknown[] = [];
-    const rows = batch.matches.map((match, index) => {
-      const offset = index * 3;
-      values.push(match.candidate.osmRef, match.facts.expiresAt, JSON.stringify(match.facts));
-      return `($${offset + 1}, now(), $${offset + 2}::timestamptz, $${offset + 3}::jsonb)`;
-    });
-    await pool.query(
-      `INSERT INTO enrichments (osm_ref, fetched_at, expires_at, listing)
-       VALUES ${rows.join(", ")}
-       ON CONFLICT (osm_ref) DO UPDATE SET
-         listing = EXCLUDED.listing,
-         fetched_at = GREATEST(enrichments.fetched_at, EXCLUDED.fetched_at),
-         expires_at = GREATEST(enrichments.expires_at, EXCLUDED.expires_at)`,
-      values,
-    );
-    await saveInferences(pool, batch.matches.map(listingInferenceWrite));
-  }
+  await persistListingMatches(pool, batch.matches);
   const changedCandidateIds = batch.matches.flatMap((match) =>
     listingIdentity(previousByRef.get(match.candidate.osmRef)) !== listingIdentity(match.facts)
       ? [match.candidate.candidateId]
@@ -2338,4 +2321,45 @@ export function lookupTargetOf(row: {
       ? { wikimediaCommons: row.extras.wikimediaCommons }
       : {}),
   };
+}
+
+/** Persist the same normalized listing facts for a region without creating a room. */
+export async function persistListingMatches(pool: pg.Pool, matches: MatchedListing[]): Promise<void> {
+  if (matches.length > 0) {
+    const values: unknown[] = [];
+    const rows = matches.map((match, index) => {
+      const offset = index * 3;
+      values.push(match.candidate.osmRef, match.facts.expiresAt, JSON.stringify(match.facts));
+      return `($${offset + 1}, now(), $${offset + 2}::timestamptz, $${offset + 3}::jsonb)`;
+    });
+    await pool.query(
+      `INSERT INTO enrichments (osm_ref, fetched_at, expires_at, listing)
+       VALUES ${rows.join(", ")}
+       ON CONFLICT (osm_ref) DO UPDATE SET
+         listing = EXCLUDED.listing,
+         fetched_at = GREATEST(enrichments.fetched_at, EXCLUDED.fetched_at),
+         expires_at = GREATEST(enrichments.expires_at, EXCLUDED.expires_at)`,
+      values,
+    );
+    await saveInferences(pool, matches.map(listingInferenceWrite));
+  }
+}
+
+/** Awaitable offline asset pass. Honor the full cache TTL rather than the
+ * interactive ten-minute reread window; no room or participant is needed. */
+export async function warmCachedImages(
+  db: pg.Pool,
+  target: LookupTarget,
+  pass: LookupPass,
+): Promise<void> {
+  if (process.env.ENRICH_NETWORK === "0" || !(await imageRefreshDue(db, target.osmRef))) return;
+  await refreshPipelineImages(
+    db,
+    "prepopulate",
+    { id: target.osmRef, osm_ref: target.osmRef, name: target.placeName ?? "",
+      category: "", attributes: [], extras: null },
+    { ...target, candidateId: target.osmRef },
+    pass.enrichment ?? undefined,
+    pass.imageCandidates ?? [],
+  );
 }

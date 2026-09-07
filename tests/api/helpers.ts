@@ -25,7 +25,7 @@ export async function resetApiCacheState(
   queryable: Pick<pg.Pool, "query">,
 ): Promise<void> {
   await queryable.query(
-    "TRUNCATE page_cache, search_cache, matrix_cache, outbound_metadata_cache, enrichments",
+    "TRUNCATE page_cache, search_cache, matrix_cache, outbound_metadata_cache, enrichments, prepopulate_listing_fetches",
   );
 }
 

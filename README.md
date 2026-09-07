@@ -143,6 +143,17 @@ make dev
 
 The app is served at `http://127.0.0.1:4173`.
 
+To warm reusable provider data before a demo:
+
+```bash
+pnpm prepopulate --area berlin-mitte --dry-run
+pnpm prepopulate --area berlin-mitte
+```
+
+Use the demo's database and provider settings, with migrations applied. The CLI
+also supports `sf-soma`, smaller place limits and selected source passes.
+See [Prepare a demo region](docs/PREPOPULATE.md) for setup and cache lifetimes.
+
 ## Test
 
 ```bash

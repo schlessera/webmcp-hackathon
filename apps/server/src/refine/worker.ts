@@ -827,14 +827,16 @@ export async function searchRefinementPlaces(
       }
     }
     let results: SearchResult[] = [];
+    let succeeded = false;
     try {
       results = await provider(query, domains || signal
         ? { ...(domains ? { domains } : {}), ...(signal ? { signal } : {}) }
         : undefined);
+      succeeded = true;
     } catch {
       results = [];
     }
-    if (policy.cacheDb && (providerName === "tavily" || providerName === "parallel")) {
+    if (succeeded && policy.cacheDb && (providerName === "tavily" || providerName === "parallel")) {
       await storeSearchCache(policy.cacheDb, {
         osmRef: request.osmRef,
         query,
