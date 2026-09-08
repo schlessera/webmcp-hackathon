@@ -451,8 +451,9 @@ body { overflow: hidden; }
   position: absolute;
   left: 50%; top: 50%;
   transform: translate(calc(-1 * var(--sticker-anchor-x)), -50%);
+  visibility: visible;
   opacity: 1;
-  transition: opacity var(--spoke-dur-settle) var(--spoke-ease);
+  transition: opacity var(--spoke-dur-settle) var(--spoke-ease), visibility 0s;
 }
 .marker-sticker[data-side="right"] {
   --oriented-tilt: calc(-1 * var(--tilt, 0deg));
@@ -460,7 +461,10 @@ body { overflow: hidden; }
 }
 .marker[data-named="false"] .marker-sticker {
   opacity: 0;
+  visibility: hidden;
   pointer-events: none;
+  transition: opacity var(--spoke-dur-settle) var(--spoke-ease),
+    visibility 0s var(--spoke-dur-settle);
 }
 /* Leaving the named set: the card shrinks back onto its dot over the settle
    while the dot itself stays exactly where it is (§8). */
@@ -495,6 +499,33 @@ body { overflow: hidden; }
   padding-right: var(--sticker-dot-pad);
   padding-left: var(--sticker-far-pad);
   transform-origin: calc(100% - var(--sticker-anchor-x)) 50%;
+}
+
+/* A raised pin has one solid silhouette. Fading the card made its widening
+   stem show through the plate, then darken below it like a second pin.
+   Grow the opaque card from its head so it cleanly occludes the stem. */
+.maplibregl-map[data-pins-raised="true"] .marker-sticker {
+  z-index: 2;
+  opacity: 1;
+  transition: visibility 0s;
+}
+.maplibregl-map[data-pins-raised="true"] .marker[data-named="false"] .marker-sticker {
+  transition: visibility 0s var(--spoke-dur-settle);
+}
+.maplibregl-map[data-pins-raised="true"] .marker[data-named="false"] .sticker-box {
+  scale: 0;
+}
+@starting-style {
+  .maplibregl-map[data-pins-raised="true"] .marker[data-named="true"] .sticker-box {
+    scale: 0;
+  }
+  /* A canvas pin gaining its first DOM card still needs a head on frame one. */
+  .maplibregl-map[data-pins-raised="true"] .marker[data-named="true"] .marker-dot {
+    opacity: 1;
+  }
+  .maplibregl-map[data-pins-raised="true"] .marker[data-named="true"][data-state="out"] .marker-dot {
+    opacity: var(--spoke-out-opacity);
+  }
 }
 
 .sticker-dot {

@@ -295,6 +295,8 @@ export function bindMapPins(map: MapLibreMap): () => void {
     try {
       const pitch = map.getPitch();
       const lift = pinLift(pitch);
+      const raised = pitch > 0 ? "true" : "false";
+      if (container.dataset.pinsRaised !== raised) container.dataset.pinsRaised = raised;
       container.style.setProperty("--map-pin-lift", `${lift}px`);
       container.style.setProperty("--map-pin-visible", lift > 0 ? "1" : "0");
       if (pitch === 0) {
@@ -352,6 +354,7 @@ export function bindMapPins(map: MapLibreMap): () => void {
     restoreTransitions();
     projectionMatrices.delete(map);
     roomCoordinates.delete(map);
+    delete container.dataset.pinsRaised;
     canvas.remove();
     headCanvas.remove();
   };

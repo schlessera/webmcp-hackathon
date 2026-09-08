@@ -16,6 +16,10 @@ stems. Label appearance keeps a room pin's head and ground tip fixed while the
 triangle's top widens from 3px to 12px over the label's 420ms transition. The
 width animates perpendicular to the stem, preserving its perspective; newly
 created labels start narrow too. Reduced motion changes the width instantly.
+In 3D, the label grows as an opaque plate, covering the part of the widening
+stem beneath it. Fading a translucent plate made that stem look like two
+overlapping pins. Mirrored cards retain their side while collapsing back to a
+dot. Hidden cards stay hidden when switching between 2D and 3D.
 Heads are projected at a positive Mercator Z using MapLibre's full-precision
 camera matrix, so outer pins lean outward like upright objects above the map.
 X/Y remain at the POI. Height is normalized for zoom to keep the pins readable;

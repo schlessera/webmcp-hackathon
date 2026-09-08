@@ -3750,18 +3750,33 @@ async function expectOutwardPinPerspective(page: Page) {
   for (const pin of right) { expect(pin.dx).toBeGreaterThan(0.1); expect(pin.dy).toBeLessThan(0); }
 }
 
-function sampleNeedleSpread(page: Page, candidateId: string) {
-  return page.evaluate((id) => new Promise<number[]>((resolve) => {
-    const samples: number[] = [];
+async function sampleNeedleSpread(page: Page, candidateId: string) {
+  const samples = await page.evaluate((id) => new Promise<Array<{ width: number; plateOpacity: number; plateAboveDot: boolean }>>((resolve) => {
+    const samples: Array<{ width: number; plateOpacity: number; plateAboveDot: boolean }> = [];
     const start = performance.now();
     const sample = () => {
       const needle = document.querySelector(`[data-candidate-id="${id}"] .marker-needle-width`);
-      if (needle) samples.push(new DOMMatrixReadOnly(getComputedStyle(needle).transform).a);
+      if (needle) {
+        const marker = needle.closest(".marker")!;
+        const plate = getComputedStyle(marker.querySelector(".marker-sticker")!);
+        const dot = getComputedStyle(marker.querySelector(".marker-dot")!);
+        samples.push({
+          width: new DOMMatrixReadOnly(getComputedStyle(needle).transform).a,
+          plateOpacity: Number(plate.opacity),
+          plateAboveDot: Number(plate.zIndex) > Number(dot.zIndex),
+        });
+      }
       if (performance.now() - start < 600) requestAnimationFrame(sample);
       else resolve(samples);
     };
     requestAnimationFrame(sample);
   }), candidateId);
+  // Neither the widening stem nor the old head may show through the plate.
+  for (const sample of samples) {
+    expect(sample.plateOpacity).toBe(1);
+    expect(sample.plateAboveDot).toBe(true);
+  }
+  return samples.map((sample) => sample.width);
 }
 
 for (const device of [
@@ -3872,6 +3887,7 @@ for (const device of [
     });
     expect(promotedHead[0]).toBeCloseTo(glOnly.point[0], 3);
     expect(promotedHead[1]).toBeCloseTo(glOnly.point[1], 3);
+    await page.screenshot({ path: testInfo.outputPath(`pins-canvas-growing-${device.name}.png`) });
     const mountedWidths = await mountingSpread;
     expect(mountedWidths.some((width) => width > 1.01 && width < 3.99)).toBe(device.reducedMotion !== "reduce");
     expect(mountedWidths.at(-1)).toBe(4);
@@ -3915,9 +3931,11 @@ for (const device of [
     expect(growingWidths.at(-1)).toBe(4);
     await page.screenshot({ path: testInfo.outputPath(`pins-label-${device.name}.png`) });
     expect(await geometry()).toEqual(beforeLabel);
+    const labelSide = await bare.locator(".marker-sticker").getAttribute("data-side");
     const shrinkingSpread = sampleNeedleSpread(page, bareId!);
     peerViews(null);
     await expect(bare).toHaveAttribute("data-named", "false");
+    await expect(bare.locator(".marker-sticker")).toHaveAttribute("data-side", labelSide!);
     expect(await geometry()).toEqual(beforeLabel);
     const shrinkingWidths = await shrinkingSpread;
     expect(shrinkingWidths.some((width) => width > 1.01 && width < 3.99)).toBe(device.reducedMotion !== "reduce");

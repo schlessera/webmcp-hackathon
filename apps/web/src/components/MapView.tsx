@@ -1339,6 +1339,16 @@ export function MapView({
     targetCandidateId,
   ]);
 
+  // A departing card must fold toward the same head from the same side.
+  // Falling back to "left" on dismissal flips a mirrored card mid-animation.
+  const lastNamedSides = useRef(new globalThis.Map<string, "left" | "right">());
+  useEffect(() => {
+    for (const [id, side] of named) lastNamedSides.current.set(id, side);
+    for (const id of lastNamedSides.current.keys()) {
+      if (!domCandidateIds.has(id)) lastNamedSides.current.delete(id);
+    }
+  }, [named, domCandidateIds]);
+
   /* Draw order and the dashed filter are layout facts baked into the source,
      because neither `circle-sort-key` nor a layer filter can read feature
      state. They are therefore keyed on the *committed* reading of a place —
@@ -2822,7 +2832,7 @@ export function MapView({
                 )}
                 <div
                   className="marker-sticker"
-                  data-side={named.get(c.candidateId) ?? "left"}
+                  data-side={named.get(c.candidateId) ?? lastNamedSides.current.get(c.candidateId) ?? "left"}
                   style={{
                     "--tilt": `${tiltFor(c.candidateId)}deg`,
                     "--sticker-anchor-x": `${STICKER_ANCHOR_PX}px`,
