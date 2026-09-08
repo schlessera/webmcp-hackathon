@@ -138,6 +138,16 @@ afterEach(() => {
   resetPlanCaches();
 });
 
+it("does not preview a partial goal when stage A reports an unrepresented requirement", async () => {
+  setTransport(async () => ({ output: [{ type: "message", content: [{ type: "output_text", text: JSON.stringify({
+    intent: "plan", confidence: 1, reply: null, steps: [{ placeClass: "food" }],
+    concepts: [{ ...dogs, step: 1 }], unrepresented: ["a separate play area"],
+  }) }] }] }));
+  const preview = await planPreview("dinner with the dogs and a separate play area", area, { now: NOW });
+  expect(preview.clarify).toMatchObject({ allowFreeText: true });
+  expect(preview.steps.flatMap((step) => step.needs)).toEqual([]);
+});
+
 describe("plan preview corpus", () => {
   it("covers the four design sentences in both languages", () => {
     expect(planRows).toHaveLength(8);

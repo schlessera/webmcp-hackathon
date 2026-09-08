@@ -77,5 +77,7 @@ export interface Interpretation {
   concepts: Concept[];
   confidence: number;
   reply: string | null;
+  /** Source clauses stage A could not preserve, including concept overflow. */
+  unrepresented?: string[];
   meta: { model: string | null; ms: number; preparsedWhole: boolean };
 }

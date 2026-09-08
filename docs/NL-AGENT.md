@@ -57,8 +57,9 @@ unavailable response.
 1. The shared [EN/DE pre-parser](../packages/contracts/src/understand/preparse.ts)
    extracts quantities, units, bounds, travel modes, referents, and civil-time
    concepts. A fully understood sentence needs no model call.
-2. Remaining words go to the route model with the pre-parsed concepts. The
-   returned schema describes an interpretation, not an authorized command.
+2. If only part of the sentence was parsed, the entire original sentence goes
+   to the route model so qualifiers retain their scope. The returned schema
+   describes an interpretation, not an authorized command.
 3. [Server mapping](../apps/server/src/nl/understand/map.ts) resolves concepts
    against the room's facets and named referents, checks ranges, composes labels,
    and validates requirement payloads. Metres and minutes remain different
@@ -71,6 +72,39 @@ Questions can also carry needs: an `ask` about vegan options can return both a
 reply and a vegan requirement. Room moves such as proposing, accepting,
 withdrawing, or vetoing route as `act`. The server distinguishes a question
 from a stated need; punctuation alone is insufficient.
+
+### Attribute meaning and clause coverage
+
+The route prompt includes the shared
+[attribute definitions](../packages/contracts/src/attribute-definitions.ts),
+including what each key does **not** establish. For example, Wi-Fi availability
+does not establish call quality; a step-free entrance does not establish access
+without staff help. Attribute keys are also enumerated in the output schema.
+
+Polarity applies to the normalized attribute: “no stairs” requests a true
+`step-free-entrance`, while “no outdoor seating” requests a false
+`outdoor-seating`. “Not required” waives a feature rather than excluding it.
+Independent AND clauses retain separate hardness choices. OR groups and
+contextual conditions retain their source wording as text with lookup hints.
+Known/unknown cuisine alternatives stay together rather than becoming two
+mandatory needs.
+
+Both parser paths retain their full concept list until the server checks the
+five-concept limit. Model output must report clauses it cannot represent in
+`unrepresented`. Reported omissions, overflow, uncovered meaningful source
+words, and unmappable quantities return clarification without a partial set of
+requirements. Plan preview also refuses a partial goal when the model reports
+omitted requirements. Existing unit/referent clarification can still return
+independently resolved needs.
+
+The [coverage check](../apps/server/src/nl/understand/coverage.ts) matches
+contiguous source word spans, allowing ordinary English/German framing outside
+them. Negation, preference, time, and other qualifiers must be retained.
+The mapper also preserves known contextual qualifiers when a model incorrectly
+labels the whole phrase as a bare attribute. These checks detect specific
+failure modes; they do not prove semantic equivalence. An unfamiliar framing
+phrase can cause an extra clarification, and novel qualifier wording or
+incorrectly grouped logic can still be misinterpreted.
 
 ### How it reaches the page
 
@@ -221,3 +255,4 @@ Relevant regression suites are [security](../tests/api/security.test.ts),
 [steps](../tests/api/steps.test.ts), and [time resolution](../tests/unit/time.test.ts).
 Scripted model tests check application behavior; they are not a benchmark of
 current provider/model interpretation quality.
+

@@ -31,6 +31,7 @@ import { mapInterpretation, type UnderstandInput } from "./understand/map.ts";
 import { resolveConceptReferent } from "./understand/resolvers.ts";
 import type { Clarification, ParsedNeed } from "./understand/types.ts";
 import { SCHEMA, conceptFromDraft, modelInstructions, type Draft, type DraftConcept } from "./say.ts";
+import { incompleteReading, MAX_CONCEPTS } from "./understand/coverage.ts";
 
 /**
  * Goal-first room creation (UNDERSTANDING-ARCH.md §10, D1).
@@ -370,6 +371,7 @@ export async function planPreview(
   let byStep: Concept[][] = [parsed.concepts];
   let classes: StepClass[] = [defaultStepClass()];
   let meta: PlanPreview["meta"] = { model: null, ms: 0 };
+  let incomplete: Clarification | null = null;
 
   if (!parsed.preparsedWhole) {
     const reply = await respond({
@@ -391,6 +393,9 @@ export async function planPreview(
       serviceTier: "default",
     });
     const draft = parseJson<PlanDraft>(reply.text);
+    if ((draft?.concepts?.length ?? 0) > MAX_CONCEPTS || draft?.unrepresented?.length) {
+      incomplete = incompleteReading(goal, (draft?.concepts?.length ?? 0) >= MAX_CONCEPTS).clarify;
+    }
     const drafted = (draft?.steps ?? [])
       .slice(0, STEPS_MAX)
       .map((step) => stepClassByKey(step?.placeClass ?? "") ?? defaultStepClass());
@@ -406,7 +411,6 @@ export async function planPreview(
         : 0;
       byStep[at].push(conceptFromDraft(raw));
     }
-    byStep = byStep.map((concepts) => concepts.slice(0, 5));
     meta = { model: reply.model, ms: reply.ms };
   }
 
@@ -414,7 +418,7 @@ export async function planPreview(
   // its own class has, so a cuisine routes on a food step and a subject
   // becomes a question on a cinema step.
   const steps: PlanStep[] = [];
-  let clarify: Clarification | null = null;
+  let clarify: Clarification | null = incomplete;
   for (const [i, stepClass] of classes.entries()) {
     const concepts = byStep[i] ?? [];
     const input = planInput(goal, area, stepClass, now, options.timezone);
@@ -473,7 +477,7 @@ export async function planPreview(
   return {
     goal,
     offline: false,
-    steps,
+    steps: incomplete ? steps.map((step) => ({ ...step, needs: [], when: null })) : steps,
     // Counts belong to an area, and before one is chosen there are none to
     // give. The region dialog is where they arrive (GET /api/areas).
     classes: area ? areaClassCounts(area.id) : [],

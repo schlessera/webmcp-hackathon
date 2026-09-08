@@ -146,16 +146,15 @@ describe("stage-B mapping table", () => {
     expect(out.needs[3].label).toBe("good for children");
   });
 
-  it("maps excluded known kinds and splits an unknown included kind into a safe question", () => {
+  it("keeps known/unknown cuisine alternatives together instead of requiring both", () => {
     const excluded = concept({ role: "kind", surface: "no Italian", polarity: "exclude", values: ["italian"], gist: "no italian" });
     const unknown = concept({ role: "kind", surface: "Italian or Martian", values: ["italian", "martian"], gist: "italian or martian" });
     const out = mapInterpretation(interpretation([excluded, unknown]), input("no Italian; Italian or Martian"));
     expect(out.needs.map((need) => need.payload)).toEqual([
       { kind: "exclusion", key: "cuisine", values: ["italian"], lifetime: "session" },
-      { kind: "inclusion", key: "cuisine", values: ["italian"], lifetime: "session" },
-      { kind: "text", text: "is this a martian kind of place?" },
+      { kind: "text", text: "Italian or Martian", evidenceKeys: ["cuisine"] },
     ]);
-    expect(out.needs[2].label).toBe("martian place");
+    expect(out.needs).toHaveLength(2);
   });
 
   it("clarifies an unknown excluded kind with a recorded alternative and a safe text need", () => {

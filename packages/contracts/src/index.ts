@@ -1,6 +1,7 @@
 export * from "./versions.ts";
 export * from "./wire.ts";
 export * from "./manifest.ts";
+export * from "./attribute-definitions.ts";
 export * from "./errors.ts";
 export * from "./envelope.ts";
 export * from "./tools.ts";

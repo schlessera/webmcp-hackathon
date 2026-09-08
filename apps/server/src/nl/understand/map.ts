@@ -21,10 +21,14 @@ import {
 } from "./clarify.ts";
 import { resolveConceptReferent, type ReferentRoom } from "./resolvers.ts";
 import type { Clarification, MapResult, ParsedNeed } from "./types.ts";
+import { incompleteReading, MAX_CONCEPTS, uncoveredSourceWords } from "./coverage.ts";
+import { isQualifiedAttribute } from "./attribute-condition.ts";
 
 export interface UnderstandInput {
   text: string;
   scope: string;
+  /** /say checks source words; a plan assigns class words separately. */
+  checkSourceCoverage?: boolean;
   clarifyOf?: { said: string; question: string };
   room: ReferentRoom & {
     timezone: string;
@@ -167,12 +171,24 @@ export function looksInterrogative(text: string): boolean {
 }
 
 export function mapInterpretation(interpretation: Interpretation, input: UnderstandInput): MapResult {
-  const alternatives = /\b(?:or|either|unless|otherwise|oder|entweder|falls|sonst)\b/i;
+  if (interpretation.concepts.length > MAX_CONCEPTS || interpretation.unrepresented?.length) {
+    return incompleteReading(input.text, interpretation.concepts.length >= MAX_CONCEPTS);
+  }
+  const alternatives = /\b(?:or|either|unless|otherwise|if|oder|entweder|falls|sonst|wenn)\b/gi;
+  const operators = (text: string) => [...text.replace(/\b(?:if possible|wenn m[oö]glich)\b/gi, "").matchAll(alternatives)]
+    .map((match) => match[0].toLocaleLowerCase());
   const concepts = interpretation.concepts;
-  const lostAlternative = alternatives.test(input.text) && concepts.length > 0 &&
-    !concepts.some((c) => c.role === "quality" && alternatives.test(c.surface)) &&
-    !concepts.some((c) => c.role === "kind" && c.values.length > 1);
-  if (lostAlternative && ["need", "plan"].includes(interpretation.intent)) {
+  const representedOperators = concepts.filter((c) => c.role === "quality" || (c.role === "kind" && c.values.length > 1))
+    .flatMap((c) => operators(c.surface));
+  const lostAlternative = concepts.length > 0 && operators(input.text).some((operator) => {
+    const at = representedOperators.indexOf(operator);
+    if (at < 0) return true;
+    representedOperators.splice(at, 1);
+    return false;
+  });
+  if (lostAlternative && ["need", "plan", "ask"].includes(interpretation.intent)) {
+    // A single fallback condition cannot encode separate hard/soft choices.
+    if (new Set(concepts.map((c) => c.hardness)).size > 1) return incompleteReading(input.text);
     // Conservative repair of a malformed stage-A split. The existing question
     // evaluator can reason over the complete condition; independent must-haves
     // cannot represent an alternative.
@@ -182,13 +198,18 @@ export function mapInterpretation(interpretation: Interpretation, input: Underst
       evidenceKeys: [...new Set(concepts.flatMap((c) => [...(c.evidenceKeys ?? []), ...(c.attributeKey ? [c.attributeKey] : [])]))].slice(0, 6),
     }] };
   }
+  if (input.checkSourceCoverage && !interpretation.meta.preparsedWhole &&
+      (interpretation.intent === "need" || (interpretation.intent === "ask" && interpretation.concepts.length > 0)) &&
+      uncoveredSourceWords(input.text, interpretation.concepts).length > 0) {
+    return incompleteReading(input.text);
+  }
   const needs: ParsedNeed[] = [];
   let clarify: Clarification | null = null;
   const cuisines = new Set(
     input.room.facets.find((facet) => facet.key === "cuisine" && facet.type === "enum")?.values?.map((row) => row.value) ?? [],
   );
 
-  for (const sourceConcept of interpretation.concepts.slice(0, 5)) {
+  for (const sourceConcept of interpretation.concepts) {
     let concept = sourceConcept;
     let assumedUnit: string | undefined;
     if (
@@ -260,7 +281,7 @@ export function mapInterpretation(interpretation: Interpretation, input: Underst
           resolved.label,
           assumedUnit ?? assumedFor(concept, label, input.room.hasOwnOrigin, interpretation.confidence),
         ));
-      }
+      } else return incompleteReading(input.text);
       continue;
     }
 
@@ -269,7 +290,7 @@ export function mapInterpretation(interpretation: Interpretation, input: Underst
       if (payload) {
         const label = labelFor(payload);
         needs.push(parsedNeed(concept, payload, null, assumedFor(concept, label, true, interpretation.confidence)));
-      }
+      } else return incompleteReading(input.text);
       continue;
     }
 
@@ -291,12 +312,19 @@ export function mapInterpretation(interpretation: Interpretation, input: Underst
           window,
           ...(concept.phrase ? { phrase: concept.phrase.slice(0, 200) } : {}),
         }));
-      }
+      } else return incompleteReading(input.text);
       continue;
     }
 
     if (concept.role === "attribute") {
       if ((ATTRIBUTE_VOCABULARY as readonly string[]).includes(concept.attributeKey ?? "") && concept.attributeKey !== "price-level" && concept.attributeKey !== "cuisine") {
+        if (isQualifiedAttribute(concept.attributeKey!, concept.surface)) {
+          if (concept.surface.length > 200) return incompleteReading(input.text);
+          needs.push(parsedNeed(concept, {
+            kind: "text", text: concept.surface, evidenceKeys: [concept.attributeKey],
+          }));
+          continue;
+        }
         needs.push(parsedNeed(concept, {
           kind: "attribute",
           key: concept.attributeKey,
@@ -310,8 +338,15 @@ export function mapInterpretation(interpretation: Interpretation, input: Underst
 
     if (concept.role === "kind") {
       const normalized = [...new Set(concept.values.flatMap(normalizeCuisineTokens))];
+      if (!normalized.length) return incompleteReading(input.text);
       const known = normalized.filter((value) => actionableCuisine(value, cuisines));
       const unknown = normalized.filter((value) => !actionableCuisine(value, cuisines));
+      if (known.length && unknown.length && concept.polarity === "include") {
+        // Splitting a mixed known/unknown OR would require both alternatives.
+        if (concept.surface.length > 200) return incompleteReading(input.text);
+        needs.push(parsedNeed(concept, { kind: "text", text: concept.surface, evidenceKeys: ["cuisine"] }));
+        continue;
+      }
       if (known.length) {
         const kind = concept.polarity === "exclude" ? "exclusion" : "inclusion";
         needs.push(parsedNeed(concept, { kind, key: "cuisine", values: known, lifetime: "session" }));

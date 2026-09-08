@@ -750,7 +750,8 @@ export function preparse(text: string, locale: PreparseLocale): PreparseResult {
   const remainder = cleanRemainder(text, consumed);
   concepts.sort((left, right) => text.indexOf(left.surface) - text.indexOf(right.surface));
   return {
-    concepts: concepts.slice(0, 5),
+    // Keep every parsed clause so the caller can clarify overflow atomically.
+    concepts,
     consumed,
     remainder,
     preparsedWhole: concepts.length > 0 && onlyStopwords(remainder),

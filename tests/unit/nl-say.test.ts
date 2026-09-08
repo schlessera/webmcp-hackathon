@@ -66,6 +66,101 @@ afterEach(() => {
 
 describe("say orchestration", () => {
   it.each([
+    ["quiet tonight", "quiet"],
+    ["step-free entry without staff help", "step-free-entrance"],
+    ["Stufenloser Eingang ohne Hilfe", "step-free-entrance"],
+    ["gluten-free options without cross-contamination", "gluten-free-options"],
+    ["Wi-Fi fast enough for a video call", "wifi"],
+    ["dogs allowed inside", "dog-friendly"],
+  ])("preserves known qualifiers even when the model chooses a bare attribute: %s", async (text, key) => {
+    scripted({ intent: "need", confidence: 1, reply: null, unrepresented: [], concepts: [
+      draftConcept({ role: "attribute", surface: text, attributeKey: key }),
+    ] });
+    const out = await say(text, "shared", context);
+    expect(out.intent).toBe("need");
+    expect(out.needs.map((need) => need.payload)).toEqual([{ kind: "text", text, evidenceKeys: [key] }]);
+  });
+
+  it.each([
+    ["quiet tonight", "quiet"],
+    ["preferably quiet", "quiet"],
+    ["no outdoor seating", "outdoor seating"],
+    ["quiet and vegan options", "quiet"],
+    ["quieter", "quiet"],
+  ])("clarifies uncovered source wording instead of applying a partial reading: %s", async (text, surface) => {
+    scripted({ intent: "need", confidence: 1, reply: null, unrepresented: [], concepts: [
+      draftConcept({ role: "attribute", surface, attributeKey: "quiet" }),
+    ] });
+    const out = await say(text, "shared", context);
+    expect(out).toMatchObject({ intent: "clarify", needs: [], clarify: { allowFreeText: true, said: text } });
+  });
+
+  it("allows ordinary framing outside the source span", async () => {
+    scripted({ intent: "need", confidence: 1, reply: null, unrepresented: [], concepts: [
+      draftConcept({ role: "attribute", surface: "quiet", attributeKey: "quiet" }),
+    ] });
+    const out = await say("Please find us a quiet place", "shared", context);
+    expect(out).toMatchObject({ intent: "need", needs: [{ payload: { key: "quiet", expect: "verified_true" } }] });
+  });
+
+  it("does not turn an explicitly waived feature into a requirement", async () => {
+    scripted({ intent: "need", confidence: 1, reply: null, unrepresented: [], concepts: [
+      draftConcept({ role: "attribute", surface: "quiet is essential", attributeKey: "quiet" }),
+    ] });
+    const out = await say("Wi-Fi is not required, but quiet is essential", "shared", context);
+    expect(out.intent).toBe("need");
+    expect(out.needs.map((need) => need.payload)).toEqual([{ kind: "attribute", key: "quiet", expect: "verified_true" }]);
+  });
+
+  it.each([true, false])("refuses model overflow atomically (explicitly reported: %s)", async (reported) => {
+    const surfaces = ["vegan options", "Wi-Fi", "quiet", "takeaway", "delivery"];
+    const keys = ["vegan-options", "wifi", "quiet", "takeaway", "delivery"];
+    scripted({ intent: "need", confidence: 1, reply: null, unrepresented: reported ? ["dogs welcome"] : [],
+      concepts: surfaces.map((surface, i) => draftConcept({ role: "attribute", surface, attributeKey: keys[i] })),
+    });
+    const out = await say([...surfaces, "dogs welcome"].join(" and "), "shared", context);
+    expect(out).toMatchObject({ intent: "clarify", needs: [], clarify: { allowFreeText: true } });
+  });
+
+  it("does not truncate six fully pre-parsed quantities", async () => {
+    setTransport(async () => { throw new Error("the deterministic path must stay offline"); });
+    const out = await say("under 10 EUR and within 100 m and under 20 EUR and within 200 m and under 30 EUR and within 300 m", "shared", context);
+    expect(out).toMatchObject({ intent: "clarify", needs: [], meta: { model: null } });
+    expect(out.clarify?.question).toContain("five");
+  });
+
+  it("checks every OR group, even when one was already preserved", async () => {
+    const text = "Wi-Fi or quiet, and takeaway or delivery";
+    scripted({ intent: "need", confidence: 1, reply: null, concepts: [
+      draftConcept({ surface: "Wi-Fi or quiet", evidenceKeys: ["wifi", "quiet"] }),
+      draftConcept({ role: "attribute", surface: "takeaway", attributeKey: "takeaway" }),
+      draftConcept({ role: "attribute", surface: "delivery", attributeKey: "delivery" }),
+    ] });
+    const out = await say(text, "shared", context);
+    expect(out.needs).toHaveLength(1);
+    expect(out.needs[0].payload).toMatchObject({ kind: "text", text });
+  });
+
+  it("clarifies an invalid OR split when fallback would make a preference mandatory", async () => {
+    scripted({ intent: "need", confidence: 1, reply: null, concepts: [
+      draftConcept({ role: "attribute", surface: "Wi-Fi", attributeKey: "wifi" }),
+      draftConcept({ role: "attribute", surface: "quiet", attributeKey: "quiet" }),
+      draftConcept({ role: "attribute", surface: "preferably takeaway", attributeKey: "takeaway", hardness: "soft" }),
+    ] });
+    const out = await say("Wi-Fi or quiet, and preferably takeaway", "shared", context);
+    expect(out).toMatchObject({ intent: "clarify", needs: [] });
+  });
+
+  it("clarifies when mapping cannot preserve a returned quantitative clause", async () => {
+    scripted({ intent: "need", confidence: 1, reply: null, concepts: [
+      draftConcept({ role: "attribute", surface: "quiet", attributeKey: "quiet" }),
+      draftConcept({ role: "money", surface: "within budget", quantityValue: null }),
+    ] });
+    const out = await say("quiet and within budget", "shared", context);
+    expect(out).toMatchObject({ intent: "clarify", needs: [] });
+  });
+
+  it.each([
     ["dogs allowed inside or on a covered terrace", ["dog-friendly", "outdoor-seating"]],
     ["quiet tonight", ["quiet"]],
     ["a toilet within 300 m", ["nearby-toilets"]],
@@ -314,7 +409,7 @@ describe("say orchestration", () => {
       intent: "need", confidence: 1, reply: null,
       concepts: [draftConcept({ role: "time", surface: "sometime soon", windowStart: "tomorrow", windowEnd: "later", gist: "soon" })],
     });
-    expect((await say("sometime soon", "shared", context)).intent).toBe("unclear");
+    expect((await say("sometime soon", "shared", context)).intent).toBe("clarify");
   });
 
   it("returns facet-built suggestions for valid off-topic input", async () => {

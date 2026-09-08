@@ -2,6 +2,7 @@ import AjvModule from "ajv";
 import addFormatsModule from "ajv-formats";
 import {
   ATTRIBUTE_LABELS,
+  ATTRIBUTE_DEFINITIONS,
   ATTRIBUTE_VOCABULARY,
   EVIDENCE_KEYS,
   HINT_TAXONOMY,
@@ -17,6 +18,7 @@ import {
 } from "@webmcp-hackathon/contracts";
 import { config } from "../config.ts";
 import { mapInterpretation, type UnderstandInput } from "./understand/map.ts";
+import { incompleteReading, MAX_CONCEPTS } from "./understand/coverage.ts";
 import type { Clarification, ClarifyChoice, ParsedNeed } from "./understand/types.ts";
 import { parseJson, respond } from "./llm.ts";
 
@@ -62,6 +64,7 @@ export interface Draft {
   confidence: number;
   concepts: DraftConcept[];
   reply: string | null;
+  unrepresented: string[];
 }
 
 const NULLABLE_STRING = { type: ["string", "null"] };
@@ -70,14 +73,15 @@ const NULLABLE_STRING = { type: ["string", "null"] };
 export const SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["intent", "confidence", "concepts", "reply"],
+  required: ["intent", "confidence", "concepts", "reply", "unrepresented"],
   properties: {
     intent: { enum: ["need", "ask", "act", "other"] },
     confidence: { type: "number", minimum: 0, maximum: 1 },
     reply: NULLABLE_STRING,
+    unrepresented: { type: "array", maxItems: 20, items: { type: "string", maxLength: 300 } },
     concepts: {
       type: "array",
-      maxItems: 5,
+      maxItems: MAX_CONCEPTS,
       items: {
         type: "object",
         additionalProperties: false,
@@ -98,7 +102,7 @@ export const SCHEMA = {
           mode: { enum: ["walk", "bike", "car", "transit", null] },
           referentKind: { enum: ["self", "here", "scope_center", "named", null] },
           referentName: NULLABLE_STRING,
-          attributeKey: NULLABLE_STRING,
+          attributeKey: { enum: [...ATTRIBUTE_VOCABULARY.filter((key) => key !== "price-level" && key !== "cuisine"), null] },
           evidenceKeys: { type: "array", maxItems: 6, items: { enum: [...EVIDENCE_KEYS] } },
           values: { type: "array", maxItems: 8, items: { type: "string", maxLength: 60 } },
           dayRef: { enum: ["today", "tomorrow", "sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", null] },
@@ -146,14 +150,16 @@ export function modelInstructions(
   remainder: string,
 ): string {
   const vocabulary = ATTRIBUTE_VOCABULARY.filter((key) => key !== "price-level" && key !== "cuisine")
-    .map((key) => `${key} ("${ATTRIBUTE_LABELS[key]}")`).join(", ");
+    .map((key) => `${key} ("${ATTRIBUTE_LABELS[key]}"): ${ATTRIBUTE_DEFINITIONS[key].meaning} ${ATTRIBUTE_DEFINITIONS[key].limits}`).join("\n");
   const cuisines = context.facets.find((facet) => facet.key === "cuisine" && facet.type === "enum")
     ?.values?.map((row) => row.value).join(", ") ?? "none";
   return [
     "You read one sentence a person typed into a shared planning room where a small group is choosing a place.",
     "Return the concepts the sentence states, one per distinct thing, up to five. Do not decide what to do with them.",
+    "Account for every requirement and qualifier. unrepresented is [] only when all requirements fit; otherwise copy the unrepresented source clauses there. If more than five independent requirements are stated, report the overflow in unrepresented; never omit it or bundle independent hard/soft choices merely to fit. The caller will ask for smaller messages before applying any needs.",
     "Separate independent AND requirements, preserving each clause's hard/soft choice. Keep alternatives, conditional requirements and qualified facts together as ONE quality concept with their full meaning in surface. Do not turn OR into two mandatory needs. A question about the room still has intent ask.",
     "Examples: dogs welcome and quiet and no stairs -> three attributes dog-friendly, quiet, step-free-entrance. Dogs allowed inside or on a covered terrace -> ONE quality condition, evidenceKeys [dog-friendly,outdoor-seating]. Quiet tonight -> ONE quality condition with tonight preserved, evidenceKeys [quiet]; it is not simply quiet AND open tonight. Wi-Fi fast enough for a call -> ONE quality condition, evidenceKeys [wifi]. Toilet within 300 m -> ONE quality condition, evidenceKeys [nearby-toilets], not a distance from the user. Step-free without staff help -> ONE quality condition, evidenceKeys [step-free-entrance].",
+    "Respect operator scope: (quiet indoors OR outdoor seating with Wi-Fi) is ONE quality; Wi-Fi OR quiet, AND takeaway OR delivery is TWO quality concepts. Italian OR Spanish AND preferably quiet is one kind with two values plus one soft quiet attribute. Keep a conditional such as outdoor seating only if covered together. Preserve independent preferences outside an OR group; never make a preference mandatory through grouping.",
     "evidenceKeys are optional lookup hints from the allowed fact vocabulary plus nearby-toilets; use [] when none. They do not replace any clause. For a grouped condition, surface must preserve all alternatives, negation, scope and time within 200 characters; never silently drop a qualifier. If this is impossible, return an unresolved quality and ask for a shorter condition.",
     "intent need: the sentence states at least one thing that could rule places in or out. A bare noun phrase counts. Content decides this, never wording.",
     "intent ask: the sentence asks about the room or the places. A question that also states a need is still ask, and you still return its concepts.",
@@ -168,7 +174,8 @@ export function modelInstructions(
     "distance is a length from a referent; travel_time is a duration and carries walk, bike, car or transit when said. Named places use referentKind named and referentName.",
     "Examples: at most 500 m away from me -> distance 500 m max self; max 500m distance -> distance 500 m max self; not more than 20 min by bike -> travel_time 20 min max bike self.",
     "Examples: close to Alexanderplatz -> travel_time 10 min max walk named Alexanderplatz; cheap -> money 15 in the room currency; under 20 -> quantityUnit null and unresolved unit.",
-    `Attribute keys are only: ${vocabulary}. Cuisine values on record: ${cuisines}.`,
+    `Attribute keys and their interpretation boundaries:\n${vocabulary}\nCuisine values on record: ${cuisines}.`,
+    "Use an attribute only when its defined meaning captures the entire condition. Any extra limit from the person remains a quality with its full source wording and relevant evidenceKeys. These definitions describe the vocabulary, not evidence that a place satisfies it. Missing facts are unknown, not false.",
     "kind names what sort of place or food is wanted — a cuisine, a dish, or a class of venue such as a cinema, a park or a bar. Any such word is a kind concept, never quality and never an attribute.",
     "Put the words in values, lowercase, singular, in English: italienisch is italian, vietnamesisch is vietnamese, Kino is cinema. Alternatives are one concept with several values. Never widen a value: sushi stays sushi, pizza stays pizza.",
     "Examples: no Italian -> kind values [italian] exclude; italian or spanish -> one kind values [italian,spanish] include; anything but pizza -> kind values [pizza] exclude; a cinema -> kind values [cinema] include.",
@@ -181,8 +188,10 @@ export function modelInstructions(
     `Time words and their deterministic windows: ${TIME_WINDOW_INSTRUCTIONS}.`,
     "For a time concept, copy the words into phrase and fill dayRef, dayPart, clockHour and clockMinute. Map dinner to dayPart evening. Use null for pieces not said.",
     "Never calculate dates or offsets. Leave windowStart and windowEnd null unless the person gave an explicit calendar date such as on the 12th or am 12. September; only that legacy case may use ISO-8601 endpoints with the area's numeric offset.",
-    "Polarity is exclude for no/not/without/avoid/kein/nicht/ohne. Hardness is soft for ideally/preferably/if possible/am liebsten/idealerweise/wenn möglich/wäre schön.",
-    "surface is exact source words. gist is at most six lowercase words. Output only JSON.",
+    "Polarity describes the desired truth of the normalized attribute or kind, not the presence of a negation word. no stairs / entrance without steps / Zugang ohne Stufen -> step-free-entrance INCLUDE. no outdoor seating / ohne Außensitzplätze -> outdoor-seating EXCLUDE. Lactose-free options -> lactose-free-options INCLUDE. Do not mechanically flip no/not/without/kein/nicht/ohne.",
+    "Not required is not forbidden: Wi-Fi is not required, but quiet is essential -> quiet INCLUDE hard only. Do not create a Wi-Fi exclusion or an unrepresented clause for the waived requirement. For quality, preserve the full negated source condition and use include; its text already expresses what is required.",
+    "Hardness is soft for ideally/preferably/if possible/am liebsten/idealerweise/wenn möglich/möglichst/wäre schön. Attach the preference only to the clause it qualifies. If different hardness choices cannot be preserved, mark the condition unrepresented.",
+    "surface is a contiguous exact source phrase, including its negation, preference, time and other qualifiers. Across the concepts preserve all meaningful source words, not just the normalized attribute labels. gist is at most six lowercase words. Output only JSON.",
   ].join("\n");
 }
 
@@ -235,6 +244,7 @@ function understandInput(
   return {
     text,
     scope,
+    checkSourceCoverage: true,
     ...(clarifyOf ? { clarifyOf } : {}),
     room: {
       areaId: context.area?.areaId ?? "",
@@ -297,7 +307,8 @@ export async function say(
     const draft = parseJson<Draft>(reply.text);
     interpretation = {
       intent: draft?.intent ?? "other",
-      concepts: [...parsed.concepts, ...(draft?.concepts ?? []).map(conceptFromDraft)].slice(0, 5),
+      concepts: [...parsed.concepts, ...(draft?.concepts ?? []).map(conceptFromDraft)],
+      unrepresented: draft?.unrepresented,
       confidence: draft?.confidence ?? 0,
       reply: draft?.reply ?? null,
       meta: { model: reply.model, ms: reply.ms, preparsedWhole: false },
@@ -310,6 +321,9 @@ export async function say(
   }
   const mapped = mapInterpretation(interpretation, input);
   const validNeeds = mapped.needs.filter((need) => validatePayload(need.payload));
+  if (validNeeds.length !== mapped.needs.length) {
+    return { ...incompleteReading(text), meta };
+  }
   const validClarify = mapped.clarify
     ? {
         ...mapped.clarify,
