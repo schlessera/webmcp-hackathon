@@ -127,7 +127,7 @@ afterAll(async () => {
 });
 
 describe("whole-area pool growth", () => {
-  it("restarts an incomplete fill from persisted scope and refs on the next read", async () => {
+  it("restarts an incomplete fill from persisted scope and refs at server boot", async () => {
     const paused = await startServer({ env: { POOL_FILL: "0" } });
     let resumed: TestServer | undefined;
     try {

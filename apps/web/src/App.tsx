@@ -574,7 +574,7 @@ export function App() {
       input: Record<string, unknown>,
       signal?: AbortSignal,
       retried = false,
-      idempotencyKey = newIdempotencyKey(),
+      idempotencyKey?: string,
     ): Promise<CommandEnvelope> => {
       const requestedArea = input.area as
         | { center?: { lat?: unknown; lng?: unknown } }
@@ -605,9 +605,10 @@ export function App() {
         !("baseRevision" in input)
       ) {
         await catchUpRef.current?.();
-        // X3: catching up changes the HTTP attempt, not the user's logical
-        // gesture. Reusing the key makes an ambiguous first outcome safe.
-        return run(type, input, signal, true, idempotencyKey);
+        // sync_required definitively rejected this attempt. The new revision
+        // changes the request body, so it needs a new key. Ambiguous outcomes
+        // instead retain their key inside submitCommand for an exact retry.
+        return run(type, input, signal, true, newIdempotencyKey());
       }
       if (result.ok && result.revision !== undefined) {
         // R5: HTTP proves only the room head. projectedThroughRevision moves

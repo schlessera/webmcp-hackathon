@@ -82,6 +82,21 @@ export interface SuccessEnvelope {
   /** True when this envelope was served from the idempotency store: the
    * logical action already succeeded, possibly only as a staged change. */
   replayed?: true;
+  /** Authoritative subject of the command, returned to its authenticated actor. */
+  receipt?: {
+    entity: "requirement" | "proposal";
+    id: string;
+    operation: "created" | "updated" | "withdrawn" | "activated" | "deactivated";
+    /** Normalized requirement, never the content of an agent-private declaration. */
+    requirement?: {
+      visibility: Visibility;
+      hardness: "hard" | "soft";
+      active: boolean;
+      payload?: Record<string, unknown>;
+      delegation?: { mode: string; bound?: unknown };
+    };
+  };
+  feasibility?: Feasibility;
 }
 
 export interface FailureEnvelope {
@@ -300,6 +315,8 @@ export interface ActiveNeed {
   visibility: Visibility;
   hardness: "hard" | "soft";
   ownerId: string;
+  /** Absolute schedule for a visible time requirement; no relative-date parsing needed. */
+  window?: { start: string; end: string };
   /** A non-self place this scope need is measured from. `location` is
    * omitted when this reader is not entitled to the referent's position. */
   referent?: {
@@ -392,6 +409,10 @@ export interface SpatialContextResult {
   ok: true;
   revision: number;
   phase: string;
+  identity?: ParticipantIdentity;
+  timezone?: string;
+  /** Outstanding work from the same database snapshot as this context. */
+  outstanding?: OutstandingItem[];
   /** The room's stored goal, when present. */
   goal?: string;
   /** The room's plan: ordered steps, their status and any settled destination.
@@ -459,6 +480,8 @@ export interface CandidateDossier {
   name: string;
   location: LatLng;
   category: string;
+  timezone?: string;
+  asOf?: string;
   priceLevel: number | null;
   hours: Array<{ day: string; open: string; close: string }>;
   /** Current status in the area's timezone. Absent with no hours; null when
@@ -528,6 +551,7 @@ export interface CandidateNeedVerdict {
   /** Absent on the single aggregate row that stands for every peer-private
    * need: naming one would let a reader pair a verdict with a need. */
   requirementId?: string;
+  criterionId?: string;
   label?: string;
   private?: true;
   verdict: "yes" | "likely" | "unlikely" | "no" | "unknown";

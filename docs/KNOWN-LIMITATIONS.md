@@ -145,20 +145,25 @@ These behaviors are enforced by the [command engine](../apps/server/src/engine.t
   feature-detects `document.modelContext` and remains usable without it.
   The test shim exercises callbacks but does not prove native discovery,
   input validation, or compatibility with every host.
-- **The tool view is abbreviated.** The current catalog has 24 tools, but
-  tool results have output budgets. Spatial context omits the full plan,
-  facets, and detailed needs; candidate inspection omits much of the page's
-  evidence ledger and images. See the
+- **The tool view is bounded.** The catalog has 24 tools. Context includes
+  the plan and visible need IDs, and pages candidates through five-minute
+  document-local snapshots. Inspection offers explicit evidence/hour/link
+  detail selection; image URLs and coordinates are omitted. Results that
+  cannot fit intact fail explicitly rather than silently losing fields. See the
   [binding reference](protocols/INTERACTION-AND-BINDING.md) for the fields and
   budgets available to agents.
 - **Stale writes require catch-up; retries need care.** All stale mutations
   are rejected; commutative rebasing is not implemented. Server idempotency
   lasts ten minutes and binds the entire request, including its revision.
-  The page's automatic stale retry currently reuses a key after changing
-  the revision, which can be rejected as a mismatch. Reinvoking a WebMCP
-  tool creates a fresh key, so an ambiguous timeout followed by another
-  invocation can duplicate a completed action. Cancellation does not undo
-  a server commit. Re-sync and inspect the result before repeating it.
+  Exact ambiguous retries reuse a key while held in the document's bounded
+  retry cache; a known stale rejection gets a new key after catch-up. Reload
+  and cache expiry lose retry identity. Cancellation does not undo a server
+  commit. Re-sync and inspect current state before retrying after reload.
+- **Agent runtime state belongs to the host.** A missing REPL variable or a
+  required-documentation gate cannot be repaired by the page. See the
+  [recovery recipe](WEBMCP-AGENT-RECOVERY.md). Native browser regression tests
+  verify discovery, execution, reload and retries, not Codex's REPL lifecycle
+  or the host's approval decisions.
 - **Completion and failures are not fully normalized.** Mutations await a
   projection refresh, but failed refreshes can leave old page state and
   there is no guaranteed paint before a tool resolves. Opening a room

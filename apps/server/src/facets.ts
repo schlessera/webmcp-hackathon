@@ -171,6 +171,7 @@ export function computeFacetsBundle(
         visibility: req.visibility as Visibility,
         hardness: req.hardness === "soft" ? "soft" : "hard",
         ownerId: req.owner_id,
+        ...(req.payload?.kind === "time" ? { window: req.payload.window as { start: string; end: string } } : {}),
         ...referentView(req, inputs.scope),
         ...rangeView(req, inputs.scope),
       });

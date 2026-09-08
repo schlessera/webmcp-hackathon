@@ -32,7 +32,10 @@
 // retain the existing `reason: "interactive"` discriminator. These are additive
 // presentation fields, so the version remains v3.
 // No callable field or tool was removed, so the additive policy keeps v3.
-export const TOOL_CONTRACT_VERSION = "3";
+// 4: paged, self-contained WebMCP results; passive inspection replaces the
+// tool's overloaded intent/force inputs (the page HTTP API retains them).
+// The stable names are reused only across a document reload/version gate.
+export const TOOL_CONTRACT_VERSION = "4";
 
 export const PROTOCOL_VERSIONS = {
   negotiation: "v1",

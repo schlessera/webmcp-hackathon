@@ -1,6 +1,6 @@
 {
-  "toolContractVersion": "3",
-  "sha256": "2c07ee253f37ac843d1ee98f01c55e43d7b3b4975be670cff20928c8f7d4a749",
+  "toolContractVersion": "4",
+  "sha256": "d9baa9984bdfa98ac13a160ad8f3314a7fb96a77473a5b2e4f091407a1f95cb6",
   "manifest": {
     "capabilityManifest": {
       "agreement": {
@@ -2057,6 +2057,9 @@
                     "address": {
                       "type": "string"
                     },
+                    "asOf": {
+                      "type": "string"
+                    },
                     "attributes": {
                       "items": {
                         "additionalProperties": false,
@@ -2291,6 +2294,9 @@
                           "confidence": {
                             "type": "number"
                           },
+                          "criterionId": {
+                            "type": "string"
+                          },
                           "label": {
                             "type": "string"
                           },
@@ -2393,6 +2399,9 @@
                         "value"
                       ],
                       "type": "object"
+                    },
+                    "timezone": {
+                      "type": "string"
                     }
                   },
                   "required": [
@@ -3632,6 +3641,22 @@
                         }
                       ]
                     },
+                    "window": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "end": {
+                          "type": "string"
+                        },
+                        "start": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "end",
+                        "start"
+                      ],
+                      "type": "object"
+                    },
                     "wouldReturn": {
                       "type": "number"
                     }
@@ -4054,6 +4079,35 @@
               "goal": {
                 "type": "string"
               },
+              "identity": {
+                "additionalProperties": false,
+                "properties": {
+                  "displayName": {
+                    "type": "string"
+                  },
+                  "participantId": {
+                    "type": "string"
+                  },
+                  "role": {
+                    "anyOf": [
+                      {
+                        "const": "organizer",
+                        "type": "string"
+                      },
+                      {
+                        "const": "member",
+                        "type": "string"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "displayName",
+                  "participantId",
+                  "role"
+                ],
+                "type": "object"
+              },
               "impasse": {
                 "additionalProperties": false,
                 "properties": {
@@ -4078,6 +4132,162 @@
               },
               "ok": {
                 "type": "boolean"
+              },
+              "outstanding": {
+                "items": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "candidateIds": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "heldByPageAgent": {
+                          "type": "boolean"
+                        },
+                        "issuedAtRevision": {
+                          "type": "number"
+                        },
+                        "type": {
+                          "const": "evaluation_request",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "candidateIds",
+                        "issuedAtRevision",
+                        "type"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "proposalId": {
+                          "type": "string"
+                        },
+                        "type": {
+                          "const": "stance_needed",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "proposalId",
+                        "type"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "change": {
+                          "additionalProperties": {},
+                          "properties": {},
+                          "required": [],
+                          "type": "object"
+                        },
+                        "delegatedBound": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "dimension": {
+                              "anyOf": [
+                                {
+                                  "const": "radius_m",
+                                  "type": "string"
+                                },
+                                {
+                                  "const": "per_person_eur",
+                                  "type": "string"
+                                },
+                                {
+                                  "const": "walk_min",
+                                  "type": "string"
+                                }
+                              ]
+                            },
+                            "max": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "dimension",
+                            "max"
+                          ],
+                          "type": "object"
+                        },
+                        "issuedAtRevision": {
+                          "type": "number"
+                        },
+                        "kind": {
+                          "anyOf": [
+                            {
+                              "const": "scope_change",
+                              "type": "string"
+                            },
+                            {
+                              "const": "requirement_relaxation",
+                              "type": "string"
+                            }
+                          ]
+                        },
+                        "projectedGain": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "newCandidates": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "newCandidates"
+                          ],
+                          "type": "object"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        },
+                        "staged": {
+                          "anyOf": [
+                            {
+                              "type": "boolean"
+                            },
+                            {
+                              "type": "boolean"
+                            }
+                          ]
+                        },
+                        "type": {
+                          "const": "adjustment_request",
+                          "type": "string"
+                        },
+                        "withinDelegatedBound": {
+                          "anyOf": [
+                            {
+                              "type": "boolean"
+                            },
+                            {
+                              "type": "boolean"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "change",
+                        "issuedAtRevision",
+                        "kind",
+                        "projectedGain",
+                        "requestId",
+                        "staged",
+                        "type",
+                        "withinDelegatedBound"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                },
+                "type": "array"
               },
               "participants": {
                 "items": {
@@ -4343,11 +4553,11 @@
                     "status": {
                       "anyOf": [
                         {
-                          "const": "open",
+                          "const": "withdrawn",
                           "type": "string"
                         },
                         {
-                          "const": "withdrawn",
+                          "const": "open",
                           "type": "string"
                         },
                         {
@@ -4670,6 +4880,9 @@
                   "type": "object"
                 },
                 "type": "array"
+              },
+              "timezone": {
+                "type": "string"
               },
               "total": {
                 "type": "number"
@@ -5429,6 +5642,55 @@
               "effect": {
                 "type": "string"
               },
+              "feasibility": {
+                "additionalProperties": false,
+                "properties": {
+                  "eligible": {
+                    "type": "number"
+                  },
+                  "excluded": {
+                    "type": "number"
+                  },
+                  "likely": {
+                    "type": "number"
+                  },
+                  "state": {
+                    "anyOf": [
+                      {
+                        "const": "feasible",
+                        "type": "string"
+                      },
+                      {
+                        "const": "fragile",
+                        "type": "string"
+                      },
+                      {
+                        "const": "infeasible",
+                        "type": "string"
+                      },
+                      {
+                        "const": "uncertain",
+                        "type": "string"
+                      }
+                    ]
+                  },
+                  "uncertain": {
+                    "type": "number"
+                  },
+                  "unlikely": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "eligible",
+                  "excluded",
+                  "likely",
+                  "state",
+                  "uncertain",
+                  "unlikely"
+                ],
+                "type": "object"
+              },
               "ok": {
                 "type": "boolean"
               },
@@ -5587,6 +5849,124 @@
                   ]
                 },
                 "type": "array"
+              },
+              "receipt": {
+                "additionalProperties": false,
+                "properties": {
+                  "entity": {
+                    "anyOf": [
+                      {
+                        "const": "requirement",
+                        "type": "string"
+                      },
+                      {
+                        "const": "proposal",
+                        "type": "string"
+                      }
+                    ]
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "operation": {
+                    "anyOf": [
+                      {
+                        "const": "created",
+                        "type": "string"
+                      },
+                      {
+                        "const": "updated",
+                        "type": "string"
+                      },
+                      {
+                        "const": "withdrawn",
+                        "type": "string"
+                      },
+                      {
+                        "const": "activated",
+                        "type": "string"
+                      },
+                      {
+                        "const": "deactivated",
+                        "type": "string"
+                      }
+                    ]
+                  },
+                  "requirement": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "active": {
+                        "anyOf": [
+                          {
+                            "type": "boolean"
+                          },
+                          {
+                            "type": "boolean"
+                          }
+                        ]
+                      },
+                      "delegation": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "bound": {},
+                          "mode": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "mode"
+                        ],
+                        "type": "object"
+                      },
+                      "hardness": {
+                        "anyOf": [
+                          {
+                            "const": "hard",
+                            "type": "string"
+                          },
+                          {
+                            "const": "soft",
+                            "type": "string"
+                          }
+                        ]
+                      },
+                      "payload": {
+                        "additionalProperties": {},
+                        "properties": {},
+                        "required": [],
+                        "type": "object"
+                      },
+                      "visibility": {
+                        "anyOf": [
+                          {
+                            "const": "shared",
+                            "type": "string"
+                          },
+                          {
+                            "const": "application-private",
+                            "type": "string"
+                          },
+                          {
+                            "const": "agent-private",
+                            "type": "string"
+                          }
+                        ]
+                      }
+                    },
+                    "required": [
+                      "active",
+                      "hardness",
+                      "visibility"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "entity",
+                  "id",
+                  "operation"
+                ],
+                "type": "object"
               },
               "replayed": {
                 "type": "boolean"
@@ -5777,15 +6157,1540 @@
             "type": "object"
           }
         ]
+      },
+      "WebMCPContextResponse": {
+        "anyOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "delta": {
+                "additionalProperties": false,
+                "properties": {
+                  "cursor": {
+                    "type": "string"
+                  },
+                  "events": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "actorId": {
+                          "type": "string"
+                        },
+                        "level": {
+                          "anyOf": [
+                            {
+                              "const": "full",
+                              "type": "string"
+                            },
+                            {
+                              "const": "existence",
+                              "type": "string"
+                            },
+                            {
+                              "const": "aggregate",
+                              "type": "string"
+                            }
+                          ]
+                        },
+                        "payload": {},
+                        "revision": {
+                          "type": "number"
+                        },
+                        "text": {
+                          "type": "string"
+                        },
+                        "type": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "level",
+                        "revision",
+                        "text",
+                        "type"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "fromRevision": {
+                    "type": "number"
+                  },
+                  "resyncRequired": {
+                    "const": "backlog_too_large",
+                    "type": "string"
+                  },
+                  "throughRevision": {
+                    "type": "number"
+                  },
+                  "truncated": {
+                    "anyOf": [
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "type": "boolean"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "events",
+                  "fromRevision",
+                  "truncated"
+                ],
+                "type": "object"
+              },
+              "error": {
+                "additionalProperties": false,
+                "properties": {
+                  "code": {
+                    "anyOf": [
+                      {
+                        "const": "sync_required",
+                        "type": "string"
+                      },
+                      {
+                        "const": "not_authorized",
+                        "type": "string"
+                      },
+                      {
+                        "const": "invalid_input",
+                        "type": "string"
+                      },
+                      {
+                        "const": "not_found",
+                        "type": "string"
+                      },
+                      {
+                        "const": "phase_unavailable",
+                        "type": "string"
+                      },
+                      {
+                        "const": "consent_required",
+                        "type": "string"
+                      },
+                      {
+                        "const": "bound_exceeded",
+                        "type": "string"
+                      },
+                      {
+                        "const": "not_authenticated",
+                        "type": "string"
+                      },
+                      {
+                        "const": "upgrade_required",
+                        "type": "string"
+                      },
+                      {
+                        "const": "temporarily_unavailable",
+                        "type": "string"
+                      }
+                    ]
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "recovery": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "code",
+                  "message",
+                  "recovery"
+                ],
+                "type": "object"
+              },
+              "ok": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "error",
+              "ok"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "activeNeeds": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "active": {
+                      "anyOf": [
+                        {
+                          "type": "boolean"
+                        },
+                        {
+                          "type": "boolean"
+                        }
+                      ]
+                    },
+                    "criterionId": {
+                      "type": "string"
+                    },
+                    "hardness": {
+                      "anyOf": [
+                        {
+                          "const": "hard",
+                          "type": "string"
+                        },
+                        {
+                          "const": "soft",
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "ownerId": {
+                      "type": "string"
+                    },
+                    "requirementId": {
+                      "type": "string"
+                    },
+                    "visibility": {
+                      "anyOf": [
+                        {
+                          "const": "shared",
+                          "type": "string"
+                        },
+                        {
+                          "const": "application-private",
+                          "type": "string"
+                        },
+                        {
+                          "const": "agent-private",
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "window": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "end": {
+                          "type": "string"
+                        },
+                        "start": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "end",
+                        "start"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "active",
+                    "hardness",
+                    "label",
+                    "ownerId",
+                    "requirementId",
+                    "visibility"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "activeStepId": {
+                "anyOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ]
+              },
+              "agreement": {
+                "additionalProperties": false,
+                "properties": {
+                  "candidateId": {
+                    "type": "string"
+                  },
+                  "committedAtRevision": {
+                    "type": "number"
+                  },
+                  "proposalId": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "anyOf": [
+                      {
+                        "const": "staged",
+                        "type": "string"
+                      },
+                      {
+                        "const": "committed",
+                        "type": "string"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "candidateId",
+                  "proposalId",
+                  "status"
+                ],
+                "type": "object"
+              },
+              "candidates": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "candidateId": {
+                      "type": "string"
+                    },
+                    "category": {
+                      "type": "string"
+                    },
+                    "eligibility": {
+                      "anyOf": [
+                        {
+                          "const": "uncertain",
+                          "type": "string"
+                        },
+                        {
+                          "const": "eligible",
+                          "type": "string"
+                        },
+                        {
+                          "const": "likely",
+                          "type": "string"
+                        },
+                        {
+                          "const": "unlikely",
+                          "type": "string"
+                        },
+                        {
+                          "const": "excluded",
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "imageCount": {
+                      "type": "number"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "priceLevel": {
+                      "anyOf": [
+                        {
+                          "type": "null"
+                        },
+                        {
+                          "type": "number"
+                        }
+                      ]
+                    },
+                    "walkMin": {
+                      "type": "number"
+                    },
+                    "why": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "candidateId",
+                    "category",
+                    "eligibility",
+                    "imageCount",
+                    "name",
+                    "priceLevel",
+                    "walkMin"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "classification": {
+                "additionalProperties": false,
+                "properties": {
+                  "eligible": {
+                    "type": "string"
+                  },
+                  "excluded": {
+                    "type": "string"
+                  },
+                  "likely": {
+                    "type": "string"
+                  },
+                  "uncertain": {
+                    "type": "string"
+                  },
+                  "unlikely": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "eligible",
+                  "excluded",
+                  "likely",
+                  "uncertain",
+                  "unlikely"
+                ],
+                "type": "object"
+              },
+              "evidence": {
+                "additionalProperties": false,
+                "properties": {
+                  "dataAsOf": {
+                    "type": "string"
+                  },
+                  "source": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "dataAsOf",
+                  "source"
+                ],
+                "type": "object"
+              },
+              "feasibility": {
+                "additionalProperties": false,
+                "properties": {
+                  "eligible": {
+                    "type": "number"
+                  },
+                  "excluded": {
+                    "type": "number"
+                  },
+                  "likely": {
+                    "type": "number"
+                  },
+                  "state": {
+                    "anyOf": [
+                      {
+                        "const": "feasible",
+                        "type": "string"
+                      },
+                      {
+                        "const": "fragile",
+                        "type": "string"
+                      },
+                      {
+                        "const": "infeasible",
+                        "type": "string"
+                      },
+                      {
+                        "const": "uncertain",
+                        "type": "string"
+                      }
+                    ]
+                  },
+                  "uncertain": {
+                    "type": "number"
+                  },
+                  "unlikely": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "eligible",
+                  "excluded",
+                  "likely",
+                  "state",
+                  "uncertain",
+                  "unlikely"
+                ],
+                "type": "object"
+              },
+              "goal": {
+                "type": "string"
+              },
+              "identity": {
+                "additionalProperties": false,
+                "properties": {
+                  "displayName": {
+                    "type": "string"
+                  },
+                  "participantId": {
+                    "type": "string"
+                  },
+                  "role": {
+                    "anyOf": [
+                      {
+                        "const": "organizer",
+                        "type": "string"
+                      },
+                      {
+                        "const": "member",
+                        "type": "string"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "displayName",
+                  "participantId",
+                  "role"
+                ],
+                "type": "object"
+              },
+              "impasse": {
+                "additionalProperties": false,
+                "properties": {
+                  "active": {
+                    "type": "boolean"
+                  },
+                  "text": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "active",
+                  "text"
+                ],
+                "type": "object"
+              },
+              "ok": {
+                "type": "boolean"
+              },
+              "outstanding": {
+                "items": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "candidateIds": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "heldByPageAgent": {
+                          "type": "boolean"
+                        },
+                        "issuedAtRevision": {
+                          "type": "number"
+                        },
+                        "type": {
+                          "const": "evaluation_request",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "candidateIds",
+                        "issuedAtRevision",
+                        "type"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "proposalId": {
+                          "type": "string"
+                        },
+                        "type": {
+                          "const": "stance_needed",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "proposalId",
+                        "type"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "change": {
+                          "additionalProperties": {},
+                          "properties": {},
+                          "required": [],
+                          "type": "object"
+                        },
+                        "delegatedBound": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "dimension": {
+                              "anyOf": [
+                                {
+                                  "const": "radius_m",
+                                  "type": "string"
+                                },
+                                {
+                                  "const": "per_person_eur",
+                                  "type": "string"
+                                },
+                                {
+                                  "const": "walk_min",
+                                  "type": "string"
+                                }
+                              ]
+                            },
+                            "max": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "dimension",
+                            "max"
+                          ],
+                          "type": "object"
+                        },
+                        "issuedAtRevision": {
+                          "type": "number"
+                        },
+                        "kind": {
+                          "anyOf": [
+                            {
+                              "const": "scope_change",
+                              "type": "string"
+                            },
+                            {
+                              "const": "requirement_relaxation",
+                              "type": "string"
+                            }
+                          ]
+                        },
+                        "projectedGain": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "newCandidates": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "newCandidates"
+                          ],
+                          "type": "object"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        },
+                        "staged": {
+                          "anyOf": [
+                            {
+                              "type": "boolean"
+                            },
+                            {
+                              "type": "boolean"
+                            }
+                          ]
+                        },
+                        "type": {
+                          "const": "adjustment_request",
+                          "type": "string"
+                        },
+                        "withinDelegatedBound": {
+                          "anyOf": [
+                            {
+                              "type": "boolean"
+                            },
+                            {
+                              "type": "boolean"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "change",
+                        "issuedAtRevision",
+                        "kind",
+                        "projectedGain",
+                        "requestId",
+                        "staged",
+                        "type",
+                        "withinDelegatedBound"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                },
+                "type": "array"
+              },
+              "page": {
+                "additionalProperties": false,
+                "properties": {
+                  "nextCursor": {
+                    "type": "string"
+                  },
+                  "offset": {
+                    "type": "number"
+                  },
+                  "remaining": {
+                    "type": "number"
+                  },
+                  "remainingEligible": {
+                    "type": "number"
+                  },
+                  "returned": {
+                    "type": "number"
+                  },
+                  "total": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "offset",
+                  "remaining",
+                  "remainingEligible",
+                  "returned",
+                  "total"
+                ],
+                "type": "object"
+              },
+              "participants": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "displayName": {
+                      "type": "string"
+                    },
+                    "participantId": {
+                      "type": "string"
+                    },
+                    "present": {
+                      "anyOf": [
+                        {
+                          "type": "boolean"
+                        },
+                        {
+                          "type": "boolean"
+                        }
+                      ]
+                    },
+                    "readyState": {
+                      "anyOf": [
+                        {
+                          "const": "contributing",
+                          "type": "string"
+                        },
+                        {
+                          "const": "ready",
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "role": {
+                      "anyOf": [
+                        {
+                          "const": "organizer",
+                          "type": "string"
+                        },
+                        {
+                          "const": "member",
+                          "type": "string"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "displayName",
+                    "participantId",
+                    "present",
+                    "readyState",
+                    "role"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "phase": {
+                "type": "string"
+              },
+              "progress": {
+                "additionalProperties": false,
+                "properties": {
+                  "filling": {
+                    "anyOf": [
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "type": "boolean"
+                      }
+                    ]
+                  },
+                  "paused": {
+                    "anyOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "const": "budget",
+                        "type": "string"
+                      },
+                      {
+                        "const": "idle",
+                        "type": "string"
+                      }
+                    ]
+                  },
+                  "poolSize": {
+                    "type": "number"
+                  },
+                  "queued": {
+                    "type": "number"
+                  },
+                  "target": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "filling",
+                  "poolSize",
+                  "target"
+                ],
+                "type": "object"
+              },
+              "proposals": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "candidateId": {
+                      "type": "string"
+                    },
+                    "ownStance": {
+                      "type": "string"
+                    },
+                    "proposalId": {
+                      "type": "string"
+                    },
+                    "staging": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "notReady": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "ready": {
+                          "anyOf": [
+                            {
+                              "type": "boolean"
+                            },
+                            {
+                              "type": "boolean"
+                            }
+                          ]
+                        },
+                        "unaccepted": {
+                          "type": "number"
+                        },
+                        "vetoStands": {
+                          "anyOf": [
+                            {
+                              "type": "boolean"
+                            },
+                            {
+                              "type": "boolean"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "notReady",
+                        "ready",
+                        "unaccepted",
+                        "vetoStands"
+                      ],
+                      "type": "object"
+                    },
+                    "status": {
+                      "anyOf": [
+                        {
+                          "const": "withdrawn",
+                          "type": "string"
+                        },
+                        {
+                          "const": "open",
+                          "type": "string"
+                        },
+                        {
+                          "const": "vetoed",
+                          "type": "string"
+                        },
+                        {
+                          "const": "staged",
+                          "type": "string"
+                        },
+                        {
+                          "const": "committed",
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "vetoStands": {
+                      "anyOf": [
+                        {
+                          "type": "boolean"
+                        },
+                        {
+                          "type": "boolean"
+                        }
+                      ]
+                    },
+                    "visibleAccepts": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "candidateId",
+                    "proposalId",
+                    "staging",
+                    "status",
+                    "vetoStands",
+                    "visibleAccepts"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "ranking": {
+                "additionalProperties": false,
+                "properties": {
+                  "by": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "walkMin": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "by",
+                  "walkMin"
+                ],
+                "type": "object"
+              },
+              "revision": {
+                "type": "number"
+              },
+              "scope": {
+                "anyOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "category": {
+                        "type": "string"
+                      },
+                      "radiusM": {
+                        "type": "number"
+                      },
+                      "scopeId": {
+                        "type": "string"
+                      },
+                      "transport": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      }
+                    },
+                    "required": [
+                      "category",
+                      "radiusM",
+                      "scopeId",
+                      "transport"
+                    ],
+                    "type": "object"
+                  }
+                ]
+              },
+              "snapshot": {
+                "additionalProperties": false,
+                "properties": {
+                  "asOf": {
+                    "type": "string"
+                  },
+                  "expiresAt": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "asOf",
+                  "expiresAt"
+                ],
+                "type": "object"
+              },
+              "steps": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "index": {
+                      "type": "number"
+                    },
+                    "settled": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "candidateId": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "candidateId",
+                        "name"
+                      ],
+                      "type": "object"
+                    },
+                    "status": {
+                      "anyOf": [
+                        {
+                          "const": "pending",
+                          "type": "string"
+                        },
+                        {
+                          "const": "active",
+                          "type": "string"
+                        },
+                        {
+                          "const": "settled",
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "stepId": {
+                      "type": "string"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "when": {
+                      "anyOf": [
+                        {
+                          "type": "null"
+                        },
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "end": {
+                              "type": "string"
+                            },
+                            "phrase": {
+                              "type": "string"
+                            },
+                            "start": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "end",
+                            "phrase",
+                            "start"
+                          ],
+                          "type": "object"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "index",
+                    "status",
+                    "stepId",
+                    "title",
+                    "when"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "timezone": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "activeNeeds",
+              "candidates",
+              "classification",
+              "feasibility",
+              "ok",
+              "outstanding",
+              "page",
+              "participants",
+              "phase",
+              "proposals",
+              "ranking",
+              "revision",
+              "scope",
+              "snapshot"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "WebMCPInspectResponse": {
+        "anyOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "delta": {
+                "additionalProperties": false,
+                "properties": {
+                  "cursor": {
+                    "type": "string"
+                  },
+                  "events": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "actorId": {
+                          "type": "string"
+                        },
+                        "level": {
+                          "anyOf": [
+                            {
+                              "const": "full",
+                              "type": "string"
+                            },
+                            {
+                              "const": "existence",
+                              "type": "string"
+                            },
+                            {
+                              "const": "aggregate",
+                              "type": "string"
+                            }
+                          ]
+                        },
+                        "payload": {},
+                        "revision": {
+                          "type": "number"
+                        },
+                        "text": {
+                          "type": "string"
+                        },
+                        "type": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "level",
+                        "revision",
+                        "text",
+                        "type"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "fromRevision": {
+                    "type": "number"
+                  },
+                  "resyncRequired": {
+                    "const": "backlog_too_large",
+                    "type": "string"
+                  },
+                  "throughRevision": {
+                    "type": "number"
+                  },
+                  "truncated": {
+                    "anyOf": [
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "type": "boolean"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "events",
+                  "fromRevision",
+                  "truncated"
+                ],
+                "type": "object"
+              },
+              "error": {
+                "additionalProperties": false,
+                "properties": {
+                  "code": {
+                    "anyOf": [
+                      {
+                        "const": "sync_required",
+                        "type": "string"
+                      },
+                      {
+                        "const": "not_authorized",
+                        "type": "string"
+                      },
+                      {
+                        "const": "invalid_input",
+                        "type": "string"
+                      },
+                      {
+                        "const": "not_found",
+                        "type": "string"
+                      },
+                      {
+                        "const": "phase_unavailable",
+                        "type": "string"
+                      },
+                      {
+                        "const": "consent_required",
+                        "type": "string"
+                      },
+                      {
+                        "const": "bound_exceeded",
+                        "type": "string"
+                      },
+                      {
+                        "const": "not_authenticated",
+                        "type": "string"
+                      },
+                      {
+                        "const": "upgrade_required",
+                        "type": "string"
+                      },
+                      {
+                        "const": "temporarily_unavailable",
+                        "type": "string"
+                      }
+                    ]
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "recovery": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "code",
+                  "message",
+                  "recovery"
+                ],
+                "type": "object"
+              },
+              "ok": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "error",
+              "ok"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "candidates": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "address": {
+                      "type": "string"
+                    },
+                    "asOf": {
+                      "type": "string"
+                    },
+                    "attributes": {
+                      "items": {
+                        "anyOf": [
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "key": {
+                                "type": "string"
+                              },
+                              "source": {
+                                "type": "string"
+                              },
+                              "status": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "key",
+                              "source",
+                              "status"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "attestedBy": {
+                                "type": "string"
+                              },
+                              "confidence": {
+                                "type": "number"
+                              },
+                              "confirmedAt": {
+                                "type": "string"
+                              },
+                              "confirmedByName": {
+                                "type": "string"
+                              },
+                              "key": {
+                                "type": "string"
+                              },
+                              "label": {
+                                "type": "string"
+                              },
+                              "note": {
+                                "type": "string"
+                              },
+                              "observedAt": {
+                                "type": "string"
+                              },
+                              "source": {
+                                "type": "string"
+                              },
+                              "sourceUrl": {
+                                "type": "string"
+                              },
+                              "status": {
+                                "type": "string"
+                              },
+                              "value": {
+                                "anyOf": [
+                                  {
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "number"
+                                  }
+                                ]
+                              }
+                            },
+                            "required": [
+                              "confidence",
+                              "key",
+                              "observedAt",
+                              "source",
+                              "status"
+                            ],
+                            "type": "object"
+                          }
+                        ]
+                      },
+                      "type": "array"
+                    },
+                    "availableKeys": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "candidateId": {
+                      "type": "string"
+                    },
+                    "category": {
+                      "type": "string"
+                    },
+                    "hours": {
+                      "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "close": {
+                            "type": "string"
+                          },
+                          "day": {
+                            "type": "string"
+                          },
+                          "open": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "close",
+                          "day",
+                          "open"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "imageCount": {
+                      "type": "number"
+                    },
+                    "links": {
+                      "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "kind": {
+                            "type": "string"
+                          },
+                          "label": {
+                            "type": "string"
+                          },
+                          "source": {
+                            "type": "string"
+                          },
+                          "url": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "label",
+                          "source",
+                          "url"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "lookedUpAt": {
+                      "type": "string"
+                    },
+                    "lookupPending": {
+                      "anyOf": [
+                        {
+                          "type": "boolean"
+                        },
+                        {
+                          "type": "boolean"
+                        }
+                      ]
+                    },
+                    "mapRevision": {
+                      "type": "number"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "needs": {
+                      "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "confidence": {
+                            "type": "number"
+                          },
+                          "criterionId": {
+                            "type": "string"
+                          },
+                          "label": {
+                            "type": "string"
+                          },
+                          "private": {
+                            "type": "boolean"
+                          },
+                          "requirementId": {
+                            "type": "string"
+                          },
+                          "verdict": {
+                            "anyOf": [
+                              {
+                                "const": "likely",
+                                "type": "string"
+                              },
+                              {
+                                "const": "unlikely",
+                                "type": "string"
+                              },
+                              {
+                                "const": "yes",
+                                "type": "string"
+                              },
+                              {
+                                "const": "no",
+                                "type": "string"
+                              },
+                              {
+                                "const": "unknown",
+                                "type": "string"
+                              }
+                            ]
+                          },
+                          "why": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "verdict"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "nextOpen": {
+                      "type": "string"
+                    },
+                    "openNow": {
+                      "anyOf": [
+                        {
+                          "type": "null"
+                        },
+                        {
+                          "type": "boolean"
+                        },
+                        {
+                          "type": "boolean"
+                        }
+                      ]
+                    },
+                    "openUntil": {
+                      "type": "string"
+                    },
+                    "priceLevel": {
+                      "anyOf": [
+                        {
+                          "type": "null"
+                        },
+                        {
+                          "type": "number"
+                        }
+                      ]
+                    },
+                    "timezone": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "attributes",
+                    "availableKeys",
+                    "candidateId",
+                    "category",
+                    "imageCount",
+                    "lookupPending",
+                    "mapRevision",
+                    "name",
+                    "needs",
+                    "priceLevel"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "ok": {
+                "type": "boolean"
+              },
+              "revision": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "candidates",
+              "ok",
+              "revision"
+            ],
+            "type": "object"
+          }
+        ]
       }
     },
-    "toolContractVersion": "3",
+    "toolContractVersion": "4",
     "tools": [
       {
         "annotations": {
+          "consequentialHint": false,
           "readOnlyHint": true
         },
-        "description": "List prepared regions this demo can open, with place-class counts and fact coverage when available. Discovery is bounded to these local extracts. Call this before open_room and use a returned regionId. No participant token is required; result compaction can omit detail.",
+        "description": "List available prepared regions with place counts and evidence coverage. Choose a returned regionId when opening a room. No participant session required.",
         "inputSchema": {
           "additionalProperties": false,
           "properties": {},
@@ -5794,8 +7699,11 @@
         "name": "describe_regions"
       },
       {
-        "annotations": {},
-        "description": "Create a planning room from the user's goal. Automatically accepts the planner's steps without a separate plan review or clarification turn; falls back to a food step if preview is unavailable. Returns the steps and an invitation link when one is minted, then schedules page navigation/reload. Wait for the room to load before sync_session. No participant token is required.",
+        "annotations": {
+          "consequentialHint": false,
+          "readOnlyHint": false
+        },
+        "description": "Create a room from the goal and automatically accept the proposed plan (food fallback if planning fails). Returns steps and a member invite when available, then reloads into the room. After navigation, obtain tools for the new document and call sync_session. No prior participant session required.",
         "inputSchema": {
           "additionalProperties": false,
           "properties": {
@@ -5828,10 +7736,11 @@
       },
       {
         "annotations": {
+          "consequentialHint": false,
           "readOnlyHint": true,
           "untrustedContentHint": true
         },
-        "description": "Read the authenticated room as your participant: identity, revisions, privacy rules, brief, roster and outstanding work. Omit both sinceRevision and cursor for the capability manifest; otherwise read missed events. Continue truncated deltas with cursor before acting. The room revision can exceed throughRevision. Before a room exists, use describe_regions then open_room.",
+        "description": "Read identity, revisions, privacy rules, roster and outstanding work. Start with {} for the manifest. For catch-up use sinceRevision, then continue delta.cursor until delta.truncated is false. Candidate summaries and need IDs come from get_spatial_context.",
         "inputSchema": {
           "additionalProperties": false,
           "properties": {
@@ -5852,9 +7761,179 @@
         "name": "sync_session"
       },
       {
-        "annotations": {},
-        "description": "Add or update your own need; pass requirementId to update. shared publishes content; application-private stores it for the app and owner, with reduced peer projections; agent-private sends only a declaration, with no payload or note, and you screen via evaluate_candidates. Hard needs affect eligibility; soft needs are stored but do not rank or exclude. Private ownership and decision effects can remain visible.",
+        "annotations": {
+          "consequentialHint": false,
+          "readOnlyHint": false
+        },
+        "description": "Add or update your need; requirementId updates an existing one. Hard needs classify candidates; unknown evidence remains uncertain. Shared publishes content; application-private stores it for the app and owner; agent-private declares without payload/note and uses screening verdicts. Returns the need ID and applied settings.",
         "inputSchema": {
+          "$defs": {
+            "schema1": {
+              "anyOf": [
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "kind": {
+                      "const": "self",
+                      "type": "string"
+                    },
+                    "stepId": {
+                      "description": "Step whose chosen place this referent points at; omit for the current step (`s1` by default).",
+                      "maxLength": 40,
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "kind"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "kind": {
+                      "const": "scopeCenter",
+                      "type": "string"
+                    },
+                    "stepId": {
+                      "description": "Step whose chosen place this referent points at; omit for the current step (`s1` by default).",
+                      "maxLength": 40,
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "kind"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "$ref": "#/$defs/schema2"
+                },
+                {
+                  "$ref": "#/$defs/schema3"
+                },
+                {
+                  "$ref": "#/$defs/schema4"
+                },
+                {
+                  "$ref": "#/$defs/schema5"
+                }
+              ]
+            },
+            "schema2": {
+              "additionalProperties": false,
+              "properties": {
+                "candidateId": {
+                  "maxLength": 40,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "kind": {
+                  "const": "candidate",
+                  "type": "string"
+                },
+                "stepId": {
+                  "description": "Step whose chosen place this referent points at; omit for the current step (`s1` by default).",
+                  "maxLength": 40,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "candidateId"
+              ],
+              "type": "object"
+            },
+            "schema3": {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "participant",
+                  "type": "string"
+                },
+                "participantId": {
+                  "maxLength": 40,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "stepId": {
+                  "description": "Step whose chosen place this referent points at; omit for the current step (`s1` by default).",
+                  "maxLength": 40,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "participantId"
+              ],
+              "type": "object"
+            },
+            "schema4": {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "point",
+                  "type": "string"
+                },
+                "label": {
+                  "maxLength": 100,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "lat": {
+                  "maximum": 90,
+                  "minimum": -90,
+                  "type": "number"
+                },
+                "lng": {
+                  "maximum": 180,
+                  "minimum": -180,
+                  "type": "number"
+                },
+                "stepId": {
+                  "description": "Step whose chosen place this referent points at; omit for the current step (`s1` by default).",
+                  "maxLength": 40,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "lat",
+                "lng"
+              ],
+              "type": "object"
+            },
+            "schema5": {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "landmark",
+                  "type": "string"
+                },
+                "landmarkId": {
+                  "maxLength": 100,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "stepId": {
+                  "description": "Step whose chosen place this referent points at; omit for the current step (`s1` by default).",
+                  "maxLength": 40,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "landmarkId"
+              ],
+              "type": "object"
+            }
+          },
           "additionalProperties": false,
           "properties": {
             "baseRevision": {
@@ -5869,20 +7948,12 @@
                   "additionalProperties": false,
                   "properties": {
                     "dimension": {
-                      "anyOf": [
-                        {
-                          "const": "radius_m",
-                          "type": "string"
-                        },
-                        {
-                          "const": "per_person_eur",
-                          "type": "string"
-                        },
-                        {
-                          "const": "walk_min",
-                          "type": "string"
-                        }
-                      ]
+                      "enum": [
+                        "radius_m",
+                        "per_person_eur",
+                        "walk_min"
+                      ],
+                      "type": "string"
                     },
                     "max": {
                       "type": "number"
@@ -5895,24 +7966,13 @@
                   "type": "object"
                 },
                 "mode": {
-                  "anyOf": [
-                    {
-                      "const": "locked",
-                      "type": "string"
-                    },
-                    {
-                      "const": "approval_required",
-                      "type": "string"
-                    },
-                    {
-                      "const": "negotiable",
-                      "type": "string"
-                    },
-                    {
-                      "const": "soft",
-                      "type": "string"
-                    }
-                  ]
+                  "enum": [
+                    "locked",
+                    "approval_required",
+                    "negotiable",
+                    "soft"
+                  ],
+                  "type": "string"
                 }
               },
               "required": [
@@ -5921,16 +7981,11 @@
               "type": "object"
             },
             "hardness": {
-              "anyOf": [
-                {
-                  "const": "hard",
-                  "type": "string"
-                },
-                {
-                  "const": "soft",
-                  "type": "string"
-                }
-              ]
+              "enum": [
+                "hard",
+                "soft"
+              ],
+              "type": "string"
             },
             "note": {
               "maxLength": 200,
@@ -5942,72 +7997,29 @@
                   "additionalProperties": false,
                   "properties": {
                     "expect": {
-                      "anyOf": [
-                        {
-                          "const": "verified_true",
-                          "type": "string"
-                        },
-                        {
-                          "const": "verified_false",
-                          "type": "string"
-                        }
-                      ]
+                      "enum": [
+                        "verified_true",
+                        "verified_false"
+                      ],
+                      "type": "string"
                     },
                     "key": {
-                      "anyOf": [
-                        {
-                          "const": "vegetarian-options",
-                          "type": "string"
-                        },
-                        {
-                          "const": "vegan-options",
-                          "type": "string"
-                        },
-                        {
-                          "const": "gluten-free-options",
-                          "type": "string"
-                        },
-                        {
-                          "const": "halal-options",
-                          "type": "string"
-                        },
-                        {
-                          "const": "lactose-free-options",
-                          "type": "string"
-                        },
-                        {
-                          "const": "wheelchair-accessible",
-                          "type": "string"
-                        },
-                        {
-                          "const": "outdoor-seating",
-                          "type": "string"
-                        },
-                        {
-                          "const": "dog-friendly",
-                          "type": "string"
-                        },
-                        {
-                          "const": "wifi",
-                          "type": "string"
-                        },
-                        {
-                          "const": "takeaway",
-                          "type": "string"
-                        },
-                        {
-                          "const": "delivery",
-                          "type": "string"
-                        },
-                        {
-                          "const": "price-level",
-                          "type": "string"
-                        },
-                        {
-                          "const": "cuisine",
-                          "type": "string"
-                        }
-                      ]
+                      "enum": [
+                        "vegetarian-options",
+                        "vegan-options",
+                        "gluten-free-options",
+                        "halal-options",
+                        "lactose-free-options",
+                        "wheelchair-accessible",
+                        "outdoor-seating",
+                        "dog-friendly",
+                        "wifi",
+                        "takeaway",
+                        "delivery",
+                        "price-level",
+                        "cuisine"
+                      ],
+                      "type": "string"
                     },
                     "kind": {
                       "const": "attribute",
@@ -6025,16 +8037,11 @@
                   "additionalProperties": false,
                   "properties": {
                     "dimension": {
-                      "anyOf": [
-                        {
-                          "const": "walk_min",
-                          "type": "string"
-                        },
-                        {
-                          "const": "radius_m",
-                          "type": "string"
-                        }
-                      ]
+                      "enum": [
+                        "walk_min",
+                        "radius_m"
+                      ],
+                      "type": "string"
                     },
                     "kind": {
                       "const": "scope",
@@ -6044,157 +8051,7 @@
                       "type": "number"
                     },
                     "referent": {
-                      "anyOf": [
-                        {
-                          "additionalProperties": false,
-                          "properties": {
-                            "kind": {
-                              "const": "self",
-                              "type": "string"
-                            },
-                            "stepId": {
-                              "description": "Step whose chosen place this referent points at; omit for the current step (`s1` by default).",
-                              "maxLength": 40,
-                              "minLength": 1,
-                              "type": "string"
-                            }
-                          },
-                          "required": [
-                            "kind"
-                          ],
-                          "type": "object"
-                        },
-                        {
-                          "additionalProperties": false,
-                          "properties": {
-                            "kind": {
-                              "const": "scopeCenter",
-                              "type": "string"
-                            },
-                            "stepId": {
-                              "description": "Step whose chosen place this referent points at; omit for the current step (`s1` by default).",
-                              "maxLength": 40,
-                              "minLength": 1,
-                              "type": "string"
-                            }
-                          },
-                          "required": [
-                            "kind"
-                          ],
-                          "type": "object"
-                        },
-                        {
-                          "additionalProperties": false,
-                          "properties": {
-                            "candidateId": {
-                              "maxLength": 40,
-                              "minLength": 1,
-                              "type": "string"
-                            },
-                            "kind": {
-                              "const": "candidate",
-                              "type": "string"
-                            },
-                            "stepId": {
-                              "description": "Step whose chosen place this referent points at; omit for the current step (`s1` by default).",
-                              "maxLength": 40,
-                              "minLength": 1,
-                              "type": "string"
-                            }
-                          },
-                          "required": [
-                            "kind",
-                            "candidateId"
-                          ],
-                          "type": "object"
-                        },
-                        {
-                          "additionalProperties": false,
-                          "properties": {
-                            "kind": {
-                              "const": "participant",
-                              "type": "string"
-                            },
-                            "participantId": {
-                              "maxLength": 40,
-                              "minLength": 1,
-                              "type": "string"
-                            },
-                            "stepId": {
-                              "description": "Step whose chosen place this referent points at; omit for the current step (`s1` by default).",
-                              "maxLength": 40,
-                              "minLength": 1,
-                              "type": "string"
-                            }
-                          },
-                          "required": [
-                            "kind",
-                            "participantId"
-                          ],
-                          "type": "object"
-                        },
-                        {
-                          "additionalProperties": false,
-                          "properties": {
-                            "kind": {
-                              "const": "point",
-                              "type": "string"
-                            },
-                            "label": {
-                              "maxLength": 100,
-                              "minLength": 1,
-                              "type": "string"
-                            },
-                            "lat": {
-                              "maximum": 90,
-                              "minimum": -90,
-                              "type": "number"
-                            },
-                            "lng": {
-                              "maximum": 180,
-                              "minimum": -180,
-                              "type": "number"
-                            },
-                            "stepId": {
-                              "description": "Step whose chosen place this referent points at; omit for the current step (`s1` by default).",
-                              "maxLength": 40,
-                              "minLength": 1,
-                              "type": "string"
-                            }
-                          },
-                          "required": [
-                            "kind",
-                            "lat",
-                            "lng"
-                          ],
-                          "type": "object"
-                        },
-                        {
-                          "additionalProperties": false,
-                          "properties": {
-                            "kind": {
-                              "const": "landmark",
-                              "type": "string"
-                            },
-                            "landmarkId": {
-                              "maxLength": 100,
-                              "minLength": 1,
-                              "type": "string"
-                            },
-                            "stepId": {
-                              "description": "Step whose chosen place this referent points at; omit for the current step (`s1` by default).",
-                              "maxLength": 40,
-                              "minLength": 1,
-                              "type": "string"
-                            }
-                          },
-                          "required": [
-                            "kind",
-                            "landmarkId"
-                          ],
-                          "type": "object"
-                        }
-                      ]
+                      "$ref": "#/$defs/schema1"
                     }
                   },
                   "required": [
@@ -6219,177 +8076,16 @@
                       "type": "number"
                     },
                     "mode": {
-                      "anyOf": [
-                        {
-                          "const": "walk",
-                          "type": "string"
-                        },
-                        {
-                          "const": "bike",
-                          "type": "string"
-                        },
-                        {
-                          "const": "car",
-                          "type": "string"
-                        },
-                        {
-                          "const": "transit",
-                          "type": "string"
-                        }
-                      ]
+                      "enum": [
+                        "walk",
+                        "bike",
+                        "car",
+                        "transit"
+                      ],
+                      "type": "string"
                     },
                     "referent": {
-                      "anyOf": [
-                        {
-                          "additionalProperties": false,
-                          "properties": {
-                            "kind": {
-                              "const": "self",
-                              "type": "string"
-                            },
-                            "stepId": {
-                              "description": "Step whose chosen place this referent points at; omit for the current step (`s1` by default).",
-                              "maxLength": 40,
-                              "minLength": 1,
-                              "type": "string"
-                            }
-                          },
-                          "required": [
-                            "kind"
-                          ],
-                          "type": "object"
-                        },
-                        {
-                          "additionalProperties": false,
-                          "properties": {
-                            "kind": {
-                              "const": "scopeCenter",
-                              "type": "string"
-                            },
-                            "stepId": {
-                              "description": "Step whose chosen place this referent points at; omit for the current step (`s1` by default).",
-                              "maxLength": 40,
-                              "minLength": 1,
-                              "type": "string"
-                            }
-                          },
-                          "required": [
-                            "kind"
-                          ],
-                          "type": "object"
-                        },
-                        {
-                          "additionalProperties": false,
-                          "properties": {
-                            "candidateId": {
-                              "maxLength": 40,
-                              "minLength": 1,
-                              "type": "string"
-                            },
-                            "kind": {
-                              "const": "candidate",
-                              "type": "string"
-                            },
-                            "stepId": {
-                              "description": "Step whose chosen place this referent points at; omit for the current step (`s1` by default).",
-                              "maxLength": 40,
-                              "minLength": 1,
-                              "type": "string"
-                            }
-                          },
-                          "required": [
-                            "kind",
-                            "candidateId"
-                          ],
-                          "type": "object"
-                        },
-                        {
-                          "additionalProperties": false,
-                          "properties": {
-                            "kind": {
-                              "const": "participant",
-                              "type": "string"
-                            },
-                            "participantId": {
-                              "maxLength": 40,
-                              "minLength": 1,
-                              "type": "string"
-                            },
-                            "stepId": {
-                              "description": "Step whose chosen place this referent points at; omit for the current step (`s1` by default).",
-                              "maxLength": 40,
-                              "minLength": 1,
-                              "type": "string"
-                            }
-                          },
-                          "required": [
-                            "kind",
-                            "participantId"
-                          ],
-                          "type": "object"
-                        },
-                        {
-                          "additionalProperties": false,
-                          "properties": {
-                            "kind": {
-                              "const": "point",
-                              "type": "string"
-                            },
-                            "label": {
-                              "maxLength": 100,
-                              "minLength": 1,
-                              "type": "string"
-                            },
-                            "lat": {
-                              "maximum": 90,
-                              "minimum": -90,
-                              "type": "number"
-                            },
-                            "lng": {
-                              "maximum": 180,
-                              "minimum": -180,
-                              "type": "number"
-                            },
-                            "stepId": {
-                              "description": "Step whose chosen place this referent points at; omit for the current step (`s1` by default).",
-                              "maxLength": 40,
-                              "minLength": 1,
-                              "type": "string"
-                            }
-                          },
-                          "required": [
-                            "kind",
-                            "lat",
-                            "lng"
-                          ],
-                          "type": "object"
-                        },
-                        {
-                          "additionalProperties": false,
-                          "properties": {
-                            "kind": {
-                              "const": "landmark",
-                              "type": "string"
-                            },
-                            "landmarkId": {
-                              "maxLength": 100,
-                              "minLength": 1,
-                              "type": "string"
-                            },
-                            "stepId": {
-                              "description": "Step whose chosen place this referent points at; omit for the current step (`s1` by default).",
-                              "maxLength": 40,
-                              "minLength": 1,
-                              "type": "string"
-                            }
-                          },
-                          "required": [
-                            "kind",
-                            "landmarkId"
-                          ],
-                          "type": "object"
-                        }
-                      ]
+                      "$ref": "#/$defs/schema1"
                     }
                   },
                   "required": [
@@ -6415,16 +8111,11 @@
                           "type": "number"
                         },
                         "currency": {
-                          "anyOf": [
-                            {
-                              "const": "EUR",
-                              "type": "string"
-                            },
-                            {
-                              "const": "USD",
-                              "type": "string"
-                            }
-                          ]
+                          "enum": [
+                            "EUR",
+                            "USD"
+                          ],
+                          "type": "string"
                         }
                       },
                       "required": [
@@ -6510,16 +8201,11 @@
                       "type": "string"
                     },
                     "lifetime": {
-                      "anyOf": [
-                        {
-                          "const": "session",
-                          "type": "string"
-                        },
-                        {
-                          "const": "durable",
-                          "type": "string"
-                        }
-                      ]
+                      "enum": [
+                        "session",
+                        "durable"
+                      ],
+                      "type": "string"
                     },
                     "values": {
                       "items": {
@@ -6551,16 +8237,11 @@
                       "type": "string"
                     },
                     "lifetime": {
-                      "anyOf": [
-                        {
-                          "const": "session",
-                          "type": "string"
-                        },
-                        {
-                          "const": "durable",
-                          "type": "string"
-                        }
-                      ]
+                      "enum": [
+                        "session",
+                        "durable"
+                      ],
+                      "type": "string"
                     },
                     "values": {
                       "items": {
@@ -6594,40 +8275,17 @@
                   "type": "string"
                 },
                 "category": {
-                  "anyOf": [
-                    {
-                      "const": "dietary",
-                      "type": "string"
-                    },
-                    {
-                      "const": "accessibility",
-                      "type": "string"
-                    },
-                    {
-                      "const": "budget",
-                      "type": "string"
-                    },
-                    {
-                      "const": "distance",
-                      "type": "string"
-                    },
-                    {
-                      "const": "time",
-                      "type": "string"
-                    },
-                    {
-                      "const": "personal-history",
-                      "type": "string"
-                    },
-                    {
-                      "const": "atmosphere",
-                      "type": "string"
-                    },
-                    {
-                      "const": "other",
-                      "type": "string"
-                    }
-                  ]
+                  "enum": [
+                    "dietary",
+                    "accessibility",
+                    "budget",
+                    "distance",
+                    "time",
+                    "personal-history",
+                    "atmosphere",
+                    "other"
+                  ],
+                  "type": "string"
                 }
               },
               "required": [
@@ -6636,20 +8294,12 @@
               "type": "object"
             },
             "visibility": {
-              "anyOf": [
-                {
-                  "const": "shared",
-                  "type": "string"
-                },
-                {
-                  "const": "application-private",
-                  "type": "string"
-                },
-                {
-                  "const": "agent-private",
-                  "type": "string"
-                }
-              ]
+              "enum": [
+                "shared",
+                "application-private",
+                "agent-private"
+              ],
+              "type": "string"
             }
           },
           "required": [
@@ -6663,8 +8313,11 @@
         "name": "submit_requirement"
       },
       {
-        "annotations": {},
-        "description": "Withdraw one of your own needs by requirementId. It stops affecting eligibility, which the server recomputes. Its stored history remains subject to the same visibility rules.",
+        "annotations": {
+          "consequentialHint": false,
+          "readOnlyHint": false
+        },
+        "description": "Withdraw your need using its requirementId from get_spatial_context or its mutation receipt. Recomputes eligibility and returns the affected ID. Stored history keeps its visibility rules.",
         "inputSchema": {
           "additionalProperties": false,
           "properties": {
@@ -6687,7 +8340,10 @@
         "name": "withdraw_requirement"
       },
       {
-        "annotations": {},
+        "annotations": {
+          "consequentialHint": false,
+          "readOnlyHint": false
+        },
         "description": "Set aside or restore one of your own current-step needs without withdrawing it. An inactive need stops affecting eligibility but keeps its row, visibility and history. A need belonging to an already settled step cannot be restored with this tool.",
         "inputSchema": {
           "additionalProperties": false,
@@ -6715,7 +8371,10 @@
         "name": "set_requirement_active"
       },
       {
-        "annotations": {},
+        "annotations": {
+          "consequentialHint": false,
+          "readOnlyHint": false
+        },
         "description": "Record up to 10 candidate verdicts covering all your agent-private needs together, not one requirement. Use candidate IDs from outstanding evaluation_request items. Send verdict: acceptable, unacceptable or needs_info, and each dossier mapRevision as screenedMapRevision; missing or old revisions stay stale. needs_info requires infoNeeded, which the server receives. Keep private condition text out of that field. Each new verdict replaces your prior verdict for that candidate.",
         "inputSchema": {
           "additionalProperties": false,
@@ -6746,16 +8405,11 @@
                         "type": "integer"
                       },
                       "verdict": {
-                        "anyOf": [
-                          {
-                            "const": "acceptable",
-                            "type": "string"
-                          },
-                          {
-                            "const": "unacceptable",
-                            "type": "string"
-                          }
-                        ]
+                        "enum": [
+                          "acceptable",
+                          "unacceptable"
+                        ],
+                        "type": "string"
                       }
                     },
                     "required": [
@@ -6811,6 +8465,8 @@
       },
       {
         "annotations": {
+          "consequentialHint": false,
+          "readOnlyHint": false,
           "untrustedContentHint": true
         },
         "description": "Set your stance on an open or vetoed proposal: accept, reject, abstain or conditionally_accept. A rejection blocks agreement while it stands. Accepting also marks you ready; abstaining does not. conditionally_accept carries no condition and blocks commit until replaced. reason is optional; omit it for agent-private stances. Staged, committed and withdrawn proposals reject new stances.",
@@ -6823,24 +8479,13 @@
               "type": "integer"
             },
             "disposition": {
-              "anyOf": [
-                {
-                  "const": "accept",
-                  "type": "string"
-                },
-                {
-                  "const": "reject",
-                  "type": "string"
-                },
-                {
-                  "const": "abstain",
-                  "type": "string"
-                },
-                {
-                  "const": "conditionally_accept",
-                  "type": "string"
-                }
-              ]
+              "enum": [
+                "accept",
+                "reject",
+                "abstain",
+                "conditionally_accept"
+              ],
+              "type": "string"
             },
             "proposalId": {
               "maxLength": 40,
@@ -6850,16 +8495,11 @@
               "additionalProperties": false,
               "properties": {
                 "kind": {
-                  "anyOf": [
-                    {
-                      "const": "history",
-                      "type": "string"
-                    },
-                    {
-                      "const": "domain",
-                      "type": "string"
-                    }
-                  ]
+                  "enum": [
+                    "history",
+                    "domain"
+                  ],
+                  "type": "string"
                 },
                 "note": {
                   "maxLength": 200,
@@ -6872,20 +8512,12 @@
               "type": "object"
             },
             "visibility": {
-              "anyOf": [
-                {
-                  "const": "shared",
-                  "type": "string"
-                },
-                {
-                  "const": "application-private",
-                  "type": "string"
-                },
-                {
-                  "const": "agent-private",
-                  "type": "string"
-                }
-              ]
+              "enum": [
+                "shared",
+                "application-private",
+                "agent-private"
+              ],
+              "type": "string"
             }
           },
           "required": [
@@ -6899,7 +8531,10 @@
         "name": "respond_to_proposal"
       },
       {
-        "annotations": {},
+        "annotations": {
+          "consequentialHint": false,
+          "readOnlyHint": false
+        },
         "description": "Grant or deny an adjustment request addressed to you in outstanding. A grant within its delegated bound applies immediately; an outside-bound grant returns staged: true and requires page confirmation before applying. Denial closes the request. This tool answers an existing adjustment; it does not change its terms or implement disclosure escalation.",
         "inputSchema": {
           "additionalProperties": false,
@@ -6910,16 +8545,11 @@
               "type": "integer"
             },
             "decision": {
-              "anyOf": [
-                {
-                  "const": "grant",
-                  "type": "string"
-                },
-                {
-                  "const": "deny",
-                  "type": "string"
-                }
-              ]
+              "enum": [
+                "grant",
+                "deny"
+              ],
+              "type": "string"
             },
             "requestId": {
               "maxLength": 40,
@@ -6936,7 +8566,10 @@
         "name": "resolve_private_request"
       },
       {
-        "annotations": {},
+        "annotations": {
+          "consequentialHint": false,
+          "readOnlyHint": false
+        },
         "description": "Mark yourself ready or contributing. Staging agreement also requires every participant to accept or abstain on the proposal, with no veto or conditional stance. Disconnected participants still count. Readiness carries into subsequent plan steps; each proposal requires its own stances.",
         "inputSchema": {
           "additionalProperties": false,
@@ -6947,16 +8580,11 @@
               "type": "integer"
             },
             "state": {
-              "anyOf": [
-                {
-                  "const": "contributing",
-                  "type": "string"
-                },
-                {
-                  "const": "ready",
-                  "type": "string"
-                }
-              ]
+              "enum": [
+                "contributing",
+                "ready"
+              ],
+              "type": "string"
             }
           },
           "required": [
@@ -6968,7 +8596,10 @@
         "name": "set_ready_state"
       },
       {
-        "annotations": {},
+        "annotations": {
+          "consequentialHint": false,
+          "readOnlyHint": false
+        },
         "description": "Set your starting position and optional label. The stored origin is visible to the application and you; the page separately controls live sharing, off by default. Your position can affect shared eligibility even while live sharing is off. This does not change the shared search circle.",
         "inputSchema": {
           "additionalProperties": false,
@@ -7004,16 +8635,11 @@
               "type": "object"
             },
             "source": {
-              "anyOf": [
-                {
-                  "const": "device",
-                  "type": "string"
-                },
-                {
-                  "const": "stated",
-                  "type": "string"
-                }
-              ]
+              "enum": [
+                "device",
+                "stated"
+              ],
+              "type": "string"
             }
           },
           "required": [
@@ -7026,7 +8652,10 @@
         "name": "set_origin"
       },
       {
-        "annotations": {},
+        "annotations": {
+          "consequentialHint": false,
+          "readOnlyHint": false
+        },
         "description": "Stage an open proposal for final page confirmation. Organizer only: every participant must be ready and have accepted or abstained, with no veto or conditional stance. Returns staged: true; it does not commit. The page commit rechecks these conditions, then settles the current plan step or opens final arrival planning.",
         "inputSchema": {
           "additionalProperties": false,
@@ -7051,6 +8680,7 @@
       },
       {
         "annotations": {
+          "consequentialHint": false,
           "readOnlyHint": true
         },
         "description": "Find named landmarks in this room's prepared area before submitting a distance need. Returns stable landmark IDs, names, place-type labels and locations ranked by name match. Use a returned landmarkId in a scope referent. This is a landmark search, not worldwide venue discovery.",
@@ -7073,23 +8703,54 @@
       },
       {
         "annotations": {
+          "consequentialHint": false,
           "readOnlyHint": true,
           "untrustedContentHint": true
         },
-        "description": "Read compact scope, feasibility, candidate rows, proposals, agreement and outstanding work. Starts with at most eight candidates ordered by eligibility then walking estimate; further budget compaction may omit rows or fields. Proposal accepts counts only stances visible to you, not every private accept. Use returned candidateIds for inspection and actions. Detailed needs, coordinates and plan fields are omitted. May resume pool fill and preview evidence.",
+        "description": "Summarize the current plan, needs, participants and candidate choices. Returns stable IDs, recorded-evidence classifications and estimated-walk ordering. Continue page.nextCursor with cursor only. Pages share a five-minute snapshot; start again without cursor for current state. Starts no lookup.",
         "inputSchema": {
           "additionalProperties": false,
-          "properties": {},
+          "properties": {
+            "cursor": {
+              "description": "Continue a candidate snapshot unchanged; omit other arguments. Expires after five minutes or document reload.",
+              "maxLength": 100,
+              "minLength": 1,
+              "type": "string"
+            },
+            "eligibility": {
+              "enum": [
+                "eligible",
+                "likely",
+                "uncertain",
+                "unlikely",
+                "excluded"
+              ],
+              "type": "string"
+            },
+            "limit": {
+              "description": "Maximum candidates per page; default eight. The result budget may return fewer.",
+              "maximum": 20,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "query": {
+              "description": "Filter candidates by name or category within the room's current pool.",
+              "maxLength": 100,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
           "type": "object"
         },
         "name": "get_spatial_context"
       },
       {
         "annotations": {
+          "consequentialHint": false,
           "readOnlyHint": true,
           "untrustedContentHint": true
         },
-        "description": "Read compact records for 1-3 candidates: graded attributes, brief provenance, need verdicts, mapRevision and available links/metadata. Full hours, coordinates, detailed evidence and image URLs are omitted. intent: read starts no lookup; open returns cached records and starts bounded fact work. Omitting intent starts lookup with a bounded wait. Several IDs read a comparison but do not open the page's comparison panel. Results may be further compacted.",
+        "description": "Read cached facts for 1-3 candidate IDs, in requested order. Returns active-need verdicts, map revisions, evidence source/time and availableKeys. Choose keys or details (hours, evidence, links). Starts no lookup; use look_up_places to refresh evidence.",
         "inputSchema": {
           "additionalProperties": false,
           "properties": {
@@ -7103,22 +8764,31 @@
               "minItems": 1,
               "type": "array"
             },
-            "force": {
-              "description": "With intent open, request another pass even if this need set was already checked. Source caches and provider budgets still apply.",
-              "type": "boolean"
+            "details": {
+              "description": "Optional detail groups. Evidence includes notes and source links; hours are in the returned timezone.",
+              "items": {
+                "enum": [
+                  "hours",
+                  "evidence",
+                  "links"
+                ],
+                "type": "string"
+              },
+              "maxItems": 3,
+              "type": "array",
+              "uniqueItems": true
             },
-            "intent": {
-              "anyOf": [
-                {
-                  "const": "open",
-                  "type": "string"
-                },
-                {
-                  "const": "read",
-                  "type": "string"
-                }
-              ],
-              "description": "read: start no lookup. open: return cache and start bounded work. Omit for lookup with a bounded wait."
+            "keys": {
+              "description": "Attribute keys to return. By default prioritize active needs and recorded positive facts. Available keys are returned.",
+              "items": {
+                "maxLength": 100,
+                "minLength": 1,
+                "type": "string"
+              },
+              "maxItems": 12,
+              "minItems": 1,
+              "type": "array",
+              "uniqueItems": true
             }
           },
           "required": [
@@ -7129,7 +8799,10 @@
         "name": "inspect_candidates"
       },
       {
-        "annotations": {},
+        "annotations": {
+          "consequentialHint": false,
+          "readOnlyHint": false
+        },
         "description": "Organizer only: change the shared circle and/or walk/bike/car transport modes. Provide area, transport or both. The change applies to the room and recomputes eligibility without collecting affected members' consent. Circle radii are 100-5000 metres. This does not calculate routes or set a planning time.",
         "inputSchema": {
           "additionalProperties": false,
@@ -7181,20 +8854,12 @@
             },
             "transport": {
               "items": {
-                "anyOf": [
-                  {
-                    "const": "walk",
-                    "type": "string"
-                  },
-                  {
-                    "const": "bike",
-                    "type": "string"
-                  },
-                  {
-                    "const": "car",
-                    "type": "string"
-                  }
-                ]
+                "enum": [
+                  "walk",
+                  "bike",
+                  "car"
+                ],
+                "type": "string"
               },
               "maxItems": 3,
               "minItems": 1,
@@ -7210,7 +8875,10 @@
         "name": "set_search_scope"
       },
       {
-        "annotations": {},
+        "annotations": {
+          "consequentialHint": false,
+          "readOnlyHint": false
+        },
         "description": "Add up to 40 source refs from the page's explore/search places to the active step's shared candidate pool. The page is the discovery path for refs. Already-present refs are ignored; the live pool ceiling applies. This adds places without removing existing ones or moving other participants' viewports.",
         "inputSchema": {
           "additionalProperties": false,
@@ -7241,7 +8909,10 @@
         "name": "add_candidates"
       },
       {
-        "annotations": {},
+        "annotations": {
+          "consequentialHint": false,
+          "readOnlyHint": false
+        },
         "description": "Start evidence lookup for 1-3 candidates using configured sources and models; this can spend provider budget and write caches. Validated explicit venue statements may become verified; other evidence can remain likely or unknown. Returns compact records after a bounded wait; unfinished work continues on the page. Optionally focus on keys or request an interactive refresh with force. Refresh does not guarantee new facts.",
         "inputSchema": {
           "additionalProperties": false,
@@ -7279,7 +8950,10 @@
         "name": "look_up_places"
       },
       {
-        "annotations": {},
+        "annotations": {
+          "consequentialHint": false,
+          "readOnlyHint": false
+        },
         "description": "Create a shared proposal on a candidate in the current plan step's live pool so participants can take stances. Uncertain or excluded candidates can also be proposed; classification is advice, not agreement. A candidate with an existing live proposal must use that proposal instead.",
         "inputSchema": {
           "additionalProperties": false,
@@ -7304,9 +8978,10 @@
       },
       {
         "annotations": {
-          "readOnlyHint": true
+          "consequentialHint": false,
+          "readOnlyHint": false
         },
-        "description": "Select, pan to and highlight a candidate on your page. The page publishes your viewing presence to the room and starts bounded evidence work for the selected place. Other participants can see which place you are viewing; resulting facts may be shared. This does not submit a proposal or stance, or change the shared search circle.",
+        "description": "Select and highlight a known candidate on your page. Publishes your viewing presence to the room and starts evidence lookup. Returns the selected place; proposing a destination is a separate action.",
         "inputSchema": {
           "additionalProperties": false,
           "properties": {
@@ -7324,7 +8999,10 @@
         "name": "focus_destination"
       },
       {
-        "annotations": {},
+        "annotations": {
+          "consequentialHint": false,
+          "readOnlyHint": false
+        },
         "description": "Record your walk, bike or car arrival mode and optional pickupNote after the final destination is agreed. The mode is shared; the note is private to the application and you. The first plan enters the arrival phase. This stores coordination details; it does not calculate routes, book transport or create a meeting point.",
         "inputSchema": {
           "additionalProperties": false,
@@ -7335,20 +9013,12 @@
               "type": "integer"
             },
             "mode": {
-              "anyOf": [
-                {
-                  "const": "walk",
-                  "type": "string"
-                },
-                {
-                  "const": "bike",
-                  "type": "string"
-                },
-                {
-                  "const": "car",
-                  "type": "string"
-                }
-              ]
+              "enum": [
+                "walk",
+                "bike",
+                "car"
+              ],
+              "type": "string"
             },
             "pickupNote": {
               "maxLength": 200,
@@ -7364,7 +9034,10 @@
         "name": "plan_arrival"
       },
       {
-        "annotations": {},
+        "annotations": {
+          "consequentialHint": false,
+          "readOnlyHint": false
+        },
         "description": "Record a fact you verified for a place with a permanent source reference. Use a vocabulary criterionId or q:<sha1> and boolean lean; open:* time windows and synthetic value IDs are not accepted. The named confirmation applies only in this room and may dispute a verified record. Your private-question note/sourceUrl are discarded. Withdrawal is a page action for the confirmer or organizer.",
         "inputSchema": {
           "additionalProperties": false,
@@ -7464,7 +9137,10 @@
         "name": "confirm_fact"
       },
       {
-        "annotations": {},
+        "annotations": {
+          "consequentialHint": false,
+          "readOnlyHint": false
+        },
         "description": "Add shared, named evidence for a boolean vocabulary key (not price-level or cuisine) or q:<sha1>. Supply verified_true/verified_false, confidence 0-1 and a note stating what you checked. Below 0.7 the answer is likely. Contradictions with verified facts or disagreeing attesters become disputed/unknown. Notes are shared: do not include a private condition. This changes evidence, not a requirement or stance.",
         "inputSchema": {
           "additionalProperties": false,
@@ -7547,16 +9223,11 @@
               "type": "string"
             },
             "status": {
-              "anyOf": [
-                {
-                  "const": "verified_true",
-                  "type": "string"
-                },
-                {
-                  "const": "verified_false",
-                  "type": "string"
-                }
-              ]
+              "enum": [
+                "verified_true",
+                "verified_false"
+              ],
+              "type": "string"
             }
           },
           "required": [
@@ -7573,6 +9244,7 @@
       },
       {
         "annotations": {
+          "consequentialHint": false,
           "readOnlyHint": true
         },
         "description": "Return geo:, Google Maps and Apple Maps handoff links from stored coordinates. Pass candidateId to navigate before agreement, or omit it to use the committed destination. Optional from overrides your saved origin. Returning links does not navigate or calculate a route; opening one sends its coordinates to the selected map application.",

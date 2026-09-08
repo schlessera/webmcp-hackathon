@@ -3,6 +3,7 @@ export * from "./manifest.ts";
 export * from "./errors.ts";
 export * from "./envelope.ts";
 export * from "./tools.ts";
+export * from "./webmcp-results.ts";
 export * from "./commands.ts";
 export * from "./realtime.ts";
 // hash.ts (Node-only: node:crypto) is exported via the "./hash" subpath.

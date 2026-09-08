@@ -26,6 +26,7 @@ import {
 import { computeFacetsBundle, labelForRequirement } from "./facets.ts";
 import { IMPASSE_TEXT } from "./impasse.ts";
 import { presentIn } from "./presence.ts";
+import { outstandingFor } from "./outstanding.ts";
 import { projectParticipantSummary } from "./projection.ts";
 import { loadSnapshot, roomPoolClasses, type DataSource } from "./places.ts";
 import {
@@ -693,24 +694,14 @@ export async function spatialContext(
       poolTarget = targetForPool(poolSize, plan.total);
       filling = poolFillActive(actor.roomId) ||
         (poolSize < POOL_CAP && plan.venues.some((venue) => !existingRefs.has(venue.ref)));
-      // A read is also the restart recovery point: persisted candidates and
-      // scope are enough to derive and resume whatever work is missing.
-      if (filling) startPoolFill(actor.roomId);
-    }
-    if (process.env.ENRICH_NETWORK !== "0") {
-      const likely = rows
-        .filter((row) => row.eligibility === "eligible" || row.eligibility === "likely")
-        .sort((a, b) => a.walkMin - b.walkMin || a.candidateId.localeCompare(b.candidateId))
-        .slice(0, 20)
-        .map((row) => row.candidateId);
-      queueMicrotask(() => {
-        for (const candidateId of likely) previewCandidate(actor.roomId, candidateId);
-      });
     }
     return {
       ok: true as const,
       revision: room.revision as number,
       phase: room.phase as string,
+      identity: { participantId: actor.id, displayName: actor.displayName, role: actor.role },
+      timezone: inputs.timezone ?? "UTC",
+      outstanding: await outstandingFor(client, actor.roomId, actor.id),
       ...(typeof room.goal === "string" && room.goal ? { goal: room.goal } : {}),
       // A room without a plan sends no steps, so a client that never
       // learned about them reads exactly the context it always did.
@@ -780,6 +771,18 @@ export async function spatialContext(
         : {}),
     };
   });
+}
+
+/** Authenticated page connection, never a passive tool read, resumes work. */
+export async function resumeSpatialWork(actor: Participant): Promise<void> {
+  startPoolFill(actor.roomId);
+  if (process.env.ENRICH_NETWORK === "0") return;
+  const context = await spatialContext(actor);
+  if (!context.ok) return;
+  for (const candidate of context.candidates
+    .filter((c) => c.eligibility === "eligible" || c.eligibility === "likely")
+    .sort((a, b) => a.walkMin - b.walkMin || a.candidateId.localeCompare(b.candidateId))
+    .slice(0, 20)) previewCandidate(actor.roomId, candidate.candidateId);
 }
 
 export async function inspectCandidates(
@@ -976,6 +979,7 @@ export async function inspectCandidates(
         const why = whyFor(classified, actor.id);
         rows.push({
           requirementId: requirement.id,
+          criterionId: criterionFor(requirement.payload as never, { timezone, now: readAt })?.id,
           label: labelForRequirement(
             requirement,
             requirement.owner_id === actor.id,
@@ -1025,6 +1029,8 @@ export async function inspectCandidates(
         name: r.name,
         location: r.location,
         category: r.category,
+        timezone,
+        asOf: readAt.toISOString(),
         // A published price range fills an unknown band for the panel's meta
         // line, the same way it fills the price-level attribute.
         priceLevel: r.price_level ?? (webPrice ?? null),

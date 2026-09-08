@@ -38,12 +38,14 @@ function buildResultSchemas(): Record<string, ResultSchema> {
     "SyncSessionResponse",
     "SpatialContextResponse",
     "InspectCandidatesResponse",
+    "WebMCPContextResponse",
+    "WebMCPInspectResponse",
     "PrepareNavigationResponse",
     "ExplorePlacesResult",
     "ClientMessage",
     "ServerMessage",
   ]);
-  const files = ["envelope.ts", "realtime.ts"].map((name) =>
+  const files = ["envelope.ts", "realtime.ts", "webmcp-results.ts"].map((name) =>
     fileURLToPath(new URL(`./${name}`, import.meta.url)),
   );
   const program = ts.createProgram(files, {
@@ -97,11 +99,14 @@ function buildResultSchemas(): Record<string, ResultSchema> {
     for (const property of checker.getPropertiesOfType(type)) {
       const declaration = property.valueDeclaration ?? property.declarations?.[0];
       if (!declaration) continue;
-      properties[property.name] = schemaFor(
-        checker.getTypeOfSymbolAtLocation(property, declaration),
-        new Set(stack),
-      );
-      if (!(property.flags & ts.SymbolFlags.Optional)) required.push(property.name);
+      const propertyType = checker.getTypeOfSymbolAtLocation(property, declaration);
+      properties[property.name] = schemaFor(propertyType, new Set(stack));
+      // Inferred projections often spell an optional wire field as
+      // `field: value | undefined`. JSON omits it just like `field?: value`.
+      const canBeUndefined = propertyType.isUnion()
+        ? propertyType.types.some((part) => !!(part.flags & ts.TypeFlags.Undefined))
+        : !!(propertyType.flags & ts.TypeFlags.Undefined);
+      if (!(property.flags & ts.SymbolFlags.Optional) && !canBeUndefined) required.push(property.name);
     }
     const stringIndex = checker.getIndexTypeOfType(type, ts.IndexKind.String);
     return {

@@ -126,8 +126,8 @@ describe("question-criterion lookup over the API", () => {
         );
         expect(submitted.body.ok).toBe(true);
         await waitFor(async () => realtime.frames().some((raw) => {
-          const frame = JSON.parse(raw) as { type: string; pending?: string[] };
-          return frame.type === "lookups" && Boolean(frame.pending?.length);
+          const frame = JSON.parse(raw) as { type: string; pending?: string[]; reason?: { kind?: string } };
+          return frame.type === "lookups" && ["need", "refine"].includes(frame.reason?.kind ?? "") && Boolean(frame.pending?.length);
         }));
         const lookupFrames = realtime.frames()
           .map((raw) => JSON.parse(raw) as Record<string, unknown>)
@@ -135,10 +135,11 @@ describe("question-criterion lookup over the API", () => {
         expect(lookupFrames.length).toBeGreaterThan(0);
         for (const frame of lookupFrames) {
           expect(JSON.stringify(frame)).not.toContain("private rooftop password");
-          expect(frame.reason).not.toHaveProperty("label");
-          expect(["need", "refine"]).toContain(
-            (frame.reason as { kind?: string } | undefined)?.kind,
-          );
+          expect(frame.reason ?? {}).not.toHaveProperty("label");
+          // Connection previews and their terminal frames may interleave with
+          // the need's lookup; the wait above still requires actual need work.
+          const kind = (frame.reason as { kind?: string } | undefined)?.kind;
+          if (kind) expect(["need", "refine", "place"]).toContain(kind);
         }
       } finally {
         realtime.close();

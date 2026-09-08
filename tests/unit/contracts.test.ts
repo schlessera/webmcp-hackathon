@@ -11,6 +11,10 @@ import {
   SYNC_SESSION_INPUT,
   TOOLS,
   TOOL_CONTRACT_VERSION,
+  ContextPager,
+  inspectResult,
+  type SpatialContextResult,
+  type InspectCandidatesResponse,
 } from "@webmcp-hackathon/contracts";
 import {
   canonicalStringify,
@@ -74,7 +78,7 @@ describe("tool schemas (lane 1)", () => {
       confidence: 0.8,
       note: "checked directly",
     })).toBe(false);
-    expect(TOOL_CONTRACT_VERSION).toBe("3");
+    expect(TOOL_CONTRACT_VERSION).toBe("4");
   });
 
   it("admits only vocabulary and q:<sha1> ids for permanent confirmations", () => {
@@ -86,7 +90,7 @@ describe("tool schemas (lane 1)", () => {
       .toBe(false);
     expect(confirm({ ...base, criterionId: "Is it quiet?" })).toBe(false);
     expect(confirm({ ...base, criterionId: `q:${"g".repeat(40)}` })).toBe(false);
-    expect(TOOL_CONTRACT_VERSION).toBe("3");
+    expect(TOOL_CONTRACT_VERSION).toBe("4");
   });
 
   it("rejects oversized arguments (verdict batch cap, note cap)", () => {
@@ -154,7 +158,7 @@ describe("tool schemas (lane 1)", () => {
     const roundTripped = JSON.parse(JSON.stringify(input));
     expect(validate(roundTripped)).toBe(true);
     expect(roundTripped).toEqual(input);
-    expect(TOOL_CONTRACT_VERSION).toBe("3");
+    expect(TOOL_CONTRACT_VERSION).toBe("4");
   });
 
   it("additively admits travel modes, referents, and USD while requiring the mode", () => {
@@ -183,7 +187,7 @@ describe("tool schemas (lane 1)", () => {
       ...base,
       payload: { kind: "budget", perPersonMax: { amount: 20, currency: "USD" } },
     })).toBe(true);
-    expect(TOOL_CONTRACT_VERSION).toBe("3");
+    expect(TOOL_CONTRACT_VERSION).toBe("4");
   });
 
   it("no tool argument accepts an actor identity", () => {
@@ -236,7 +240,7 @@ describe("character budgets (Chrome guidance)", () => {
 
   it("does not claim look_up_places is read-only", () => {
     const tool = TOOLS.find((t) => t.name === "look_up_places")!;
-    expect(tool.annotations.readOnlyHint).toBeUndefined();
+    expect(tool.annotations.readOnlyHint).toBe(false);
   });
 
   it("conduct string stays short enough to ride in a tool result", () => {
@@ -414,6 +418,16 @@ describe("contract hash and version bump policy (Gate 2)", () => {
         { type: "facts", candidateIds: ["c"], reason: "lookup" },
       ],
     };
+    const context = fixtures.SpatialContextResponse[0] as SpatialContextResult;
+    const inspection = fixtures.InspectCandidatesResponse[0] as InspectCandidatesResponse;
+    fixtures.WebMCPContextResponse = [new ContextPager().read("viewer", {}, context)];
+    fixtures.WebMCPInspectResponse = [inspectResult(inspection, { candidateIds: ["c"], keys: ["k"], details: ["hours", "evidence", "links"] })];
+    for (const name of ["WebMCPContextResponse", "WebMCPInspectResponse"]) {
+      const validate = ajv.compile(RESULT_SCHEMAS[name]);
+      for (const value of fixtures[name]) {
+        expect(validate(JSON.parse(JSON.stringify(value))), `${name}: ${JSON.stringify(validate.errors)}`).toBe(true);
+      }
+    }
     for (const [schemaName, values] of Object.entries(fixtures)) {
       const schemaPaths = collectSchemaPaths(RESULT_SCHEMAS[schemaName]);
       for (const value of values) {

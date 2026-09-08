@@ -5,7 +5,9 @@ import {
   TOOLS,
 } from "@webmcp-hackathon/contracts";
 import { nlSay, submitCommand, syncSessionRaw } from "../../apps/web/src/api.ts";
-import { encodeToolResult, trimContext } from "../../apps/web/src/webmcp.ts";
+import { encodeToolResult } from "../../apps/web/src/webmcp.ts";
+import { ContextPager } from "@webmcp-hackathon/contracts";
+import type { SpatialContextResult } from "@webmcp-hackathon/contracts";
 import type { SpatialContext } from "../../apps/web/src/spatial-types.ts";
 
 const long = "quoted \\\"provider text\\\" and participant text ".repeat(80);
@@ -81,32 +83,26 @@ describe("WebMCP result budgets", () => {
       proposals: [],
     } as unknown as SpatialContext;
 
-    const trimmed = trimContext(context) as { candidates: Array<Record<string, unknown>> };
+    const trimmed = new ContextPager().read("viewer", {}, context as unknown as SpatialContextResult) as { candidates: Array<Record<string, unknown>> };
     expect(trimmed.candidates[0]).toMatchObject({ imageCount: 1 });
     expect(trimmed.candidates[0]).not.toHaveProperty("image");
   });
 
-  it("serializes worst-case success and error fixtures for every tool", () => {
+  it("fails explicitly instead of destroying oversized success or recovery data", () => {
     for (const tool of TOOLS) {
       for (const fixture of [worstCaseSuccess(tool.name), worstCaseError(tool.name)]) {
         const result = encodeToolResult(fixture);
         const text = result.content[0].text;
         expect(text.length, tool.name).toBeLessThanOrEqual(BUDGETS.resultMax);
         const parsed = JSON.parse(text) as Record<string, unknown>;
-        expect(parsed.ok, tool.name).toBe(fixture.ok);
-        expect(parsed.truncated, tool.name).toBe(true);
-        expect(parsed.omitted, tool.name).toEqual(expect.objectContaining({
-          arrayItems: expect.any(Number),
-          objectFields: expect.any(Number),
-          stringCharacters: expect.any(Number),
+        expect(parsed.ok, tool.name).toBe(false);
+        expect(result.truncated, tool.name).toBe(true);
+        expect(parsed).not.toHaveProperty("candidates");
+        expect(parsed.error).toEqual(expect.objectContaining({
+          code: fixture.ok ? "temporarily_unavailable" : "invalid_input",
+          message: expect.any(String), recovery: expect.any(String),
         }));
-        if (!fixture.ok) {
-          expect(parsed.error, tool.name).toEqual(expect.objectContaining({
-            code: "invalid_input",
-            message: expect.any(String),
-            recovery: expect.any(String),
-          }));
-        }
+        if (fixture.ok) expect((parsed.error as { recovery: string }).recovery).toContain("revision 999");
       }
     }
   });
@@ -162,6 +158,14 @@ describe("WebMCP result budgets", () => {
     );
     expect(parsed.participants).toEqual(fixture.participants);
     expect(parsed.lastSyncedRevision).toBe(10);
+  });
+
+  it("keeps sync recovery actionable when a whole delta cannot fit", () => {
+    const encoded = encodeToolResult({ ok: false, error: { code: "sync_required", message: long }, delta: { events: [long, long, long] } });
+    const result = JSON.parse(encoded.content[0].text);
+    expect(result.error.code).toBe("sync_required");
+    expect(result.error.recovery).toContain("last fully consumed event revision");
+    expect(result).not.toHaveProperty("delta");
   });
 });
 

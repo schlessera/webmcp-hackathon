@@ -9,7 +9,6 @@ import {
   FIND_LANDMARKS_INPUT,
   LOOK_UP_PLACES_INPUT,
   PREPARE_NAVIGATION_INPUT,
-  SPATIAL_CONTEXT_INPUT,
   SYNC_SESSION_INPUT,
   TOOL_CONTRACT_VERSION,
   areaById,
@@ -19,16 +18,25 @@ import {
 const Ajv = ((AjvModule as never as { default?: unknown }).default ??
   AjvModule) as typeof AjvModule.default;
 const readAjv = new Ajv({ strict: false });
-const validateSyncInput = readAjv.compile(SYNC_SESSION_INPUT);
-// The route accepts one argument the TOOL surface deliberately does not: the
-// press-and-hold preview is a pointer gesture on this page, not a decision an
-// agent takes, and SPATIAL_CONTEXT_INPUT stays empty so the agent's context
-// call has no knob that changes what it sees.
+// HTTP page interactions retain explicit lifecycle/inspection options; the
+// advertised v4 tools use passive reads and their own paging/detail projection.
+const validateSyncInput = readAjv.compile({
+  ...SYNC_SESSION_INPUT,
+  properties: { ...SYNC_SESSION_INPUT.properties, passive: { type: "boolean" } },
+});
 const validateContextInput = readAjv.compile({
-  ...(SPATIAL_CONTEXT_INPUT as unknown as Record<string, unknown>),
+  type: "object", additionalProperties: false,
   properties: { excludeRequirementId: { type: "string", maxLength: 40 } },
 });
-const validateInspectInput = readAjv.compile(INSPECT_CANDIDATES_INPUT);
+const validateInspectInput = readAjv.compile({
+  type: "object", additionalProperties: false,
+  required: ["candidateIds"],
+  properties: {
+    candidateIds: INSPECT_CANDIDATES_INPUT.properties.candidateIds,
+    intent: { type: "string", enum: ["open", "read"] },
+    force: { type: "boolean" },
+  },
+});
 const validateLookupInput = readAjv.compile(LOOK_UP_PLACES_INPUT);
 const validateNavigationInput = readAjv.compile(PREPARE_NAVIGATION_INPUT);
 const validateLandmarksInput = readAjv.compile(FIND_LANDMARKS_INPUT);
@@ -369,7 +377,7 @@ app.get("/api/places/:kind/:id/images/:idx", async (req, reply) => {
 app.post("/api/sync", async (req) => {
   const actor = await bearer(req);
   if (!actor) return notAuthenticated;
-  const body = (req.body ?? {}) as { sinceRevision?: number; cursor?: string };
+  const body = (req.body ?? {}) as { sinceRevision?: number; cursor?: string; passive?: boolean };
   // Browser schemas are guidance, not enforcement: re-validate server-side.
   if (!validateSyncInput(body)) {
     return {
@@ -381,7 +389,7 @@ app.post("/api/sync", async (req) => {
       },
     };
   }
-  const result = await syncSession(actor, body.sinceRevision, body.cursor);
+  const result = await syncSession(actor, body.sinceRevision, body.cursor, body.passive === true);
   req.log.info(
     {
       correlationId: correlationId(req),
