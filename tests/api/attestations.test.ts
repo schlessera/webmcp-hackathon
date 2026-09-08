@@ -137,7 +137,7 @@ describe("AttestAttribute", () => {
     );
     const lines = sync.body.delta!.events.filter((e) => e.type === "attribute_attested").map((e) => e.text);
     expect(lines).toContain("Sarah checked lactose-free options at Grill Royal: yes.");
-    expect(lines).toContain("Joe checked step-free access at Grill Royal: yes.");
+    expect(lines).toContain("Joe checked wheelchair access at Grill Royal: yes.");
 
     const elsewhere = await inspect(other.tokens.org, `place_1_${other.roomId.replace("room_test_", "")}`);
     expect(attr(elsewhere.body, "lactose-free-options").status).toBe("unknown");

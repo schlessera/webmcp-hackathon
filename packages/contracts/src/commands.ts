@@ -2,6 +2,7 @@ import { Type } from "@sinclair/typebox";
 import {
   ALLOWED_VISIBILITIES,
   ATTRIBUTE_VOCABULARY,
+  EVIDENCE_KEYS,
   HINT_TAXONOMY,
 } from "./manifest.ts";
 
@@ -172,6 +173,7 @@ export const RequirementPayload = Type.Union([
     {
       kind: Type.Literal("text"),
       text: Type.String({ minLength: 1, maxLength: 200 }),
+      evidenceKeys: Type.Optional(Type.Array(Type.Union(EVIDENCE_KEYS.map((key) => Type.Literal(key))), { maxItems: 6, uniqueItems: true })),
     },
     { additionalProperties: false },
   ),

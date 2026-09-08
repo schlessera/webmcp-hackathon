@@ -94,6 +94,36 @@ test("offline composer creates a metric distance need", async () => {
   }
 });
 
+test("compound needs keep each clause's must or preference through submission", async () => {
+  const localRoom = await createTestRoom(BASE, { berlin: true });
+  try {
+    const context = await browser.newContext({ viewport: { width: 900, height: 760 } });
+    contexts.push(context);
+    const page = await context.newPage();
+    await page.route("**/api/meta", async (route) => {
+      const response = await route.fetch();
+      await route.fulfill({ response, json: { ...await response.json(), nl: true } });
+    });
+    await page.route("**/api/nl/say", (route) => route.fulfill({ json: {
+      ok: true, intent: "need", clarify: null, reply: null,
+      needs: [
+        { payload: { kind: "attribute", key: "dog-friendly", expect: "verified_true" }, label: "dogs welcome", gist: "dogs welcome", hardness: "hard" },
+        { payload: { kind: "attribute", key: "quiet", expect: "verified_true" }, label: "quiet", gist: "quiet", hardness: "soft" },
+      ], meta: { model: "fixture", ms: 0 },
+    } }));
+    await page.goto(`${BASE}/?shim=webmcp#invite=${localRoom.inviteSecrets.org}`);
+    await page.getByTestId("close-drawer").click();
+    await page.getByLabel("What matters to you?").fill("dogs welcome and preferably quiet");
+    await page.getByLabel("What matters to you?").press("Enter");
+    await expect.poll(async () => (await localRoom.pool.query(
+      "SELECT payload->>'key' AS key,hardness FROM requirements WHERE room_id=$1 AND payload->>'key'=ANY($2) ORDER BY key",
+      [localRoom.roomId, ["dog-friendly", "quiet"]],
+    )).rows).toEqual([{ key: "dog-friendly", hardness: "hard" }, { key: "quiet", hardness: "soft" }]);
+  } finally {
+    await localRoom.cleanup();
+  }
+});
+
 test("demo trajectory through the product UI", async () => {
   test.skip(!spatialReady, "server spatial endpoints not available yet");
   test.setTimeout(180_000);

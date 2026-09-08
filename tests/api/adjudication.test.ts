@@ -110,13 +110,13 @@ describe("focused adjudication over the API", () => {
   const callCount = () => server.logs().split("\n")
     .filter((line) => line.includes("adjudication-scripted-call")).length;
 
-  it("opening a place promotes its likely row and the evidence hash prevents a second call", async () => {
+  it("an explicit lookup promotes its likely row and a passive read makes no second call", async () => {
     const { room, candidateId } = await seededLikelyRoom();
     const before = callCount();
     const inspected = await apiPost<{
       ok: boolean;
       candidates: Array<{ attributes: Array<Record<string, unknown>> }>;
-    }>(server.baseUrl, "/api/spatial/inspect", room.tokens.org, { candidateIds: [candidateId] });
+    }>(server.baseUrl, "/api/spatial/lookup", room.tokens.org, { candidateIds: [candidateId] });
     expect(inspected.body.ok).toBe(true);
     expect(inspected.body.candidates[0].attributes).toContainEqual(expect.objectContaining({
       key: "dog-friendly",

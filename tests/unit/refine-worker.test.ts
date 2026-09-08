@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { ATTRIBUTE_VOCABULARY } from "@webmcp-hackathon/contracts";
 import type { EligibilityInputs } from "../../apps/server/src/eligibility.ts";
 import {
   buildRefinementQueue,
@@ -27,11 +28,7 @@ import {
 import { beginLookups, resetProgress } from "../../apps/server/src/enrich/progress.ts";
 import { pipelineScheduler } from "../../apps/server/src/pipeline/scheduler.ts";
 
-const keys = [
-  "vegetarian-options", "vegan-options", "gluten-free-options", "halal-options",
-  "lactose-free-options", "wheelchair-accessible", "outdoor-seating", "dog-friendly",
-  "wifi", "takeaway", "delivery", "price-level",
-];
+const keys = ATTRIBUTE_VOCABULARY.filter((key) => key !== "cuisine");
 
 function attributes(overrides: Record<string, { status: string; observedAt?: string }> = {}) {
   return keys.map((key) => ({ key, status: overrides[key]?.status ?? "verified_true", ...(overrides[key]?.observedAt ? { observedAt: overrides[key].observedAt } : {}) }));

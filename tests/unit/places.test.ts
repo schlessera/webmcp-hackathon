@@ -207,7 +207,7 @@ describe.each(AREAS.map((a) => [a.id, a] as const))("snapshot %s", (_id, area) =
       expect(c.price_level).toBeNull();
       expect(c.walk_min).toBeGreaterThanOrEqual(1);
       const keys = (c.attributes as Array<{ key: string }>).map((a) => a.key);
-      expect(keys).toEqual([...BOOLEAN_ATTRS.map((b) => b.key), "cuisine", "price-level", "hours"]);
+      expect(keys).toEqual([...BOOLEAN_ATTRS.map((b) => b.key), "accessible-toilet", "wifi", "quiet", "step-free-entrance", "assistance-dog-access", "cuisine", "price-level", "hours"]);
       for (const a of c.attributes as Array<{ source: string }>) {
         expect(a.source.startsWith("osm:")).toBe(true);
       }

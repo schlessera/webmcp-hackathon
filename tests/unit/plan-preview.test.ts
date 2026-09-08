@@ -61,6 +61,7 @@ const concept = (overrides: Record<string, unknown>) => ({
 
 const lunch = concept({
   role: "time",
+  dayPart: "lunch",
   surface: "lunch",
   windowStart: "2026-09-03T12:00:00+02:00",
   windowEnd: "2026-09-03T14:00:00+02:00",
@@ -69,6 +70,7 @@ const lunch = concept({
 });
 const dinner = concept({
   role: "time",
+  dayPart: "evening",
   surface: "dinner",
   windowStart: "2026-09-03T18:00:00+02:00",
   windowEnd: "2026-09-03T21:00:00+02:00",
@@ -86,11 +88,14 @@ const quietRoom = concept({
   surface: "a quiet room",
   gist: "quiet room",
 });
+const near = concept({ role: "travel_time", surface: "nearby", gist: "close by",
+  quantityValue: 10, quantityUnit: "min", quantityBound: "max", mode: "walk", referentKind: "self" });
+const sarahNear = concept({ ...near, surface: "close to Sarah's subway station", referentKind: "named", referentName: "Sarah's subway station" });
 
 /** One golden stage-A answer per corpus row. */
 const DRAFTS: Record<string, { placeClass: string; concepts: unknown[] }> = {
-  "plan-001": { placeClass: "food", concepts: [lunch] },
-  "plan-002": { placeClass: "food", concepts: [] },
+  "plan-001": { placeClass: "food", concepts: [sarahNear, lunch] },
+  "plan-002": { placeClass: "food", concepts: [sarahNear, lunch] },
   "plan-003": { placeClass: "park", concepts: [dogs] },
   "plan-004": {
     placeClass: "park",
@@ -101,10 +106,10 @@ const DRAFTS: Record<string, { placeClass: string; concepts: unknown[] }> = {
     placeClass: "food",
     concepts: [concept({ ...dinner, surface: "Abendessen", phrase: "Abendessen" })],
   },
-  "plan-007": { placeClass: "coworking", concepts: [quietRoom] },
+  "plan-007": { placeClass: "coworking", concepts: [near, quietRoom] },
   "plan-008": {
     placeClass: "coworking",
-    concepts: [concept({ ...quietRoom, surface: "einem ruhigen Raum", gist: "ruhiger Raum" })],
+    concepts: [near, concept({ ...quietRoom, surface: "einem ruhigen Raum", gist: "ruhiger Raum" })],
   },
 };
 
@@ -183,9 +188,8 @@ describe("plan preview", () => {
     expect(preview.steps[0].title).toBe("dinner");
   });
 
-  it("resolves a pre-parsed relative time into the step's window without the model", async () => {
-    // The pre-parser already read "for dinner"; the model sees only the remainder.
-    scripted({ placeClass: "food", concepts: [] });
+  it("resolves the model's civil-time concept deterministically into the step window", async () => {
+    scripted({ placeClass: "food", concepts: [dinner] });
     const preview = await planPreview(planRows[4].text, area, { now: NOW });
     expect(preview.steps[0].needs.map((need) => need.payload.kind)).toEqual(["time"]);
     expect(preview.steps[0].when).toEqual({

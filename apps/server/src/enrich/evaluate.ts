@@ -46,6 +46,8 @@ export const MATRIX_TIMEOUT_MS = Number(process.env.MATRIX_TIMEOUT_MS ?? 90_000)
  * the evidence boundary tolerant at the module edge without changing caps. */
 export type MatrixInferenceTextSource =
   | InferenceTextSource
+  | "survey"
+  | "record"
   | "domain_search"
   | "open_web_search"
   | "domain-search"
@@ -161,6 +163,8 @@ export const EVALUATE_MATRIX_PROMPT = [
   "For yes or no, evidence must be a verbatim span copied from that same place. Use sourceIndex 0..n-1 for the indexed texts, or -1 only when the exact span is in that place's name, category, or cuisine tokens.",
   "Evidence must contain at least 12 characters and at least two words. Never paraphrase, combine separate spans, borrow text from another place, or repeat the criterion/question itself as evidence.",
   "A yes needs direct affirmative support. A no needs explicit negative wording; silence or a missing mention requires abstain.",
+  "Preserve a question's logic: AND=yes requires every clause, AND=no requires one explicit failure; OR=yes needs one supported alternative, OR=no requires every alternative to fail. A conditional requires its trigger to be known or every branch to agree. Never drop negation, time, indoor/outdoor, assistance or nearby/on-site qualifiers. Unknown in one branch is not a false branch. The cited evidence must support the complete answer, not just a convenient clause.",
+  "Survey facts are third-party reports, not verified venue statements. Respect their subject, qualifiers and observation dates; fetchedAt is only the download date. A quietness report cannot establish quietness tonight. Assistance dogs do not imply pets allowed. A level entrance does not prove whole-venue access. Nearby toilets do not prove on-site facilities, hours or an accessible route.",
   "Set explicit=true only when the cited span states the answer outright; use false when the answer is inferred from indirect evidence.",
   "confidence is only your cautious probability from 0 to 1. The server applies a stricter cap based on the cited source. An explicit statement on the venue's own recorded website may be treated as a record-grade fact; all other model claims remain graded evidence.",
   "For abstain use confidence=0, evidence=\"\", and sourceIndex=null.",
@@ -211,7 +215,7 @@ function evidenceBucket(source: MatrixInferenceTextSource): MatrixEvidenceBucket
   if (source === "open_web_search" || source === "open-web-search" || source === "search-open") {
     return "open_web_search";
   }
-  if (source === "wikidata") return "open_web_search";
+  if (source === "wikidata" || source === "survey" || source === "record") return "open_web_search";
   if (source === "menu") return "menu";
   return "venue_site";
 }

@@ -72,7 +72,17 @@ Configure **`ACCESSIBILITY_CLOUD_TOKEN`** and a comma-separated **`ACCESSIBILITY
 
 The integration uses the documented cached tile endpoint with bounded pagination and one-day tile caching, following the [API's export guidance](https://github.com/sozialhelden/accessibility-cloud/blob/main/app/docs/json-api.md). It includes source and licence metadata, retains original IDs, and accepts explicitly selected CC0/Public Domain, CC BY or ODbL records. Restricted or unidentified licences are skipped. Review selected sources' terms and attribution when configuring access.
 
-Only explicit boolean `accessibleWith.wheelchair` values map to likely accessibility facts. Partial/unknown values and equipment/disruption data do not imply whole-venue accessibility. Wheelmap/OSM sources are excluded as duplicate evidence. Source and licence links are included in the dossier. Token-bearing request URLs are neither cached nor logged.
+The shared adapter reads pet/assistance-dog policy, Wi-Fi qualifiers, quietness, wheelchair assessments, entrances and attached toilets. Reports remain likely; partial access and missing data stay uncertain. Entrance facts do not establish whole-venue access. Independent surveys can contribute to the same place, while ambiguous branches within a source abstain. Conflicting claims retain a disagreement note and their separate source observations. Only identified OSM mirrors/lineage are excluded, rather than every Wheelmap-labelled survey.
+
+Tiles include places without an accessibility block, so standalone toilets are retained. Up to three toilets within 300 m become nearby context, never venue attributes. Distances are straight-line estimates; routes, opening hours, fees and public access remain unconfirmed. Cache version 3 and a source-selection fingerprint invalidate earlier wheelchair-only results. Empty successful matches are cached too, avoiding repeated work for uncovered places. Original observation dates, when supplied, remain separate from download dates.
+
+The reviewed everyday selection is:
+
+```dotenv
+ACCESSIBILITY_CLOUD_SOURCE_IDS=ZyDaF8ZrJeGL3m4Cq,Yra2ze6vW9ttX7Tiz,Rf3E4jqTcyTQvGNcP,zFpoqetHjgGbmyHnR,ghEw4XyFpQNLMC45w,ZgrxE24pTiDfv7J5P
+```
+
+These IDs are DogMap, Pfotenpiloten, Travelable, Ginto, Places and Facilities Survey, and Berlin public toilets. Token access is still required. The 2011 SF parking snapshot and Berlin parking feeds with inconsistent attribution are held by the adapter pending review. Station/equipment feeds are outside this selection. The [capability registry](../apps/server/src/enrich/accessibility-facts.ts) and [catalogue review](research/spokes-data-and-requirements-2026-09-08.md) document the choices. Each used source retains its own licence and attribution links; token-bearing request URLs are neither cached nor logged.
 
 Live responses can contain language maps for place names; the parser accepts these alongside plain strings. ODbL licences marked `CCSA` are recognized by their canonical Open Data Commons URL, while restricted and unsupported Creative Commons variants remain excluded. The [September 8 activation check](research/accessibility-cloud-2026-09-08.md) records the selected sources and measured regional coverage.
 

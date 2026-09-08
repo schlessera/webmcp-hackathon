@@ -117,6 +117,32 @@ describe("R2 in-page agent revision discipline", () => {
 });
 
 describe("R3 page-held screening invalidation", () => {
+  it("persists needs_info and missing model answers with a non-disclosing required hint", async () => {
+    const joe: Participant = { id: participantId("joe"), roomId: room.roomId, displayName: "Joe", role: "member", readyState: "contributing" };
+    const revision = Number((await room.pool.query("SELECT revision FROM rooms WHERE id=$1", [room.roomId])).rows[0].revision);
+    expect((await submitCommand(joe, "SubmitRequirement", { baseRevision: revision,
+      visibility: "agent-private", hardness: "hard", delegation: { mode: "approval_required" },
+      scopeHint: { affects: "candidate-eligibility" } })).ok).toBe(true);
+    const ids = (await room.pool.query("SELECT id FROM candidates WHERE room_id=$1 ORDER BY id LIMIT 2", [room.roomId])).rows.map((r) => r.id);
+    await room.pool.query("UPDATE candidates SET attributes=attributes||$2::jsonb WHERE id=$1", [ids[0], JSON.stringify([
+      { key: "wifi", status: "verified_true", source: "osm:internet_access", observedAt: "2026-09-01T00:00:00Z", confidence: 0.8 },
+    ])]);
+    let supplied: any;
+    setTransport(async (body) => {
+      supplied = body;
+      return { output: [{ type: "message", content: [{ type: "output_text", text: JSON.stringify({
+        verdicts: [{ candidateId: ids[0], verdict: "needs_info", missingKeys: [] }],
+      }) }] }] };
+    });
+    const secret = "private wording must never become a shared information hint";
+    expect((await screen(joe, secret, ids)).screened).toBe(2);
+    const rows = (await room.pool.query("SELECT verdict,info_needed FROM verdicts WHERE room_id=$1 AND owner_id=$2 AND candidate_id=ANY($3)", [room.roomId, joe.id, ids])).rows;
+    expect(rows).toEqual([expect.objectContaining({ verdict: "needs_info", info_needed: "More place information is needed" }),
+      expect.objectContaining({ verdict: "needs_info", info_needed: "More place information is needed" })]);
+    expect(JSON.stringify(rows)).not.toContain(secret);
+    const input = JSON.parse(supplied.input[0].content);
+    expect(input[0].facts.find((f: any) => f.key === "wifi")).toMatchObject({ source: "osm:internet_access", observedAt: "2026-09-01T00:00:00Z" });
+  });
   it("screens a changed candidate again after its map revision bumps", async () => {
     const joe: Participant = {
       id: participantId("joe"),
@@ -180,7 +206,7 @@ describe("R3 page-held screening invalidation", () => {
               {
                 type: "output_text",
                 text: JSON.stringify({
-                  verdicts: [{ candidateId: changedId, verdict: "acceptable" }],
+                  verdicts: [{ candidateId: changedId, verdict: "acceptable", supportingKeys: ["dog-friendly"] }],
                 }),
               },
             ],

@@ -116,7 +116,7 @@ describe("facets describe what is askable about the current set", () => {
       expect(facet.label, facet.key).toBeTruthy();
       expect(facet.label, facet.key).toBe(facet.label.toLowerCase());
     }
-    expect(facetFor(facets, "wheelchair-accessible").label).toBe("step-free access");
+    expect(facetFor(facets, "wheelchair-accessible").label).toBe("wheelchair access");
     expect(facetFor(facets, "dog-friendly").label).toBe("dogs welcome");
   });
 
@@ -272,7 +272,7 @@ describe("activeNeeds carry the counterfactual deltas the brief rows show", () =
     const label = (payload: RequirementRow["payload"]) =>
       labelForRequirement(req(payload), true);
     expect(label({ kind: "attribute", key: "wheelchair-accessible", expect: "verified_true" }))
-      .toBe("step-free access");
+      .toBe("wheelchair access");
     expect(label({ kind: "attribute", key: "outdoor-seating", expect: "verified_false" }))
       .toBe("no outdoor seating");
     expect(label({ kind: "budget", perPersonMax: { amount: 15, currency: "EUR" } }))

@@ -601,6 +601,7 @@ export interface ParsedNeed {
   gist: string;
   topic?: string;
   assumed?: string;
+  hardness?: "hard" | "soft";
 }
 export interface PlanClarification {
   question: string;

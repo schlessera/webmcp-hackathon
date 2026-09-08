@@ -110,7 +110,7 @@ export const LOOK_UP_PLACES_INPUT = Type.Object(
       { minItems: 1, maxItems: 3 },
     ),
     keys: Type.Optional(
-      Type.Array(Type.String({ maxLength: 40, description: "Attribute keys to focus on (facet keys)." }), {
+      Type.Array(Type.String({ maxLength: 64, description: "Missing attribute keys, active criterion IDs, or nearby-toilets for scoped facility context." }), {
         minItems: 1,
         maxItems: 6,
       }),

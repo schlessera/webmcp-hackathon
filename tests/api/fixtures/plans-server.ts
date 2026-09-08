@@ -66,6 +66,7 @@ const DINNER_THEN_FILM = {
   reply: null,
   steps: [{ placeClass: "food" }, { placeClass: "cinema" }],
   concepts: [
+    concept({ role: "time", surface: "Dinner", phrase: "Dinner", gist: "dinner", dayPart: "evening", step: 1 }),
     concept({
       role: "attribute",
       surface: "outdoor",

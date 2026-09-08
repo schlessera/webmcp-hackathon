@@ -302,6 +302,15 @@ export function dossierFromTags(
   const attributes: DossierAttribute[] = BOOLEAN_ATTRS.map(({ key, tag }) =>
     booleanAttr(key, tag, tags, observedAt),
   );
+  const internet = tags.internet_access;
+  attributes.push(booleanAttr("accessible-toilet", "toilets:wheelchair", tags, observedAt));
+  attributes.push({ key: "wifi", source: "osm:internet_access", observedAt,
+    status: internet === "wlan" ? "verified_true" : internet === "no" ? "verified_false" : "unknown",
+    confidence: internet === "wlan" || internet === "no" ? 0.8 : 0,
+    ...(internet && internet !== "wlan" && internet !== "no" ? { value: internet } : {}) });
+  for (const key of ["quiet", "step-free-entrance", "assistance-dog-access"]) {
+    attributes.push({ key, status: "unknown", source: "osm:unmapped", observedAt, confidence: 0 });
+  }
   if (tags.cuisine) {
     attributes.push({
       key: "cuisine",

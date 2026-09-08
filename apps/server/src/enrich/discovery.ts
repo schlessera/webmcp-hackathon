@@ -1,10 +1,12 @@
 import { createHash } from "node:crypto";
+import type { CandidateDossier } from "@webmcp-hackathon/contracts";
 import type pg from "pg";
 import { outboundFetchFor } from "../net/outbound.ts";
 import { withFetchLease } from "../net/fetch-lease.ts";
 import { WorkError, httpFailure } from "../work-outcome.ts";
 import { listingDistanceMeters, listingNameSimilarity } from "./listings.ts";
 import { cleanInlineText } from "./text.ts";
+import { accessibilityFacts, factNote, DUPLICATE_OSM_SOURCES, HELD_ACCESSIBILITY_SOURCES, type AccessibilityFact } from "./accessibility-facts.ts";
 
 export type DiscoverySource = "overture" | "accessibility";
 export interface DiscoveryTarget {
@@ -31,6 +33,12 @@ export interface DiscoveryRecord {
   operatingStatus?: string;
   sources?: Array<{ dataset: string; recordId?: string; license?: string }>;
   wheelchair?: boolean;
+  facts?: AccessibilityFact[];
+  facility?: "toilet";
+  observations?: DiscoveryRecord[];
+  nearbyToilets?: Array<{ record: DiscoveryRecord; distanceM: number }>;
+  adapterVersion?: number;
+  selection?: string;
 }
 export type Discoveries = Partial<
   Record<
@@ -38,7 +46,26 @@ export type Discoveries = Partial<
     DiscoveryRecord & { fetchedAt: string; expiresAt: string }
   >
 >;
+
+export function discoveryEvidence(discoveries?: Discoveries): NonNullable<CandidateDossier["sourceEvidence"]> {
+  const entry = discoveries?.accessibility;
+  if (!entry) return [];
+  return [
+    ...(entry.observations ?? [entry]).map((record) => ({ record, relation: "at_place" as const })),
+    ...(entry.nearbyToilets ?? []).map((nearby) => ({ ...nearby, relation: "nearby" as const })),
+  ].slice(0, 15).map((item) => ({
+    source: `${item.record.sourceName ?? "Survey"} via accessibility.cloud:${item.record.sourceId ?? "unknown"}`,
+    sourceUrl: item.record.sourceUrl, license: item.record.license, licenseUrl: item.record.licenseUrl,
+    placeId: item.record.id, placeName: item.record.name, relation: item.relation,
+    ...("distanceM" in item ? { distanceM: item.distanceM } : {}),
+    fetchedAt: entry.fetchedAt, facts: item.record.facts ?? [],
+  }));
+}
 const BASE = "https://accessibility-cloud-v2.freetls.fastly.net";
+const allowedSources = () => (process.env.ACCESSIBILITY_CLOUD_SOURCE_IDS ?? "")
+  .split(",").map((s) => s.trim()).filter(Boolean).sort();
+const accessibilitySelection = () => createHash("sha256")
+  .update(JSON.stringify([process.env.ACCESSIBILITY_CLOUD_TOKEN ?? "", allowedSources()])).digest("hex");
 const liveFetch = outboundFetchFor("accessibility", {
   direct: true,
   maxBytes: 8 * 1024 * 1024,
@@ -102,6 +129,28 @@ export function matchDiscovery(
     return distance <= 40 && similarity >= 0.92;
   });
   return eligible.length === 1 ? eligible[0] : null;
+}
+
+/** Resolve independently within each source. Two nearby branches in one
+ * dataset still abstain; separate surveys of the same place can coexist. */
+export function matchAccessibility(target: DiscoveryTarget, records: DiscoveryRecord[]): DiscoveryRecord[] {
+  const groups = new Map<string, DiscoveryRecord[]>();
+  for (const record of records) {
+    if (record.facility) continue;
+    const key = record.sourceId ?? "unknown";
+    groups.set(key, [...(groups.get(key) ?? []), record]);
+  }
+  return [...groups.values()].flatMap((group) => {
+    const match = matchDiscovery(target, group);
+    return match ? [match] : [];
+  }).sort((a, b) => a.id.localeCompare(b.id));
+}
+
+export function nearbyToilets(target: DiscoveryTarget, records: DiscoveryRecord[]) {
+  return records.filter((r) => r.facility === "toilet")
+    .map((record) => ({ record, distanceM: Math.ceil(listingDistanceMeters(target.location, record.location)) }))
+    .filter((r) => r.distanceM <= 300)
+    .sort((a, b) => a.distanceM - b.distanceM || a.record.id.localeCompare(b.record.id)).slice(0, 3);
 }
 export function overtureRecord(
   feature: unknown,
@@ -247,7 +296,8 @@ export function accessibilityRecords(
     )
       return [];
     if (
-      /wheelmap|openstreetmap|\bosm\b/i.test(
+      DUPLICATE_OSM_SOURCES.has(p.sourceId) || HELD_ACCESSIBILITY_SOURCES.has(p.sourceId) ||
+      /openstreetmap|\bosm\b/i.test(
         `${source.name ?? ""} ${source.originWebsiteURL ?? ""}`,
       )
     )
@@ -265,7 +315,9 @@ export function accessibilityRecords(
     const name = accessibilityName(p.name),
       id = label(p._id),
       wheelchair = p.accessibility?.accessibleWith?.wheelchair;
-    if (!name || !id || typeof wheelchair !== "boolean") return [];
+    const facts = accessibilityFacts(p);
+    const facility = /^(?:toilets?|restroom|public_toilet)$/.test(String(p.category)) ? "toilet" as const : undefined;
+    if (!name || !id || (!facts.length && !facility)) return [];
     return [
       {
         id,
@@ -275,11 +327,13 @@ export function accessibilityRecords(
         originalId: label(p.originalId),
         sourceName: label(source.name),
         sourceUrl:
-          discoveryUrl(source.originWebsiteURL) ??
+          discoveryUrl(p.infoPageUrl) ?? discoveryUrl(source.originWebsiteURL) ??
           `${BASE}/place-infos/${encodeURIComponent(id)}.json`,
         license: label(license.name),
         licenseUrl: discoveryUrl(license.websiteURL),
-        wheelchair,
+        ...(typeof wheelchair === "boolean" ? { wheelchair } : {}),
+        facts,
+        ...(facility ? { facility } : {}),
       },
     ];
   });
@@ -287,7 +341,7 @@ export function accessibilityRecords(
 export function accessibilityTiles(location: {
   lat: number;
   lng: number;
-}): Array<{ x: number; y: number; z: number }> {
+}, radiusM = 45): Array<{ x: number; y: number; z: number }> {
   const z = 16,
     n = 2 ** z,
     rad = Math.PI / 180;
@@ -303,32 +357,26 @@ export function accessibilityTiles(location: {
     z,
   });
   // Include neighbours at a tile boundary so a 40m match is never lost there.
-  const dy = 45 / 111_320,
+  const dy = Math.min(300, Math.max(45, radiusM)) / 111_320,
     dx = dy / Math.max(0.1, Math.cos(location.lat * rad));
-  return [
-    ...new Map(
-      [-dy, dy]
-        .flatMap((y) =>
-          [-dx, dx].map((x) => tile(location.lat + y, location.lng + x)),
-        )
-        .map((t) => [`${t.x}/${t.y}`, t]),
-    ).values(),
-  ];
+  const nw = tile(location.lat + dy, location.lng - dx);
+  const se = tile(location.lat - dy, location.lng + dx);
+  if ((se.x - nw.x + 1) * (se.y - nw.y + 1) > 16) {
+    throw new WorkError({ provider: "accessibility", code: "capacity", deferred: false });
+  }
+  const out = [];
+  for (let x = nw.x; x <= se.x; x++)
+    for (let y = nw.y; y <= se.y; y++) out.push({ x, y, z });
+  return out;
 }
 async function readAccessibilityTile(
   db: pg.Pool,
   tile: { x: number; y: number; z: number },
 ): Promise<DiscoveryRecord[]> {
-  const allowed = (process.env.ACCESSIBILITY_CLOUD_SOURCE_IDS ?? "")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .sort();
+  const allowed = allowedSources();
   const token = process.env.ACCESSIBILITY_CLOUD_TOKEN!;
-  const scope = createHash("sha256")
-    .update(JSON.stringify([token, allowed]))
-    .digest("hex");
-  const key = `accessibility:v2:${scope}:${tile.z}/${tile.x}/${tile.y}`;
+  const scope = accessibilitySelection();
+  const key = `accessibility:v3:${scope}:${tile.z}/${tile.x}/${tile.y}`;
   const cached = async () =>
     (
       await db.query(
@@ -349,6 +397,7 @@ async function readAccessibilityTile(
         appToken: token,
         includeSourceIds: allowed.join(","),
         includeRelated: "source,source.license",
+        includePlacesWithoutAccessibility: 1,
         limit: 1000,
         skip: page * 1000,
         sort: "properties._id",
@@ -398,7 +447,8 @@ export async function discoverSources(
           [target.osmRef, source],
         )
       ).rows[0]?.record;
-      if (prior && Date.parse(prior.expiresAt) > Date.now()) continue;
+      if (prior && Date.parse(prior.expiresAt) > Date.now() &&
+        (source !== "accessibility" || (prior.adapterVersion === 3 && prior.selection === accessibilitySelection()))) continue;
       let records: DiscoveryRecord[];
       if (source === "overture")
         records = (
@@ -413,7 +463,7 @@ export async function discoverSources(
           ...new Map(
             (
               await Promise.all(
-                accessibilityTiles(target.location).map((t) =>
+                accessibilityTiles(target.location, 300).map((t) =>
                   readAccessibilityTile(db, t),
                 ),
               )
@@ -422,20 +472,26 @@ export async function discoverSources(
               .map((r) => [r.id, r]),
           ).values(),
         ];
-      const match = matchDiscovery(target, records);
-      if (!match) continue;
+      const observations = source === "accessibility" ? matchAccessibility(target, records) : [];
+      const nearby = source === "accessibility" ? nearbyToilets(target, records) : [];
+      const match = source === "accessibility" ? observations[0] : matchDiscovery(target, records);
+      if (!match && source === "overture") continue;
       const fetchedAt = new Date().toISOString(),
         expiresAt = new Date(
           Date.now() + (source === "overture" ? 7 : 1) * 86400_000,
         ).toISOString();
-      if (source === "accessibility" && typeof match.wheelchair === "boolean") {
+      if (source === "accessibility") {
         const { saveInferences } = await import("./index.ts");
-        const key = "wheelchair-accessible";
-        await saveInferences(db, [
-          {
+        await saveInferences(db, observations.flatMap((observation) => (observation.facts ?? []).flatMap((fact) => {
+          // Subject-specific negatives, partial access and guide-dog-only
+          // permission cannot decide the broader place attribute.
+          if (typeof fact.value !== "boolean" || fact.key === "toilet-washbasin-inside" ||
+            (fact.subject !== "place" && !fact.value) || fact.qualifiers.includes("guide dogs only")) return [];
+          const key = fact.key;
+          return [{
             osmRef: target.osmRef,
             criteria: [
-              { id: key, kind: "key", key, label: "Wheelchair accessible" },
+              { id: key, kind: "key" as const, key, label: key },
             ],
             claims: [
               {
@@ -443,21 +499,21 @@ export async function discoverSources(
                 osmRef: target.osmRef,
                 criterionId: key,
                 key,
-                lean: match.wheelchair ? "yes" : "no",
-                status: match.wheelchair ? "likely_true" : "likely_false",
-                confidence: 0.65,
+                lean: fact.value ? "yes" as const : "no" as const,
+                status: fact.value ? "likely_true" as const : "likely_false" as const,
+                confidence: fact.observedAt && Date.now() - Date.parse(fact.observedAt) > 365 * 86400_000 ? 0.5 : 0.65,
                 explicit: false,
-                evidence: `${match.sourceName} via accessibility.cloud (${match.license})`,
-                source: `accessibility.cloud:${match.sourceId}`,
+                evidence: `${observation.sourceName} via accessibility.cloud (${observation.license}). ${factNote(fact)}`,
+                source: `accessibility.cloud:${observation.sourceId}`,
                 sourceIndex: 0,
-                sourceUrl: match.sourceUrl,
+                sourceUrl: observation.sourceUrl,
                 observedAt: fetchedAt,
               },
             ],
             answeredCriterionIds: [key],
             observedAt: fetchedAt,
-          },
-        ]);
+          }];
+        })));
       }
       // Mark discovery fresh only after its claim is durable. If saving either
       // part fails, the next attempt can safely replay the cached source data.
@@ -467,10 +523,12 @@ export async function discoverSources(
         [
           target.osmRef,
           source,
-          JSON.stringify({ ...match, fetchedAt, expiresAt }),
+          JSON.stringify({ ...(match ?? { id: target.osmRef, name: target.name, location: target.location,
+            sourceUrl: "https://accessibility.cloud/", license: "See individual source licences" }), fetchedAt, expiresAt,
+            ...(source === "accessibility" ? { adapterVersion: 3, selection: accessibilitySelection(), observations, nearbyToilets: nearby } : {}) }),
         ],
       );
-      matched++;
+      if (match) matched++;
     }
   return matched;
 }

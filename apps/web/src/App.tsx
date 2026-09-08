@@ -1013,8 +1013,8 @@ export function App() {
                   const localId = spatial.beginPendingNeed(need.label, visibility, need.assumed);
                   const result = await run("SubmitRequirement", {
                     visibility,
-                    hardness: "hard",
-                    delegation: { mode: "approval_required" },
+                    hardness: need.hardness ?? "hard",
+                    delegation: { mode: need.hardness === "soft" ? "soft" : "approval_required" },
                     payload: need.payload,
                   });
                   spatial.settlePendingCommit(localId, result.ok);

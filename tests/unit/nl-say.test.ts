@@ -65,6 +65,50 @@ afterEach(() => {
 });
 
 describe("say orchestration", () => {
+  it.each([
+    ["dogs allowed inside or on a covered terrace", ["dog-friendly", "outdoor-seating"]],
+    ["quiet tonight", ["quiet"]],
+    ["a toilet within 300 m", ["nearby-toilets"]],
+    ["step-free entry without staff help", ["step-free-entrance"]],
+    ["Wi-Fi fast enough for a call", ["wifi"]],
+  ])("preserves the complete qualified condition: %s", async (text, evidenceKeys) => {
+    let request: Record<string, unknown> | undefined;
+    scripted({ intent: "need", confidence: 1, reply: null,
+      concepts: [draftConcept({ role: "quality", surface: text, evidenceKeys })] }, (body) => { request = body; });
+    const result = await say(text, "shared", context);
+    expect(result.needs.map((n) => n.payload)).toEqual([{ kind: "text", text, evidenceKeys }]);
+    expect(JSON.stringify(request?.input)).toContain(text);
+  });
+  it("keeps conjunctions independent and preserves a per-clause preference", async () => {
+    scripted({ intent: "need", confidence: 1, reply: null, concepts: [
+      draftConcept({ role: "attribute", surface: "dogs welcome", attributeKey: "dog-friendly" }),
+      draftConcept({ role: "attribute", surface: "preferably quiet", attributeKey: "quiet", hardness: "soft" }),
+      draftConcept({ role: "attribute", surface: "no stairs", attributeKey: "step-free-entrance" }),
+    ] });
+    const result = await say("dogs welcome and preferably quiet and no stairs", "shared", context);
+    expect(result.needs.map((n) => [n.payload.key, n.hardness])).toEqual([
+      ["dog-friendly", "hard"], ["quiet", "soft"], ["step-free-entrance", "hard"],
+    ]);
+  });
+  it("repairs a model split that would turn an OR into two must-haves", async () => {
+    scripted({ intent: "need", confidence: 1, reply: null, concepts: [
+      draftConcept({ role: "attribute", surface: "Wi-Fi", attributeKey: "wifi" }),
+      draftConcept({ role: "attribute", surface: "quiet", attributeKey: "quiet" }),
+    ] });
+    const result = await say("Wi-Fi or quiet", "shared", context);
+    expect(result.needs).toHaveLength(1);
+    expect(result.needs[0].payload).toEqual({ kind: "text", text: "Wi-Fi or quiet", evidenceKeys: ["wifi", "quiet"] });
+  });
+  it("asks for a shorter condition when the model cannot preserve all qualifiers", async () => {
+    const text = "dogs inside or on a covered terrace, " + "with additional conditions that must stay together, ".repeat(5);
+    scripted({ intent: "need", confidence: 0.9, reply: null, concepts: [
+      draftConcept({ role: "quality", surface: "dogs inside or on a covered terrace", unresolved: "value" }),
+    ] });
+    const result = await say(text, "shared", context);
+    expect(result.needs).toEqual([]);
+    expect(result.intent).toBe("clarify");
+    expect(result.clarify?.question).toContain("shorten");
+  });
   it("resolves a landmark distance phrase through the index, with no model call", async () => {
     installLandmarksForTests("berlin-mitte", [{
       id: "lm_cafe",
@@ -118,11 +162,11 @@ describe("say orchestration", () => {
     });
   });
 
-  it("passes pre-parsed concepts to the model and maps only the remainder", async () => {
+  it("passes the entire mixed sentence to the model so qualifiers retain their scope", async () => {
     let request: Record<string, unknown> | undefined;
     scripted({
       intent: "need", confidence: 0.9, reply: null,
-      concepts: [draftConcept({
+      concepts: [draftConcept({ role: "distance", surface: "within 500 m", quantityValue: 500, quantityUnit: "m", quantityBound: "max", referentKind: "self", gist: "distance" }), draftConcept({
         role: "attribute", surface: "vegetarian", attributeKey: "vegetarian-options",
         topic: "dietary", gist: "vegetarian options",
       })],
@@ -135,6 +179,7 @@ describe("say orchestration", () => {
     expect(request?.service_tier).toBe("default");
     expect(request?.instructions).toContain("Already understood, do not repeat");
     expect(request?.instructions).toContain("Never guess a unit");
+    expect(JSON.stringify(request?.input)).toContain("vegetarian and within 500 m");
   });
 
   it("maps model-only kind and quality concepts through the closed union", async () => {

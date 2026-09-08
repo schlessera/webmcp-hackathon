@@ -3,6 +3,7 @@ import addFormatsModule from "ajv-formats";
 import {
   ATTRIBUTE_LABELS,
   ATTRIBUTE_VOCABULARY,
+  EVIDENCE_KEYS,
   HINT_TAXONOMY,
   RequirementPayload,
   TIME_WINDOW_INSTRUCTIONS,
@@ -42,6 +43,7 @@ export interface DraftConcept {
   referentKind: "self" | "here" | "scope_center" | "named" | null;
   referentName: string | null;
   attributeKey: string | null;
+  evidenceKeys?: string[];
   values: string[];
   dayRef: "today" | "tomorrow" | "sunday" | "monday" | "tuesday" | "wednesday" | "thursday" | "friday" | "saturday" | null;
   dayPart: TimePart | null;
@@ -83,11 +85,11 @@ export const SCHEMA = {
           "role", "surface", "polarity", "hardness", "quantityValue", "quantityUnit",
           "quantityBound", "mode", "referentKind", "referentName", "attributeKey", "values",
           "dayRef", "dayPart", "clockHour", "clockMinute", "windowStart", "windowEnd",
-          "phrase", "topic", "unresolved", "gist",
+          "phrase", "topic", "unresolved", "gist", "evidenceKeys",
         ],
         properties: {
           role: { enum: ["distance", "travel_time", "money", "time", "attribute", "kind", "quality", "place", "person", "action", "question"] },
-          surface: { type: "string", maxLength: 120 },
+          surface: { type: "string", maxLength: 200 },
           polarity: { enum: ["include", "exclude"] },
           hardness: { enum: ["hard", "soft"] },
           quantityValue: { type: ["number", "null"] },
@@ -97,6 +99,7 @@ export const SCHEMA = {
           referentKind: { enum: ["self", "here", "scope_center", "named", null] },
           referentName: NULLABLE_STRING,
           attributeKey: NULLABLE_STRING,
+          evidenceKeys: { type: "array", maxItems: 6, items: { enum: [...EVIDENCE_KEYS] } },
           values: { type: "array", maxItems: 8, items: { type: "string", maxLength: 60 } },
           dayRef: { enum: ["today", "tomorrow", "sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", null] },
           dayPart: { enum: ["morning", "brunch", "lunch", "afternoon", "evening", "tonight", "night", "late", "now", null] },
@@ -149,6 +152,9 @@ export function modelInstructions(
   return [
     "You read one sentence a person typed into a shared planning room where a small group is choosing a place.",
     "Return the concepts the sentence states, one per distinct thing, up to five. Do not decide what to do with them.",
+    "Separate independent AND requirements, preserving each clause's hard/soft choice. Keep alternatives, conditional requirements and qualified facts together as ONE quality concept with their full meaning in surface. Do not turn OR into two mandatory needs. A question about the room still has intent ask.",
+    "Examples: dogs welcome and quiet and no stairs -> three attributes dog-friendly, quiet, step-free-entrance. Dogs allowed inside or on a covered terrace -> ONE quality condition, evidenceKeys [dog-friendly,outdoor-seating]. Quiet tonight -> ONE quality condition with tonight preserved, evidenceKeys [quiet]; it is not simply quiet AND open tonight. Wi-Fi fast enough for a call -> ONE quality condition, evidenceKeys [wifi]. Toilet within 300 m -> ONE quality condition, evidenceKeys [nearby-toilets], not a distance from the user. Step-free without staff help -> ONE quality condition, evidenceKeys [step-free-entrance].",
+    "evidenceKeys are optional lookup hints from the allowed fact vocabulary plus nearby-toilets; use [] when none. They do not replace any clause. For a grouped condition, surface must preserve all alternatives, negation, scope and time within 200 characters; never silently drop a qualifier. If this is impossible, return an unresolved quality and ask for a shorter condition.",
     "intent need: the sentence states at least one thing that could rule places in or out. A bare noun phrase counts. Content decides this, never wording.",
     "intent ask: the sentence asks about the room or the places. A question that also states a need is still ask, and you still return its concepts.",
     "intent act: the sentence asks for a room move — put forward, propose, accept, agree, veto, withdraw, widen, set aside, done.",
@@ -167,8 +173,8 @@ export function modelInstructions(
     "Put the words in values, lowercase, singular, in English: italienisch is italian, vietnamesisch is vietnamese, Kino is cinema. Alternatives are one concept with several values. Never widen a value: sushi stays sushi, pizza stays pizza.",
     "Examples: no Italian -> kind values [italian] exclude; italian or spanish -> one kind values [italian,spanish] include; anything but pizza -> kind values [pizza] exclude; a cinema -> kind values [cinema] include.",
     "Examples: kein Italienisch -> kind values [italian] exclude; bloß nicht Pizza -> kind values [pizza] exclude; ohne Sushi -> kind values [sushi] exclude; am liebsten vietnamesisch -> kind values [vietnamese] include soft.",
-    "quality is an open adjective such as quiet or kid friendly and becomes a safe question. open late is a time concept, not quality.",
-    "Examples: vegan options -> attribute vegan-options; vegane Optionen -> attribute vegan-options; quiet -> quality quiet; wäre schön wenn es gemütlich ist -> quality gemütlich soft.",
+    "quality is a contextual condition or an open adjective such as kid friendly and becomes a safe question. Bare quiet maps to attribute quiet; quiet at a specific time remains a quality condition. Open late is a time concept.",
+    "Examples: vegan options -> attribute vegan-options; vegane Optionen -> attribute vegan-options; quiet -> attribute quiet; wäre schön wenn es gemütlich ist -> quality gemütlich soft. Pet dogs and assistance dogs are different attributes. An entrance without stairs is step-free-entrance, not wheelchair-accessible.",
     "Examples: what changed? -> intent ask, no concepts; was hat sich geändert? -> intent ask, no concepts; is there anything vegan? -> intent ask with attribute vegan-options; gibt es etwas Veganes? -> intent ask with attribute vegan-options.",
     "Examples: put Café Einstein forward -> intent act, place Café Einstein; schlag Café Einstein vor -> intent act, place Café Einstein; hello there -> intent other, no concepts.",
     `Area timezone: ${input.room.timezone}. Current local date/time: ${localIso(input.room.now, input.room.timezone)}.`,
@@ -194,6 +200,7 @@ export function conceptFromDraft(draft: DraftConcept): Concept {
     mode: draft.mode,
     referent: draft.referentKind ? { kind: draft.referentKind, name: draft.referentName } : null,
     attributeKey: draft.attributeKey,
+    evidenceKeys: [...new Set((draft.evidenceKeys ?? []).filter((key) => (EVIDENCE_KEYS as readonly string[]).includes(key)))].slice(0, 6),
     values: draft.values,
     window: draft.windowStart && draft.windowEnd ? { start: draft.windowStart, end: draft.windowEnd } : null,
     timeSpec: draft.role === "time" ? {
@@ -260,7 +267,11 @@ export async function say(
   viewerId?: string,
 ): Promise<SayOutcome> {
   const input = understandInput(text, scope, context, now, clarifyOf, viewerId);
-  const parsed = preparse(text, { currency: input.room.currency });
+  const partial = preparse(text, { currency: input.room.currency });
+  // Partial consumption can detach "tonight" from "quiet tonight" or a
+  // distance from a nearby facility. The model must see the complete sentence;
+  // deterministic stage B still resolves its quantities and civil times.
+  const parsed = partial.preparsedWhole ? partial : { ...partial, concepts: [], remainder: text };
   let interpretation: Interpretation;
   let meta: SayOutcome["meta"];
   if (parsed.preparsedWhole) {
@@ -279,7 +290,7 @@ export async function say(
       input: [{ role: "user", content: parsed.remainder || text }],
       schema: { name: "understanding", schema: SCHEMA },
       reasoning: config.llmReasoningEffort,
-      maxOutputTokens: 1_500,
+      maxOutputTokens: 3_000,
       timeoutMs: 30_000,
       serviceTier: "default",
     });

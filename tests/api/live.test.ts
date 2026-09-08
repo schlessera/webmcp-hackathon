@@ -249,7 +249,7 @@ describe("look_up_places route and dossier privacy", () => {
     const owner = await apiPost<{
       candidates: Array<{ needs: Array<Record<string, unknown>> }>;
     }>(server.baseUrl, "/api/spatial/inspect", room.tokens.sarah, { candidateIds: [candidateId] });
-    expect(owner.body.candidates[0].needs.some((need) => need.label === "step-free access" && need.private !== true)).toBe(true);
+    expect(owner.body.candidates[0].needs.some((need) => need.label === "wheelchair access" && need.private !== true)).toBe(true);
     // Sarah has exactly one peer-private need (the organizer's), also collapsed.
     expect(owner.body.candidates[0].needs.filter((need) => need.private === true)).toEqual([
       { private: true, verdict: "no" },

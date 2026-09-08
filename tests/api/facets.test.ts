@@ -113,7 +113,7 @@ describe("facets ride with the candidate set", () => {
     expect(body.matching).toBe(body.feasibility.eligible);
 
     const wheelchair = body.facets.find((f) => f.key === "wheelchair-accessible")!;
-    expect(wheelchair.label).toBe("step-free access");
+    expect(wheelchair.label).toBe("wheelchair access");
     expect(wheelchair.type).toBe("boolean");
     for (const facet of body.facets) {
       expect(facet.counts.unknown, facet.key).toBeTypeOf("number");

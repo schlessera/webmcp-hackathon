@@ -1,5 +1,6 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createHash } from "node:crypto";
+import { ATTRIBUTE_VOCABULARY } from "@webmcp-hackathon/contracts";
 import { createServer as createHttpServer, type ServerResponse } from "node:http";
 import {
   apiPost,
@@ -12,11 +13,8 @@ import {
 } from "./helpers.ts";
 
 const PRIVATE_TEXT = "pipeline-private-otter-938 needs a hidden terrace";
-const KNOWN_ATTRIBUTES = [
-  "vegetarian-options", "vegan-options", "gluten-free-options", "halal-options",
-  "lactose-free-options", "wheelchair-accessible", "outdoor-seating", "dog-friendly",
-  "takeaway", "delivery", "price-level",
-].map((key) => ({ key, status: "verified_true", source: "curated:test", confidence: 1 }));
+const KNOWN_ATTRIBUTES = ATTRIBUTE_VOCABULARY.filter((key) => key !== "wifi" && key !== "cuisine")
+  .map((key) => ({ key, status: "verified_true", source: "curated:test", confidence: 1 }));
 
 describe("pipeline over HTTP, WebSocket, and PostgreSQL", () => {
   let server: TestServer;
@@ -805,7 +803,7 @@ describe("pipeline over HTTP, WebSocket, and PostgreSQL", () => {
       server.baseUrl,
       "/api/spatial/lookup",
       room.tokens.org,
-      { candidateIds: [candidateId], keys: ["dog-friendly"], force: true },
+      { candidateIds: [candidateId], keys: [`q:${createHash("sha1").update("free wifi").digest("hex")}`], force: true },
     );
     expect(response.body.ok).toBe(true);
     await waitFor(() => countLog("scripted-matrix-call") === beforeModels + 1);

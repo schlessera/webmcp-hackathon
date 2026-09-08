@@ -75,6 +75,7 @@ function parsedNeed(
     payload,
     label,
     gist: concept.gist || label.toLocaleLowerCase().slice(0, 40),
+    hardness: concept.hardness,
     ...(topicOf(concept) ? { topic: topicOf(concept) } : {}),
     ...(assumed ? { assumed } : {}),
   };
@@ -166,6 +167,21 @@ export function looksInterrogative(text: string): boolean {
 }
 
 export function mapInterpretation(interpretation: Interpretation, input: UnderstandInput): MapResult {
+  const alternatives = /\b(?:or|either|unless|otherwise|oder|entweder|falls|sonst)\b/i;
+  const concepts = interpretation.concepts;
+  const lostAlternative = alternatives.test(input.text) && concepts.length > 0 &&
+    !concepts.some((c) => c.role === "quality" && alternatives.test(c.surface)) &&
+    !concepts.some((c) => c.role === "kind" && c.values.length > 1);
+  if (lostAlternative && ["need", "plan"].includes(interpretation.intent)) {
+    // Conservative repair of a malformed stage-A split. The existing question
+    // evaluator can reason over the complete condition; independent must-haves
+    // cannot represent an alternative.
+    interpretation = { ...interpretation, concepts: [{ ...concepts[0], role: "quality",
+      surface: input.text.trim(), gist: input.text.trim().slice(0, 40),
+      hardness: concepts.every((c) => c.hardness === "soft") ? "soft" : "hard",
+      evidenceKeys: [...new Set(concepts.flatMap((c) => [...(c.evidenceKeys ?? []), ...(c.attributeKey ? [c.attributeKey] : [])]))].slice(0, 6),
+    }] };
+  }
   const needs: ParsedNeed[] = [];
   let clarify: Clarification | null = null;
   const cuisines = new Set(
@@ -339,8 +355,15 @@ export function mapInterpretation(interpretation: Interpretation, input: Underst
     }
 
     if (concept.role === "quality" && concept.surface.trim()) {
+      if (concept.surface.trim().length > 200 || concept.unresolved) {
+        clarify ??= { question: input.text.trim().length > 200
+          ? "Could you shorten that condition while keeping its meaning?"
+          : "What should that condition mean?", choices: [], allowFreeText: true, said: input.text };
+        continue;
+      }
       needs.push({
-        ...parsedNeed(concept, { kind: "text", text: concept.surface.trim().slice(0, 120) }),
+        ...parsedNeed(concept, { kind: "text", text: concept.surface.trim(),
+          ...(concept.evidenceKeys?.length ? { evidenceKeys: concept.evidenceKeys } : {}) }),
         label: (concept.gist || concept.surface).slice(0, 60),
       });
     }

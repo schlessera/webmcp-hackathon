@@ -606,7 +606,7 @@ app.post("/api/spatial/inspect", async (req) => {
     intent?: "open" | "read";
     force?: boolean;
   };
-  const intent = body.intent;
+  const intent = body.intent ?? (body.force === true ? "open" : "read");
   // Read before the guard: the compiled validator narrows the body to the
   // schema's static type, which erases the optional flags.
   const force = body.force === true;

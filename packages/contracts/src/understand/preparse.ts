@@ -528,6 +528,12 @@ function parseTimeConcepts(
 
 /** Deterministic EN+DE quantity grammar. It performs no I/O and uses no room vocabulary. */
 export function preparse(text: string, locale: PreparseLocale): PreparseResult {
+  // Pulling quantities out of an alternative/condition destroys its scope
+  // before the model can read it. Leave these sentences intact for stage A.
+  if (/\b(?:or|either|unless|otherwise|if|oder|entweder|falls|sonst|wenn)\b/i.test(
+    text.replace(/\b(?:if possible|wenn m[oö]glich)\b/gi, ""))) {
+    return { concepts: [], consumed: [], remainder: text, preparsedWhole: false };
+  }
   const folded = foldText(text);
   const source = folded.text;
   const concepts: Concept[] = [];

@@ -15,7 +15,7 @@ export type Criterion =
       values?: string[];
       question?: string;
     }
-  | { id: string; kind: "question"; text: string; label: string };
+  | { id: string; kind: "question"; text: string; label: string; evidenceKeys?: string[] };
 
 export type RequirementPayloadValue = Static<typeof RequirementPayload>;
 
@@ -108,7 +108,8 @@ export function criterionFor(
   if (payload.kind === "text") {
     const label = payload.text.trim().replace(/\s+/g, " ");
     const text = normalizeQuestion(payload.text);
-    return { id: questionKey(payload.text), kind: "question", text, label };
+    return { id: questionKey(payload.text), kind: "question", text, label,
+      ...(payload.evidenceKeys?.length ? { evidenceKeys: payload.evidenceKeys } : {}) };
   }
   if (payload.kind === "time") {
     const id = `open:${payload.window.start}-${payload.window.end}`;

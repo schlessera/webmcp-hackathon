@@ -6,6 +6,7 @@ export interface ParsedNeed {
   gist: string;
   topic?: (typeof HINT_TAXONOMY)[number];
   assumed?: string;
+  hardness?: "hard" | "soft";
 }
 
 export interface ClarifyChoice {

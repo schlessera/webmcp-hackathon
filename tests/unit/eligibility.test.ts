@@ -384,7 +384,7 @@ describe("eligibility against the Berlin Mitte dataset", () => {
         null,
       )[0];
       expect(row.eligibility).toBe("uncertain");
-      expect(whyFor(row, "p_peer")).toBe("step-free access not known");
+      expect(whyFor(row, "p_peer")).toBe("wheelchair access not known");
       expect(whyFor(row, "p_peer")).not.toContain("cuisine");
     }
   });

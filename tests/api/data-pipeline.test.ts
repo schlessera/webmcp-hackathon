@@ -26,6 +26,7 @@ import {
   discoverSources,
   overtureRecord,
   setAccessibilityFetch,
+  discoveryEvidence,
 } from "../../apps/server/src/enrich/discovery.ts";
 import {
   loadCached,
@@ -64,6 +65,46 @@ afterAll(async () => {
 });
 
 describe("shared admission and durable recovery", () => {
+  it("retains independent dog-policy conflicts and nearby toilets without overwriting venue access", async () => {
+    const id = randomUUID();
+    const osmRef = `node/survey-${id}`;
+    const name = "Distinct Survey Corner";
+    const location = { lat: 52.52, lng: 13.4 };
+    const sourceIds = [`dog-${id}`, `survey-${id}`];
+    vi.stubEnv("ENRICH_NETWORK", "1");
+    vi.stubEnv("ACCESSIBILITY_CLOUD_TOKEN", "fixture-survey-token");
+    vi.stubEnv("ACCESSIBILITY_CLOUD_SOURCE_IDS", sourceIds.join(","));
+    let calls = 0;
+    setAccessibilityFetch(async (url) => {
+      calls++;
+      expect(new URL(url).searchParams.get("includePlacesWithoutAccessibility")).toBe("1");
+      return Response.json({ type: "FeatureCollection", related: {
+        sources: Object.fromEntries(sourceIds.map((sourceId) => [sourceId, { name: `Independent ${sourceId}`, licenseId: "cc", originWebsiteURL: "https://survey.example/" }])),
+        licenses: { cc: { name: "CC BY 4.0", consideredAs: "CCBY" } },
+      }, features: [true, false, null].map((allowed, i) => ({ type: "Feature",
+        geometry: { type: "Point", coordinates: [location.lng, location.lat + (i === 2 ? 0.001 : 0)] },
+        properties: { _id: `${id}-${i}`, sourceId: sourceIds[i === 1 ? 1 : 0], name,
+          ...(i === 2 ? { category: "toilets" } : {}), accessibility: i === 2 ? { accessibleWith: { wheelchair: false } } :
+            { animalPolicy: { allowsDogs: allowed }, hasFreeWifi: false } },
+      })) });
+    });
+    await discoverSources(pool, [{ osmRef, name, location }], ["accessibility"]);
+    const firstCalls = calls;
+    await discoverSources(pool, [{ osmRef, name, location }], ["accessibility"]);
+    expect(calls).toBe(firstCalls);
+    const cache = (await loadCached(pool, [osmRef])).get(osmRef)!;
+    expect(cache.inferred?.["dog-friendly"]).toMatchObject({ lean: "yes", note: expect.any(String) });
+    expect(cache.inferred?.["wheelchair-accessible"]).toBeUndefined();
+    expect(cache.inferred?.wifi).toBeUndefined();
+    const evidence = discoveryEvidence(cache.discoveries);
+    expect(evidence.filter((e) => e.relation === "at_place")).toHaveLength(2);
+    expect(evidence.find((e) => e.relation === "nearby")).toMatchObject({ distanceM: 112 });
+    expect(JSON.stringify(cache)).not.toContain("fixture-survey-token");
+    // Source-selection changes invalidate a fresh per-place discovery too.
+    vi.stubEnv("ACCESSIBILITY_CLOUD_SOURCE_IDS", sourceIds[0]);
+    await discoverSources(pool, [{ osmRef, name, location }], ["accessibility"]);
+    expect(calls).toBeGreaterThan(firstCalls);
+  });
   it("rejects an unmigrated database before starting a run or provider work", async () => {
     vi.stubEnv("ENRICH_NETWORK", "1");
     const schema = `unmigrated_${randomUUID().replaceAll("-", "")}`;

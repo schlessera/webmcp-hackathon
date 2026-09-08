@@ -71,6 +71,7 @@ export interface CreateRoomInput {
 
 /** A need the preview proposed, as the composer would submit it. */
 interface SeedNeed {
+  hardness?: "hard" | "soft";
   payload: Record<string, unknown>;
 }
 
@@ -115,7 +116,8 @@ function seedNeeds(value: unknown): SeedNeed[] {
   for (const row of value.slice(0, SEED_NEEDS_MAX)) {
     const payload = (row as { payload?: unknown } | null)?.payload;
     if (payload && typeof payload === "object" && !Array.isArray(payload)) {
-      needs.push({ payload: payload as Record<string, unknown> });
+      needs.push({ payload: payload as Record<string, unknown>,
+        hardness: (row as { hardness?: unknown }).hardness === "soft" ? "soft" : "hard" });
     }
   }
   return needs;
@@ -138,8 +140,8 @@ async function applySeedNeeds(
     const result = await submitCommand(organizer, "SubmitRequirement", {
       baseRevision: Number(room?.revision ?? 0),
       visibility: "shared",
-      hardness: "hard",
-      delegation: { mode: "approval_required" },
+      hardness: need.hardness ?? "hard",
+      delegation: { mode: need.hardness === "soft" ? "soft" : "approval_required" },
       payload: need.payload,
     });
     if (result.ok) seeded += 1;

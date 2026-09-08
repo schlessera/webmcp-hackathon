@@ -164,7 +164,7 @@ export interface AgentReply {
     choices: Array<{
       id: string;
       label: string;
-      needs: Array<{ payload: Record<string, unknown>; label: string; gist: string; topic?: string; assumed?: string }>;
+      needs: Array<{ payload: Record<string, unknown>; label: string; gist: string; topic?: string; assumed?: string; hardness?: "hard" | "soft" }>;
     }>;
     allowFreeText: boolean;
     said: string;

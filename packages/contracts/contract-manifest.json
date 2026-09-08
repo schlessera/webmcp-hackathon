@@ -1,12 +1,14 @@
 {
   "toolContractVersion": "4",
-  "sha256": "d9baa9984bdfa98ac13a160ad8f3314a7fb96a77473a5b2e4f091407a1f95cb6",
+  "sha256": "9a6353ec19996bcaa590add4cd97cd4e691b781ebde39e41cc2acbe87e1d52d7",
   "manifest": {
     "capabilityManifest": {
       "agreement": {
         "rule": "all-accept-organizer-commit"
       },
       "attributeLabels": {
+        "accessible-toilet": "accessible toilet",
+        "assistance-dog-access": "assistance dogs welcome",
         "cuisine": "cuisine",
         "delivery": "delivery",
         "dog-friendly": "dogs welcome",
@@ -15,10 +17,12 @@
         "lactose-free-options": "lactose-free options",
         "outdoor-seating": "outdoor seating",
         "price-level": "price",
+        "quiet": "quiet",
+        "step-free-entrance": "step-free entrance",
         "takeaway": "takeaway",
         "vegan-options": "vegan options",
         "vegetarian-options": "vegetarian options",
-        "wheelchair-accessible": "step-free access",
+        "wheelchair-accessible": "wheelchair access",
         "wifi": "wi-fi"
       },
       "attributeVocabulary": [
@@ -31,6 +35,10 @@
         "outdoor-seating",
         "dog-friendly",
         "wifi",
+        "quiet",
+        "step-free-entrance",
+        "accessible-toilet",
+        "assistance-dog-access",
         "takeaway",
         "delivery",
         "price-level",
@@ -158,6 +166,22 @@
               },
               {
                 "const": "wifi",
+                "type": "string"
+              },
+              {
+                "const": "quiet",
+                "type": "string"
+              },
+              {
+                "const": "step-free-entrance",
+                "type": "string"
+              },
+              {
+                "const": "accessible-toilet",
+                "type": "string"
+              },
+              {
+                "const": "assistance-dog-access",
                 "type": "string"
               },
               {
@@ -299,6 +323,22 @@
               },
               {
                 "const": "wifi",
+                "type": "string"
+              },
+              {
+                "const": "quiet",
+                "type": "string"
+              },
+              {
+                "const": "step-free-entrance",
+                "type": "string"
+              },
+              {
+                "const": "accessible-toilet",
+                "type": "string"
+              },
+              {
+                "const": "assistance-dog-access",
                 "type": "string"
               },
               {
@@ -963,6 +1003,22 @@
                         "type": "string"
                       },
                       {
+                        "const": "quiet",
+                        "type": "string"
+                      },
+                      {
+                        "const": "step-free-entrance",
+                        "type": "string"
+                      },
+                      {
+                        "const": "accessible-toilet",
+                        "type": "string"
+                      },
+                      {
+                        "const": "assistance-dog-access",
+                        "type": "string"
+                      },
+                      {
                         "const": "takeaway",
                         "type": "string"
                       },
@@ -1453,6 +1509,87 @@
               {
                 "additionalProperties": false,
                 "properties": {
+                  "evidenceKeys": {
+                    "items": {
+                      "anyOf": [
+                        {
+                          "const": "vegetarian-options",
+                          "type": "string"
+                        },
+                        {
+                          "const": "vegan-options",
+                          "type": "string"
+                        },
+                        {
+                          "const": "gluten-free-options",
+                          "type": "string"
+                        },
+                        {
+                          "const": "halal-options",
+                          "type": "string"
+                        },
+                        {
+                          "const": "lactose-free-options",
+                          "type": "string"
+                        },
+                        {
+                          "const": "wheelchair-accessible",
+                          "type": "string"
+                        },
+                        {
+                          "const": "outdoor-seating",
+                          "type": "string"
+                        },
+                        {
+                          "const": "dog-friendly",
+                          "type": "string"
+                        },
+                        {
+                          "const": "wifi",
+                          "type": "string"
+                        },
+                        {
+                          "const": "quiet",
+                          "type": "string"
+                        },
+                        {
+                          "const": "step-free-entrance",
+                          "type": "string"
+                        },
+                        {
+                          "const": "accessible-toilet",
+                          "type": "string"
+                        },
+                        {
+                          "const": "assistance-dog-access",
+                          "type": "string"
+                        },
+                        {
+                          "const": "takeaway",
+                          "type": "string"
+                        },
+                        {
+                          "const": "delivery",
+                          "type": "string"
+                        },
+                        {
+                          "const": "price-level",
+                          "type": "string"
+                        },
+                        {
+                          "const": "cuisine",
+                          "type": "string"
+                        },
+                        {
+                          "const": "nearby-toilets",
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "maxItems": 6,
+                    "type": "array",
+                    "uniqueItems": true
+                  },
                   "kind": {
                     "const": "text",
                     "type": "string"
@@ -1679,6 +1816,22 @@
               },
               {
                 "const": "wifi",
+                "type": "string"
+              },
+              {
+                "const": "quiet",
+                "type": "string"
+              },
+              {
+                "const": "step-free-entrance",
+                "type": "string"
+              },
+              {
+                "const": "accessible-toilet",
+                "type": "string"
+              },
+              {
+                "const": "assistance-dog-access",
                 "type": "string"
               },
               {
@@ -2400,6 +2553,120 @@
                       ],
                       "type": "object"
                     },
+                    "sourceEvidence": {
+                      "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "distanceM": {
+                            "type": "number"
+                          },
+                          "facts": {
+                            "items": {
+                              "additionalProperties": false,
+                              "properties": {
+                                "key": {
+                                  "type": "string"
+                                },
+                                "observedAt": {
+                                  "type": "string"
+                                },
+                                "qualifiers": {
+                                  "items": {
+                                    "type": "string"
+                                  },
+                                  "type": "array"
+                                },
+                                "subject": {
+                                  "anyOf": [
+                                    {
+                                      "const": "place",
+                                      "type": "string"
+                                    },
+                                    {
+                                      "const": "entrance",
+                                      "type": "string"
+                                    },
+                                    {
+                                      "const": "toilet",
+                                      "type": "string"
+                                    }
+                                  ]
+                                },
+                                "subjectId": {
+                                  "type": "string"
+                                },
+                                "value": {
+                                  "anyOf": [
+                                    {
+                                      "type": "null"
+                                    },
+                                    {
+                                      "type": "boolean"
+                                    },
+                                    {
+                                      "type": "boolean"
+                                    }
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "key",
+                                "qualifiers",
+                                "subject",
+                                "value"
+                              ],
+                              "type": "object"
+                            },
+                            "type": "array"
+                          },
+                          "fetchedAt": {
+                            "type": "string"
+                          },
+                          "license": {
+                            "type": "string"
+                          },
+                          "licenseUrl": {
+                            "type": "string"
+                          },
+                          "placeId": {
+                            "type": "string"
+                          },
+                          "placeName": {
+                            "type": "string"
+                          },
+                          "relation": {
+                            "anyOf": [
+                              {
+                                "const": "at_place",
+                                "type": "string"
+                              },
+                              {
+                                "const": "nearby",
+                                "type": "string"
+                              }
+                            ]
+                          },
+                          "source": {
+                            "type": "string"
+                          },
+                          "sourceUrl": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "facts",
+                          "fetchedAt",
+                          "license",
+                          "placeId",
+                          "placeName",
+                          "relation",
+                          "source",
+                          "sourceUrl"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
                     "timezone": {
                       "type": "string"
                     }
@@ -2941,11 +3208,11 @@
                   "kind": {
                     "anyOf": [
                       {
-                        "const": "need",
+                        "const": "place",
                         "type": "string"
                       },
                       {
-                        "const": "place",
+                        "const": "need",
                         "type": "string"
                       },
                       {
@@ -3072,11 +3339,11 @@
                   "kind": {
                     "anyOf": [
                       {
-                        "const": "need",
+                        "const": "place",
                         "type": "string"
                       },
                       {
-                        "const": "place",
+                        "const": "need",
                         "type": "string"
                       },
                       {
@@ -7646,6 +7913,120 @@
                         }
                       ]
                     },
+                    "sourceEvidence": {
+                      "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "distanceM": {
+                            "type": "number"
+                          },
+                          "facts": {
+                            "items": {
+                              "additionalProperties": false,
+                              "properties": {
+                                "key": {
+                                  "type": "string"
+                                },
+                                "observedAt": {
+                                  "type": "string"
+                                },
+                                "qualifiers": {
+                                  "items": {
+                                    "type": "string"
+                                  },
+                                  "type": "array"
+                                },
+                                "subject": {
+                                  "anyOf": [
+                                    {
+                                      "const": "place",
+                                      "type": "string"
+                                    },
+                                    {
+                                      "const": "entrance",
+                                      "type": "string"
+                                    },
+                                    {
+                                      "const": "toilet",
+                                      "type": "string"
+                                    }
+                                  ]
+                                },
+                                "subjectId": {
+                                  "type": "string"
+                                },
+                                "value": {
+                                  "anyOf": [
+                                    {
+                                      "type": "null"
+                                    },
+                                    {
+                                      "type": "boolean"
+                                    },
+                                    {
+                                      "type": "boolean"
+                                    }
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "key",
+                                "qualifiers",
+                                "subject",
+                                "value"
+                              ],
+                              "type": "object"
+                            },
+                            "type": "array"
+                          },
+                          "fetchedAt": {
+                            "type": "string"
+                          },
+                          "license": {
+                            "type": "string"
+                          },
+                          "licenseUrl": {
+                            "type": "string"
+                          },
+                          "placeId": {
+                            "type": "string"
+                          },
+                          "placeName": {
+                            "type": "string"
+                          },
+                          "relation": {
+                            "anyOf": [
+                              {
+                                "const": "at_place",
+                                "type": "string"
+                              },
+                              {
+                                "const": "nearby",
+                                "type": "string"
+                              }
+                            ]
+                          },
+                          "source": {
+                            "type": "string"
+                          },
+                          "sourceUrl": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "facts",
+                          "fetchedAt",
+                          "license",
+                          "placeId",
+                          "placeName",
+                          "relation",
+                          "source",
+                          "sourceUrl"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
                     "timezone": {
                       "type": "string"
                     }
@@ -7771,58 +8152,64 @@
             "schema1": {
               "anyOf": [
                 {
-                  "additionalProperties": false,
-                  "properties": {
-                    "kind": {
-                      "const": "self",
-                      "type": "string"
-                    },
-                    "stepId": {
-                      "description": "Step whose chosen place this referent points at; omit for the current step (`s1` by default).",
-                      "maxLength": 40,
-                      "minLength": 1,
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "kind"
-                  ],
-                  "type": "object"
-                },
-                {
-                  "additionalProperties": false,
-                  "properties": {
-                    "kind": {
-                      "const": "scopeCenter",
-                      "type": "string"
-                    },
-                    "stepId": {
-                      "description": "Step whose chosen place this referent points at; omit for the current step (`s1` by default).",
-                      "maxLength": 40,
-                      "minLength": 1,
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "kind"
-                  ],
-                  "type": "object"
-                },
-                {
                   "$ref": "#/$defs/schema2"
-                },
-                {
-                  "$ref": "#/$defs/schema3"
                 },
                 {
                   "$ref": "#/$defs/schema4"
                 },
                 {
                   "$ref": "#/$defs/schema5"
+                },
+                {
+                  "$ref": "#/$defs/schema6"
+                },
+                {
+                  "$ref": "#/$defs/schema7"
+                },
+                {
+                  "$ref": "#/$defs/schema8"
                 }
               ]
             },
             "schema2": {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "self",
+                  "type": "string"
+                },
+                "stepId": {
+                  "$ref": "#/$defs/schema3"
+                }
+              },
+              "required": [
+                "kind"
+              ],
+              "type": "object"
+            },
+            "schema3": {
+              "description": "Step whose chosen place this referent points at; omit for the current step (`s1` by default).",
+              "maxLength": 40,
+              "minLength": 1,
+              "type": "string"
+            },
+            "schema4": {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "scopeCenter",
+                  "type": "string"
+                },
+                "stepId": {
+                  "$ref": "#/$defs/schema3"
+                }
+              },
+              "required": [
+                "kind"
+              ],
+              "type": "object"
+            },
+            "schema5": {
               "additionalProperties": false,
               "properties": {
                 "candidateId": {
@@ -7835,10 +8222,7 @@
                   "type": "string"
                 },
                 "stepId": {
-                  "description": "Step whose chosen place this referent points at; omit for the current step (`s1` by default).",
-                  "maxLength": 40,
-                  "minLength": 1,
-                  "type": "string"
+                  "$ref": "#/$defs/schema3"
                 }
               },
               "required": [
@@ -7847,7 +8231,7 @@
               ],
               "type": "object"
             },
-            "schema3": {
+            "schema6": {
               "additionalProperties": false,
               "properties": {
                 "kind": {
@@ -7860,10 +8244,7 @@
                   "type": "string"
                 },
                 "stepId": {
-                  "description": "Step whose chosen place this referent points at; omit for the current step (`s1` by default).",
-                  "maxLength": 40,
-                  "minLength": 1,
-                  "type": "string"
+                  "$ref": "#/$defs/schema3"
                 }
               },
               "required": [
@@ -7872,7 +8253,7 @@
               ],
               "type": "object"
             },
-            "schema4": {
+            "schema7": {
               "additionalProperties": false,
               "properties": {
                 "kind": {
@@ -7895,10 +8276,7 @@
                   "type": "number"
                 },
                 "stepId": {
-                  "description": "Step whose chosen place this referent points at; omit for the current step (`s1` by default).",
-                  "maxLength": 40,
-                  "minLength": 1,
-                  "type": "string"
+                  "$ref": "#/$defs/schema3"
                 }
               },
               "required": [
@@ -7908,7 +8286,7 @@
               ],
               "type": "object"
             },
-            "schema5": {
+            "schema8": {
               "additionalProperties": false,
               "properties": {
                 "kind": {
@@ -7921,10 +8299,7 @@
                   "type": "string"
                 },
                 "stepId": {
-                  "description": "Step whose chosen place this referent points at; omit for the current step (`s1` by default).",
-                  "maxLength": 40,
-                  "minLength": 1,
-                  "type": "string"
+                  "$ref": "#/$defs/schema3"
                 }
               },
               "required": [
@@ -8014,6 +8389,10 @@
                         "outdoor-seating",
                         "dog-friendly",
                         "wifi",
+                        "quiet",
+                        "step-free-entrance",
+                        "accessible-toilet",
+                        "assistance-dog-access",
                         "takeaway",
                         "delivery",
                         "price-level",
@@ -8173,6 +8552,34 @@
                 {
                   "additionalProperties": false,
                   "properties": {
+                    "evidenceKeys": {
+                      "items": {
+                        "enum": [
+                          "vegetarian-options",
+                          "vegan-options",
+                          "gluten-free-options",
+                          "halal-options",
+                          "lactose-free-options",
+                          "wheelchair-accessible",
+                          "outdoor-seating",
+                          "dog-friendly",
+                          "wifi",
+                          "quiet",
+                          "step-free-entrance",
+                          "accessible-toilet",
+                          "assistance-dog-access",
+                          "takeaway",
+                          "delivery",
+                          "price-level",
+                          "cuisine",
+                          "nearby-toilets"
+                        ],
+                        "type": "string"
+                      },
+                      "maxItems": 6,
+                      "type": "array",
+                      "uniqueItems": true
+                    },
                     "kind": {
                       "const": "text",
                       "type": "string"
@@ -8933,8 +9340,8 @@
             },
             "keys": {
               "items": {
-                "description": "Attribute keys to focus on (facet keys).",
-                "maxLength": 40,
+                "description": "Missing attribute keys, active criterion IDs, or nearby-toilets for scoped facility context.",
+                "maxLength": 64,
                 "type": "string"
               },
               "maxItems": 6,
@@ -9090,6 +9497,22 @@
                   "type": "string"
                 },
                 {
+                  "const": "quiet",
+                  "type": "string"
+                },
+                {
+                  "const": "step-free-entrance",
+                  "type": "string"
+                },
+                {
+                  "const": "accessible-toilet",
+                  "type": "string"
+                },
+                {
+                  "const": "assistance-dog-access",
+                  "type": "string"
+                },
+                {
                   "const": "takeaway",
                   "type": "string"
                 },
@@ -9195,6 +9618,22 @@
                 },
                 {
                   "const": "wifi",
+                  "type": "string"
+                },
+                {
+                  "const": "quiet",
+                  "type": "string"
+                },
+                {
+                  "const": "step-free-entrance",
+                  "type": "string"
+                },
+                {
+                  "const": "accessible-toilet",
+                  "type": "string"
+                },
+                {
+                  "const": "assistance-dog-access",
                   "type": "string"
                 },
                 {

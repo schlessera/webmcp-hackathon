@@ -100,6 +100,7 @@ describe("dossierFromTags", () => {
     expect(d.category).toBe("cafe");
     expect(d.attributes.map((a) => a.key)).toEqual([
       ...BOOLEAN_ATTRS.map((b) => b.key),
+      "accessible-toilet", "wifi", "quiet", "step-free-entrance", "assistance-dog-access",
       "cuisine",
       "price-level",
       "hours",

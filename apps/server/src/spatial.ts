@@ -44,6 +44,7 @@ import {
   type RoomLookupTarget,
 } from "./enrich/index.ts";
 import { lookupPending, publishFacts } from "./enrich/progress.ts";
+import { discoveryEvidence } from "./enrich/discovery.ts";
 import { pool } from "./db.ts";
 import {
   consumeInteractiveModelCall,
@@ -1039,6 +1040,7 @@ export async function inspectCandidates(
         ...(current?.until ? { openUntil: current.until } : {}),
         ...(current?.nextOpen ? { nextOpen: current.nextOpen } : {}),
         attributes: attributes as CandidateDossier["attributes"],
+        sourceEvidence: discoveryEvidence(enrichment?.discoveries),
         mapRevision: r.map_revision,
         ...(r.extras?.address ? { address: String(r.extras.address) } : {}),
         ...(r.extras?.phone ? { phone: String(r.extras.phone) } : {}),

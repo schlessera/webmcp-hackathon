@@ -6,7 +6,7 @@ import { criterionFor, normalizeQuestion, questionKey } from "../../packages/con
 describe("criterionFor", () => {
   it("maps vocabulary attributes to their labelled key criterion", () => {
     expect(criterionFor({ kind: "attribute", key: "wheelchair-accessible", expect: "verified_true" })).toEqual({
-      id: "wheelchair-accessible", kind: "key", key: "wheelchair-accessible", label: "step-free access",
+      id: "wheelchair-accessible", kind: "key", key: "wheelchair-accessible", label: "wheelchair access",
     });
   });
 

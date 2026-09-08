@@ -545,6 +545,27 @@ export interface CandidateDossier {
    * inference), ISO time; absent when it never has. */
   lookedUpAt?: string;
   mapRevision: number;
+  /** Public source observations, including facility scope and original date.
+   * Reports remain likely; fetchedAt is not an observation date. */
+  sourceEvidence?: Array<{
+    source: string;
+    sourceUrl: string;
+    license: string;
+    licenseUrl?: string;
+    placeId: string;
+    placeName: string;
+    relation: "at_place" | "nearby";
+    distanceM?: number;
+    fetchedAt: string;
+    facts: Array<{
+      key: string;
+      value: boolean | null;
+      subject: "place" | "entrance" | "toilet";
+      subjectId?: string;
+      qualifiers: string[];
+      observedAt?: string;
+    }>;
+  }>;
 }
 
 export interface CandidateNeedVerdict {

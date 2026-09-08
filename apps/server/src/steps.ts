@@ -70,7 +70,7 @@ export interface StepAdvance {
   /** How many steps the plan has in all, so copy can say "2 of 3". */
   total: number;
   /** Needs to submit as the organizer once the transaction has committed. */
-  pendingNeeds: Array<{ payload: Record<string, unknown> }>;
+  pendingNeeds: Array<{ payload: Record<string, unknown>; hardness?: "hard" | "soft" }>;
 }
 
 export async function settleAndAdvance(

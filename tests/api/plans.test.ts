@@ -138,6 +138,7 @@ describe("POST /api/plans/preview", () => {
       payload: { kind: "attribute", key: "dog-friendly", expect: "verified_true" },
       label: "dogs welcome",
       gist: "dogs welcome",
+      hardness: "hard",
     }]);
     // Nothing is stored: the preview is a read.
     const rooms = await pool.query("SELECT count(*)::int AS n FROM rooms WHERE goal = $1", [

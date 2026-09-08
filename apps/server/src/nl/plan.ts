@@ -362,7 +362,8 @@ export async function planPreview(
   if (!config.nlEnabled) return offlinePlan(goal, area?.id ?? null);
 
   const currency = (area?.currency ?? "EUR") === "USD" ? "USD" : "EUR";
-  const parsed = preparse(goal, { currency });
+  const partial = preparse(goal, { currency });
+  const parsed = partial.preparsedWhole ? partial : { ...partial, concepts: [], remainder: goal };
   // Everything the pre-parser found belongs to the first step: it reads
   // times, distances and budgets, and a sentence states those about the
   // outing it starts with.
@@ -385,7 +386,7 @@ export async function planPreview(
       input: [{ role: "user", content: parsed.remainder || goal }],
       schema: { name: "plan", schema: PLAN_SCHEMA },
       reasoning: "low",
-      maxOutputTokens: 1_500,
+      maxOutputTokens: 3_000,
       timeoutMs: 30_000,
       serviceTier: "default",
     });

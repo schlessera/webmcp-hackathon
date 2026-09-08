@@ -58,6 +58,8 @@ export interface Concept {
   mode: "walk" | "bike" | "car" | "transit" | null;
   referent: Referent | null;
   attributeKey: string | null;
+  /** Public lookup hints for a natural-language condition, not its logic. */
+  evidenceKeys?: string[];
   values: string[];
   window: { start: string; end: string } | null;
   /** Civil-time words, resolved against the room clock in stage B. */

@@ -37,6 +37,10 @@ export const ATTRIBUTE_VOCABULARY = [
   "outdoor-seating",
   "dog-friendly",
   "wifi",
+  "quiet",
+  "step-free-entrance",
+  "accessible-toilet",
+  "assistance-dog-access",
   "takeaway",
   "delivery",
   "price-level",
@@ -57,10 +61,14 @@ export const ATTRIBUTE_LABELS: Record<(typeof ATTRIBUTE_VOCABULARY)[number], str
   "gluten-free-options": "gluten-free options",
   "halal-options": "halal options",
   "lactose-free-options": "lactose-free options",
-  "wheelchair-accessible": "step-free access",
+  "wheelchair-accessible": "wheelchair access",
   "outdoor-seating": "outdoor seating",
   "dog-friendly": "dogs welcome",
   wifi: "wi-fi",
+  quiet: "quiet",
+  "step-free-entrance": "step-free entrance",
+  "accessible-toilet": "accessible toilet",
+  "assistance-dog-access": "assistance dogs welcome",
   takeaway: "takeaway",
   delivery: "delivery",
   "price-level": "price",
@@ -93,7 +101,10 @@ export const PRICE_LEVEL_EUR = { 1: 10, 2: 15, 3: 25, 4: 40 } as const;
  * whatever the client sent — the council prefers scope changes over asking
  * anyone to compromise a protected need.
  */
-export const PROTECTED_ATTRIBUTE_KEYS = ["wheelchair-accessible"] as const;
+export const PROTECTED_ATTRIBUTE_KEYS = ["wheelchair-accessible", "step-free-entrance", "accessible-toilet", "assistance-dog-access"] as const;
+
+/** Public facts a question may ask a lookup to gather; never executable logic. */
+export const EVIDENCE_KEYS = [...ATTRIBUTE_VOCABULARY, "nearby-toilets"] as const;
 
 export const CONDUCT =
   "You act for exactly one participant. Submit only what your user authorizes. " +

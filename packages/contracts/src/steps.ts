@@ -60,7 +60,7 @@ export interface RoomStep extends RoomStepView {
    * SubmitRequirement path, so they are rows like any other. Emptied once
    * applied, so activating twice cannot double them.
    */
-  pendingNeeds: Array<{ payload: Record<string, unknown> }>;
+  pendingNeeds: Array<{ payload: Record<string, unknown>; hardness?: "hard" | "soft" }>;
 }
 
 export const STEPS_MAX = 3;

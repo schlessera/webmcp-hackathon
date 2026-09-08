@@ -588,7 +588,7 @@ const applyingNeeds = new Set<string>();
 async function applyPendingNeeds(
   actor: Participant,
   stepId: string,
-  needs: Array<{ payload: Record<string, unknown> }>,
+  needs: Array<{ payload: Record<string, unknown>; hardness?: "hard" | "soft" }>,
 ): Promise<number> {
   const key = `${actor.roomId}:${stepId}`;
   if (needs.length === 0 || applyingNeeds.has(key)) return 0;
@@ -610,8 +610,8 @@ async function applyPendingNeeds(
       const result = await submitCommand(actor, "SubmitRequirement", {
         baseRevision: Number(room.revision),
         visibility: "shared",
-        hardness: "hard",
-        delegation: { mode: "approval_required" },
+        hardness: remaining[0].hardness ?? "hard",
+        delegation: { mode: remaining[0].hardness === "soft" ? "soft" : "approval_required" },
         payload: remaining[0].payload,
       });
       if (result.ok) {

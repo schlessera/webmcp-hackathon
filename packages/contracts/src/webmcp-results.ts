@@ -219,6 +219,7 @@ export function inspectResult(result: InspectCandidatesResponse, input: InspectI
         needs: d.needs ?? [],
         lookupPending: d.lookupPending ?? false, lookedUpAt: d.lookedUpAt,
         ...(details.has("hours") ? { hours: d.hours } : {}),
+        ...(details.has("evidence") ? { sourceEvidence: d.sourceEvidence ?? [] } : {}),
         ...(details.has("links") ? { links: d.links ?? [] } : {}),
       };
     }),

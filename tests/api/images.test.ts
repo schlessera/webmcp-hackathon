@@ -107,7 +107,7 @@ describe("place images API", () => {
         blurhash?: string;
         source: string;
       }> }>;
-    }>(server.baseUrl, "/api/spatial/inspect", room.tokens.org, { candidateIds: [candidateId] });
+    }>(server.baseUrl, "/api/spatial/lookup", room.tokens.org, { candidateIds: [candidateId], force: true });
     expect(inspect.body.ok).toBe(true);
     expect(inspect.body.candidates[0].images).toEqual([
       expect.objectContaining({
@@ -240,8 +240,9 @@ describe("place images API", () => {
     const inspect = await apiPost<{
       ok: boolean;
       candidates: Array<{ images?: unknown[] }>;
-    }>(server.baseUrl, "/api/spatial/inspect", room.tokens.org, {
+    }>(server.baseUrl, "/api/spatial/lookup", room.tokens.org, {
       candidateIds: [candidateId],
+      force: true,
     });
     expect(inspect.body.candidates[0].images).toHaveLength(1);
     const after = server.logs().slice(before.length);
@@ -253,8 +254,9 @@ describe("place images API", () => {
     const inspect = () => apiPost<{
       ok: boolean;
       candidates: Array<{ images?: Array<{ url: string; source: string }> }>;
-    }>(server.baseUrl, "/api/spatial/inspect", room.tokens.org, {
+    }>(server.baseUrl, "/api/spatial/lookup", room.tokens.org, {
       candidateIds: [warmCandidateId],
+      force: true,
     });
 
     const first = await inspect();
@@ -272,8 +274,9 @@ describe("place images API", () => {
     const inspect = await apiPost<{
       ok: boolean;
       candidates: Array<{ images?: unknown[] }>;
-    }>(server.baseUrl, "/api/spatial/inspect", otherRoom.tokens.org, {
+    }>(server.baseUrl, "/api/spatial/lookup", otherRoom.tokens.org, {
       candidateIds: [lowCandidateId],
+      force: true,
     });
     expect(inspect.body.ok).toBe(true);
     expect(inspect.body.candidates[0].images).toBeUndefined();

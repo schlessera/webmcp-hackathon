@@ -1,6 +1,6 @@
 import { withFetchLease } from "../net/fetch-lease.ts";
 import { currentWork } from "../work-context.ts";
-import { discoverSources, sourceEnabled, type Discoveries } from "./discovery.ts";
+import { discoverSources, discoveryEvidence, sourceEnabled, type Discoveries } from "./discovery.ts";
 import { createHash, randomUUID } from "node:crypto";
 import type pg from "pg";
 import {
@@ -1148,11 +1148,12 @@ function mergedForLookup(
 
 /** A deterministic factual hash: order-independent and deliberately omits
  * observedAt because category guesses are stamped at read time. */
-export function stableAttributeHash(attributes: AttributeLike[]): string {
+export function stableAttributeHash(attributes: AttributeLike[], discoveries?: Discoveries): string {
   const factual = attributes
     .map(({ observedAt: _observedAt, ...attribute }) => attribute)
     .sort((a, b) => a.key.localeCompare(b.key));
-  return createHash("sha256").update(JSON.stringify(factual)).digest("hex");
+  const evidence = discoveryEvidence(discoveries).map(({ fetchedAt: _fetchedAt, ...record }) => record);
+  return createHash("sha256").update(JSON.stringify(evidence.length ? [factual, evidence] : factual)).digest("hex");
 }
 
 export function inferenceTexts(
@@ -1167,6 +1168,21 @@ export function inferenceTexts(
     title?: string;
     publisherNames?: string[];
   }> = [];
+  const recorded = (row.attributes ?? []).filter((a) =>
+    (ATTRIBUTE_VOCABULARY as readonly string[]).includes(a.key) &&
+    (a.status === "verified_true" || a.status === "verified_false"));
+  if (recorded.length) texts.push({ source: "record", text: JSON.stringify({
+    kind: "Recorded place facts; a contextual interpretation remains an inference",
+    facts: recorded,
+  }) });
+  for (const evidence of discoveryEvidence(enrichment?.discoveries)) {
+    texts.push({ source: "survey", text: JSON.stringify({
+      kind: "third-party report, unverified",
+      ...evidence,
+      ...(evidence.relation === "nearby" ? { facility: "toilet", limitations:
+        "Straight-line distance only. Opening hours, fees, public access and route unconfirmed. Not on site." } : {}),
+    }), url: evidence.sourceUrl, publisherNames: [evidence.source] });
+  }
   const osmDescription = row.extras?.description?.text;
   if (osmDescription) texts.push({ source: "osm", text: osmDescription });
   const web = enrichment?.website;
@@ -1309,10 +1325,9 @@ export async function saveInferences(
         };
       }
     }
-    incomingByRef.set(write.osmRef, {
-      ...(incomingByRef.get(write.osmRef) ?? {}),
-      ...inferred,
-    });
+    const incoming = incomingByRef.get(write.osmRef) ?? {};
+    for (const [key, fact] of Object.entries(inferred)) incoming[key] = resolveInference(incoming[key], fact);
+    incomingByRef.set(write.osmRef, incoming);
     ttlByRef.set(
       write.osmRef,
       Math.max(
@@ -1665,6 +1680,14 @@ async function runLookupNow(
   for (const criterion of harvestRequirementCriteria(requirementRows.rows)) {
     activeCriteria.set(criterion.id, criterion);
   }
+  if (options.keys?.length) {
+    const requested = new Set(options.keys);
+    for (const [id, criterion] of activeCriteria) {
+      const relevant = requested.has(id) || (criterion.kind === "key" ? requested.has(criterion.key) :
+        criterion.evidenceKeys?.some((key) => requested.has(key)));
+      if (!relevant) activeCriteria.delete(id);
+    }
+  }
   if (options.maxCriteria !== undefined && activeCriteria.size > options.maxCriteria) {
     const retained = [...activeCriteria.entries()].slice(0, Math.max(0, options.maxCriteria));
     activeCriteria.clear();
@@ -1699,7 +1722,7 @@ async function runLookupNow(
         row,
         current,
         observedAt,
-        before: stableAttributeHash(mergedForLookup(row, current, attestations, observedAt)),
+        before: stableAttributeHash(mergedForLookup(row, current, attestations, observedAt), current?.discoveries),
       };
       evaluations.set(row.id, evaluation);
       try {
@@ -1757,15 +1780,21 @@ async function runLookupNow(
   await Promise.all(Array.from({ length: actionable.length }, () => worker()));
 
   const criteria = new Map(activeCriteria);
+  // Canonical fact dependencies help answer a contextual question and remain
+  // reusable across rooms. The question's wording is not copied into a key.
+  const requestedKeys = [...new Set([
+    ...(options.keys ?? []),
+    ...[...activeCriteria.values()].flatMap((criterion) => criterion.kind === "question" ? criterion.evidenceKeys ?? [] : [criterion.key]),
+  ])];
   if (!options.activeCriteriaOnly) {
   for (const evaluation of evaluations.values()) {
-    for (const key of options.keys ?? ATTRIBUTE_VOCABULARY) {
+    for (const key of requestedKeys.length ? requestedKeys : ATTRIBUTE_VOCABULARY) {
       if (!(ATTRIBUTE_VOCABULARY as readonly string[]).includes(key)) continue;
       // Cuisine is meaningful only with the wanted values carried by an
       // active value-specific criterion; a bare "cuisine?" cell is unusable.
       if (key === "cuisine") continue;
       const attr = evaluation.base?.find((attribute) => attribute.key === key);
-      if (attr?.status !== "unknown") continue;
+      if (attr && attr.status !== "unknown") continue;
       criteria.set(key, {
         id: key,
         kind: "key",
@@ -1789,7 +1818,7 @@ async function runLookupNow(
       const storedKey = criterion.id;
       const attr = evaluation.base!.find((attribute) => attribute.key === key);
       if (attr && attr.status !== "unknown") return false;
-      if (!attr && criterion.kind === "key" && !activeCriteria.has(criterion.id)) return false;
+      if (!attr && criterion.kind === "key" && !activeCriteria.has(criterion.id) && !requestedKeys.includes(criterion.key)) return false;
       return intent === "interactive" || !evaluation.current?.inferred?.[storedKey];
     });
     evaluation.openCriteria = openCriteria;
@@ -1956,6 +1985,7 @@ async function runLookupNow(
         attestations,
         evaluation.observedAt,
       ),
+      evaluation.current?.discoveries,
     );
     return evaluation.before === after ? [] : [evaluation.row.id];
   });
@@ -2330,9 +2360,16 @@ export function enrichmentView(
   }
   for(const [provider,record]of Object.entries(enrichment?.discoveries??{})) {
     if(!record)continue;
+    if(provider === "accessibility") continue;
     const attribution=provider==="overture"?"Overture Maps contributors":`${record.sourceName} via accessibility.cloud`;
     links.push({kind:"attribution",label:attribution,url:record.sourceUrl,source:`${provider}:${record.id}`});
     if(record.licenseUrl)links.push({kind:"attribution",label:record.license,url:record.licenseUrl,source:`${provider}:${record.id}`});
+  }
+  for (const record of discoveryEvidence(enrichment?.discoveries)) {
+    if (!links.some((link) => link.kind === "attribution" && link.source === record.source)) {
+      links.push({ kind: "attribution", label: record.source.split(":")[0], url: record.sourceUrl, source: record.source });
+      if (record.licenseUrl) links.push({ kind: "attribution", label: record.license, url: record.licenseUrl, source: record.source });
+    }
   }
   // The place's own site first, then the menu, then the rest.
   const order = ["website", "menu", "hours", "reservations", "delivery", "wikipedia", "instagram", "attribution"];

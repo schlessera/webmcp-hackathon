@@ -28,7 +28,7 @@ export function compactSchema(schema: unknown): Record<string, unknown> {
     if (!Array.isArray(value)) {
       const item = value as Record<string, unknown>;
       const key = JSON.stringify(item);
-      if (key.length >= 350 && (item.type || item.anyOf)) counts.set(key, (counts.get(key) ?? 0) + 1);
+      if (key.length >= 150 && (item.type || item.anyOf)) counts.set(key, (counts.get(key) ?? 0) + 1);
     }
     Object.values(value).forEach(visit);
   }

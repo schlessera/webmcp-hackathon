@@ -186,7 +186,7 @@ export function payloadFromFacet(facet: Facet, value?: string): Payload | null {
 interface SayResult {
   ok: boolean;
   intent?: "need" | "ask" | "act" | "clarify" | "unclear";
-  needs?: Array<{ payload: Payload; label: string; topic?: string; gist: string; assumed?: string }>;
+  needs?: Array<{ payload: Payload; label: string; topic?: string; gist: string; assumed?: string; hardness?: "hard" | "soft" }>;
   clarify?: {
     question: string;
     choices: Array<{ id: string; label: string; needs: Array<{ payload: Payload; label: string; topic?: string; gist: string; assumed?: string }> }>;
@@ -364,12 +364,13 @@ export function Composer({ facets, activeNeeds, placeCount, hasOwnOrigin, timezo
     said: string,
     assumed?: string,
     signal?: AbortSignal,
+    hardness: "hard" | "soft" = "hard",
   ) => {
     const localId = spatial.beginPendingNeed(said, scope, assumed);
     const result = await run("SubmitRequirement", {
       visibility: scope,
-      hardness: "hard",
-      delegation: { mode: "approval_required" },
+      hardness,
+      delegation: { mode: hardness === "soft" ? "soft" : "approval_required" },
       // An agent-private need is a DECLARATION: the server never receives its
       // content, so no payload is sent with it (commands.ts SubmitRequirement).
       ...(agentOnly
@@ -437,11 +438,11 @@ export function Composer({ facets, activeNeeds, placeCount, hasOwnOrigin, timezo
       if (result.intent === "need") {
         spatial.setAgentBusy(true, "applying");
         for (const need of result.needs ?? []) {
-          await submitPayload(need.payload, need.label || need.gist || saidLabel(trimmed), need.assumed, turnSignal);
+          await submitPayload(need.payload, need.label || need.gist || saidLabel(trimmed), need.assumed, turnSignal, need.hardness);
         }
       } else if (result.intent === "ask" || result.intent === "act") {
         for (const need of result.needs ?? []) {
-          await submitPayload(need.payload, need.label || need.gist || saidLabel(trimmed), need.assumed, turnSignal);
+          await submitPayload(need.payload, need.label || need.gist || saidLabel(trimmed), need.assumed, turnSignal, need.hardness);
         }
         spatial.pushAgentReply({
           text: result.reply ?? "",
@@ -461,7 +462,7 @@ export function Composer({ facets, activeNeeds, placeCount, hasOwnOrigin, timezo
       } else if (result.intent === "clarify" && result.clarify) {
         spatial.setAgentBusy(true, "applying");
         for (const need of result.needs ?? []) {
-          await submitPayload(need.payload, need.label || need.gist || saidLabel(trimmed), need.assumed, turnSignal);
+          await submitPayload(need.payload, need.label || need.gist || saidLabel(trimmed), need.assumed, turnSignal, need.hardness);
         }
         spatial.pushAgentReply({
           text: result.clarify.question,
