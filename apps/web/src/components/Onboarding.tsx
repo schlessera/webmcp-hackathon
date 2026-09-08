@@ -102,6 +102,10 @@ function classOptions(
   return [...merged.values()];
 }
 
+function RemoveMark() {
+  return <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true"><path d="M3 7h8" /></svg>;
+}
+
 function StepBox({
   step,
   index,
@@ -122,15 +126,18 @@ function StepBox({
   return (
     <li className="step-box card" data-testid={`plan-step-${step.stepId}`}>
       <header className="step-box-head">
-        <span className="step-box-index">{COPY.planStepOf(index + 1, total)}</span>
-        {index > 0 && <span className="step-box-relation">{COPY.planThen}</span>}
+        <div className="step-box-order">
+          <span className="step-box-index">{COPY.planStepOf(index + 1, total)}</span>
+          {index > 0 && <span className="step-box-relation">{COPY.planThen}</span>}
+        </div>
         {total > 1 && (
           <button
             type="button"
-            className="step-box-drop"
+            className="btn-text onboarding-edit step-box-drop"
             data-testid={`plan-step-remove-${step.stepId}`}
             onClick={onRemove}
           >
+            <RemoveMark />
             {COPY.planDropStep}
           </button>
         )}
@@ -163,13 +170,16 @@ function StepBox({
           {step.needs.map((need) => (
             <li key={`${need.gist}:${need.label}`} className="step-need">
               <span className="mark" aria-hidden="true" />
-              <span className="step-need-label">{need.label}</span>
-              {need.assumed && <span className="step-need-assumed">{need.assumed}</span>}
+              <span className="step-need-label">
+                {need.label}
+                {need.assumed && <span className="step-need-assumed"> {need.assumed}</span>}
+              </span>
               <button
                 type="button"
-                className="step-need-drop"
+                className="btn-text onboarding-edit step-need-drop"
                 onClick={() => onDropNeed(need)}
               >
+                <RemoveMark />
                 {COPY.startDropNeed}
                 <span className="sr-only"> {need.label}</span>
               </button>
@@ -219,7 +229,7 @@ function Clarify({
             ) : (
               <button
                 type="button"
-                className="clarify-choice"
+                className="btn onboarding-secondary clarify-choice"
                 data-testid={`plan-clarify-${choice.id}`}
                 onClick={() => onApply(choice.needs)}
               >
@@ -232,7 +242,7 @@ function Clarify({
       {many && (
         <button
           type="button"
-          className="clarify-apply"
+          className="btn onboarding-secondary clarify-apply"
           data-testid="plan-clarify-apply"
           disabled={picked.length === 0}
           onClick={() =>
@@ -436,7 +446,7 @@ export function Onboarding({ onOpen, onBack }: Props) {
 
           <div className="ask-actions">
             {onBack && (
-              <button type="button" className="ask-back" data-testid="start-back" onClick={onBack}>
+              <button type="button" className="btn onboarding-secondary ask-back" data-testid="start-back" onClick={onBack}>
                 Back
               </button>
             )}
@@ -530,7 +540,7 @@ export function Onboarding({ onOpen, onBack }: Props) {
       <div className="plan-actions">
         <button
           type="button"
-          className="plan-back"
+          className="btn onboarding-secondary plan-back"
           data-testid="plan-back"
           onClick={() => setPhase("ask")}
         >

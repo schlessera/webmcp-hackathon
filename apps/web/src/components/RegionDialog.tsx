@@ -86,7 +86,7 @@ export function RegionDialog({ areas, steps, busy, onPick, onClose }: Props) {
                   <button
                     type="button"
                     ref={index === 0 ? firstRef : undefined}
-                    className="region-card"
+                    className="btn onboarding-secondary region-card"
                     data-testid={`region-${area.id}`}
                     disabled={busy}
                     onClick={() => onPick(area.id)}
@@ -119,7 +119,7 @@ export function RegionDialog({ areas, steps, busy, onPick, onClose }: Props) {
         )}
 
         <div className="demo-actions">
-          <button type="button" className="demo-cancel" disabled={busy} onClick={onClose}>
+          <button type="button" className="btn onboarding-secondary demo-cancel" disabled={busy} onClick={onClose}>
             Back
           </button>
           {busy && <span className="demo-busy">{COPY.regionOpening}</span>}

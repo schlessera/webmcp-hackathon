@@ -2843,6 +2843,37 @@ body { overflow: hidden; }
   font-size: var(--spoke-size-detail);
 }
 
+/* Secondary actions use the notebook's paper buttons; row edits stay quiet. */
+.onboarding-secondary,
+.onboarding-edit {
+  appearance: none;
+  font-family: var(--spoke-font-display);
+  font-weight: var(--spoke-weight-strong);
+  font-size: var(--spoke-size-place);
+  line-height: 1.35;
+}
+.onboarding-secondary { border-color: var(--spoke-line-quiet); }
+.onboarding-secondary:not(:disabled):hover { background: var(--spoke-surface-sunk); }
+.onboarding-secondary:not(:disabled):active { box-shadow: none; transform: translate(1px, 1px); }
+.onboarding-secondary:disabled { cursor: default; box-shadow: none; }
+.onboarding-edit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  flex-shrink: 0;
+  padding: 6px 8px;
+  color: var(--spoke-ink-soft);
+  border-radius: var(--spoke-radius-card);
+  text-underline-offset: 3px;
+  white-space: nowrap;
+}
+.onboarding-edit svg { flex-shrink: 0; }
+.onboarding-edit:not(:disabled):hover { background: var(--spoke-surface-sunk); color: var(--spoke-ink); }
+.onboarding-edit:not(:disabled):active { color: var(--spoke-ink); text-decoration-thickness: 2px; }
+.onboarding-edit:disabled { opacity: 0.55; cursor: default; }
+:is(.onboarding-secondary, .onboarding-edit):focus-visible { outline: 2px solid var(--spoke-ink); outline-offset: 3px; }
+
 /* --- Screen 1: who you are, and what you are trying to do --------------- */
 .ask { display: flex; flex-direction: column; gap: 16px; margin-top: 10px; }
 .ask-field { display: flex; flex-direction: column; gap: 6px; }
@@ -2870,8 +2901,6 @@ body { overflow: hidden; }
 .ask-actions { display: flex; align-items: center; gap: 10px; margin-top: 4px; }
 .ask-back {
   padding: 8px 14px;
-  min-height: var(--spoke-tap-min);
-  color: var(--spoke-ink-soft);
 }
 .ask-go,
 .plan-confirm {
@@ -2934,7 +2963,8 @@ body { overflow: hidden; }
   height: 12px;
   border-left: var(--spoke-border) solid var(--spoke-line-ghost);
 }
-.step-box-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.step-box-head { display: flex; align-items: center; gap: 8px; }
+.step-box-order { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; min-width: 0; }
 .step-box-index {
   font-family: var(--spoke-font-mono);
   font-size: var(--spoke-size-meta);
@@ -2943,10 +2973,6 @@ body { overflow: hidden; }
 .step-box-relation { font-size: var(--spoke-size-meta); color: var(--spoke-ink-ghost); }
 .step-box-drop {
   margin-left: auto;
-  padding: 6px 8px;
-  min-height: var(--spoke-tap-min);
-  font-size: var(--spoke-size-meta);
-  color: var(--spoke-ink-soft);
 }
 .step-box-title {
   margin: 0;
@@ -2967,15 +2993,11 @@ body { overflow: hidden; }
 }
 .step-box-empty { margin: 0; font-size: var(--spoke-size-detail); color: var(--spoke-ink-ghost); }
 .step-box-needs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--spoke-gap-row); }
-.step-need { display: flex; align-items: baseline; gap: 7px; }
-.step-need-label { font-size: var(--spoke-size-body); font-weight: var(--spoke-weight-quiet); }
+.step-need { display: grid; grid-template-columns: 12px minmax(0, 1fr) auto; align-items: center; gap: 7px; }
+.step-need-label { font-size: var(--spoke-size-body); font-weight: var(--spoke-weight-quiet); overflow-wrap: anywhere; }
 .step-need-assumed { font-size: var(--spoke-size-meta); color: var(--spoke-ink-ghost); }
 .step-need-drop {
   margin-left: auto;
-  padding: 6px 8px;
-  min-height: var(--spoke-tap-min);
-  font-size: var(--spoke-size-meta);
-  color: var(--spoke-ink-soft);
 }
 
 .clarify {
@@ -3008,7 +3030,7 @@ body { overflow: hidden; }
 .clarify-free > span { font-size: var(--spoke-size-meta); color: var(--spoke-scope-text); }
 
 .plan-actions { display: flex; align-items: center; gap: 10px; margin-top: 6px; }
-.plan-back { padding: 8px 14px; min-height: var(--spoke-tap-min); color: var(--spoke-ink-soft); }
+.plan-back { padding: 8px 14px; }
 
 /* --- The hackathon dialog ----------------------------------------------
    Deliberately plainer than the app around it, the same move the { } drawer
@@ -3060,7 +3082,7 @@ body { overflow: hidden; }
 .demo-ask { margin: 6px 0 0; font-size: var(--spoke-size-body); font-weight: var(--spoke-weight-strong); }
 .demo-empty { margin: 0; font-size: var(--spoke-size-detail); color: var(--spoke-ink-ghost); }
 .demo-actions { display: flex; align-items: center; gap: 10px; margin-top: 4px; }
-.demo-cancel { padding: 8px 14px; min-height: var(--spoke-tap-min); color: var(--spoke-ink-soft); }
+.demo-cancel { padding: 8px 14px; }
 .demo-busy { font-size: var(--spoke-size-detail); color: var(--spoke-ink-soft); }
 
 .region-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--spoke-gap-row); }
