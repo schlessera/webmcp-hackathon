@@ -1,12 +1,14 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { TOOL_CONTRACT_VERSION, type InspectCandidatesResponse, type SpatialContextResult, type SuccessEnvelope, type SyncSessionResult } from "@webmcp-hackathon/contracts";
 import { apiPost, createTestRoom, startServer, type TestRoom, type TestServer } from "./helpers.ts";
 import { ContextPager, inspectResult } from "@webmcp-hackathon/contracts";
 
 let server: TestServer;
 let room: TestRoom;
-beforeAll(async () => { server = await startServer(); room = await createTestRoom(server.baseUrl); });
-afterAll(async () => { await room?.cleanup(); await server?.stop(); });
+beforeAll(async () => { server = await startServer(); });
+beforeEach(async () => { room = await createTestRoom(server.baseUrl); });
+afterEach(async () => { await room?.cleanup(); });
+afterAll(async () => { await server?.stop(); });
 
 const read = async <T>(path: string, input = {}, token = room.tokens.org) =>
   (await apiPost<T>(server.baseUrl, path, token, input)).body;
@@ -22,6 +24,44 @@ describe("WebMCP read, change, explain and undo", () => {
     expect(sync.toolContractVersion).toBe(TOOL_CONTRACT_VERSION);
     const after = (await room.pool.query("SELECT arrived_at, last_synced_revision FROM participants WHERE id = $1", [room.participantIds.org])).rows[0];
     expect(after).toEqual(before);
+  });
+
+  it("keeps pending private screening and room state unchanged across repeated passive reads", async () => {
+    const declared = await command("SubmitRequirement", {
+      baseRevision: 0, visibility: "agent-private", hardness: "hard", delegation: { mode: "locked" },
+    });
+    expect(declared.ok).toBe(true);
+    expect(declared.outstanding.some((item) => item.type === "evaluation_request")).toBe(true);
+    await room.pool.query("UPDATE participants SET arrived_at = NULL, last_synced_revision = 0 WHERE room_id = $1", [room.roomId]);
+    const candidateIds = (await room.pool.query("SELECT id FROM candidates WHERE room_id = $1 ORDER BY id", [room.roomId])).rows.map((row) => row.id);
+    const state = async () => (await room.pool.query(`
+      SELECT
+        (SELECT to_jsonb(r) FROM rooms r WHERE id = $1) AS room,
+        (SELECT jsonb_agg(to_jsonb(p) ORDER BY id) FROM participants p WHERE room_id = $1) AS participants,
+        (SELECT jsonb_agg(to_jsonb(e) ORDER BY revision) FROM events e WHERE room_id = $1) AS events,
+        (SELECT jsonb_agg(to_jsonb(r) ORDER BY id) FROM requirements r WHERE room_id = $1) AS requirements,
+        (SELECT jsonb_agg(to_jsonb(c) ORDER BY id) FROM candidates c WHERE room_id = $1) AS candidates,
+        (SELECT jsonb_agg(to_jsonb(v) ORDER BY owner_id, candidate_id) FROM verdicts v WHERE room_id = $1) AS verdicts
+    `, [room.roomId])).rows[0];
+    const before = await state();
+    const reads = [
+      { path: "/api/sync", input: { passive: true } },
+      { path: "/api/sync", input: { passive: true, sinceRevision: 0 } },
+      { path: "/api/spatial/context", input: {} },
+      { path: "/api/spatial/inspect", input: { candidateIds, intent: "read" } },
+    ];
+    for (const { path, input } of reads) {
+      // Repeating a read must not answer outstanding work, mutate evidence,
+      // append events or advance the page's participant bookkeeping.
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const result = await read<SuccessEnvelope>(path, input);
+        expect(result.ok, path).toBe(true);
+        expect(result.revision, path).toBe(declared.revision);
+        expect(await state(), path).toEqual(before);
+      }
+    }
+    const session = await read<SyncSessionResult>("/api/sync", { passive: true });
+    expect(session.outstanding).toContainEqual(expect.objectContaining({ type: "evaluation_request", candidateIds }));
   });
 
   it("returns applied settings and the need ID, preserves uncertain candidates, and supports undo from tool data", async () => {

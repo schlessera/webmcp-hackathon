@@ -116,7 +116,22 @@ native lane also accepts an origin-trial token for its fixed test origin.
 The conversation regression covers summary, passive inspection, filtering,
 a response lost after commit, exact retry, reload/re-discovery, retained
 participant identity, expired candidate cursors, a concurrent stale write,
-catch-up and undo. Unit tests cover all 343 candidate IDs through compact
+catch-up and undo. Additional browser regressions run through both lanes:
+
+- A UI click races a peer's commit after capturing its revision. Catch-up must
+  retry with a new idempotency key and produce exactly one readiness event.
+- Separate participant sessions cannot reuse each other's candidate cursors
+  or recover private questions through explicit detail selectors or deltas.
+  Agent-private receipts and stored declarations carry no payload or note,
+  and only their owner receives screening requests.
+
+The API communication suite checks that repeated passive manifest, delta,
+context and inspection reads leave room, participant, event, requirement,
+candidate and verdict records unchanged while private screening is pending.
+Each browser/API case gets a fresh room and browser sockets close before
+room teardown, including after assertion failures.
+
+Unit tests cover all 343 candidate IDs through compact
 pages, immutable snapshots, expiry, private projections, and schema equivalence.
 These are browser and application tests, not an automated real Codex session.
 
@@ -128,6 +143,11 @@ Verified on September 8, 2026: 800 unit tests, 267 API tests, two native Chrome
 tests and one shim conversation test passed. `pnpm typecheck`, `pnpm build`
 and the generated contract-manifest check passed. The environment used Node
 22.18.0 (the repository declares Node 24+) and Chrome for Testing 151.0.7922.34.
+
+The additional regression coverage was verified separately on the same date:
+four native Chrome tests, three shim tests, four API communication tests and
+`pnpm typecheck` passed. The existing unit suite and unrelated API suites were
+not rerun for this test-only addition.
 
 For the complete API suite use
 `rtk proxy pnpm exec vitest run tests/api --maxWorkers=1` with the isolated
