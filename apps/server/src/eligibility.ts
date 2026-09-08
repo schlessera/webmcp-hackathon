@@ -630,6 +630,8 @@ export function classifyCandidate(
               ...owner,
               text: `${attr.confirmedByName ?? "Someone"} confirmed it`,
             });
+          } else {
+            satisfied.push({ ...owner, text: `${labelOf(p.key)} ${wanted ? "on record" : "absent on record"}` });
           }
         } else {
           // A likely fact: the place leans one way, at the fact's confidence.

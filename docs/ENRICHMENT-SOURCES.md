@@ -293,10 +293,13 @@ progress, focus, and rate budgets are still process-local.
 
 ### Fast track and speculative prefetch
 
-`inspect_candidates` with `intent: "read"` starts no lookup. With `intent:
+The page's HTTP inspection route with `intent: "read"` starts no lookup. With `intent:
 "open"`, it returns cached dossiers immediately and starts a bounded plan per
 place. Omitting intent retains the compatibility path that waits at most three
 seconds before returning the latest dossier while work may continue.
+The version 4 WebMCP `inspect_candidates` tool always selects the passive
+path; use `look_up_places` for an explicit lookup. Agent inspection accepts
+`keys` and `details`, not the page route's `intent`/`force` options.
 
 An open reuses cached material, reads the site and active criteria, materializes
 due images, adjudicates likely claims, and may search unresolved shared needs.

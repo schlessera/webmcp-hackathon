@@ -107,7 +107,9 @@ stances, and adjustments. `resolve_private_request` resolves adjustments only.
 
 The tables match the registered catalog: two opening tools, ten negotiation
 tools, and twelve spatial tools. **RO** and **UGC** report the actual
-`readOnlyHint` and `untrustedContentHint` annotations. They are hints, not an
+`readOnlyHint` and `untrustedContentHint` annotations. Mutating tools explicitly
+set `readOnlyHint: false`; reversible tools set `consequentialHint: false`.
+These are hints, not an
 authorization or content-sanitization boundary.
 
 | Opening tool | RO | UGC | Behavior |
@@ -131,13 +133,13 @@ authorization or content-sanitization boundary.
 | Spatial tool | RO | UGC | Behavior |
 |---|---|---|---|
 | `find_landmarks` | ✓ | | Resolve a name to landmark IDs and locations in the room's area |
-| `get_spatial_context` | ✓ | ✓ | Compact scope, feasibility, candidates, proposals, agreement, and outstanding work |
-| `inspect_candidates` | ✓ | ✓ | Compact records for one to three IDs; optional `intent` (open/read) and `force` |
+| `get_spatial_context` | ✓ | ✓ | Plan, need IDs, scope, feasibility, paged candidates, proposals, and outstanding work |
+| `inspect_candidates` | ✓ | ✓ | Cached records for one to three IDs; optional `keys` and `details` |
 | `set_search_scope` | | | Organizer directly changes the room's area/transport scope |
 | `add_candidates` | | | Add up to 40 stable place refs discovered through the page's explore layer |
 | `look_up_places` | | | Start lookup for one to three candidates, optionally focusing up to six `keys`; supports `force` |
 | `propose_destination` | | | Create a shared proposal for a current candidate |
-| `focus_destination` | ✓ | | Pan/highlight the caller's map; viewing presence and enrichment can follow |
+| `focus_destination` | | | Pan/highlight the caller's map; publishes viewing presence and starts evidence work |
 | `plan_arrival` | | | Record the caller's walk/bike/car plan and optional pickup note after agreement |
 | `confirm_fact` | | | Record a fact the caller verified, shared within this room |
 | `attest_attribute` | | | Add shared participant evidence, confidence, and a note |
@@ -151,6 +153,9 @@ controls but no registered tool. The built-in agent's approval endpoint is
 also outside this catalog.
 
 Schemas use closed objects, bounded arrays/strings, enums, and stable IDs.
+Repeated schema objects use local `$defs`/`$ref`; literal string unions use
+`enum`. These lossless changes reduce catalog repetition while server
+validation retains the original command schemas.
 Free text is intentionally supported for goals, names, search queries, text
 needs, reasons, and notes. A text need can become a question criterion with
 evidence; it is not automatically treated as satisfied. Fetch current IDs
@@ -158,41 +163,61 @@ from results rather than inventing candidate, requirement, or proposal IDs.
 
 ### 2.4 What an agent actually receives
 
-Tool results are compact projections, not copies of the full page API.
-`get_spatial_context` starts with at most eight candidates, ordered by
-eligibility then walking estimate. It omits the HTTP context's detailed
-facets/needs, origins, pool/refinement progress, and plan fields (`goal`,
-`steps`, `activeStepId`). Further budget compaction may remove more.
-Proposal summaries expose `accepts` counted from viewer-visible accept
-stances, `vetoStands`, and the caller's `ownStance`; that count is not a tally
-of peers' hidden private stances.
+Contract version 4 exposes explicit projections. `get_spatial_context`
+includes identity, goal, plan steps, active step, visible need IDs and settings,
+absolute time windows, timezone, roster, progress, and outstanding work from
+the same server read. It defaults to eight candidates, ordered by eligibility,
+straight-line walking estimate, then stable candidate ID. This ordering is
+not a quality recommendation. Origins, candidate coordinates, image URLs and
+peer-private need payloads stay out of the summary.
 
-`inspect_candidates` returns compact attribute/verdict summaries and each
-candidate's `mapRevision`. It omits detailed provenance rows, hours,
-coordinates, and image URLs; images become a count. Passing two or three IDs
-reads several records but does not open the page's comparison panel. Use
-`intent: "read"` for a passive reread; `intent: "open"` can initiate background
-fact work despite the read-only annotation. Omitting `intent` also starts
-lookup/adjudication, with a bounded wait before returning. `look_up_places` can perform
-paid I/O and cache writes, so it has no read-only hint.
+Use `limit` (1–20), `query` (name/category), or `eligibility` to select a page.
+`page.total`, `returned`, `remaining`, and `remainingEligible` describe the
+filtered snapshot and are calculated after budget selection. Follow
+`page.nextCursor` using `{cursor}` alone. A cursor is viewer/document-bound,
+reusable, expires after five minutes, and retains a frozen snapshot even if
+evidence or room state changes. At most four snapshots are retained. Omit the
+cursor for fresh state; candidate paging never advances event-sync watermarks.
+Proposal `visibleAccepts` counts only viewer-visible accept stances.
+
+`inspect_candidates` is always passive. It preserves requested candidate order,
+map revisions, active-need verdicts, source/observation time, and available
+attribute keys. By default it prioritizes active needs and recorded positive
+facts. Select up to twelve `keys`; `details: ["hours", "evidence", "links"]`
+adds those groups. Images remain a count and coordinates are omitted.
+Inspection does not open the page's comparison panel. Use `look_up_places`
+for paid I/O and cache writes. The page's HTTP inspection route retains its
+explicit `intent`/`force` options; those are no longer tool arguments.
+
+`sync_session` uses a passive HTTP read that does not update arrival or sync
+bookkeeping. Reads do not resume background work. Authenticated WebSocket
+connection and explicit page actions own recovery, presence, and lookup work.
 
 `focus_destination` has no negotiation command, but the mounted page reports
 its selected place through WebSocket viewing presence. Peers can see who is
 looking at a place, and the server can start enrichment. It does not pan
-other participants' maps. Its read-only hint does not mean the focus is private
-or free of background work.
+other participants' maps. Its `readOnlyHint` is false.
 
 Soft needs do not affect ranking. Evidence adjudication can mark an explicit
 venue/chain statement verified; lookup is not restricted to likely results.
+Every context response explains the five eligibility classes. Missing or
+disputed evidence stays uncertain; it is not a confirmed failure. “Verified”
+is a recorded evidence grade, including OSM records, not a claim that the
+external agent freshly verified the venue.
 
 ## 3. Results, errors, and output budgets
 
 A registered callback returns a WebMCP text-content wrapper. Its `content`
 array contains one `{type: "text", text: "<serialized JSON>"}` entry, and
-`truncated` reports whether encoding required compaction.
+`truncated` is true only when the result exceeded its budget and was replaced
+with an explicit failure. Ordinary candidate pagination uses `page.nextCursor`.
 
 The embedded JSON for a successful **command** has `ok`, `revision`, and
 `outstanding`, with optional `effect`, `staged`, `syncHint`, and `replayed`.
+Successful mutations also return feasibility. Requirement changes return a
+`receipt` with the affected ID and operation; submission includes the settings
+the server actually applied after normalization. Agent-private receipts never
+include the private payload or note. Proposal creation returns its proposal ID.
 `staged: true` means the requested consequence still awaits confirmation.
 `replayed: true` identifies a successful idempotency replay. Read, opening,
 and local-focus results have their own shapes; not every success has a room
@@ -216,15 +241,16 @@ as well as `{ok:false}`.
 
 Application budgets are 30 characters per tool name, 500 per description,
 150 per parameter description, 200 per effect/note, and 400 per sync brief.
-Serialized result JSON normally has a 1,500-character allowance;
-`sync_session` and **any result containing `delta`** receive 8,000. These are
+Serialized result JSON has an 8,000-character allowance. These are
 JavaScript string-length limits, not byte limits or browser-enforced quotas.
 
-The adapter compacts ordinary results structurally, preserves valid JSON,
-and reports `truncated` plus omitted item/field/character counts. A manifest
-or delta that still exceeds its allowance fails explicitly instead of
-silently deleting protocol state. A compact result is not an exhaustive
-candidate list or evidence ledger.
+The context pager removes candidate rows before computing final page metadata;
+it never removes individual fields from a successful result. Inspection uses
+explicit field selection. Any complete response that still exceeds its budget
+fails explicitly, preserving the error category rather than clipping cursors,
+receipts or recovery instructions. An oversized mutation response can follow a
+successful commit: check sync/current state before retrying. Tool response types
+are derived from these projections and included in the contract hash.
 
 ### 3.1 Revisions, catch-up, and retries
 
@@ -254,11 +280,11 @@ retry can replay the stored result. After a known stale rejection, changing
 the revision requires a new key; reusing the old key with changed arguments
 is invalid.
 
-There are remaining browser integration gaps: the page's automatic stale
-retry currently reuses its explicit key after changing the revision, and a
-fresh WebMCP invocation generates a new key. Reinvoking a tool after an
-ambiguous timeout therefore does not guarantee exactly-once execution.
-Inspect current state before repeating a consequential action. See
+The page's automatic stale retry uses a new key after a definitive rejection.
+The command API retains keys for exact retries of ambiguous requests in the
+same document (up to its bounded retry cache); the page runner does not
+override them. Reloading loses that cache. After a reload, expiry or changed
+arguments, inspect current state before repeating an ambiguous mutation. See
 [the command client](../../apps/web/src/api.ts) and
 [page command runner](../../apps/web/src/App.tsx).
 
@@ -453,14 +479,17 @@ independently establish provider retention guarantees. See
 ## 6. Versioning and evolution
 
 Current [versions](../../packages/contracts/src/versions.ts) are negotiation
-`v1`, domain `spatial-destination/v1`, and tool contract `"3"`. The repository
+`v1`, domain `spatial-destination/v1`, and tool contract `"4"`. The repository
 generates its contract hash from executable schemas and response/message
 types. Build identity additionally detects page/server deployment mismatch.
 
 The current policy keeps compatible optional fields and accepted inputs
 additive. Breaking changes require an explicit compatibility decision;
-renaming an incompatible tool avoids replacing a discovered schema in place.
-Do not infer the catalog count from the version number: the current v3
+v4 retains existing names across a document reload, with an explicit version
+gate rejecting old clients. Registration never replaces a tool on room updates.
+The HTTP page inspection route keeps its prior semantics while the advertised
+tool changes to passive inspection. Do not infer the catalog count from the
+version number: the current v4
 catalog has 24 tools. A future domain should extend the domain vocabulary
 and commands while preserving negotiation meanings; that portability has
 not yet been demonstrated with a second backend.

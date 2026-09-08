@@ -827,14 +827,14 @@ describe("need-triggered lookup and realtime facts", () => {
       expect(
         await waitFor(() =>
           peer.frames().some((raw) => {
-            const frame = JSON.parse(raw) as { type: string; pending?: string[] };
-            return frame.type === "lookups" && Boolean(frame.pending?.length);
+            const frame = JSON.parse(raw) as { type: string; pending?: string[]; reason?: { kind?: string } };
+            return frame.type === "lookups" && frame.reason?.kind === "need" && Boolean(frame.pending?.length);
           }),
         ),
       ).toBe(true);
       const pending = peer.frames().find((raw) => {
-        const frame = JSON.parse(raw) as { type: string; pending?: string[] };
-        return frame.type === "lookups" && Boolean(frame.pending?.length);
+        const frame = JSON.parse(raw) as { type: string; pending?: string[]; reason?: { kind?: string } };
+        return frame.type === "lookups" && frame.reason?.kind === "need" && Boolean(frame.pending?.length);
       })!;
       expect(JSON.parse(pending)).toMatchObject({
         type: "lookups",
@@ -843,6 +843,15 @@ describe("need-triggered lookup and realtime facts", () => {
       });
       expect(pending).not.toContain("delivery");
       expect(JSON.parse(pending).reason).not.toHaveProperty("label");
+      // Connection now owns preview recovery. Its independent place/terminal
+      // frames can precede the need frame, and must also preserve privacy.
+      for (const raw of peer.frames()) {
+        const frame = JSON.parse(raw);
+        if (frame.type === "lookups") {
+          expect(raw).not.toContain("delivery");
+          expect(frame.reason ?? {}).not.toHaveProperty("label");
+        }
+      }
     } finally {
       peer.close();
       await privateRoom.cleanup();

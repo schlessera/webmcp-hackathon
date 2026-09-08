@@ -55,6 +55,9 @@ export interface TestServer {
 }
 
 export interface TestServerOptions {
+  /** Fixed origin only for a native browser origin-trial token. Otherwise
+   * reserve a fresh port so independent worktrees do not collide. */
+  port?: number;
   /** Repo-relative bootstrap entrypoint; defaults to the production server. */
   entrypoint?: string;
   env?: Record<string, string>;
@@ -62,7 +65,7 @@ export interface TestServerOptions {
 
 /** Spawn a real server process, capturing its log output for invariant checks. */
 export async function startServer(options: TestServerOptions = {}): Promise<TestServer> {
-  const port = await nextServerPort();
+  const port = options.port ?? await nextServerPort();
   let captured = "";
   const child: ChildProcess = spawn(
     "node",

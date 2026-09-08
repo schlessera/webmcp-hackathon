@@ -10,7 +10,6 @@ import type { Participant } from "./auth.ts";
 import { buildDelta, DELTA_CAP, InvalidDeltaCursor } from "./delta.ts";
 import { computeEligibility, feasibilityOf } from "./eligibility.ts";
 import { outstandingFor } from "./outstanding.ts";
-import { resumePendingNeeds } from "./engine.ts";
 import { presentIn } from "./presence.ts";
 import { config } from "./config.ts";
 import { projectParticipantSummary } from "./projection.ts";
@@ -24,11 +23,8 @@ export async function syncSession(
   actor: Participant,
   sinceRevision?: number,
   cursor?: string,
+  passive = false,
 ): Promise<SyncSessionResponse> {
-  // A step that opened while the process was stopping still owes its needs,
-  // and nothing else revisits that window. Fire-and-forget, outside the
-  // snapshot below: this read must not wait for it or fail because of it.
-  resumePendingNeeds(actor.roomId);
   // One consistent snapshot: FOR SHARE on the room row keeps a concurrent
   // command's revision bump (FOR UPDATE) out of the read window, so revision,
   // eligibility, delta, and outstanding all describe the same state.
@@ -75,7 +71,7 @@ export async function syncSession(
     role: p.role as "organizer" | "member",
     readyState: p.ready_state as "contributing" | "ready",
     // This very sync is the caller's arrival.
-    arrived: p.id === actor.id || p.arrived_at !== null,
+    arrived: (!passive && p.id === actor.id) || p.arrived_at !== null,
     present: present.has(p.id as string),
     origin: p.origin,
   }, actor.id));
@@ -159,7 +155,7 @@ export async function syncSession(
     };
   }
 
-  await client.query(
+  if (!passive) await client.query(
     `UPDATE participants
         SET last_synced_revision = $2, arrived_at = COALESCE(arrived_at, now())
       WHERE id = $1`,

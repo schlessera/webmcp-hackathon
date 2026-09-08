@@ -1,4 +1,6 @@
 import { Type, type TSchema } from "@sinclair/typebox";
+import { compactSchema } from "./compact-schema.ts";
+import { Check } from "@sinclair/typebox/value";
 import {
   AttestAttributeInput,
   ConfirmFactInput,
@@ -20,8 +22,8 @@ import {
 /**
  * WebMCP tool surface — INTERACTION-AND-BINDING.md §2.3: the full static
  * 24-tool surface, registered once at page load (see TOOLS for the split).
- * Names ≤30 chars, descriptions ≤500 chars, results ≤1.5K chars except the
- * 8K allowance for sync/delta results. All schemas additionalProperties: false. v1
+ * Names ≤30 chars, descriptions ≤500 chars, complete results ≤8K chars.
+ * Candidate lists page within that budget. All objects reject extra fields. v1
  * names carry no version suffix.
  * ConfirmPrivateRequest and CommitAgreement are deliberately NOT bound to
  * tools: their applying commands require a page confirmation nonce.
@@ -30,6 +32,7 @@ import {
 export interface ToolAnnotations {
   readOnlyHint?: boolean;
   untrustedContentHint?: boolean;
+  consequentialHint?: boolean;
 }
 
 export interface ToolDefinition {
@@ -63,19 +66,19 @@ export const SYNC_SESSION_INPUT = Type.Object(
 export const syncSessionTool: ToolDefinition = {
   name: "sync_session",
   description:
-    "Read the authenticated room as your participant: identity, revisions, " +
-    "privacy rules, brief, roster and outstanding work. Omit both sinceRevision " +
-    "and cursor for the capability manifest; otherwise read missed events. " +
-    "Continue truncated deltas with cursor before acting. The room revision can " +
-    "exceed throughRevision. Before a room exists, use describe_regions then " +
-    "open_room.",
+    "Read identity, revisions, privacy rules, roster and outstanding work. Start with {} for the manifest. For catch-up use sinceRevision, then continue delta.cursor until delta.truncated is false. Candidate summaries and need IDs come from get_spatial_context.",
   inputSchema: SYNC_SESSION_INPUT,
   annotations: { readOnlyHint: true, untrustedContentHint: true },
 };
 
 /** Spatial read inputs (no baseRevision: reads never conflict). */
 export const SPATIAL_CONTEXT_INPUT = Type.Object(
-  {},
+  {
+    cursor: Type.Optional(Type.String({ minLength: 1, maxLength: 100, description: "Continue a candidate snapshot unchanged; omit other arguments. Expires after five minutes or document reload." })),
+    limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 20, description: "Maximum candidates per page; default eight. The result budget may return fewer." })),
+    query: Type.Optional(Type.String({ minLength: 1, maxLength: 100, description: "Filter candidates by name or category within the room's current pool." })),
+    eligibility: Type.Optional(Type.Union(["eligible", "likely", "uncertain", "unlikely", "excluded"].map((value) => Type.Literal(value)))),
+  },
   { additionalProperties: false },
 );
 export const INSPECT_CANDIDATES_INPUT = Type.Object(
@@ -87,23 +90,16 @@ export const INSPECT_CANDIDATES_INPUT = Type.Object(
       }),
       { minItems: 1, maxItems: 3 },
     ),
-    intent: Type.Optional(
-      Type.Union(
-        [Type.Literal("open"), Type.Literal("read")],
-        {
-          description:
-            "read: start no lookup. open: return cache and start bounded work. Omit for lookup with a bounded wait.",
-        },
-      ),
-    ),
-    force: Type.Optional(
-      Type.Boolean({
-        description: "With intent open, request another pass even if this need set was already checked. Source caches and provider budgets still apply.",
-      }),
-    ),
+    keys: Type.Optional(Type.Array(Type.String({ minLength: 1, maxLength: 100 }), { minItems: 1, maxItems: 12, uniqueItems: true, description: "Attribute keys to return. By default prioritize active needs and recorded positive facts. Available keys are returned." })),
+    details: Type.Optional(Type.Array(Type.Union(["hours", "evidence", "links"].map((value) => Type.Literal(value))), { maxItems: 3, uniqueItems: true, description: "Optional detail groups. Evidence includes notes and source links; hours are in the returned timezone." })),
   },
   { additionalProperties: false },
 );
+/** Read projection inputs are consumed in the page, so validate them there
+ * as well as in native discovery. The test shim supplies no validation. */
+export function validReadInput(name: string, input: unknown): boolean {
+  return Check(name === "get_spatial_context" ? SPATIAL_CONTEXT_INPUT : name === "sync_session" ? SYNC_SESSION_INPUT : INSPECT_CANDIDATES_INPUT, input);
+}
 export const LOOK_UP_PLACES_INPUT = Type.Object(
   {
     candidateIds: Type.Array(
@@ -177,21 +173,14 @@ const negotiationTools: ToolDefinition[] = [
   {
     name: "submit_requirement",
     description:
-      "Add or update your own need; pass requirementId to update. shared publishes " +
-      "content; application-private stores it for the app and owner, with reduced " +
-      "peer projections; agent-private sends only a declaration, with no payload or " +
-      "note, and you screen via evaluate_candidates. Hard needs affect eligibility; " +
-      "soft needs are stored but do not rank or exclude. Private ownership and " +
-      "decision effects can remain visible.",
+    "Add or update your need; requirementId updates an existing one. Hard needs classify candidates; unknown evidence remains uncertain. Shared publishes content; application-private stores it for the app and owner; agent-private declares without payload/note and uses screening verdicts. Returns the need ID and applied settings.",
     inputSchema: SubmitRequirementInput,
     annotations: {},
   },
   {
     name: "withdraw_requirement",
     description:
-      "Withdraw one of your own needs by requirementId. It stops affecting " +
-      "eligibility, which the server recomputes. Its stored history remains subject " +
-      "to the same visibility rules.",
+    "Withdraw your need using its requirementId from get_spatial_context or its mutation receipt. Recomputes eligibility and returns the affected ID. Stored history keeps its visibility rules.",
     inputSchema: WithdrawRequirementInput,
     annotations: {},
   },
@@ -289,26 +278,14 @@ const spatialTools: ToolDefinition[] = [
   {
     name: "get_spatial_context",
     description:
-      "Read compact scope, feasibility, candidate rows, proposals, agreement and " +
-      "outstanding work. Starts with at most eight candidates ordered by " +
-      "eligibility then walking estimate; further budget compaction may omit rows " +
-      "or fields. Proposal accepts counts only stances visible to you, not every " +
-      "private accept. Use returned candidateIds for inspection and actions. " +
-      "Detailed needs, coordinates and plan fields are omitted. May resume pool " +
-      "fill and preview evidence.",
+    "Summarize the current plan, needs, participants and candidate choices. Returns stable IDs, recorded-evidence classifications and estimated-walk ordering. Continue page.nextCursor with cursor only. Pages share a five-minute snapshot; start again without cursor for current state. Starts no lookup.",
     inputSchema: SPATIAL_CONTEXT_INPUT,
     annotations: { readOnlyHint: true, untrustedContentHint: true },
   },
   {
     name: "inspect_candidates",
     description:
-      "Read compact records for 1-3 candidates: graded attributes, brief " +
-      "provenance, need verdicts, mapRevision and available links/metadata. Full " +
-      "hours, coordinates, detailed evidence and image URLs are omitted. intent: " +
-      "read starts no lookup; open returns cached records and starts bounded fact " +
-      "work. Omitting intent starts lookup with a bounded wait. Several IDs read a " +
-      "comparison but do not open the page's comparison panel. Results may be " +
-      "further compacted.",
+    "Read cached facts for 1-3 candidate IDs, in requested order. Returns active-need verdicts, map revisions, evidence source/time and availableKeys. Choose keys or details (hours, evidence, links). Starts no lookup; use look_up_places to refresh evidence.",
     inputSchema: INSPECT_CANDIDATES_INPUT,
     annotations: { readOnlyHint: true, untrustedContentHint: true },
   },
@@ -359,13 +336,9 @@ const spatialTools: ToolDefinition[] = [
   {
     name: "focus_destination",
     description:
-      "Select, pan to and highlight a candidate on your page. The page publishes " +
-      "your viewing presence to the room and starts bounded evidence work for the " +
-      "selected place. Other participants can see which place you are viewing; " +
-      "resulting facts may be shared. This does not submit a proposal or stance, or " +
-      "change the shared search circle.",
+    "Select and highlight a known candidate on your page. Publishes your viewing presence to the room and starts evidence lookup. Returns the selected place; proposing a destination is a separate action.",
     inputSchema: FOCUS_DESTINATION_INPUT,
-    annotations: { readOnlyHint: true },
+    annotations: {},
   },
   {
     name: "plan_arrival",
@@ -450,36 +423,35 @@ const onboardingTools: ToolDefinition[] = [
   {
     name: "describe_regions",
     description:
-      "List prepared regions this demo can open, with place-class counts and fact " +
-      "coverage when available. Discovery is bounded to these local extracts. Call " +
-      "this before open_room and use a returned regionId. No participant token is " +
-      "required; result compaction can omit detail.",
+    "List available prepared regions with place counts and evidence coverage. Choose a returned regionId when opening a room. No participant session required.",
     inputSchema: DESCRIBE_REGIONS_INPUT,
     annotations: { readOnlyHint: true },
   },
   {
     name: "open_room",
     description:
-      "Create a planning room from the user's goal. Automatically accepts the " +
-      "planner's steps without a separate plan review or clarification turn; falls " +
-      "back to a food step if preview is unavailable. Returns the steps and an " +
-      "invitation link when one is minted, then schedules page navigation/reload. " +
-      "Wait for the room to load before sync_session. No participant token is " +
-      "required.",
+    "Create a room from the goal and automatically accept the proposed plan (food fallback if planning fails). Returns steps and a member invite when available, then reloads into the room. After navigation, obtain tools for the new document and call sync_session. No prior participant session required.",
     inputSchema: OPEN_ROOM_INPUT,
     annotations: {},
   },
 ];
 
 /** The full registered tool catalog — static surface, no state-gated registration. */
-export const TOOLS: ToolDefinition[] = [...onboardingTools, ...negotiationTools, ...spatialTools];
+export const TOOLS: ToolDefinition[] = [...onboardingTools, ...negotiationTools, ...spatialTools].map((tool) => ({
+  ...tool,
+  inputSchema: compactSchema(tool.inputSchema) as TSchema,
+  annotations: { readOnlyHint: false, consequentialHint: false, ...tool.annotations },
+}));
 
 /** Application string-length budgets (INTERACTION-AND-BINDING.md §3). */
 export const BUDGETS = {
   toolNameMax: 30,
   toolDescriptionMax: 500,
   paramDescriptionMax: 150,
-  resultMax: 1500,
+  resultMax: 8000,
+  contextResultMax: 8000,
+  inspectResultMax: 8000,
+  mutationResultMax: 8000,
   // Sync manifests and every delta-bearing result receive this allowance.
   // Oversized protocol pages fail explicitly instead of losing state to the
   // generic structural compactor.

@@ -22,7 +22,8 @@ import {
   resolveLookupReason,
 } from "./enrich/progress.ts";
 import { pipelineScheduler } from "./pipeline/scheduler.ts";
-import { clearInteractiveFocus, openCandidate, previewCandidate } from "./spatial.ts";
+import { clearInteractiveFocus, openCandidate, previewCandidate, resumeSpatialWork } from "./spatial.ts";
+import { resumePendingNeeds } from "./engine.ts";
 import { prefetchKey, prefetchManager } from "./pipeline/prefetch.ts";
 import { noteRefinementPresence } from "./refine/worker.ts";
 import { allowedOrigin, socketClientIp, WindowBudget, WorkSlots } from "./security.ts";
@@ -283,6 +284,8 @@ export function attachWebSocket(server: Server): void {
         };
         connections.add(connection);
         const becamePresent = markOpen(participant.roomId, participant.id);
+        resumePendingNeeds(participant.roomId);
+        if (becamePresent) void resumeSpatialWork(participant).catch((err) => console.warn("Room work could not resume", err));
         // Ensure the room loop exists on every successful authentication.
         // The presence listener handles the transition too; this idempotent
         // call also covers later sockets and makes auth the explicit owner of

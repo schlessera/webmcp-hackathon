@@ -152,6 +152,7 @@ interface AppendedEvent {
 }
 
 interface HandlerOutcome {
+  receipt?: SuccessEnvelope["receipt"];
   events: AppendedEvent[];
   effect: string;
   /** Command accepted but its consequence awaits in-page confirmation. */
@@ -405,6 +406,8 @@ export async function submitCommand(
       revision,
       effect: `${outcome.effect} ${feasibility.eligible} candidate${feasibility.eligible === 1 ? "" : "s"} eligible.`.slice(0, 200),
       ...(outcome.staged ? { staged: true } : {}),
+      ...(outcome.receipt ? { receipt: outcome.receipt } : {}),
+      feasibility,
       outstanding,
     };
     if (idempotency) {
@@ -949,7 +952,7 @@ async function submitRequirement(
              (SELECT active_step_id FROM rooms WHERE id = $2))
      ON CONFLICT (id) DO UPDATE SET visibility = $4, hardness = $5,
        delegation = $6, payload = $7, scope_hint = $8, note = $9, withdrawn = false
-     WHERE requirements.room_id = $2 AND requirements.owner_id = $3`,
+     WHERE requirements.room_id = $2 AND requirements.owner_id = $3 RETURNING active`,
     [
       id,
       actor.roomId,
@@ -971,6 +974,15 @@ async function submitRequirement(
     );
   }
 
+  const receipt: NonNullable<SuccessEnvelope["receipt"]> = {
+    entity: "requirement", id, operation: existing ? "updated" : "created",
+    requirement: {
+      visibility: cmd.visibility, hardness: cmd.hardness,
+      active: upserted.rows[0].active,
+      delegation: cmd.delegation,
+      ...(!agentPrivate ? { payload: cmd.payload } : {}),
+    },
+  };
   const events: AppendedEvent[] = [];
   if (agentPrivate) {
     events.push({
@@ -1010,7 +1022,7 @@ async function submitRequirement(
         payload: { targetParticipantId: actor.id, candidateIds: pending },
       });
     }
-    return { events, effect: "Private requirement declared; screening requested." };
+    return { events, receipt, effect: "Private requirement declared; screening requested." };
   }
 
   events.push({
@@ -1030,6 +1042,7 @@ async function submitRequirement(
   const criterion = criterionFor(cmd.payload as never);
   return {
     events,
+    receipt,
     effect: `Requirement ${existing ? "updated" : "recorded"}.`,
     refine: Boolean(criterion),
     ...(criterion
@@ -1086,6 +1099,7 @@ async function withdrawRequirement(
         payload: { actorName: actor.displayName, requirementId: cmd.requirementId },
       },
     ],
+    receipt: { entity: "requirement", id: cmd.requirementId, operation: "withdrawn" },
     effect: "Requirement withdrawn.",
     refine: Boolean(criterion),
   };
@@ -1135,6 +1149,7 @@ async function setRequirementActive(
     // Idempotent: no write, no event, no revision bump.
     return {
       events: [],
+      receipt: { entity: "requirement", id: cmd.requirementId, operation: cmd.active ? "activated" : "deactivated" },
       effect: `Need already ${cmd.active ? "active" : "set aside"}.`,
     };
   }
@@ -1172,6 +1187,7 @@ async function setRequirementActive(
         },
       },
     ],
+    receipt: { entity: "requirement", id: cmd.requirementId, operation: cmd.active ? "activated" : "deactivated" },
     effect: cmd.active ? "Need reapplied." : "Need set aside.",
     refine: Boolean(criterion),
     ...(cmd.active && criterion
@@ -1698,6 +1714,7 @@ async function proposeDestination(
         },
       },
     ],
+    receipt: { entity: "proposal", id, operation: "created" },
     effect: `Proposed ${candidate.name} (${id}).`,
   };
 }

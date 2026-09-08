@@ -1,4 +1,4 @@
-import { BUDGETS, TOOLS, type ToolDefinition } from "@webmcp-hackathon/contracts";
+import { BUDGETS, TOOLS, validReadInput, type ToolDefinition, type SpatialContextResult, type InspectCandidatesResponse } from "@webmcp-hackathon/contracts";
 import {
   createRoom,
   fetchAreas,
@@ -11,12 +11,12 @@ import {
   syncSessionRaw,
 } from "./api.ts";
 import { diagnostics } from "./diagnostics-store.ts";
-import { exchangeInvite } from "./session.ts";
+import { exchangeInvite, currentToken } from "./session.ts";
+import { ContextPager, inspectResult, resultTooLarge, type ContextInput, type InspectInput } from "@webmcp-hackathon/contracts";
 import { mintInvite } from "./invite-api.ts";
 import { runCommand, spatial } from "./spatial-store.ts";
 import { trim, utf8Bytes, wire } from "./wire-store.ts";
 import type {
-  CandidateSummary,
   SpatialContext,
 } from "./spatial-types.ts";
 
@@ -85,150 +85,32 @@ function modelContext(): ModelContextLike | null {
   return mc && typeof mc.registerTool === "function" ? mc : null;
 }
 
-interface OmittedCounts {
-  arrayItems: number;
-  objectFields: number;
-  stringCharacters: number;
-}
-
-interface StructuralLimits {
-  arrayItems: number;
-  objectFields: number;
-  stringCharacters: number;
-  depth: number;
-}
-
-const ROOT_PRIORITY = [
-  "ok", "error", "revision", "effect", "staged", "delta", "outstanding",
-  "identity", "phase", "brief", "manifest", "feasibility", "candidates",
-];
-const ERROR_PRIORITY = ["code", "message", "recovery"];
-
-function clipString(value: string, max: number, omitted: OmittedCounts): string {
-  if (value.length <= max) return value;
-  omitted.stringCharacters += value.length - Math.max(0, max - 1);
-  return max <= 1 ? "…" : `${value.slice(0, max - 1)}…`;
-}
-
-function compactStructurally(
-  value: unknown,
-  limits: StructuralLimits,
-  omitted: OmittedCounts,
-  path = "$",
-  depth = 0,
-): unknown {
-  if (typeof value === "string") {
-    return clipString(value, limits.stringCharacters, omitted);
-  }
-  if (value === null || typeof value !== "object") return value;
-  if (Array.isArray(value)) {
-    const kept = value.slice(0, limits.arrayItems);
-    omitted.arrayItems += value.length - kept.length;
-    return kept.map((item) =>
-      compactStructurally(item, limits, omitted, `${path}[]`, depth + 1),
-    );
-  }
-  const record = value as Record<string, unknown>;
-  const entries = Object.entries(record);
-  if (depth >= limits.depth) {
-    omitted.objectFields += entries.length;
-    return "[nested content omitted]";
-  }
-  const priority = path === "$" ? ROOT_PRIORITY : path === "$.error" ? ERROR_PRIORITY : [];
-  const ordered = [...entries].sort(([a], [b]) => {
-    const ai = priority.indexOf(a);
-    const bi = priority.indexOf(b);
-    return (ai < 0 ? priority.length : ai) - (bi < 0 ? priority.length : bi);
-  });
-  const required = path === "$.error" ? new Set(ERROR_PRIORITY) : new Set<string>();
-  const kept = ordered.filter(([key], index) => index < limits.objectFields || required.has(key));
-  omitted.objectFields += entries.length - kept.length;
-  return Object.fromEntries(
-    kept.map(([key, item]) => [
-      key,
-      compactStructurally(item, limits, omitted, `${path}.${key}`, depth + 1),
-    ]),
-  );
-}
-
-function withOmissionMarker(value: unknown, omitted: OmittedCounts): Record<string, unknown> {
-  const object = value && typeof value === "object" && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : { value };
-  return { ...object, truncated: true, omitted };
-}
-
-/**
- * R15/X1: every registered tool crosses this single declared-budget boundary.
- * It never slices serialized JSON. Generic results are structurally compacted;
- * protocol pages must arrive complete because their cursor describes content.
- */
+/** Complete output or an explicit failure. Never delete operational fields from
+ * a successful result after its counts/cursors have been calculated. */
 export function encodeToolResult(
   value: unknown,
   maxChars: number = BUDGETS.resultMax,
+  recovery = "Request fewer candidates or specific keys/details. Use sync_session for outstanding work.",
 ): { content: Array<{ type: "text"; text: string }>; truncated: boolean } {
   const raw = JSON.stringify(value ?? null);
-  if (raw.length <= maxChars) {
-    return { content: [{ type: "text", text: raw }], truncated: false };
+  if (raw.length <= maxChars) return { content: [{ type: "text", text: raw }], truncated: false };
+  const source = value as { ok?: boolean; revision?: number; error?: { code?: string } } | null;
+  const failure = resultTooLarge(recovery, source?.ok === true ? source.revision : undefined);
+  if (source?.ok === false && source.error?.code) {
+    // Keep the original failure category, but never clip a cursor or recovery instruction.
+    failure.error.code = source.error.code as typeof failure.error.code;
+    if (source.error.code === "sync_required") {
+      failure.error.recovery = "Call sync_session with your last fully consumed event revision; consume every delta cursor before reconsidering the mutation.";
+    } else if (source.error.code === "invalid_input") {
+      failure.error.recovery = "Use the tool's published input schema.";
+    } else if (source.error.code === "upgrade_required") {
+      failure.error.recovery = "Reload the page and acquire tools for the new document, then call sync_session.";
+    }
   }
-  const root = value && typeof value === "object" && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : null;
-  if (root && ("delta" in root || "manifest" in root)) {
-    // X1: these fields are protocol state, not optional presentation detail.
-    // A valid server page is budgeted before it reaches this boundary. If a
-    // malformed/legacy response still exceeds the allowance, fail explicitly
-    // rather than claiming that deleted revisions or manifest fields arrived.
-    return {
-      content: [{
-        type: "text",
-        text: JSON.stringify({
-          ok: false,
-          error: {
-            code: "temporarily_unavailable",
-            message: "The protocol page exceeded this tool's result allowance.",
-            recovery: "Call sync_session again from the last fully consumed revision.",
-          },
-        }),
-      }],
-      truncated: true,
-    };
-  }
-  for (const limits of [
-    { arrayItems: 8, objectFields: 20, stringCharacters: 240, depth: 7 },
-    { arrayItems: 4, objectFields: 14, stringCharacters: 160, depth: 6 },
-    { arrayItems: 2, objectFields: 10, stringCharacters: 96, depth: 5 },
-    { arrayItems: 1, objectFields: 7, stringCharacters: 64, depth: 4 },
-    { arrayItems: 0, objectFields: 4, stringCharacters: 40, depth: 3 },
-  ]) {
-    const omitted: OmittedCounts = { arrayItems: 0, objectFields: 0, stringCharacters: 0 };
-    const compacted = compactStructurally(value, limits, omitted);
-    const text = JSON.stringify(withOmissionMarker(compacted, omitted));
-    if (text.length <= maxChars) return { content: [{ type: "text", text }], truncated: true };
-  }
-
-  // The declared 1.5K budget always fits this last shape. Keep failures
-  // actionable even if a pathological value defeated every richer pass.
-  const source = value as { ok?: unknown; error?: Record<string, unknown> } | null;
-  const omitted: OmittedCounts = {
-    arrayItems: 0,
-    objectFields: value && typeof value === "object" ? Object.keys(value).length : 0,
-    stringCharacters: raw.length,
-  };
-  const fallback = source?.ok === false
-    ? {
-        ok: false,
-        error: {
-          code: String(source.error?.code ?? "temporarily_unavailable"),
-          message: clipString(String(source.error?.message ?? "Request failed."), 120, omitted),
-          recovery: clipString(String(source.error?.recovery ?? "Retry in a moment."), 120, omitted),
-        },
-        truncated: true,
-        omitted,
-      }
-    : { ok: source?.ok === true, truncated: true, omitted };
-  return { content: [{ type: "text", text: JSON.stringify(fallback) }], truncated: true };
+  return { content: [{ type: "text", text: JSON.stringify(failure) }], truncated: true };
 }
+
+const contextPager = new ContextPager();
 
 /** Tool name → server command type for the mutating negotiation/spatial tools. */
 const MUTATION_COMMANDS: Record<string, string> = {
@@ -253,98 +135,6 @@ const MUTATION_COMMANDS: Record<string, string> = {
   // sends only over this page's realtime channel, so a route added here by
   // mistake still could not commit (INTERACTION-AND-BINDING.md §5.4).
 };
-
-const trimWhy = (why: string) => (why.length > 64 ? `${why.slice(0, 61)}…` : why);
-
-/**
- * get_spatial_context result, trimmed to the ~1.5K tool-result budget:
- * ≤8 candidate summary rows (eligible first, then uncertain), counts for the
- * remainder, no coordinates (agents act on stable IDs, the map shows humans
- * the geometry).
- */
-export function trimContext(context: SpatialContext) {
-  const order = { eligible: 0, likely: 1, uncertain: 2, unlikely: 3, excluded: 4 } as const;
-  const sorted = [...context.candidates].sort(
-    (a, b) => order[a.eligibility] - order[b.eligibility] || a.walkMin - b.walkMin,
-  );
-  const shown = sorted.slice(0, 8);
-  const rest = sorted.slice(8);
-  const restEligible = rest.filter((c) => c.eligibility === "eligible").length;
-  const row = (c: CandidateSummary) => ({
-    candidateId: c.candidateId,
-    name: c.name,
-    eligibility: c.eligibility,
-    why: c.why ? trimWhy(c.why) : undefined,
-    walkMin: c.walkMin,
-    priceLevel: c.priceLevel,
-    imageCount: c.imageCount ?? 0,
-  });
-  return {
-    ok: true,
-    revision: context.revision,
-    phase: context.phase,
-    scope: {
-      scopeId: context.scope.scopeId,
-      radiusM: context.scope.area.radiusM,
-      transport: context.scope.transport,
-      category: context.scope.category,
-    },
-    feasibility: context.feasibility,
-    impasse: context.impasse,
-    candidates: shown.map(row),
-    moreCandidates: rest.length
-      ? `${rest.length} more not shown (${restEligible} eligible). Use inspect_candidates by ID for detail.`
-      : undefined,
-    // Named stances are a presence affordance for the page; the agent needs
-    // the tally and whether a veto stands, not the roster.
-    proposals: context.proposals.map((p) => ({
-      proposalId: p.proposalId,
-      candidateId: p.candidateId,
-      status: p.status,
-      accepts: p.stances.filter((s) => s.stance === "accept").length,
-      vetoStands: p.vetoStands,
-      ownStance: p.ownStance,
-    })),
-    agreement: context.agreement,
-    outstanding: spatial.state.outstanding,
-  };
-}
-
-/**
- * Compact dossier rows so 3 dossiers fit the ~1.5K result budget. The server
- * returns the dossier array as `candidates` (InspectCandidatesResult).
- */
-function trimInspect(result: unknown): unknown {
-  const r = result as {
-    ok?: boolean;
-    candidates?: Array<Record<string, unknown> & {
-      attributes?: Array<{ key: string; value?: unknown; status: string; source: string }>;
-      needs?: Array<{ label?: string; private?: true; verdict: string }>;
-      images?: unknown[];
-    }>;
-  };
-  if (!r?.ok || !Array.isArray(r.candidates)) return result;
-  return {
-    ...r,
-    candidates: r.candidates.map((d) => ({
-      ...d,
-      // Hours and coordinates cost more budget than an agent's decision needs;
-      // attribute rows compress to "key=status(value) [provenance]"; need
-      // rows to "label=verdict" (a peer's private need stays "private").
-      hours: undefined,
-      location: undefined,
-      // Photos are for the reader, not the model: an agent learns that a place
-      // has pictures and never receives a route to their bytes.
-      images: undefined,
-      imageCount: d.images?.length ?? 0,
-      attributes: d.attributes?.map(
-        (a) =>
-          `${a.key}=${a.status}${a.value !== undefined ? `(${String(a.value)})` : ""} [${a.source.split(":")[0]}]`,
-      ),
-      needs: d.needs?.map((n) => `${n.private ? "private" : n.label ?? "?"}=${n.verdict}`),
-    })),
-  };
-}
 
 /**
  * The regions this demo can open a room in.
@@ -513,6 +303,9 @@ async function executeTool(
   args: unknown,
   signal?: AbortSignal,
 ): Promise<unknown> {
+  if (["get_spatial_context", "inspect_candidates", "sync_session"].includes(name) && !validReadInput(name, args === undefined ? {} : args)) {
+    return { ok: false, error: { code: "invalid_input", message: `Invalid arguments for ${name}.`, recovery: "Use the tool's published input schema." } };
+  }
   switch (name) {
     // Opening a room: the only two tools that answer before a participant
     // exists. They run the same server calls the three onboarding screens
@@ -525,13 +318,26 @@ async function executeTool(
 
     case "sync_session":
       // Thread the agent's AbortSignal into the fetch (WEBMCP-REFERENCE §6.4).
-      return syncSessionRaw(args ?? {}, signal);
+      return syncSessionRaw(
+        args && typeof args === "object" && !Array.isArray(args) ? { ...args, passive: true } : args ?? { passive: true }, signal,
+      );
 
     case "get_spatial_context": {
+      const input = (args ?? {}) as ContextInput;
+      const token = currentToken();
+      if (!token) {
+        contextPager.clear();
+        return { ok: false, error: { code: "not_authenticated", message: "The page has no participant session.", recovery: "Wait for page authentication, then call sync_session." } };
+      }
+      if (input.cursor) return contextPager.read(token, input);
       // R15: this read owns its request, so cancellation cannot abort a UI
       // refetch that happened to share the store's coalesced promise.
       const fresh = await spatialContext(signal) as SpatialContext | { ok: false };
       if (!fresh.ok) return fresh;
+      if (currentToken() !== token) {
+        contextPager.clear();
+        return { ok: false, error: { code: "not_authenticated", message: "The participant session changed during this read.", recovery: "Call sync_session for the current participant, then read a new candidate snapshot." } };
+      }
       const context = fresh as SpatialContext;
       if (!spatial.state.context || context.revision >= spatial.state.context.revision) {
         spatial.update({ context });
@@ -546,17 +352,21 @@ async function executeTool(
           },
         };
       }
-      return trimContext(context);
+      return contextPager.read(token, input, context as unknown as SpatialContextResult);
     }
 
-    case "inspect_candidates":
-      return trimInspect(await spatialInspectRaw(args ?? {}, signal));
+    case "inspect_candidates": {
+      const input = args as InspectInput;
+      return inspectResult(await spatialInspectRaw({ candidateIds: input.candidateIds, intent: "read" }, signal) as InspectCandidatesResponse, input);
+    }
 
     case "find_landmarks":
       return landmarksRaw(args ?? {}, signal);
 
-    case "look_up_places":
-      return trimInspect(await spatialLookupRaw(args ?? {}, signal));
+    case "look_up_places": {
+      const input = args as InspectInput;
+      return inspectResult(await spatialLookupRaw(input, signal) as InspectCandidatesResponse, input);
+    }
 
     case "prepare_navigation":
       return spatialNavigationRaw(args ?? {}, signal);
@@ -610,8 +420,8 @@ async function executeTool(
       // designed catch-up path, not something to paper over client-side.
       const input =
         args && typeof args === "object" ? (args as Record<string, unknown>) : {};
-      // Aborting a request cannot prove it did not commit. A fresh tool call
-      // receives a fresh key, so an ambiguous result needs a state check.
+      // The command API retains a key for exact retries after an ambiguous
+      // response. A reload loses that memory, so recovery then needs a sync.
       const result = await runCommand(commandType, input, signal);
       if (result.ok) {
         // Refresh the page store before returning when the read succeeds;
@@ -669,7 +479,10 @@ export function registerWebMcpTools(): void {
             });
             const child = wire.child(span, options?.signal);
             let budget: number =
-              tool.name === "sync_session" ? BUDGETS.syncResultMax : BUDGETS.resultMax;
+              tool.name === "sync_session" ? BUDGETS.syncResultMax :
+              tool.name === "get_spatial_context" ? BUDGETS.contextResultMax :
+              tool.name === "inspect_candidates" || tool.name === "look_up_places" ? BUDGETS.inspectResultMax :
+              MUTATION_COMMANDS[tool.name] ? BUDGETS.mutationResultMax : BUDGETS.resultMax;
             try {
               const result = await executeTool(tool.name, parsed, child.signal);
               if (result !== null && typeof result === "object" && "delta" in result) {
@@ -677,7 +490,7 @@ export function registerWebMcpTools(): void {
               }
               const encoded = encodeToolResult(result, budget);
               const text = encoded.content[0]?.text ?? "";
-              const outcome = result as { ok?: boolean; effect?: string; error?: { code?: string } } | null;
+              const outcome = JSON.parse(text) as { ok?: boolean; effect?: string; error?: { code?: string } } | null;
               const ok = outcome?.ok === true;
               wire.end(span, {
                 outcome: ok ? "ok" : "error",

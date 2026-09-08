@@ -1,9 +1,6 @@
 import { test, expect, chromium, type Browser } from "@playwright/test";
-import { spawn, type ChildProcess } from "node:child_process";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
 import { TOOL_CONTRACT_VERSION } from "@webmcp-hackathon/contracts";
-import { createTestRoom, type TestRoom, DATABASE_URL } from "../api/helpers.ts";
+import { createTestRoom, startServer, type TestRoom, type TestServer } from "../api/helpers.ts";
 
 /**
  * Lane 4: native WebMCP discovery and execution in real Chrome 149+.
@@ -11,10 +8,9 @@ import { createTestRoom, type TestRoom, DATABASE_URL } from "../api/helpers.ts";
  * Primary mechanism (the one WEBMCP-REFERENCE.md documents): register the test
  * origin for the Chrome WebMCP origin trial and inject the token as an
  * Origin-Trial response header — the server does this when ORIGIN_TRIAL_TOKEN
- * is set. chrome://flags/#enable-webmcp-testing is interactive-only; no
- * command-line --enable-features equivalent is documented, so this lane does
- * NOT attempt a flag-based launch (that would need its own verification
- * mini-spike against Chromium source first).
+ * is set. For local development WEBMCP_NATIVE_FLAGS=1 instead enables
+ * Chromium's WebMCPTesting feature. See WEBMCP-AGENT-RECOVERY.md for source
+ * and the Chrome 151 verification; this is still native, never a polyfill.
  *
  * Requirements:
  *   - real Chrome >= 149 (CHROME_PATH env, or the "chrome" channel)
@@ -25,61 +21,41 @@ import { createTestRoom, type TestRoom, DATABASE_URL } from "../api/helpers.ts";
  * discover the page's tools.
  */
 
-const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
-const PORT = 44173;
-const BASE = `http://127.0.0.1:${PORT}`;
-
-let server: ChildProcess;
+let server: TestServer;
 let browser: Browser;
 let room: TestRoom;
 
 test.beforeAll(async () => {
-  if (!process.env.ORIGIN_TRIAL_TOKEN) {
+  if (!process.env.ORIGIN_TRIAL_TOKEN && process.env.WEBMCP_NATIVE_FLAGS !== "1") {
     throw new Error(
       "ORIGIN_TRIAL_TOKEN is not set. Register http://127.0.0.1:44173 for the " +
         "Chrome WebMCP origin trial and export the token. This lane must run " +
-        "against native WebMCP — there is no shim fallback.",
+      "against native WebMCP — there is no shim fallback. For local development " +
+        "with a supporting Chrome, WEBMCP_NATIVE_FLAGS=1 enables WebMCPTesting.",
     );
   }
-  server = spawn("node", [join(repoRoot, "apps", "server", "src", "server.ts")], {
-    env: {
-      ...process.env,
-      DATABASE_URL,
-      PORT: String(PORT),
-      // Test servers never talk to the model: the composer takes its offline path.
-      OPENAI_API_KEY: "",
-      OPENROUTER_API_KEY: "",
-      BUILD_ID: "native-lane",
-      LOG_LEVEL: "warn",
-    },
-    stdio: ["ignore", "inherit", "inherit"],
+  server = await startServer({
+    port: process.env.WEBMCP_NATIVE_FLAGS === "1" ? undefined : 44173,
+    env: { BUILD_ID: "native-lane", LOG_LEVEL: "warn" },
   });
-  const deadline = Date.now() + 20000;
-  for (;;) {
-    try {
-      if ((await fetch(`${BASE}/api/meta`)).ok) break;
-    } catch { /* retry */ }
-    if (Date.now() > deadline) throw new Error("server did not start");
-    await new Promise((r) => setTimeout(r, 250));
-  }
-  room = await createTestRoom(BASE);
+  room = await createTestRoom(server.baseUrl);
   browser = await chromium.launch(
     process.env.CHROME_PATH
-      ? { executablePath: process.env.CHROME_PATH, headless: true }
-      : { channel: "chrome", headless: true },
+      ? { executablePath: process.env.CHROME_PATH, headless: true, args: process.env.WEBMCP_NATIVE_FLAGS === "1" ? ["--enable-features=WebMCPTesting"] : [] }
+      : { channel: "chrome", headless: true, args: process.env.WEBMCP_NATIVE_FLAGS === "1" ? ["--enable-features=WebMCPTesting"] : [] },
   );
 });
 
 test.afterAll(async () => {
   await browser?.close();
   await room?.cleanup();
-  server?.kill("SIGTERM");
+  await server?.stop();
 });
 
 test("native Chrome discovers and executes the real tool registry", async () => {
   const context = await browser.newContext();
   const page = await context.newPage();
-  await page.goto(`${BASE}/#invite=${room.inviteSecrets.org}`);
+  await page.goto(`${server.baseUrl}/#invite=${room.inviteSecrets.org}`);
 
   const hasModelContext = await page.evaluate(
     () => typeof (document as never as { modelContext?: unknown }).modelContext !== "undefined",
