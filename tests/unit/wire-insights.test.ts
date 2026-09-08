@@ -172,7 +172,7 @@ describe("virtualized causal graph", () => {
       {id:"c",lane:"ws",label:"event",dir:"in",at:4,endAt:4,revision:4},
     ];
     const graph = indexWireGraph(events,events,wireRelations(events));
-    const window = wireGraphWindow(graph,0,440,false,new Set(["a","b"]));
+    const window = wireGraphWindow(graph,0,440,new Set(["a","b"]));
     expect(window.paths.map((path)=>[path.kind,path.related])).toEqual([["retry",true],["revision",false]]);
   });
 });

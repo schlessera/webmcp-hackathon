@@ -1,10 +1,10 @@
 import { memo, useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { wire, WIRE_RING, WIRE_BYTE_BUDGET, type WireEvent, type WireState } from "../wire-store.ts";
-import { LANES, formatBytes, formatMs } from "../wire-timeline.ts";
+import { formatBytes, formatMs } from "../wire-timeline.ts";
 import { attention, connectedIds, elapsed, eventMatches, summarizeWire, wireExport, wireRelations, type WireRelation } from "../wire-insights.ts";
 import "./wire.css";
 import { WireGraph, WireGraphHeader } from "./WireGraph.tsx";
-import { graphWidth, graphX, indexWireGraph, wireGraphWindow, WIRE_ROW_H } from "../wire-graph.ts";
+import { GRAPH_LANES, GRAPH_WIDTH, graphX, indexWireGraph, wireGraphWindow, WIRE_ROW_H } from "../wire-graph.ts";
 
 const ROW_H = WIRE_ROW_H;
 const subscribe = (cb: () => void) => wire.subscribe(cb);
@@ -31,9 +31,9 @@ function download(value: unknown) {
   link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-const EventRow = memo(function EventRow({ event, selected, related, now, start, range, timing, wide, connections, onSelect }: {
-  event: WireEvent; selected: boolean; related: boolean; now?: number; start: number; range: number;
-  timing: boolean; wide: boolean; connections: number; onSelect(id: string): void;
+const EventRow = memo(function EventRow({ event, selected, related, now, connections, onSelect }: {
+  event: WireEvent; selected: boolean; related: boolean; now?: number;
+  connections: number; onSelect(id: string): void;
 }) {
   const ms = elapsed(event, now);
   const status = event.endAt === undefined ? "running" : event.outcome ?? "received";
@@ -41,10 +41,9 @@ const EventRow = memo(function EventRow({ event, selected, related, now, start, 
     data-related={related || undefined} data-outcome={event.outcome} aria-pressed={selected}
     aria-label={`${names[event.lane]} ${event.label}, ${event.note ?? status}, ${formatMs(ms)}, ${connections} connections`}
     onClick={() => onSelect(event.id)}>
-    <span className="wire-graph-cell" style={{ width: graphWidth(wide) }}><span style={{ left: graphX(event.lane, wide) - 10 }}><Mark event={event} /></span></span>
+    <span className="wire-graph-cell" style={{ width: GRAPH_WIDTH }}><span style={{ left: graphX(event.lane) - 10 }}><Mark event={event} /></span></span>
     <span className="wire-event-copy"><span className="wire-event-title">{event.label}</span>
       <span className="wire-event-note">{clock(event.at)} · {event.note ?? status}{event.status ? ` · HTTP ${event.status}` : ""}{connections ? ` · ${connections} links` : ""}</span></span>
-    {timing && <span className="wire-waterfall-track" aria-hidden="true"><i style={{ left: `${Math.max(0, (event.at - start) / range * 100)}%`, width: `${Math.min(100, Math.max(.5, ms / range * 100))}%` }} data-open={event.endAt === undefined || undefined} /></span>}
       <span className="wire-event-end"><span>{event.endAt === event.at && event.durationMs === undefined ? names[event.lane] : formatMs(ms)}</span>
       <span>{attention(event) ? "check" : event.replayed ? "replayed" : event.bytes !== undefined ? formatBytes(event.bytes) : status}</span></span>
   </button>;
@@ -156,8 +155,6 @@ export function WireWorkbench({ live, hidden, onHiddenChange }: Props) {
   const [query, setQuery] = useState("");
   const deferredQuery = useDeferredValue(query);
   const [filter, setFilter] = useState("all");
-  const [view, setView] = useState("activity");
-  const timing = view === "timing";
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [focusedId, setFocusedId] = useState<string | null>(null);
@@ -181,8 +178,7 @@ export function WireWorkbench({ live, hidden, onHiddenChange }: Props) {
     .sort((a, b) => a.at - b.at), [events, hidden, focused, deferredQuery, filter, now]);
   const selected = events.find((e) => e.id === selectedId);
   const graph = useMemo(() => indexWireGraph(events, shown, relations), [events, shown, relations]);
-  const wide = view === "flow";
-  const graphWindow = useMemo(() => wireGraphWindow(graph, viewport.top, viewport.height, wide, related), [graph, viewport, wide, related]);
+  const graphWindow = useMemo(() => wireGraphWindow(graph, viewport.top, viewport.height, related), [graph, viewport, related]);
   useLayoutEffect(() => {
     const root = rootRef.current;
     if (selectedId && root && root.clientWidth < 720) {
@@ -190,8 +186,6 @@ export function WireWorkbench({ live, hidden, onHiddenChange }: Props) {
       root.querySelector<HTMLElement>('[aria-label="Close event details"]')?.focus({ preventScroll: true });
     }
   }, [selectedId]);
-  const start = shown[0]?.at ?? now;
-  const range = Math.max(1, ...shown.map((e) => e.at + elapsed(e, now) - start));
   const first = Math.min(Math.max(0, shown.length - 1), Math.max(0, Math.floor(viewport.top / ROW_H) - 5));
   const last = Math.min(shown.length, first + Math.ceil(viewport.height / ROW_H) + 12);
   useEffect(() => {
@@ -228,9 +222,8 @@ export function WireWorkbench({ live, hidden, onHiddenChange }: Props) {
       <button onClick={() => chooseFilter("slow")} aria-pressed={filter === "slow"}><strong>{summary.p95 === null ? "—" : formatMs(summary.p95)}</strong><span>HTTP p95 · {summary.slow} ≥2s</span></button>
       <div><strong>{formatBytes(summary.httpBytes)}</strong><span>HTTP bodies</span></div>
     </div>
-    <div className="wire-filters"><input type="search" aria-label="Search wire events" placeholder="Search route, result, request ID…" value={query} onChange={(e) => { setQuery(e.target.value); setFollowing(false); }} />
-      <div className="wire-view-switch" role="group" aria-label="Visualization">{["activity", "timing", "flow"].map((mode) => <button key={mode} className="wire-control" aria-pressed={view === mode} onClick={() => setView(mode)}>{mode[0].toUpperCase() + mode.slice(1)}</button>)}</div></div>
-    <div className="wire-lane-filters" role="group" aria-label="Lanes shown">{[...LANES, "ping"].map((lane) => <button key={lane} aria-pressed={!hidden.includes(lane)}
+    <div className="wire-filters"><input type="search" aria-label="Search wire events" placeholder="Search route, result, request ID…" value={query} onChange={(e) => { setQuery(e.target.value); setFollowing(false); }} /></div>
+    <div className="wire-lane-filters" role="group" aria-label="Lanes shown">{[...GRAPH_LANES, "ping"].map((lane) => <button key={lane} aria-pressed={!hidden.includes(lane)}
       onClick={() => { onHiddenChange(hidden.includes(lane) ? hidden.filter((h) => h !== lane) : [...hidden, lane]); setFollowing(false); }}>
       {lane !== "ping" && <Mark event={{ lane: lane as WireEvent["lane"], endAt: 0 }} />}{lane === "ping" ? "Keepalives" : names[lane as WireEvent["lane"]]}</button>)}</div>
     <div className="wire-result-line"><span>{shown.length} shown · {relations.length} connections{focusedId ? " · related events" : ""}{filter !== "all" ? ` · ${filter}` : ""}</span>
@@ -240,10 +233,9 @@ export function WireWorkbench({ live, hidden, onHiddenChange }: Props) {
       <div className="wire-stream-pane">
         <div className="wire-graph-legend"><span className="wire-edge" /> recorded cause <span className="wire-edge" data-inferred /> inferred <span className="wire-edge" data-retry /> retry</div>
         <div className="wire-graph-navigation">
-          <WireGraphHeader wide={wide} />
+          <WireGraphHeader />
           <span>{graphWindow.aboveId ? <button className="wire-control" onClick={() => goTo(graphWindow.aboveId!)}>↑ {graphWindow.above} linked above</button> : "Connections follow event order"}</span>
         </div>
-        {timing && <div className="wire-scale"><span>{clock(start)}</span><span>{formatMs(range)} window · linear time</span></div>}
         <div className="wire-stream" ref={scrollRef} tabIndex={0} role="region" aria-label="Wire events" data-testid="wire-stream"
           onPointerOver={(e) => { const row = (e.target as HTMLElement).closest<HTMLElement>("[data-wire-id]"); if (row) setHoveredId(row.dataset.wireId!); }}
           onPointerLeave={() => setHoveredId(null)}
@@ -257,10 +249,10 @@ export function WireWorkbench({ live, hidden, onHiddenChange }: Props) {
             if (shown[index]) goTo(shown[index].id);
           }}>
           {shown.length ? <div style={{ height: shown.length * ROW_H, position: "relative" }}>
-            <WireGraph window={graphWindow} top={viewport.top} height={viewport.height} wide={wide} />
+            <WireGraph window={graphWindow} top={viewport.top} height={viewport.height} />
             <div style={{ position: "absolute", top: first * ROW_H, left: 0, right: 0 }}>
             {shown.slice(first, last).map((event) => <EventRow key={event.id} event={event} selected={event.id === selectedId} related={related.has(event.id)}
-              now={event.endAt === undefined ? now : undefined} start={timing ? start : 0} range={timing ? range : 1} timing={timing} wide={wide} connections={graph.counts.get(event.id) ?? 0} onSelect={select} />)}
+              now={event.endAt === undefined ? now : undefined} connections={graph.counts.get(event.id) ?? 0} onSelect={select} />)}
           </div></div> : <div className="wire-empty-state"><strong>{events.length ? "No events match" : "Waiting for activity"}</strong><p>{events.length ? "Change the search or reset filters to see the recording." : "Requests, socket frames, tools and agent turns appear here as you use Spokes."}</p></div>}
         </div>
         {(graphWindow.below > 0 || graphWindow.filtered > 0) && <div className="wire-graph-continuations">
@@ -273,7 +265,7 @@ export function WireWorkbench({ live, hidden, onHiddenChange }: Props) {
         onFocus={() => focusChain(selected.id)} onClose={() => setSelectedId(null)} />
         : <div className="wire-inspector-placeholder"><h3>Follow a request through the system</h3><p>Select an event for timings, connected calls, server work and recorded metadata.</p>
           <div className="wire-language"><span className="wire-edge" /> explicit parent or request ID <span className="wire-edge" data-inferred /> inferred revision match</div>
-          <p>Timing uses a common linear scale. Activity preserves event order; neither assumes neighboring events caused each other.</p></div>}
+          <p>Events follow recording time. Connectors show recorded relationships; neighboring events alone do not imply causation.</p></div>}
     </div>
     <details className="wire-recording-notes"><summary>Recording scope and limits</summary><p>This browser page retains up to {WIRE_RING.toLocaleString()} events within a {formatBytes(WIRE_BYTE_BUDGET)} serialized metadata budget ({formatBytes(state.retainedBytes ?? 0)} retained); keepalives have a separate cap. {state.dropped ?? 0} older events and {state.omittedPings ?? 0} excess keepalives have been evicted. Clear resets this page’s recording. Pause freezes this view while capture continues.</p>
       <p>Response sizes are decoded body bytes, not compressed transfer size. Tool budgets are characters. Server spans are opt-in, bounded snapshots; no prompts, credentials or response bodies are collected. Exports omit free-form detail fields.</p></details>

@@ -5,21 +5,18 @@ time went. It stays inside the `{ }` drawer. Expand opens space for the event
 list and inspector together; compact and mobile layouts drill into one event
 at a time.
 
-## Reading the views
+## Reading Wire
 
 - **Activity:** chronological events with a causal graph, source shapes, outcomes, decoded
   body sizes and duration. Search matches routes, outcomes, request IDs and
   recorded metadata. Summary buttons select attention, running and slow HTTP
   events. Hover or keyboard focus highlights the connected chain. Counts summarize the retained recording; the result line states how
   many pass the current filters.
-- **Timing:** all displayed events share a linear scale. Overlapping bars
-  show concurrent work; causal connectors stay visible alongside the bars.
-  No log scale or guessed sequential stage placement.
-- **Flow:** a sequence diagram with columns for page, HTTP, socket, tools and
-  agent work. Solid edges represent a recorded parent or shared request ID;
+  The graph and type filters share PATHS order: Page, Agent, Tool, HTTP,
+  Socket. Solid edges represent a recorded parent or shared request ID;
   dashed edges represent a revision match; dotted edges represent another
   attempt with the same operation key. Adjacency never implies causation.
-  All views can scroll through the full retained history. Only visible rows
+  The activity view scrolls through the full retained history without a tab selector. Only visible rows
   and clipped connectors are drawn. Links continue to offscreen endpoints,
   with above/below navigation; open ends and a Show control reveal filtered
   endpoints. Coincident offscreen paths are bundled, without losing records.

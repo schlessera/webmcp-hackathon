@@ -31,6 +31,9 @@ test("Wire preserves causality, freezes a snapshot, exports metadata and bounds 
     wire.mark({id:"test-failure",lane:"http",label:"POST test/failure",outcome:"error",status:503,at:at+54000});
   });
   const stream = page.getByTestId("wire-stream");
+  await expect(page.getByRole("group",{name:"Visualization",exact:true})).toHaveCount(0);
+  await expect(page.getByTestId("diag-wire").getByRole("button",{name:/^(Activity|Timing|Flow)$/})).toHaveCount(0);
+  await expect(page.getByRole("group",{name:"Lanes shown"}).getByRole("button")).toHaveText(["Page", "Agent", "Tool", "HTTP", "Socket", "Keepalives"]);
   await page.getByRole("button",{name:"Latest",exact:true}).click();
   await expect.poll(() => page.locator(".wire-event").count()).toBeLessThan(40);
   await expect(page.getByTestId("wire-graph")).toBeVisible();
@@ -49,7 +52,6 @@ test("Wire preserves causality, freezes a snapshot, exports metadata and bounds 
   await page.screenshot({path:testInfo.outputPath("wire-history.png"),fullPage:true});
   await page.getByRole("button",{name:"Focus related events",exact:true}).click();
   await expect(page.locator(".wire-event")).toHaveCount(3);
-  await page.getByRole("button",{name:"Flow",exact:true}).click();
   await expect(page.getByTestId("wire-graph")).toBeVisible();
   await expect(page.locator(".wire-flow-link")).toHaveCount(2);
   await page.screenshot({path:testInfo.outputPath("wire-desktop.png"),fullPage:true});
@@ -67,7 +69,6 @@ test("Wire preserves causality, freezes a snapshot, exports metadata and bounds 
   expect(JSON.stringify(exported)).not.toMatch(/participantToken|inviteSecret|confirmationNonce/);
   await page.getByRole("button",{name:"Resume",exact:true}).click();
   await page.getByRole("button",{name:"Reset filters",exact:true}).click();
-  await page.getByRole("button",{name:"Activity",exact:true}).click();
   await page.getByRole("searchbox",{name:"Search wire events"}).fill("after pause");
   await expect(page.locator(".wire-event")).toHaveCount(1);
   await page.getByRole("searchbox",{name:"Search wire events"}).fill("");
@@ -97,7 +98,6 @@ test("Wire preserves causality, freezes a snapshot, exports metadata and bounds 
     for (let i=0;i<5000;i++) wire.mark({id:`fan-${i}`,lane:i===0?"agent":"http",label:i===0?"large fan-out":`child ${i}`,at:at+i,...(i?{parentId:"fan-0"}:{})});
     return performance.now()-started;
   });
-  await page.getByRole("button",{name:"Flow",exact:true}).click();
   await page.getByRole("button",{name:"Latest",exact:true}).click();
   await expect.poll(() => page.locator(".wire-event").count()).toBeLessThan(40);
   await expect.poll(() => page.locator(".wire-flow-link").count()).toBeLessThan(40);

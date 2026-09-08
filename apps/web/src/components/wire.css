@@ -21,7 +21,6 @@
 .wire-metrics span { font-size: var(--spoke-size-micro); color: var(--spoke-drawer-ink-soft); }
 .wire-filters input { flex: 1 1 190px; width: 0; min-width: 0; min-height: var(--spoke-tap-min); border: 1px solid var(--spoke-drawer-line); background: var(--spoke-drawer-well-solid); border-radius: var(--spoke-radius-badge); padding: 0 10px; }
 .wire-filters input::placeholder { color: var(--spoke-drawer-ink-soft); }
-.wire-view-switch { display: flex; }
 .wire-lane-filters { display: flex; flex-wrap: wrap; gap: 0 10px; }
 .wire-lane-filters button { display: flex; align-items: center; gap: 5px; min-height: var(--spoke-tap-min); border: 0; background: none; padding: 0 4px; color: var(--spoke-drawer-ink-soft); }
 .wire-lane-filters button[aria-pressed="true"] { color: var(--spoke-drawer-ink); text-decoration: underline; text-underline-offset: 5px; }
@@ -45,7 +44,6 @@
 .wire-event-end > :last-child { font-size: var(--spoke-size-micro); color: var(--spoke-drawer-ink-soft); }
 .wire-event[data-outcome="error"] .wire-event-end > :last-child { color: var(--spoke-drawer-ink); text-decoration: underline; }
 .wire-waterfall-track { display: block; position: relative; height: 12px; background: none; border-bottom: 1px solid var(--spoke-drawer-line-quiet); overflow: hidden; }
-.wire-event > .wire-waterfall-track { flex: 0 0 26%; }
 .wire-waterfall-track i { position: absolute; top: 3px; height: 6px; background: var(--spoke-drawer-ink-soft); min-width: 2px; }
 .wire-waterfall-track i[data-open] { background: none; border: 1px dashed var(--spoke-drawer-ink); box-sizing: border-box; }
 .wire-scale { display: flex; justify-content: space-between; gap: 8px; color: var(--spoke-drawer-ink-soft); font-size: var(--spoke-size-micro); padding: 6px 8px; }

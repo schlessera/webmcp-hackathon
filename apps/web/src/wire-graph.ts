@@ -3,8 +3,8 @@ import type { WireRelation } from "./wire-insights.ts";
 
 export const WIRE_ROW_H = 44;
 export const GRAPH_LANES: WireLane[] = ["page", "agent", "tool", "http", "ws"];
-export const graphX = (lane: WireLane, wide = false) => 12 + GRAPH_LANES.indexOf(lane) * (wide ? 32 : 20);
-export const graphWidth = (wide = false) => wide ? 156 : 108;
+export const graphX = (lane: WireLane) => 12 + GRAPH_LANES.indexOf(lane) * 20;
+export const GRAPH_WIDTH = 108;
 
 export function indexWireGraph(events: WireEvent[], shown: WireEvent[], relations: WireRelation[]) {
   const byId = new Map(events.map((event) => [event.id, event]));
@@ -23,7 +23,7 @@ export function indexWireGraph(events: WireEvent[], shown: WireEvent[], relation
 /** Clip geometry, never the history. Offscreen runs with identical geometry
  * are bundled, so a 5,000-child fan-out has viewport-sized SVG output. */
 export function wireGraphWindow(graph: ReturnType<typeof indexWireGraph>, top: number, height: number,
-  wide = false, related = new Set<string>()) {
+  related = new Set<string>()) {
   const paths = new Map<string, { d: string; kind: WireRelation["kind"]; count: number; related: boolean; filtered: boolean; boundaryY?: number }>();
   const above = new Map<string, number>(), below = new Map<string, number>(), filtered = new Set<string>();
   const visible = (row: number | undefined) => row !== undefined && row * WIRE_ROW_H + WIRE_ROW_H / 2 >= top && row * WIRE_ROW_H + WIRE_ROW_H / 2 <= top + height;
@@ -40,13 +40,13 @@ export function wireGraphWindow(graph: ReturnType<typeof indexWireGraph>, top: n
       else if (y(row) < 0) above.set(event.id, row);
       else if (y(row) > height) below.set(event.id, row);
     }
-    const fx = graphX(source.lane, wide), tx = graphX(target.lane, wide);
+    const fx = graphX(source.lane), tx = graphX(target.lane);
     let d: string;
     if (hidden) {
       // An open end at the gutter edge means a retained endpoint is filtered.
       const at = y((from ?? to)!);
       const x = from === undefined ? tx : fx;
-      d = from === undefined ? `M${graphWidth(wide) - 2} ${at} H${x + 8}` : `M${x + 8} ${at} H${graphWidth(wide) - 2}`;
+      d = from === undefined ? `M${GRAPH_WIDTH - 2} ${at} H${x + 8}` : `M${x + 8} ${at} H${GRAPH_WIDTH - 2}`;
     } else {
       const sy = y(from!), ty = y(to!), direction = ty >= sy ? 1 : -1;
       const start = clip(sy + direction * 8), end = clip(ty - direction * 8);

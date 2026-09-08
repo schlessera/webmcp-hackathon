@@ -717,9 +717,9 @@ it is an aside, not a peer of the title.
 Contents: connection and contract state, the wire timeline and its filters,
 and expandable diagnostic payloads. Keep protocol details here.
 
-Wire has Activity, Timing and Flow views. All three draw explicit parent,
+Wire has one activity view with no tab selector. It draws explicit parent,
 request-correlation, inferred revision and retry links alongside virtualized
-44px rows. Timing adds a linear time axis; Flow gives the graph more space.
+44px rows. Request timing breakdowns remain in the event inspector.
 Offscreen links continue across the viewport and offer above/below navigation;
 filtered endpoints have open ends and a Show control. A selected
 event opens an inspector with a chain summary, paged connected events, browser/server timings,
