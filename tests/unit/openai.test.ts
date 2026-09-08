@@ -351,6 +351,7 @@ describe("LLM Responses transport", () => {
 
 describe("OpenRouter provider pinning and attribution", () => {
   it("emits the pinned provider order with fallbacks off, and reads the serving provider", async () => {
+    vi.stubEnv("LLM_PROVIDER", "openrouter");
     const previous = process.env.OPENROUTER_PROVIDERS;
     process.env.OPENROUTER_PROVIDERS = "together, fireworks";
     let sent: Record<string, unknown> | null = null;
@@ -378,6 +379,7 @@ describe("OpenRouter provider pinning and attribution", () => {
       if (previous === undefined) delete process.env.OPENROUTER_PROVIDERS;
       else process.env.OPENROUTER_PROVIDERS = previous;
       setTransport(null);
+      vi.unstubAllEnvs();
     }
   });
 });

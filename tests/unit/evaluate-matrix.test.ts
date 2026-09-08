@@ -143,6 +143,10 @@ describe("batched matrix evaluation", () => {
   });
 
   it("attributes a place × criterion grid and carries the cited URL", async () => {
+    // This assertion covers OpenRouter's strict-parameter request shape.
+    // Keep it independent of whichever provider the developer uses locally.
+    vi.stubEnv("LLM_PROVIDER", "openrouter");
+    vi.stubEnv("OPENROUTER_API_KEY", "scripted-only");
     let wire: Record<string, unknown> | undefined;
     setTransport(async (body) => {
       wire = body;
