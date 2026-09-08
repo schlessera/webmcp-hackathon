@@ -1,9 +1,25 @@
 {
-  "prompt": "Browser screenshot, not AI-generated. The Barn's real product details panel shows how each need fits, human confirmation controls and the expanded record of venue facts. Captured from the current Spokes app using scripts/capture-landing.ts. Test participants and requirements; venue evidence comes from checked-in fixtures and is not a fresh factual verification. No DOM or pixel content edits. Source commit: a8d682926086d9bb5978a664f0474f0bad93b8d6.",
-  "createdAt": "2026-09-07T15:08:43.630Z",
-  "sourceCommit": "a8d682926086d9bb5978a664f0474f0bad93b8d6",
+  "prompt": "Browser screenshot, not AI-generated. A data-improvement demo in The Barn's real details panel: verified needs sit beside a likely outdoor-seating result with Confirm and Rule out controls. Outdoor-seating evidence is deliberately made tentative in this isolated capture fixture, not a new claim about the venue. The capture also exercises Confirm through the real API and verifies that the result becomes yes, records the person who confirmed it and offers undo. Captured from the current Spokes app using scripts/capture-landing.ts. Test participants and requirements; venue evidence comes from checked-in fixtures and is not a fresh factual verification. No DOM or pixel content edits. Source commit: 3557997c3f7b8f08ca7e0c31876ca0d5712e76d8.",
+  "createdAt": "2026-09-08T08:02:04.971Z",
+  "sourceCommit": "3557997c3f7b8f08ca7e0c31876ca0d5712e76d8",
   "viewport": {
     "width": 430,
     "height": 932
+  },
+  "fixture": {
+    "attribute": "outdoor-seating",
+    "status": "likely_true",
+    "confidence": 0.6,
+    "scope": "isolated capture room only"
+  },
+  "verification": {
+    "before": "likely",
+    "confirmVisible": true,
+    "ruleOutVisible": true,
+    "definitiveConfirmationActions": 0,
+    "command": "ConfirmFact",
+    "after": "yes",
+    "attributionVisible": true,
+    "undoVisible": true
   }
 }

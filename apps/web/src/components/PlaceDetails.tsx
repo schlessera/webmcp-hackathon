@@ -931,7 +931,7 @@ export function PlaceDetails({
                     </span>
                     {c.answer}
                   </span>
-                  {negotiable && confirmable(c.criterionId) && (
+                  {negotiable && confirmable(c.criterionId) && (c.confirmed || c.mark === "likely" || c.mark === "unlikely") && (
                     <span className="fact-confirm-controls">
                       {c.confirmed ? (
                         <>

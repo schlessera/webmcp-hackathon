@@ -2580,6 +2580,34 @@ test("the room says what it is refining, a question need shows it was looked up,
   await expect(refineLine).toHaveAttribute("aria-valuetext", "paused for now");
 });
 
+test("only likely and unlikely fit results offer Confirm and Rule out", async ({ page }) => {
+  const verdicts = ["yes", "no", "likely", "unlikely", "unknown"] as const;
+  const needs: Need[] = verdicts.map((verdict) => ({
+    id: `need-${verdict}`, label: `${verdict} result`, criterionId: "dog-friendly",
+    ruledOut: 0, wouldReturn: 0, unknown: 0, active: true,
+    visibility: "shared", hardness: "hard", ownerId: "p_org",
+  }));
+  const context = fixture({ activeNeeds: needs });
+  await mockApi(page, { context, outstanding: [] });
+  await page.route("**/api/spatial/inspect", (route) => route.fulfill({ json: {
+    ok: true, revision: context.revision,
+    candidates: [{
+      ...context.candidates.find((candidate) => candidate.candidateId === "place_1")!,
+      hours: [], attributes: [], mapRevision: 1,
+      needs: verdicts.map((verdict) => ({ requirementId: `need-${verdict}`, label: `${verdict} result`, verdict })),
+    }],
+  } }));
+  await page.goto(`${BASE}/#invite=deadbeef`);
+  await page.getByTestId("pin-place_1").press("Enter");
+  const ledger = page.getByTestId("fit-ledger");
+  await expect(ledger.locator(".check-row")).toHaveCount(verdicts.length);
+  for (const verdict of verdicts) {
+    const tentative = verdict === "likely" || verdict === "unlikely";
+    await expect(ledger.getByTestId(`confirm-need-${verdict}`)).toHaveCount(tentative ? 1 : 0);
+    await expect(ledger.getByTestId(`rule-out-need-${verdict}`)).toHaveCount(tentative ? 1 : 0);
+  }
+});
+
 test("Confirm in the place panel updates the row and the count", async ({ page }) => {
   const need: Need = {
     id: "need-dogs",
@@ -2646,15 +2674,15 @@ test("Confirm in the place panel updates the row and the count", async ({ page }
           needs: [{
             requirementId: "need-dogs",
             label: "dogs welcome",
-            verdict: confirmed ? "yes" : "unknown",
+            verdict: confirmed ? "yes" : "likely",
             ...(confirmed ? { why: "Alex confirmed it" } : {}),
           }],
           attributes: [{
             key: "dog-friendly",
-            status: confirmed ? "verified_true" : "unknown",
+            status: confirmed ? "verified_true" : "likely_true",
             source: confirmed ? "person:confirmed" : "osm:dog",
             observedAt: "2026-09-03T00:00:00.000Z",
-            confidence: confirmed ? 0.95 : 0,
+            confidence: confirmed ? 0.95 : 0.6,
             ...(confirmed ? {
               confirmedByName: "Alex",
               confirmedByParticipant: "p_org",

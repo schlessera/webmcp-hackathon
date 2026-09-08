@@ -2,7 +2,7 @@
  * See apps/web/public/landing/README.md for prerequisites and fixture provenance.
  */
 import { chromium, expect, type Page } from "@playwright/test";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -10,6 +10,7 @@ import { createTestRoom, startServer } from "../tests/api/helpers.ts";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const base = process.env.LANDING_BASE_URL ?? "http://127.0.0.1:4183";
+const captureOnly = process.env.LANDING_CAPTURE_ONLY;
 if (!process.env.DATABASE_URL) throw new Error("Set DATABASE_URL to the capture server's isolated database.");
 const out = join(root, "apps/web/public/landing");
 const sourceCommit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
@@ -20,7 +21,7 @@ const scenes: Record<string, string> = {
   "impasse-mobile": "Zero places are confirmed within 800 m; 17 remain uncertain. Only the organizer sees an adjustment to widen to 1.2 km and bring back four places.",
   "roster-mobile": "The room roster shows Alex, Joe and Sarah present, Alex's location-sharing controls, and a private-condition effect in the brief.",
   "pending-mobile": "A real outdoor-seating submission is held in transit so the current application's optimistic saying-it state can be photographed.",
-  "details-mobile": "The Barn's real product details panel shows how each need fits, human confirmation controls and the expanded record of venue facts.",
+  "details-mobile": "A data-improvement demo in The Barn's real details panel: verified needs sit beside a likely outdoor-seating result with Confirm and Rule out controls. Outdoor-seating evidence is deliberately made tentative in this isolated capture fixture, not a new claim about the venue. The capture also exercises Confirm through the real API and verifies that the result becomes yes, records the person who confirmed it and offers undo.",
   "drawer-mobile": "The current under-the-hood drawer displays actual session, tool and websocket traffic from the capture session using the WebMCP test shim.",
   "agreement-mobile": "All three participants accept The Barn; the organizer stages and confirms the choice, opening the real settled arrival and navigation UI.",
   "explore-mobile": "A panned Berlin map displays a place from the shipped area snapshot and the real Bring into the room action.",
@@ -39,6 +40,7 @@ async function settled(page: Page) {
 }
 
 async function capture(page: Page, name: string) {
+  if (captureOnly && name !== `${captureOnly}-mobile`) return;
   await page.mouse.move(425, 25);
   await settled(page);
   const png = join(out, `${name}.png`);
@@ -63,8 +65,73 @@ async function say(page: Page, words: string) {
   await command(page, () => input.press("Enter"));
 }
 
+/** Keep the evidence-improvement scene independent of the settled group story. */
+async function captureDetailsDemo() {
+  const demo = await createTestRoom(base, { berlin: true, withOsmRefs: true });
+  extraRooms.push(demo);
+  await demo.pool.query(
+    "UPDATE rooms SET goal = 'Somewhere to catch up in Mitte', scope = jsonb_set(scope, '{area,radiusM}', '1200') WHERE id = $1",
+    [demo.roomId],
+  );
+  // Only the owned capture room changes. The shipped venue dataset stays intact.
+  await demo.pool.query(
+    `UPDATE candidates SET attributes = (
+       SELECT jsonb_agg(CASE WHEN attribute->>'key' = 'outdoor-seating'
+         THEN attribute || '{"status":"likely_true","confidence":0.6,"source":"curated:capture-scenario"}'::jsonb
+         ELSE attribute END)
+       FROM jsonb_array_elements(attributes) AS attribute
+     ) WHERE room_id = $1 AND name = 'The Barn'`,
+    [demo.roomId],
+  );
+  const participants = {} as Record<"org" | "sarah" | "joe", Page>;
+  for (const key of ["org", "sarah", "joe"] as const) {
+    const context = await browser.newContext({ viewport: { width: 430, height: 932 },
+      deviceScaleFactor: 1, locale: "en-GB", timezoneId: "Europe/Berlin", reducedMotion: "reduce" });
+    const page = await context.newPage();
+    participants[key] = page;
+    await page.goto(`${base}/#invite=${demo.inviteSecrets[key]}`);
+    await expect(page.getByTestId("map-region")).toBeVisible({ timeout: 20000 });
+    if (await page.getByTestId("close-drawer").isVisible()) await page.getByTestId("close-drawer").click();
+  }
+  await command(participants.sarah, () => participants.sarah.getByTestId("pill-vegetarian-options").click());
+  await participants.joe.getByTestId("composer-scope").click();
+  await participants.joe.getByTestId("scope-application-private").click();
+  await say(participants.joe, "lactose-free options");
+  const organizer = participants.org;
+  await say(organizer, "€20");
+  await command(organizer, () => organizer.getByTestId("pill-outdoor-seating").click());
+  await organizer.locator('[data-testid^="pin-"][aria-label^="The Barn —"]').press("Enter");
+  const details = organizer.getByTestId("place-details");
+  await expect(details).toHaveAttribute("aria-label", "The Barn");
+  const tentative = details.locator(".check-row").filter({ hasText: "outdoor seating" });
+  await expect(tentative).toHaveAttribute("data-mark", "likely");
+  await expect(tentative.getByRole("button", { name: "Confirm", exact: true })).toBeVisible();
+  await expect(tentative.getByRole("button", { name: "Rule out", exact: true })).toBeVisible();
+  const definitive = details.locator('.check-row:is([data-mark="in"], [data-mark="out"], [data-mark="private"])');
+  expect(await definitive.count()).toBeGreaterThan(0);
+  await expect(definitive.getByRole("button", { name: /^(Confirm|Rule out)$/ })).toHaveCount(0);
+  await details.getByTestId("facts-summary").click();
+  await capture(organizer, "details-mobile");
+
+  // The published image is the choice before acting; verify the action works too.
+  await command(organizer, () => tentative.getByRole("button", { name: "Confirm", exact: true }).click(), "ConfirmFact");
+  await expect(tentative).toHaveAttribute("data-mark", "in");
+  await expect(tentative).toContainText("confirmed by you");
+  await expect(tentative.getByRole("button", { name: "undo", exact: true })).toBeVisible();
+  await expect(tentative.getByRole("button", { name: /^(Confirm|Rule out)$/ })).toHaveCount(0);
+  const sidecar = join(out, "details-mobile.webp.json");
+  const metadata = JSON.parse(await readFile(sidecar, "utf8"));
+  await writeFile(sidecar, JSON.stringify({ ...metadata,
+    fixture: { attribute: "outdoor-seating", status: "likely_true", confidence: 0.6, scope: "isolated capture room only" },
+    verification: { before: "likely", confirmVisible: true, ruleOutVisible: true,
+      definitiveConfirmationActions: 0, command: "ConfirmFact", after: "yes", attributionVisible: true, undoVisible: true },
+  }, null, 2) + "\n");
+  console.log("Verified details demo: likely → Confirm → yes, attributed to you, with undo.");
+  for (const page of Object.values(participants)) await page.context().close();
+}
+
 try {
-  if (!["planning", "explore"].includes(process.env.LANDING_CAPTURE_ONLY ?? "")) {
+  if (!["planning", "explore", "details"].includes(captureOnly ?? "")) {
     await room.pool.query("UPDATE rooms SET goal = 'Somewhere to catch up in Mitte' WHERE id = $1", [room.roomId]);
     for (const key of ["org", "sarah", "joe"] as const) {
       const context = await browser.newContext({ viewport: key === "org" ? { width: 1440, height: 900 } : { width: 430, height: 932 }, deviceScaleFactor: 1, locale: "en-GB", timezoneId: "Europe/Berlin" });
@@ -133,7 +200,6 @@ try {
     const details = organizer.getByTestId("place-details");
     await expect(details).toHaveAttribute("aria-label", "The Barn");
     await details.getByTestId("facts-summary").click();
-    await capture(organizer, "details-mobile");
     await details.getByTestId("details-close").click();
 
     await organizer.getByTestId("open-drawer").click();
@@ -157,7 +223,9 @@ try {
     await capture(organizer, "agreement-mobile");
   }
 
-  if (process.env.LANDING_CAPTURE_ONLY !== "planning") {
+  if (!captureOnly || captureOnly === "details") await captureDetailsDemo();
+
+  if (!captureOnly || captureOnly === "explore") {
     // Explore uses the actual checked-in Berlin snapshot, through the normal API.
     const exploreRoom = await createTestRoom(base, { berlin: true, withOsmRefs: true });
     extraRooms.push(exploreRoom);
@@ -216,7 +284,7 @@ try {
     await capture(explorer, "explore-mobile");
   }
 
-  if (process.env.LANDING_CAPTURE_ONLY !== "explore") {
+  if (!captureOnly || captureOnly === "planning") {
     // Only the model transport is scripted. The real plan API validates and
     // interprets its output, and the current onboarding UI renders that response.
     planServer = await startServer({

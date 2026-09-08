@@ -174,7 +174,7 @@ export function Landing({ onStart }: Props) {
             </dl>
             <p className="ld-note">Guesses stay marked as guesses. Agreement still needs the group&rsquo;s responses and the organizer&rsquo;s confirmation.</p>
           </div>
-          <Screenshot name="details-mobile" crop={[74, 430]} alt="The Barn's per-need results, including shared needs, a private condition, and controls to confirm or rule out a fact." caption="How a place meets the group’s needs." />
+          <Screenshot name="details-mobile" crop={[74, 390]} alt="The Barn's likely outdoor-seating result with Confirm and Rule out controls, alongside confirmed needs and a private condition." caption="Turn a likely result into a confirmed fact. Demo scenario." />
         </section>
 
         <section className="ld-ink" ref={inkRef} aria-labelledby="for-agents">
