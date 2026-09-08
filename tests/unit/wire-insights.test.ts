@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { RequestTrace } from "../../apps/server/src/wire-trace.ts";
 import { currentWork, withWork, bindWork } from "../../apps/server/src/work-context.ts";
-import { WireStore, WIRE_RING, parseServerTrace, type WireEvent } from "../../apps/web/src/wire-store.ts";
+import { WireStore, WIRE_RING, WIRE_BYTE_BUDGET, parseServerTrace, type WireEvent } from "../../apps/web/src/wire-store.ts";
+import { indexWireGraph, wireGraphWindow, WIRE_ROW_H } from "../../apps/web/src/wire-graph.ts";
 import { attention, elapsed, summarizeWire, wireRelations, wireExport } from "../../apps/web/src/wire-insights.ts";
 import { readJson } from "../../apps/web/src/api.ts";
 
@@ -21,10 +22,10 @@ describe("bounded request traces", () => {
   it("caps headers and seals incomplete work at response time", () => {
     const trace = new RequestTrace();
     const finish = trace.begin("outbound", "accessibility");
-    for (let i = 0; i < 25; i++) trace.begin("model", "a".repeat(200))({ inputTokens: Infinity, costUsd: NaN });
+    for (let i = 0; i < 45; i++) trace.begin("model", "a".repeat(200))({ inputTokens: Infinity, costUsd: NaN });
     const snapshot = trace.finish();
-    expect(snapshot.spans).toHaveLength(16);
-    expect(snapshot.omitted).toBe(10);
+    expect(snapshot.spans).toHaveLength(32);
+    expect(snapshot.omitted).toBe(14);
     finish({ outcome: "error" });
     trace.begin("model", "late")();
     expect(snapshot.spans[0].outcome).toBe("running");
@@ -66,6 +67,34 @@ describe("Wire recording and analysis", () => {
       expect(elapsed(store.state.events[0])).toBeGreaterThanOrEqual(0);
       expect(elapsed(store.state.events[0])).toBeLessThan(1000);
     } finally { clock.mockRestore(); }
+  });
+  it("preserves completed parents and correlated requests while their children remain", () => {
+    const store = new WireStore();
+    store.mark({id:"root",lane:"agent",label:"turn"});
+    store.mark({id:"request",lane:"http",label:"POST commands",parentId:"root",correlationId:"cause"});
+    store.mark({id:"frame",lane:"ws",dir:"in",label:"event",correlationId:"cause"});
+    for (let i=0;i<WIRE_RING;i++) store.mark({lane:"http",label:"child",parentId:"root"});
+    // The frame is an old leaf and can leave; after it leaves, the HTTP
+    // request is no longer pinned by that correlation. Root still has children.
+    expect(store.state.events.some((event)=>event.id==="root")).toBe(true);
+    const paired = new WireStore();
+    paired.mark({id:"request",lane:"http",label:"POST commands",correlationId:"cause"});
+    for (let i=0;i<WIRE_RING;i++) paired.mark({lane:"ws",dir:"in",label:"event",correlationId:"cause"});
+    expect(paired.state.events.some((event)=>event.id==="request")).toBe(true);
+    expect(paired.state.events).toHaveLength(WIRE_RING);
+  });
+  it("retains thousands of events and enforces the metadata budget during updates", () => {
+    const store = new WireStore();
+    for (let i=0;i<4800;i++) store.mark({id:`history-${i}`,lane:"page",label:`moment ${i}`});
+    expect(store.state.events).toHaveLength(4800);
+    expect(store.state.dropped).toBe(0);
+    const detail = Object.fromEntries(Array.from({length:32},(_,i)=>[`field${i}`,"x".repeat(256)]));
+    for (let i=0;i<4800;i++) store.patch(`history-${i}`,{detail});
+    expect(store.state.retainedBytes).toBeLessThanOrEqual(WIRE_BYTE_BUDGET);
+    expect(store.state.dropped).toBeGreaterThan(0);
+    expect(store.state.events.at(-1)?.id).toBe("history-4799");
+    store.clear();
+    expect(store.state.retainedBytes).toBe(0);
   });
   it("bounds text and drops sensitive detail keys; exports omit free-form details", () => {
     const store = new WireStore();
@@ -113,5 +142,37 @@ describe("Wire recording and analysis", () => {
       expect(wire.state.events.at(-1)).toMatchObject({status:200,outcome:"ok",bytes:expect.any(Number)});
       expect(JSON.stringify(wire.state)).not.toMatch(/do-not-record-this|private-invite/);
     } finally { clearSession(); vi.unstubAllGlobals(); }
+  });
+});
+
+describe("virtualized causal graph", () => {
+  const history: WireEvent[] = Array.from({length:5000},(_,i)=>({id:`event-${i}`,lane:i===0?"agent":"http",label:`event ${i}`,at:i,endAt:i+1,...(i?{parentId:"event-0"}:{})}));
+  const relations = wireRelations(history);
+  it("keeps offscreen parents, bundles a large fan-out and provides navigation", () => {
+    const graph = indexWireGraph(history, history, relations);
+    const window = wireGraphWindow(graph, 2500 * WIRE_ROW_H, 440);
+    expect(window.aboveId).toBe("event-0");
+    expect(window.above).toBe(1);
+    expect(window.below).toBeGreaterThan(2000);
+    expect(window.paths.length).toBeLessThan(20);
+    expect(window.paths.reduce((total,path)=>total+path.count,0)).toBe(2500);
+    expect(window.paths.every((path)=>!path.d.includes("NaN"))).toBe(true);
+  });
+  it("draws a stub and reports a filtered parent instead of erasing its connection", () => {
+    const shown = history.slice(-3);
+    const window = wireGraphWindow(indexWireGraph(history, shown, relations),0,440);
+    expect(window.filtered).toBe(1);
+    expect(window.paths).toHaveLength(3);
+    expect(window.paths.every((path)=>path.filtered)).toBe(true);
+  });
+  it("preserves retry and inference styles and highlights only the connected chain", () => {
+    const events: WireEvent[] = [
+      {id:"a",lane:"http",label:"attempt",at:0,endAt:1,idempotencyKey:"op",outcome:"error"},
+      {id:"b",lane:"http",label:"retry",at:2,endAt:3,idempotencyKey:"op",outcome:"ok",revision:4},
+      {id:"c",lane:"ws",label:"event",dir:"in",at:4,endAt:4,revision:4},
+    ];
+    const graph = indexWireGraph(events,events,wireRelations(events));
+    const window = wireGraphWindow(graph,0,440,false,new Set(["a","b"]));
+    expect(window.paths.map((path)=>[path.kind,path.related])).toEqual([["retry",true],["revision",false]]);
   });
 });

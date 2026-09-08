@@ -8,7 +8,7 @@
  * metadata here; `detail` is rendered verbatim in the drawer.
  */
 
-import type { WireServerTrace } from "@webmcp-hackathon/contracts";
+import { WIRE_SERVER_SPAN_LIMIT, type WireServerTrace } from "@webmcp-hackathon/contracts";
 
 export type WireLane = "page" | "http" | "ws" | "tool" | "agent";
 export type WireOutcome = "ok" | "error" | "cancelled" | "blocked";
@@ -57,16 +57,19 @@ export interface WireState {
   dropped?: number;
   omittedPings?: number;
   startedAt?: number;
+  retainedBytes?: number;
 }
 
 type Listener = () => void;
 type BeginInput = Omit<WireEvent, "id" | "at"> & { id?: string; at?: number };
 
-/** Ring size: enough for a whole demo session, small enough to lay out per render. */
-export const WIRE_RING = 400;
+/** History is independent of rendering: only the viewport is mounted. */
+export const WIRE_RING = 5000;
+/** Serialized metadata budget; also bounds recordings with unusually rich traces. */
+export const WIRE_BYTE_BUDGET = 12 * 1024 * 1024;
 /** Keepalives are kept, but never more than this many: they must not push
  * the spans that matter out of the ring. */
-export const PING_CAP = 30;
+export const PING_CAP = 100;
 
 let counter = 0;
 function newId(): string {
@@ -99,6 +102,10 @@ export class WireStore {
   private listeners = new Set<Listener>();
   private pending = false;
   private clocks = new Map<string, number>();
+  private sizes = new Map<string, number>();
+  private retainedBytes = 0;
+  private references = new Map<string, string[]>();
+  private dependents = new Map<string, number>();
 
   subscribe(listener: Listener): () => void {
     this.listeners.add(listener);
@@ -110,7 +117,7 @@ export class WireStore {
   /** Opens a span; returns its id for `end` / `patch`. */
   begin(e: BeginInput): string {
     const id = e.id ?? newId();
-    this.clocks.set(id, performance.now());
+    if (e.endAt === undefined) this.clocks.set(id, performance.now());
     this.push({ ...e, id, at: e.at ?? Date.now() });
     return id;
   }
@@ -140,6 +147,10 @@ export class WireStore {
 
   clear(): void {
     this.clocks.clear();
+    this.sizes.clear();
+    this.references.clear();
+    this.dependents.clear();
+    this.retainedBytes = 0;
     this.state = { ...this.state, dropped: 0, omittedPings: 0, startedAt: Date.now() };
     this.commit([]);
   }
@@ -164,7 +175,8 @@ export class WireStore {
       if (events[i].id !== id) continue;
       const next = events.slice();
       next[i] = { ...events[i], ...boundedMetadata(partial), id };
-      this.commit(next);
+      this.measure(next[i]);
+      this.commit(this.trimHistory(next));
       return;
     }
   }
@@ -181,23 +193,62 @@ export class WireStore {
         if (oldest < 0) oldest = i;
       }
       if (pings >= PING_CAP && oldest >= 0) {
-        next.splice(oldest, 1);
+        this.forget(next.splice(oldest, 1)[0]);
         this.state = { ...this.state, omittedPings: (this.state.omittedPings ?? 0) + 1 };
       }
     }
-    if (next.length >= WIRE_RING) {
-      // A slow in-flight request should not vanish behind heartbeat traffic.
-      const finished = next.findIndex((e) => e.endAt !== undefined);
+    const bounded = boundedMetadata(event);
+    next.push(bounded);
+    this.measure(bounded);
+    this.commit(this.trimHistory(next));
+  }
+
+  private measure(event: WireEvent): void {
+    const bytes = utf8Bytes(JSON.stringify(event));
+    this.retainedBytes += bytes - (this.sizes.get(event.id) ?? 0);
+    this.sizes.set(event.id, bytes);
+    this.releaseReferences(event.id);
+    const keys = [
+      ...(event.parentId ? [`parent:${event.parentId}`] : []),
+      ...(event.lane === "ws" && event.dir === "in" && event.label.startsWith("event") && event.correlationId ? [`correlation:${event.correlationId}`] : []),
+    ];
+    this.references.set(event.id, keys);
+    for (const key of keys) this.dependents.set(key, (this.dependents.get(key) ?? 0) + 1);
+  }
+
+  private releaseReferences(id: string): void {
+    for (const key of this.references.get(id) ?? []) {
+      const remaining = (this.dependents.get(key) ?? 1) - 1;
+      if (remaining) this.dependents.set(key, remaining);
+      else this.dependents.delete(key);
+    }
+    this.references.delete(id);
+  }
+
+  private forget(event: WireEvent): void {
+    this.clocks.delete(event.id);
+    this.retainedBytes -= this.sizes.get(event.id) ?? 0;
+    this.sizes.delete(event.id);
+    this.releaseReferences(event.id);
+  }
+
+  private trimHistory(next: WireEvent[]): WireEvent[] {
+    while (next.length > WIRE_RING || this.retainedBytes > WIRE_BYTE_BUDGET) {
+      // Keep the causes of retained work. Prefer completed leaves, then other
+      // completed spans; open work goes last. Hard limits still always apply.
+      let finished = next.findIndex((e) => e.endAt !== undefined &&
+        !this.dependents.has(`parent:${e.id}`) &&
+        !(e.lane === "http" && e.correlationId && this.dependents.has(`correlation:${e.correlationId}`)));
+      if (finished < 0) finished = next.findIndex((e) => e.endAt !== undefined);
       const [evicted] = next.splice(finished < 0 ? 0 : finished, 1);
-      this.clocks.delete(evicted.id);
+      this.forget(evicted);
       this.state = { ...this.state, dropped: (this.state.dropped ?? 0) + 1 };
     }
-    next.push(boundedMetadata(event));
-    this.commit(next);
+    return next;
   }
 
   private commit(events: WireEvent[]): void {
-    this.state = { ...this.state, events, seq: this.state.seq + 1 };
+    this.state = { ...this.state, events, retainedBytes: this.retainedBytes, seq: this.state.seq + 1 };
     if (this.pending) return;
     this.pending = true;
     // One notification per burst: a socket frame fans out into several
@@ -266,7 +317,7 @@ export function parseServerTrace(raw: string | null): WireServerTrace | undefine
     if (value?.version !== 1 || !Array.isArray(value.spans)) return undefined;
     const number = (v: unknown) => typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : undefined;
     return { version: 1, durationMs: number(value.durationMs) ?? 0, omitted: number(value.omitted) ?? 0,
-      spans: value.spans.slice(0, 16).flatMap((span: any) => {
+      spans: value.spans.slice(0, WIRE_SERVER_SPAN_LIMIT).flatMap((span: any) => {
         if (!span || !["model", "outbound", "cache"].includes(span.kind) ||
           !["running", "ok", "error"].includes(span.outcome) || typeof span.label !== "string") return [];
         return [{ kind: span.kind, label: span.label.slice(0, 80), outcome: span.outcome,

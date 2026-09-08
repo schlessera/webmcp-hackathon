@@ -717,10 +717,12 @@ it is an aside, not a peer of the title.
 Contents: connection and contract state, the wire timeline and its filters,
 and expandable diagnostic payloads. Keep protocol details here.
 
-Wire has Activity, Timing and Flow views. Activity is a virtualized list with
-44px targets; Timing shares a linear time axis; Flow draws explicit parent,
-request-correlation, inferred revision and retry links distinctly. A selected
-event opens an inspector with connected events, browser/server timings,
+Wire has Activity, Timing and Flow views. All three draw explicit parent,
+request-correlation, inferred revision and retry links alongside virtualized
+44px rows. Timing adds a linear time axis; Flow gives the graph more space.
+Offscreen links continue across the viewport and offer above/below navigation;
+filtered endpoints have open ends and a Show control. A selected
+event opens an inspector with a chain summary, paged connected events, browser/server timings,
 bounded server spans and metadata. On narrow screens the inspector replaces
 the list; Close returns to it. Expand gives the drawer room for both panes.
 Pause freezes the view while recording continues. Search, lane and attention

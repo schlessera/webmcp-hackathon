@@ -1,4 +1,4 @@
-import type { WireServerSpan, WireServerTrace } from "@webmcp-hackathon/contracts";
+import { WIRE_SERVER_SPAN_LIMIT, WIRE_SERVER_TRACE_CHAR_LIMIT, type WireServerSpan, type WireServerTrace } from "@webmcp-hackathon/contracts";
 import { currentWork } from "./work-context.ts";
 
 /** One request owns this bounded recorder, including work it enqueues. It is
@@ -11,7 +11,7 @@ export class RequestTrace {
 
   begin(kind: WireServerSpan["kind"], label: string) {
     if (this.sealed) return () => {};
-    if (this.spans.length >= 16) { this.omitted++; return () => {}; }
+    if (this.spans.length >= WIRE_SERVER_SPAN_LIMIT) { this.omitted++; return () => {}; }
     const started = performance.now();
     const span: WireServerSpan = { kind, label: label.replace(/[^a-zA-Z0-9_. /:-]/g, "").slice(0, 80),
       offsetMs: Math.round(started - this.started), outcome: "running" };
@@ -31,7 +31,7 @@ export class RequestTrace {
     this.sealed = true;
     const snapshot: WireServerTrace = { version: 1, spans: this.spans,
       omitted: this.omitted, durationMs: Math.round(performance.now() - this.started) };
-    while (JSON.stringify(snapshot).length > 6000) { snapshot.spans.pop(); snapshot.omitted++; }
+    while (JSON.stringify(snapshot).length > WIRE_SERVER_TRACE_CHAR_LIMIT) { snapshot.spans.pop(); snapshot.omitted++; }
     return snapshot;
   }
 }

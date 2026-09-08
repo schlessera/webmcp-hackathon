@@ -22,30 +22,38 @@ test("Wire preserves causality, freezes a snapshot, exports metadata and bounds 
   await page.evaluate(() => {
     const wire = (window as any).__wireFixture;
     wire.clear();
-    const at = Date.now() - 10000;
-    for (let i=0;i<380;i++) wire.mark({lane:"ws",label:"presence",at:at+i});
-    wire.begin({id:"test-turn",lane:"agent",label:"test turn",at:at+1000,endAt:at+4200,durationMs:3200,outcome:"ok"});
-    wire.begin({id:"test-request",lane:"http",label:"POST test/inspect",at:at+1050,endAt:at+4000,durationMs:2950,parentId:"test-turn",outcome:"ok",correlationId:"test-correlation",status:200,headersMs:2900,serverMs:2800,bodyMs:30,parseMs:2,bytes:2048,
+    const at = Date.now() - 60000;
+    wire.begin({id:"test-turn",lane:"agent",label:"test turn",at,endAt:at+55000,durationMs:55000,outcome:"ok"});
+    for (let i=0;i<4796;i++) wire.mark({lane:"ws",label:"presence",at:at+1000+i*10});
+    wire.begin({id:"test-request",lane:"http",label:"POST test/inspect",at:at+50000,endAt:at+52950,durationMs:2950,parentId:"test-turn",outcome:"ok",correlationId:"test-correlation",status:200,headersMs:2900,serverMs:2800,bodyMs:30,parseMs:2,bytes:2048,
       serverTrace:{version:1,durationMs:2800,omitted:0,spans:[{kind:"model",label:"fixture-model",offsetMs:20,durationMs:2700,outcome:"ok",inputTokens:100,outputTokens:20}]}});
-    wire.mark({id:"test-frame",lane:"ws",label:"event ×1",dir:"in",at:at+4100,correlationId:"test-correlation",revision:12});
-    wire.mark({id:"test-failure",lane:"http",label:"POST test/failure",outcome:"error",status:503,at:at+5000});
+    wire.mark({id:"test-frame",lane:"ws",label:"event ×1",dir:"in",at:at+53000,correlationId:"test-correlation",revision:12});
+    wire.mark({id:"test-failure",lane:"http",label:"POST test/failure",outcome:"error",status:503,at:at+54000});
   });
   const stream = page.getByTestId("wire-stream");
   await page.getByRole("button",{name:"Latest",exact:true}).click();
   await expect.poll(() => page.locator(".wire-event").count()).toBeLessThan(40);
+  await expect(page.getByTestId("wire-graph")).toBeVisible();
+  await expect(page.locator(".wire-flow-link")).toHaveCount(2);
+  await expect(page.getByRole("button",{name:"↑ 1 linked above",exact:true})).toBeVisible();
+  await page.getByRole("button",{name:"↑ 1 linked above",exact:true}).click();
+  await expect(page.getByTestId("wire-inspector")).toContainText("test turn");
+  await page.getByRole("button",{name:"Latest",exact:true}).click();
   await page.locator('[data-wire-id="test-request"]').click();
   const inspector = page.getByTestId("wire-inspector");
   await expect(inspector).toContainText("fixture-model");
   await expect(inspector).toContainText("100 in / 20 out tokens");
   await expect(inspector).toContainText("Called by");
   await expect(inspector).toContainText("Same request ID");
+  await expect(inspector).toContainText("3 connected events · 55.0s elapsed");
+  await page.screenshot({path:testInfo.outputPath("wire-history.png"),fullPage:true});
   await page.getByRole("button",{name:"Focus related events",exact:true}).click();
   await expect(page.locator(".wire-event")).toHaveCount(3);
   await page.getByRole("button",{name:"Flow",exact:true}).click();
-  await expect(page.getByRole("group",{name:"Causal flow diagram"})).toBeVisible();
+  await expect(page.getByTestId("wire-graph")).toBeVisible();
   await expect(page.locator(".wire-flow-link")).toHaveCount(2);
   await page.screenshot({path:testInfo.outputPath("wire-desktop.png"),fullPage:true});
-  await page.getByRole("button",{name:"Inspect test turn",exact:true}).click();
+  await page.locator('[data-wire-id="test-turn"]').click();
   await expect(inspector.getByRole("heading",{name:"test turn",exact:true})).toBeVisible();
   await page.getByRole("button",{name:"Pause view",exact:true}).click();
   await page.evaluate(() => { (window as any).__wireFixture.mark({lane:"page",label:"after pause"}); });
@@ -63,8 +71,9 @@ test("Wire preserves causality, freezes a snapshot, exports metadata and bounds 
   await page.getByRole("searchbox",{name:"Search wire events"}).fill("after pause");
   await expect(page.locator(".wire-event")).toHaveCount(1);
   await page.getByRole("searchbox",{name:"Search wire events"}).fill("");
+  await expect.poll(() => page.locator(".wire-event").count()).toBeGreaterThan(10);
   await stream.focus(); await page.keyboard.press("Home");
-  await expect(inspector).toContainText("presence");
+  await expect(inspector).toContainText("test turn");
   await page.keyboard.press("End");
   await expect(inspector).toContainText("after pause");
   await page.setViewportSize({width:390,height:844});
@@ -77,5 +86,28 @@ test("Wire preserves causality, freezes a snapshot, exports metadata and bounds 
   expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBe(390);
   await page.getByRole("button",{name:"Close event details",exact:true}).click();
   await expect(stream).toBeVisible();
+  await expect(page.locator(".wire-flow-link[data-filtered]")).toHaveCount(2);
+  await expect(page.getByRole("button",{name:"2 linked events hidden by filters · Show",exact:true})).toBeVisible();
+  await page.getByRole("button",{name:"2 linked events hidden by filters · Show",exact:true}).click();
+  await page.setViewportSize({width:1440,height:1000});
+  const recordingMs = await page.evaluate(() => {
+    const wire = (window as any).__wireFixture;
+    wire.clear();
+    const started = performance.now(), at = Date.now() - 10000;
+    for (let i=0;i<5000;i++) wire.mark({id:`fan-${i}`,lane:i===0?"agent":"http",label:i===0?"large fan-out":`child ${i}`,at:at+i,...(i?{parentId:"fan-0"}:{})});
+    return performance.now()-started;
+  });
+  await page.getByRole("button",{name:"Flow",exact:true}).click();
+  await page.getByRole("button",{name:"Latest",exact:true}).click();
+  await expect.poll(() => page.locator(".wire-event").count()).toBeLessThan(40);
+  await expect.poll(() => page.locator(".wire-flow-link").count()).toBeLessThan(40);
+  await page.getByRole("button",{name:"↑ 1 linked above",exact:true}).click();
+  await expect(inspector).toContainText("large fan-out");
+  await expect(inspector.locator(".wire-connection")).toHaveCount(21); // 20 paged links + longest HTTP
+  await page.getByRole("button",{name:"Next connections",exact:true}).click();
+  await expect(inspector).toContainText("21–40 of");
+  expect(await page.evaluate(() => (window as any).__wireFixture.state.events.filter((event: any)=>event.parentId==="fan-0").length)).toBeGreaterThan(4980);
+  await page.screenshot({path:testInfo.outputPath("wire-fan-out.png"),fullPage:true});
+  await testInfo.attach("recording-performance",{body:JSON.stringify({events:5000,recordingMs}),contentType:"application/json"});
   expect(errors).toEqual([]);
 });

@@ -1,4 +1,7 @@
 /** Content-free request diagnostics. No prompts, URLs, headers or bodies. */
+export const WIRE_SERVER_SPAN_LIMIT = 32;
+export const WIRE_SERVER_TRACE_CHAR_LIMIT = 6000;
+
 export interface WireServerSpan {
   kind: "model" | "outbound" | "cache";
   label: string;

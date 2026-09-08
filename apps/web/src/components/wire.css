@@ -36,6 +36,7 @@
 .wire-event { display: flex; align-items: center; gap: 8px; width: 100%; height: 44px; padding: 4px 8px; border: 0; border-bottom: 1px solid var(--spoke-drawer-line-quiet); background: none; text-align: left; }
 .wire-event[data-selected] { box-shadow: inset 3px 0 0 var(--spoke-drawer-ink); background: var(--spoke-drawer-well-solid); }
 .wire-event[data-related]:not([data-selected]) { box-shadow: inset 1px 0 0 var(--spoke-drawer-ink-soft); }
+.wire-event[data-related] .wire-event-title { font-weight: var(--spoke-weight-strong); }
 .wire-event:hover { background: var(--spoke-drawer-well-solid); }
 .wire-event-copy { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
 .wire-event-title, .wire-event-note { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -73,6 +74,7 @@
 .wire-connection small { color: var(--spoke-drawer-ink-soft); font-size: var(--spoke-size-micro); white-space: normal; }
 .wire-edge { display: inline-block; width: 20px; flex: none; border-top: 1px solid currentColor; }
 .wire-edge[data-inferred] { border-top-style: dashed; }
+.wire-edge[data-retry] { border-top-style: dotted; }
 .wire-server-spans, .wire-stage-list { list-style: none; margin: 0; padding: 0; }
 .wire-server-spans li { margin: 8px 0 12px; }
 .wire-server-spans li > div:first-child, .wire-stage-list li { display: flex; gap: 8px; justify-content: space-between; }
@@ -109,17 +111,26 @@
 .wire-outbound > details { border-top: 1px solid var(--spoke-drawer-line-quiet); }
 .wire-outbound summary { cursor: pointer; min-height: var(--spoke-tap-min); align-content: center; }
 .wire-outbound summary span { display: block; color: var(--spoke-drawer-ink-soft); }
-.wire-flow > p { padding: 8px; }
-.wire-flow-scroll { max-height: min(48vh, 528px); overflow: auto; overscroll-behavior: contain; }
-.wire-flow svg { display: block; min-width: 580px; font: var(--spoke-size-meta)/1.5 var(--spoke-font-mono); fill: var(--spoke-drawer-ink); }
-.wire-flow-lane, .wire-flow-note { font-size: var(--spoke-size-micro); fill: var(--spoke-drawer-ink-soft); }
+.wire-causal-graph { position: absolute; left: 8px; pointer-events: none; z-index: 2; overflow: hidden; }
+.wire-graph-cell { position: relative; flex: none; height: 20px; }
+.wire-graph-cell > span { position: absolute; top: 0; z-index: 3; }
+.wire-graph-heading { flex: none; position: relative; height: 20px; margin-left: 8px; }
+.wire-graph-heading > span { position: absolute; transform: translateX(-50%); }
+.wire-graph-legend, .wire-graph-navigation, .wire-graph-continuations { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; color: var(--spoke-drawer-ink-soft); font-size: var(--spoke-size-micro); }
+.wire-graph-legend { padding: 8px; }
+.wire-graph-legend .wire-edge { width: 16px; }
+.wire-graph-navigation { min-height: var(--spoke-tap-min); flex-wrap: nowrap; }
+.wire-graph-navigation > span { min-width: 0; }
+.wire-graph-navigation .wire-control, .wire-graph-continuations .wire-control { white-space: normal; font-size: inherit; text-align: left; }
+.wire-chain-summary p + p { margin-top: 5px; }
+.wire-chain-summary .wire-connection { white-space: normal; font-size: var(--spoke-size-micro); }
+.wire-connection-pages { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; font-size: var(--spoke-size-micro); }
+.wire-connection-pages .wire-control { font-size: inherit; }
+.wire-connection-pages button:disabled { color: var(--spoke-drawer-ink-soft); cursor: default; }
 .wire-flow-guide { stroke: var(--spoke-drawer-line-quiet); stroke-width: 1; }
 .wire-flow-link path { fill: none; stroke: var(--spoke-drawer-ink-soft); stroke-width: 1.5; }
+.wire-flow-link[data-related] path { stroke: var(--spoke-drawer-ink); stroke-width: 2.5; }
+.wire-flow-link[data-filtered] path { stroke-linecap: round; }
+.wire-filtered-end { fill: var(--spoke-drawer-well-solid); stroke: var(--spoke-drawer-ink-soft); stroke-width: 1; }
 .wire-flow-link[data-kind="revision"] path { stroke-dasharray: 5 4; }
 .wire-flow-link[data-kind="retry"] path { stroke-dasharray: 1 3; }
-.wire-flow-node { cursor: pointer; }
-.wire-flow-hit { fill: transparent; pointer-events: all; }
-.wire-flow-node[data-selected] .wire-flow-hit, .wire-flow-node:hover .wire-flow-hit { stroke: var(--spoke-drawer-ink-soft); fill: none; }
-.wire-flow-dot { fill: var(--spoke-drawer-well-solid); stroke: var(--spoke-drawer-ink); stroke-width: 2; }
-.wire-flow-dot[data-open] { stroke-dasharray: 2 2; }
-.wire-flow-node:focus-visible { outline: 2px solid var(--spoke-drawer-ink); }
