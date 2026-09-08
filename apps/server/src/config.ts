@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-export type LlmReasoningEffort = "none" | "minimal" | "low" | "medium" | "high";
+export type LlmReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 
 const LLM_REASONING_EFFORTS = new Set<LlmReasoningEffort>([
   "none",
@@ -8,6 +8,8 @@ const LLM_REASONING_EFFORTS = new Set<LlmReasoningEffort>([
   "low",
   "medium",
   "high",
+  "xhigh",
+  "max",
 ]);
 
 export const config = {
@@ -76,7 +78,7 @@ export const config = {
     process.env.LLM_MODEL_VISION || process.env.LLM_MODEL || "openai/gpt-5.6-luna",
   get llmReasoningEffort(): LlmReasoningEffort {
     const effort = process.env.LLM_REASONING_EFFORT as LlmReasoningEffort | undefined;
-    return effort && LLM_REASONING_EFFORTS.has(effort) ? effort : "high";
+    return effort && LLM_REASONING_EFFORTS.has(effort) ? effort : "xhigh";
   },
   /** Deprecated aliases retained for deployment compatibility. */
   nlFastModel:

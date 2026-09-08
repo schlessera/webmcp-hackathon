@@ -248,7 +248,7 @@ describe("inference off switches", () => {
     await inferAttributes(INPUT);
     expect(wire).toMatchObject({
       model: expect.any(String),
-      reasoning: { effort: "high" },
+      reasoning: { effort: "xhigh" },
       provider: { require_parameters: true },
       max_output_tokens: 1_700,
       text: { format: { type: "json_schema", strict: true } },

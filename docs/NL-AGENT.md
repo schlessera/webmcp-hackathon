@@ -32,7 +32,7 @@ claim that every listed provider account supports the configured model.
 | `OPENROUTER_API_KEY`, `OPENAI_API_KEY` | Credentials for the selected backend; `GET /api/meta` reports `nl` from its configured key |
 | `LLM_MODEL` | Deployment default, currently `openai/gpt-5.6-luna` |
 | `LLM_MODEL_ROUTE`, `LLM_MODEL_JUDGE`, `LLM_MODEL_AGENT`, `LLM_MODEL_VISION` | Per-job overrides, each falling back to `LLM_MODEL` |
-| `LLM_REASONING_EFFORT` | Shared reasoning setting; defaults to `high` |
+| `LLM_REASONING_EFFORT` | Shared reasoning setting; defaults to `xhigh`; accepts `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, or `max` (support depends on the model/provider) |
 | `OPENROUTER_PROVIDERS` | Optional ordered provider slugs; pinning disables fallback to other endpoints |
 
 The [transport](../apps/server/src/nl/llm.ts) uses Responses requests with

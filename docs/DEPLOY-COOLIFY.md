@@ -43,7 +43,7 @@ when adding overrides.
 | `OPENAI_API_KEY` | fallback only | Enables the retained OpenAI Responses backend when `LLM_PROVIDER=openai`, or when no OpenRouter key exists. |
 | `LLM_PROVIDER` | optional | `openrouter` or `openai`. Defaults to OpenRouter when `OPENROUTER_API_KEY` exists, otherwise OpenAI. |
 | `LLM_MODEL` | optional | Default for every LLM job; defaults to `openai/gpt-5.6-luna`. |
-| `LLM_REASONING_EFFORT` | optional | Reasoning effort for every LLM job; defaults to `high`. Accepts `none`, `minimal`, `low`, `medium`, or `high`. |
+| `LLM_REASONING_EFFORT` | optional | Reasoning effort for every LLM job; defaults to `xhigh`. Accepts `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, or `max`; support depends on the model/provider. An explicit deployment value overrides the default. |
 | `LLM_MODEL_ROUTE` | optional | Composer/goal understanding model. Empty inherits `LLM_MODEL`. |
 | `LLM_MODEL_JUDGE` | optional | Matrix, inference, adjudication, screening, and built-in-search model. Empty inherits `LLM_MODEL`. |
 | `LLM_MODEL_AGENT` | optional | Participant tool-loop model. Empty inherits `LLM_MODEL`. |

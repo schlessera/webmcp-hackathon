@@ -10,6 +10,7 @@ import {
 describe("LLM Responses transport", () => {
   beforeEach(() => {
     vi.stubEnv("LLM_PROVIDER", "openrouter");
+    vi.stubEnv("LLM_REASONING_EFFORT", undefined);
   });
 
   afterEach(() => {
@@ -95,7 +96,7 @@ describe("LLM Responses transport", () => {
     expect(sent).toMatchObject({
       store: false,
       service_tier: "default",
-      reasoning: { effort: "high" },
+      reasoning: { effort: "xhigh" },
       tools: [{
         type: "openrouter:web_search",
         parameters: {
@@ -143,10 +144,28 @@ describe("LLM Responses transport", () => {
       },
     });
     expect(sent).toMatchObject({
-      reasoning: { effort: "high" },
+      reasoning: { effort: "xhigh" },
       provider: { require_parameters: true },
       store: false,
     });
+  });
+
+  it.each([
+    ["openai", "xhigh"],
+    ["openai", "max"],
+    ["openrouter", "xhigh"],
+    ["openrouter", "max"],
+    ["openrouter", "high"],
+  ])("passes configured %s effort %s through without downgrading", async (provider, effort) => {
+    vi.stubEnv("LLM_PROVIDER", provider);
+    vi.stubEnv("LLM_REASONING_EFFORT", effort);
+    let sent: Record<string, unknown> | undefined;
+    setTransport(async (body) => {
+      sent = body;
+      return { status: "completed", output: [] };
+    });
+    await respond({ model: "test", instructions: "test", input: [] });
+    expect(sent?.reasoning).toEqual({ effort });
   });
 
   it("adds Cloudflare PDF parsing and private no-collection routing", async () => {
