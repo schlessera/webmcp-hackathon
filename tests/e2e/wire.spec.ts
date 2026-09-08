@@ -9,6 +9,113 @@ test.beforeAll(async () => {
 });
 test.afterAll(async () => { await room?.cleanup(); await server?.stop(); });
 
+test("Wire shows conversation, tools and live socket descriptions without opening metadata", async ({ page }, testInfo) => {
+  const localRoom = await createTestRoom(server.baseUrl, { berlin: true });
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  try {
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.route("**/api/meta", async (route) => {
+      const response = await route.fetch();
+      await route.fulfill({ response, json: { ...await response.json(), nl: true } });
+    });
+    let response: object = { ok: true, intent: "ask", reply: "Two gardens are worth comparing. One still needs a dog policy check.",
+      meta: { agent: { model: "scripted", rounds: 2, ms: 140, calls: [
+        { tool: "inspect_candidates", round: 1, ok: true, ms: 20, state: "completed", summary: "2 places returned" },
+        { tool: "look_up_places", round: 2, ok: false, ms: 30, state: "failed", summary: "rate_limited" },
+      ] } }, partial: true, failureCategory: "tool" };
+    await page.route("**/api/nl/say", (route) => route.fulfill({ json: response }));
+    await page.goto(`${server.baseUrl}/?shim=webmcp#invite=${localRoom.inviteSecrets.org}`);
+    await page.addScriptTag({ type: "module", content: 'import {wire} from "/src/wire-store.ts"; window.__wireFixture = wire;' });
+    await page.waitForFunction(() => Boolean((window as any).__wireFixture));
+    await page.getByTestId("close-drawer").click();
+    const input = page.getByLabel("What matters to you?");
+    const said = "Which places should we compare, and what would you still need to check before making a useful suggestion for this group?";
+    await input.fill(said);
+    await input.press("Enter");
+    await expect(page.getByTestId("agent-busy")).toHaveCount(0);
+    await expect(input).toHaveValue(said); // Partial response keeps retry text.
+    await page.getByTestId("open-drawer").click();
+    await page.getByRole("button", { name: "Expand", exact: true }).click();
+    const search = page.getByRole("searchbox", { name: "Search wire events" });
+    await search.fill("gardens");
+    await expect(page.locator(".wire-event")).toHaveCount(1);
+    await expect(page.locator(".wire-event")).toContainText("say · Which places");
+    await expect(page.locator(".wire-event")).toContainText("Two gardens");
+    await page.locator(".wire-event").click();
+    const inspector = page.getByTestId("wire-inspector");
+    await expect(inspector.getByText(said, { exact: true })).toBeVisible();
+    await expect(inspector.getByText("Two gardens are worth comparing. One still needs a dog policy check.", { exact: true })).toBeVisible();
+    await expect(inspector.locator(".wire-call-list")).toContainText("inspect_candidates");
+    await expect(inspector.locator(".wire-call-list")).toContainText("2 places returned");
+    await expect(inspector.locator(".wire-call-list")).toContainText("Round 2 · failed");
+    await expect(inspector.locator("details")).not.toHaveAttribute("open");
+    await page.screenshot({ path: testInfo.outputPath("wire-conversation.png"), fullPage: true });
+    const downloadPromise = page.waitForEvent("download");
+    await page.getByRole("button", { name: "Export event", exact: true }).click();
+    const download = await downloadPromise;
+    const chunks = [];
+    for await (const chunk of (await download.createReadStream())!) chunks.push(chunk);
+    const exported = Buffer.concat(chunks).toString();
+    expect(JSON.parse(exported).events).toHaveLength(1);
+    expect(exported).not.toMatch(/Which places|Two gardens|content|dog policy/);
+    await search.fill("POST nl/say");
+    await page.locator(".wire-event").click();
+    await expect(inspector).toContainText("Conversation that started this request");
+    await expect(inspector).toContainText(said);
+
+    // A real command and real socket frame exercise capture, not just a store fixture.
+    await page.getByTestId("close-drawer").click();
+    response = { ok: true, intent: "need", needs: [{ payload: { kind: "attribute", key: "quiet", expect: "verified_true" },
+      label: "quiet for this check", gist: "quiet for this check" }] };
+    await input.fill("Please make a useful requirement from this sentence");
+    await input.press("Enter");
+    await expect(input).toHaveValue("");
+    await page.getByTestId("open-drawer").click();
+    await search.fill("requirement_submitted");
+    const frame = page.locator(".wire-event").filter({ hasText: "requirement_submitted" }).first();
+    await expect(frame).toBeVisible();
+    await frame.click();
+    await expect(inspector).toContainText("Events in this frame");
+    await expect(inspector.locator(".wire-call-list")).toContainText("You added a shared need: quiet");
+    await expect(inspector.locator("details")).not.toHaveAttribute("open");
+    await page.screenshot({ path: testInfo.outputPath("wire-events.png"), fullPage: true });
+
+    await page.getByTestId("close-drawer").click();
+    response = { ok: true, intent: "act", reply: "Review this suggestion before applying it to the room.",
+      pendingAction: { id: "approval-secret-excluded-from-wire", title: "Mark you ready", details: [], expiresAt: new Date(Date.now() + 60000).toISOString() },
+      meta: { agent: { model: "scripted", rounds: 1, ms: 50, calls: [
+        { tool: "set_ready_state", round: 1, ok: true, ms: 10, state: "approval_required", summary: "Awaiting your approval; no change applied" },
+      ] } } };
+    await input.fill("Please suggest the next step for this group");
+    await input.press("Enter");
+    await expect(input).toHaveValue("");
+    await page.getByTestId("open-drawer").click();
+    await search.fill("suggest the next step");
+    await page.locator(".wire-event").click();
+    await expect(inspector).toContainText("Approval requested");
+    await expect(inspector).toContainText("Mark you ready");
+    await expect(inspector.locator(".wire-call-list")).toContainText("Round 1 · approval required");
+    expect(await page.evaluate(() => JSON.stringify((window as any).__wireFixture.state))).not.toContain("approval-secret-excluded-from-wire");
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(inspector).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
+    await page.screenshot({ path: testInfo.outputPath("wire-content-mobile.png"), fullPage: true });
+
+    // The held-text route must not start recording its input or interpretation.
+    await page.getByTestId("close-drawer").click();
+    await page.route("**/api/nl/condition", (route) => route.fulfill({ json: { ok: true } }));
+    await page.getByTestId("composer-scope").click();
+    await page.getByTestId("scope-agent-private").click();
+    await input.fill("Held private words must never enter the recording");
+    await input.press("Enter");
+    await expect(input).toHaveValue("");
+    expect(await page.evaluate(() => JSON.stringify((window as any).__wireFixture.state))).not.toContain("Held private words");
+    expect(await page.evaluate(() => (window as any).__wireFixture.state.events.filter((e: any) => e.content).length)).toBeGreaterThan(2);
+    expect(errors).toEqual([]);
+  } finally { await localRoom.cleanup(); }
+});
+
 test("Wire preserves causality, freezes a snapshot, exports metadata and bounds the DOM", async ({ page }, testInfo) => {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));

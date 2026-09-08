@@ -80,6 +80,18 @@
 .wire-server-spans small { color: var(--spoke-drawer-ink-soft); font-size: var(--spoke-size-micro); }
 .wire-server-spans li[data-outcome="error"] strong { text-decoration: underline; }
 .wire-notice { border-left: 2px solid var(--spoke-drawer-ink); padding: 8px; margin: 8px 0 !important; }
+.wire-content { overflow-wrap: anywhere; }
+.wire-utterance { margin: 10px 0; padding: 8px 10px; border-left: 2px solid var(--spoke-drawer-line); background: var(--spoke-drawer-well-solid); }
+.wire-utterance small, .wire-call-list small { color: var(--spoke-drawer-ink-soft); font-size: var(--spoke-size-micro); }
+.wire-utterance p, .wire-call-list p { white-space: pre-wrap; }
+.wire-utterance ul { margin: 4px 0 0; padding-left: 16px; }
+.wire-call-list { list-style: none; margin: 0; padding: 0; }
+.wire-call-list li { padding: 8px 0; border-bottom: 1px solid var(--spoke-drawer-line-quiet); }
+.wire-call-list li:last-child { border-bottom: 0; }
+.wire-call-list li > div { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.wire-call-list li > div > span { flex: none; }
+.wire-call-list strong { font-weight: var(--spoke-weight-strong); }
+.wire-call-list li[data-failed] strong { text-decoration: underline; }
 .wire-inspector-placeholder { display: none; padding: 24px; color: var(--spoke-drawer-ink-soft); }
 .wire-inspector-placeholder h3 { font-size: var(--spoke-size-body); color: var(--spoke-drawer-ink); margin-bottom: 8px; }
 .wire-inspector-placeholder p { margin-bottom: 12px; }

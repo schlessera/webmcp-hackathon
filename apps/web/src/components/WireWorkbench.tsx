@@ -5,6 +5,8 @@ import { attention, connectedIds, elapsed, eventMatches, summarizeWire, wireExpo
 import "./wire.css";
 import { WireGraph, WireGraphHeader } from "./WireGraph.tsx";
 import { GRAPH_LANES, GRAPH_WIDTH, graphX, indexWireGraph, wireGraphWindow, WIRE_ROW_H } from "../wire-graph.ts";
+import { wirePresentation } from "../wire-content.ts";
+import { WireContent } from "./WireContent.tsx";
 
 const ROW_H = WIRE_ROW_H;
 const subscribe = (cb: () => void) => wire.subscribe(cb);
@@ -37,15 +39,17 @@ const EventRow = memo(function EventRow({ event, selected, related, now, connect
 }) {
   const ms = elapsed(event, now);
   const status = event.endAt === undefined ? "running" : event.outcome ?? "received";
+  const { title, preview } = wirePresentation(event);
+  const calls = event.content?.conversation?.calls;
   return <button type="button" className="wire-event" data-wire-id={event.id} data-selected={selected || undefined}
     data-related={related || undefined} data-outcome={event.outcome} aria-pressed={selected}
-    aria-label={`${names[event.lane]} ${event.label}, ${event.note ?? status}, ${formatMs(ms)}, ${connections} connections`}
+    aria-label={`${names[event.lane]} ${title.slice(0, 180)}, ${(preview ?? status).slice(0, 180)}, ${formatMs(ms)}, ${connections} connections`}
     onClick={() => onSelect(event.id)}>
     <span className="wire-graph-cell" style={{ width: GRAPH_WIDTH }}><span style={{ left: graphX(event.lane) - 10 }}><Mark event={event} /></span></span>
-    <span className="wire-event-copy"><span className="wire-event-title">{event.label}</span>
-      <span className="wire-event-note">{clock(event.at)} · {event.note ?? status}{event.status ? ` · HTTP ${event.status}` : ""}{connections ? ` · ${connections} links` : ""}</span></span>
+    <span className="wire-event-copy"><span className="wire-event-title" title={title.slice(0, 512)}>{title.slice(0, 512)}</span>
+      <span className="wire-event-note">{preview?.slice(0, 512) ?? status}{event.status ? ` · HTTP ${event.status}` : ""} · {clock(event.at)}{connections ? ` · ${connections} links` : ""}</span></span>
       <span className="wire-event-end"><span>{event.endAt === event.at && event.durationMs === undefined ? names[event.lane] : formatMs(ms)}</span>
-      <span>{attention(event) ? "check" : event.replayed ? "replayed" : event.bytes !== undefined ? formatBytes(event.bytes) : status}</span></span>
+      <span>{attention(event) ? "check" : calls?.length ? `${calls.length} tools` : event.replayed ? "replayed" : event.bytes !== undefined ? formatBytes(event.bytes) : status}</span></span>
   </button>;
 });
 
@@ -74,6 +78,8 @@ function Inspector({ event, events, relations, now, onSelect, onFocus, onClose }
   const connectionStart = Math.min(connectionPage * 20, Math.max(0, Math.floor((neighbors.length - 1) / 20) * 20));
   const byId = new Map(events.map((e) => [e.id, e]));
   const server = event.serverTrace;
+  const parent = event.parentId ? byId.get(event.parentId) : undefined;
+  const conversation = !event.content?.conversation && parent?.content?.conversation ? parent : undefined;
   const chain = useMemo(() => {
     const ids = connectedIds(relations, event.id);
     const members = events.filter((member) => ids.has(member.id));
@@ -97,6 +103,8 @@ function Inspector({ event, events, relations, now, onSelect, onFocus, onClose }
       <button className="wire-control" onClick={() => download(wireExport({ events: [event], seq: 0 }))}>Export event</button></div>
     {event.failureKind === "decode" && <p className="wire-notice">A response arrived, but its body was not valid JSON. The HTTP status is preserved above.</p>}
     {event.parentId && !byId.has(event.parentId) && <p className="wire-notice">The parent is outside the retained recording.</p>}
+    <WireContent event={event} />
+    {conversation && <><button className="wire-connection" onClick={() => onSelect(conversation.id)}>Conversation that started this request →</button><WireContent event={conversation} /></>}
     <section className="wire-inspector-section wire-chain-summary" aria-label="Connected activity summary"><h4>This request chain</h4>
       <p>{chain.total} connected {chain.total === 1 ? "event" : "events"} · {formatMs(chain.duration)} elapsed{chain.running ? ` · ${chain.running} still running` : ""}</p>
       <p>{chain.attention} need attention · {chain.retries} retries · {formatBytes(chain.httpBytes)} HTTP bodies</p>
@@ -111,7 +119,7 @@ function Inspector({ event, events, relations, now, onSelect, onFocus, onClose }
         const label = r.kind === "parent" ? (incoming ? "Called by" : "Started") : r.kind === "correlation" ? "Same request ID" : r.kind === "retry" ? "Same operation / another attempt" : "Same revision / inferred";
         return <button className="wire-connection" key={`${r.kind}-${other.id}`} onClick={() => onSelect(other.id)}>
           <span className="wire-edge" data-inferred={r.kind === "revision" || undefined} aria-hidden="true" />
-          <span><small>{label}</small><strong>{other.label}</strong></span><span>{incoming ? "←" : "→"}</span></button>;
+          <span><small>{label}</small><strong>{wirePresentation(other).title.slice(0, 180)}</strong></span><span>{incoming ? "←" : "→"}</span></button>;
       }) : <p className="wire-help">No recorded causal connection. Nearby timestamps alone do not establish one.</p>}
       {neighbors.length > 20 && <div className="wire-connection-pages"><button className="wire-control" disabled={connectionStart === 0} onClick={() => setConnectionPage(Math.max(0, connectionPage - 1))}>Previous connections</button>
         <span>{connectionStart + 1}–{Math.min(neighbors.length, connectionStart + 20)} of {neighbors.length}</span>
@@ -222,7 +230,7 @@ export function WireWorkbench({ live, hidden, onHiddenChange }: Props) {
       <button onClick={() => chooseFilter("slow")} aria-pressed={filter === "slow"}><strong>{summary.p95 === null ? "—" : formatMs(summary.p95)}</strong><span>HTTP p95 · {summary.slow} ≥2s</span></button>
       <div><strong>{formatBytes(summary.httpBytes)}</strong><span>HTTP bodies</span></div>
     </div>
-    <div className="wire-filters"><input type="search" aria-label="Search wire events" placeholder="Search route, result, request ID…" value={query} onChange={(e) => { setQuery(e.target.value); setFollowing(false); }} /></div>
+    <div className="wire-filters"><input type="search" aria-label="Search wire events" placeholder="Search words, events, tools, request ID…" value={query} onChange={(e) => { setQuery(e.target.value); setFollowing(false); }} /></div>
     <div className="wire-lane-filters" role="group" aria-label="Lanes shown">{[...GRAPH_LANES, "ping"].map((lane) => <button key={lane} aria-pressed={!hidden.includes(lane)}
       onClick={() => { onHiddenChange(hidden.includes(lane) ? hidden.filter((h) => h !== lane) : [...hidden, lane]); setFollowing(false); }}>
       {lane !== "ping" && <Mark event={{ lane: lane as WireEvent["lane"], endAt: 0 }} />}{lane === "ping" ? "Keepalives" : names[lane as WireEvent["lane"]]}</button>)}</div>
@@ -263,11 +271,12 @@ export function WireWorkbench({ live, hidden, onHiddenChange }: Props) {
       </div>
       {selected ? <Inspector key={selected.id} event={selected} events={events} relations={relations} now={now} onSelect={goTo}
         onFocus={() => focusChain(selected.id)} onClose={() => setSelectedId(null)} />
-        : <div className="wire-inspector-placeholder"><h3>Follow a request through the system</h3><p>Select an event for timings, connected calls, server work and recorded metadata.</p>
+        : <div className="wire-inspector-placeholder"><h3>Follow a request through the system</h3><p>Select a turn to read the conversation and tool outcomes, or a socket frame to see its events. Connections lead to the requests and changes it caused.</p>
           <div className="wire-language"><span className="wire-edge" /> explicit parent or request ID <span className="wire-edge" data-inferred /> inferred revision match</div>
           <p>Events follow recording time. Connectors show recorded relationships; neighboring events alone do not imply causation.</p></div>}
     </div>
-    <details className="wire-recording-notes"><summary>Recording scope and limits</summary><p>This browser page retains up to {WIRE_RING.toLocaleString()} events within a {formatBytes(WIRE_BYTE_BUDGET)} serialized metadata budget ({formatBytes(state.retainedBytes ?? 0)} retained); keepalives have a separate cap. {state.dropped ?? 0} older events and {state.omittedPings ?? 0} excess keepalives have been evicted. Clear resets this page’s recording. Pause freezes this view while capture continues.</p>
-      <p>Response sizes are decoded body bytes, not compressed transfer size. Tool budgets are characters. Server spans are opt-in, bounded snapshots; no prompts, credentials or response bodies are collected. Exports omit free-form detail fields.</p></details>
+    <details className="wire-recording-notes"><summary>Recording scope and limits</summary><p>This browser page retains up to {WIRE_RING.toLocaleString()} events within a {formatBytes(WIRE_BYTE_BUDGET)} serialized recording budget ({formatBytes(state.retainedBytes ?? 0)} retained); keepalives have a separate cap. {state.dropped ?? 0} older events and {state.omittedPings ?? 0} excess keepalives have been evicted. Clear resets this page’s recording. Pause freezes this view while capture continues.</p>
+      <p>Your conversation and viewer-projected event descriptions stay in this page’s memory, with bounded text and lists. Held private conditions, approval secrets, raw tool bodies and model prompts are never recorded. Exports omit conversation, event descriptions and free-form detail fields.</p>
+      <p>Response sizes are decoded body bytes, not compressed transfer size. Tool budgets are characters. Server spans are opt-in, bounded snapshots.</p></details>
   </div>;
 }

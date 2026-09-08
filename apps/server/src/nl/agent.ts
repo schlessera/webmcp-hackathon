@@ -5,6 +5,7 @@ import {
   type OutstandingItem,
   type SpatialContextResult,
   type ToolResult,
+  type WireAgentCall,
 } from "@webmcp-hackathon/contracts";
 import type { Participant } from "../auth.ts";
 import { config } from "../config.ts";
@@ -37,13 +38,22 @@ export interface AgentAction {
   effect: string;
 }
 
-/** One tool call the model made, reads included. Deliberately no arguments
- * and no result: either can carry the held private condition. */
-export interface AgentCall {
-  tool: string;
-  round: number;
-  ok: boolean;
-  ms: number;
+export type AgentCall = WireAgentCall;
+
+/** Explicit count/status projection. Never copy result text or arguments. */
+function callSummary(tool: string, result: unknown): string {
+  const value = result as { ok?: boolean; error?: { code?: string }; candidates?: unknown[]; places?: unknown[]; needs?: unknown[]; landmarks?: unknown[] } | null;
+  if (value?.ok === false) {
+    const code = value.error?.code;
+    return code && /^[a-z_]{1,64}$/.test(code) ? code : "Tool failed";
+  }
+  if (tool === "get_spatial_context" && Array.isArray(value?.places))
+    return `${value.places.length} places · ${value.needs?.length ?? 0} needs in context`;
+  if ((tool === "inspect_candidates" || tool === "look_up_places") && Array.isArray(value?.candidates))
+    return `${value.candidates.length} places returned`;
+  if (tool === "find_landmarks" && Array.isArray(value?.landmarks))
+    return `${value.landmarks.length} landmarks returned`;
+  return "Completed";
 }
 
 export interface AgentOutcome {
@@ -415,6 +425,8 @@ export async function runAgent(
       input.push(...(turn.outputItems as InputItem[]));
       let mutationUsed = false;
       for (const call of turn.toolCalls) {
+        const callStarted = Date.now();
+        stage = "tool";
         let args: Record<string, unknown> = {};
         try {
           args = JSON.parse(call.arguments) as Record<string, unknown>;
@@ -428,18 +440,28 @@ export async function runAgent(
             for (const n of context.activeNeeds) names.set(n.id, n.label);
             for (const p of context.proposals) names.set(p.proposalId, names.get(p.candidateId) ?? p.candidateId);
           }
-          const pendingAction = await stageAgentAction(actor, MUTATIONS[call.name], {
-            ...args, baseRevision: agentRevision.value,
-          }, names);
-          if (pendingAction) return {
-            reply: "Review this suggestion before applying it to the room.",
-            actions: [], pendingAction,
-            meta: { model, ...(provider ? { provider } : {}), ms: Date.now() - started, rounds, calls },
-          };
+          let pendingAction: PendingAgentAction | null;
+          try {
+            pendingAction = await stageAgentAction(actor, MUTATIONS[call.name], {
+              ...args, baseRevision: agentRevision.value,
+            }, names);
+          } catch (error) {
+            calls.push({ tool: call.name, round: rounds, ok: false, ms: Date.now() - callStarted,
+              state: "failed", summary: "Could not prepare approval" });
+            throw error;
+          }
+          if (pendingAction) {
+            calls.push({ tool: call.name, round: rounds, ok: true, ms: Date.now() - callStarted,
+              state: "approval_required", summary: "Awaiting your approval; no change applied" });
+            return {
+              reply: "Review this suggestion before applying it to the room.",
+              actions: [], pendingAction,
+              meta: { model, ...(provider ? { provider } : {}), ms: Date.now() - started, rounds, calls },
+            };
+          }
           // Malformed suggestions cannot execute via the fallback dispatcher.
         }
         let result: unknown;
-        stage = "tool";
         if (Object.hasOwn(MUTATIONS, call.name) && mutationUsed) {
           // R14: later mutations are deferred until a new model round has
           // seen the first mutation's authoritative result.
@@ -455,7 +477,6 @@ export async function runAgent(
           // Only a call that actually ran is a step on the page's timeline:
           // the deferral above is bookkeeping, not a tool call. A call that
           // throws (the turn deadline, mostly) is still recorded as failed.
-          const callStarted = Date.now();
           let ok = false;
           try {
             remainingMs(deadlineAt);
@@ -463,7 +484,8 @@ export async function runAgent(
             ok = (result as ToolResult)?.ok !== false;
             if (Object.hasOwn(MUTATIONS, call.name)) mutationUsed = true;
           } finally {
-            calls.push({ tool: call.name, round: rounds, ok, ms: Date.now() - callStarted });
+            calls.push({ tool: call.name, round: rounds, ok, ms: Date.now() - callStarted,
+              state: ok ? "completed" : "failed", summary: result === undefined ? "Tool did not finish" : callSummary(call.name, result) });
           }
         }
         const envelope = result as ToolResult;

@@ -8,8 +8,9 @@ at a time.
 ## Reading Wire
 
 - **Activity:** chronological events with a causal graph, source shapes, outcomes, decoded
-  body sizes and duration. Search matches routes, outcomes, request IDs and
-  recorded metadata. Summary buttons select attention, running and slow HTTP
+  body sizes and duration. Turns preview the person's words and reply; socket
+  frames name the contained events. Search also matches conversation text,
+  projected event descriptions and tool outcomes. Summary buttons select attention, running and slow HTTP
   events. Hover or keyboard focus highlights the connected chain. Counts summarize the retained recording; the result line states how
   many pass the current filters.
   The graph and type filters share PATHS order: Page, Agent, Tool, HTTP,
@@ -21,7 +22,13 @@ at a time.
   with above/below navigation; open ends and a Show control reveal filtered
   endpoints. Coincident offscreen paths are bundled, without losing records.
 - **Inspector:** select a row or graph node, follow a connection, or focus the
-  whole connected set. The chain summary reports elapsed time (without adding
+  whole connected set. Conversation, interpreted requirements, clarification
+  choices, tool calls and viewer-projected event descriptions appear first,
+  without expanding raw metadata. Tool calls include round, duration and a
+  safe count/status summary. Approval proposals are recorded as awaiting
+  approval, never as applied changes. A child request shows the conversation
+  that started it. Older recordings explicitly identify missing content.
+  The chain summary reports elapsed time (without adding
   overlapping durations), attention, retries, model usage and the longest HTTP
   request. Connection lists page through 20 links at a time. Timings distinguish server time, the unaccounted
   remainder, reading the body and parsing JSON. An invalid JSON response
@@ -36,13 +43,24 @@ characters. Neither is an estimate of compressed transfer bytes.
 ## Collection and boundaries
 
 The browser ring retains up to 5,000 events and at most 100 keepalives, within
-a 12 MiB serialized metadata budget (not a measurement of JS heap usage).
+a 12 MiB serialized recording budget (not a measurement of JS heap usage).
 Completed leaves leave first, preserving parents and HTTP requests while
 their explicitly linked children remain. Other completed events leave before
 open work; hard limits still apply and eviction is counted. Notifications are
 batched per microtask. Pause freezes a snapshot and unsubscribes the view;
 capture continues. Export serializes the displayed subset as versioned JSON
-and omits free-form detail fields. Clear resets this page's history.
+and omits conversation content, event descriptions and free-form detail
+fields. Exports keep tool names, rounds, timings and statuses. Clear resets this page's history.
+
+Own shared/application-private conversation text and server-projected socket
+descriptions stay in this page's memory. Each text is capped at 4,096
+characters; lists at 32 items, with omissions or shortening shown. The store
+copies explicit fields only. It never retains raw socket payloads, tool
+arguments/results, approval IDs, model prompts or held agent-private text.
+These additions do not create durable conversation logs. Tool metadata sent
+back to the participant includes only tool names, rounds, timings, statuses
+and allowlisted result counts. The existing response already carries the
+person's reply and approval card; Wire keeps only its display title.
 
 Instrumented POST requests and authenticated place/landmark reads opt in with `x-wire-trace: 1`. A request-scoped
 recorder follows the existing async work context, including enqueued work.
@@ -75,7 +93,8 @@ diagrams. No new animation runs per event.
 
 Unit and API regressions cover request isolation, queued context propagation,
 header limits, late work, malformed responses, chronology, rollover, metadata
-boundaries and correlation versus inference. The browser regression covers
+boundaries, local-content limits/export exclusions, approval-call recording
+and correlation versus inference. The browser regression covers
 selection, graph navigation, related filtering, pause/resume, JSON export,
 keyboard navigation, the bounded DOM with 5,000 events and a large fan-out, offscreen/filtered
 connections, connection paging, and the mobile inspector.

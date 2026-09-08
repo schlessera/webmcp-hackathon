@@ -207,8 +207,8 @@ interface SayResult {
       ms: number;
       rounds: number;
       provider?: string;
-      /** Every tool call the agent made, reads included; never args or results. */
-      calls?: Array<{ tool: string; round: number; ok: boolean; ms: number }>;
+      /** Reads and approval proposals, with safe count/status summaries. */
+      calls?: import("@webmcp-hackathon/contracts").WireAgentCall[];
     };
   };
   error?: { code: string; message: string };
@@ -227,9 +227,6 @@ function turnSteps(meta: SayResult["meta"]): WireStep[] {
       label: `agent ${agent.model}${agent.provider ? ` · ${agent.provider}` : ""} · ${agent.rounds} rounds`,
       ms: agent.ms,
     });
-    for (const call of agent.calls ?? []) {
-      steps.push({ label: `${call.tool} (round ${call.round})`, ms: call.ms, ok: call.ok });
-    }
   }
   return steps;
 }
@@ -406,7 +403,8 @@ export function Composer({ facets, activeNeeds, placeCount, hasOwnOrigin, timezo
     const turn = wire.begin({
       lane: "agent",
       label: agentOnly ? "condition" : "say",
-      detail: agentOnly ? { scope: "agent-private" } : { said: trimmed.slice(0, 80), scope },
+      detail: { scope },
+      ...(!agentOnly ? { content: { conversation: { scope: scope as "shared" | "application-private", input: trimmed } } } : {}),
     });
     const turnSignal = wire.child(turn).signal;
     try {
@@ -425,6 +423,18 @@ export function Composer({ facets, activeNeeds, placeCount, hasOwnOrigin, timezo
       }
       const result = (await nlSay(trimmed, scope, undefined, clarifyOf ?? undefined, turnSignal)) as SayResult;
       const preserveForRetry = shouldPreserveNlText(result);
+      // Explicit projection: never store pendingAction.id or tool payloads.
+      // Record before branching so failures and partial turns keep their reply.
+      wire.patch(turn, { steps: turnSteps(result.meta), content: { conversation: {
+        scope: scope as "shared" | "application-private", input: trimmed,
+        intent: result.intent,
+        reply: !result.ok ? COPY.agentRetry : result.clarify?.question ?? result.reply ?? (result.intent === "unclear" ? COPY.agentUnclear : undefined),
+        needs: result.needs?.map((need) => need.label || need.gist),
+        choices: (result.clarify?.choices ?? result.suggestions)?.map((choice) => choice.label),
+        approval: result.pendingAction?.title,
+        failure: result.failureCategory ?? result.error?.code,
+        calls: result.meta?.agent ? result.meta.agent.calls : (result.ok ? [] : undefined),
+      } } });
       if (!result.ok) {
         // R7: a failed question/action may already have committed an earlier
         // step. Never reinterpret the original words as an unrelated need;
@@ -433,8 +443,7 @@ export function Composer({ facets, activeNeeds, placeCount, hasOwnOrigin, timezo
         spatial.pushAgentReply({ text: COPY.agentRetry, actions: [], answer: true });
         return;
       }
-      const steps = turnSteps(result.meta);
-      wire.patch(turn, { note: result.intent, steps });
+      wire.patch(turn, { note: result.intent });
       if (result.intent === "need") {
         spatial.setAgentBusy(true, "applying");
         for (const need of result.needs ?? []) {

@@ -1,4 +1,5 @@
 import type { WireEvent, WireState } from "./wire-store.ts";
+import { wireContentSearch } from "./wire-content.ts";
 
 export type RelationKind = "parent" | "correlation" | "revision" | "retry";
 export interface WireRelation { source: string; target: string; kind: RelationKind }
@@ -74,7 +75,7 @@ export function eventMatches(event: WireEvent, query: string): boolean {
   if (!query.trim()) return true;
   const haystack = [event.id, event.lane, event.label, event.note, event.outcome, event.status,
     event.correlationId, event.idempotencyKey, event.revision, ...Object.values(event.detail ?? {}),
-    ...(event.serverTrace?.spans.map((s) => s.label) ?? [])].join(" ").toLocaleLowerCase();
+    ...(event.serverTrace?.spans.map((s) => s.label) ?? []), ...wireContentSearch(event)].join(" ").toLocaleLowerCase();
   return query.toLocaleLowerCase().trim().split(/\s+/).every((word) => haystack.includes(word));
 }
 
@@ -85,8 +86,10 @@ export function wireExport(state: WireState, events = state.events) {
     dropped: state.dropped ?? 0, omittedPings: state.omittedPings ?? 0, retainedBytes: state.retainedBytes ?? 0, coverage: "This page only; server spans end at response headers; metadata only",
     events: events.map(({ id, lane, label, note, at, endAt, durationMs, headersMs, bodyMs, parseMs, status,
       failureKind, outcome, dir, parentId, correlationId, idempotencyKey, revision, fromRevision, serverMs,
-      bytes, budget, truncated, replayed, steps, serverTrace }) => ({ id, lane, label, note, at, endAt,
+      bytes, budget, truncated, replayed, steps, serverTrace, content }) => ({ id, lane, label, note, at, endAt,
       durationMs, headersMs, bodyMs, parseMs, status, failureKind, outcome, dir, parentId, correlationId,
-      idempotencyKey, revision, fromRevision, serverMs, bytes, budget, truncated, replayed, steps, serverTrace })),
+      idempotencyKey, revision, fromRevision, serverMs, bytes, budget, truncated, replayed, steps, serverTrace,
+      calls: content?.conversation?.calls?.map(({ tool, round, ok, ms, state }) => ({ tool, round, ok, ms, state })),
+    })),
   };
 }

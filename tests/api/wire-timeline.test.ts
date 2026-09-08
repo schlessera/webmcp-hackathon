@@ -239,7 +239,7 @@ describe("wire timeline: a plain sync is still shaped as before", () => {
 describe("wire timeline: the agent's tool calls", () => {
   afterEach(() => setTransport(null));
 
-  it("records every call that ran with exactly tool, round, ok and ms", async () => {
+  it("records reads and approval proposals without claiming the proposed change ran", async () => {
     let round = 0;
     setTransport(async () => {
       round += 1;
@@ -270,15 +270,18 @@ describe("wire timeline: the agent's tool calls", () => {
     expect(outcome.partial).toBeUndefined();
     expect(outcome.meta.rounds).toBe(1);
     // The deferred third call left no step: nothing ran.
-    expect(outcome.meta.calls).toHaveLength(1);
+    expect(outcome.meta.calls).toHaveLength(2);
     for (const call of outcome.meta.calls) {
-      expect(Object.keys(call).sort()).toEqual(["ms", "ok", "round", "tool"]);
+      expect(Object.keys(call).sort()).toEqual(["ms", "ok", "round", "state", "summary", "tool"]);
       expect(call.ms).toBeGreaterThanOrEqual(0);
     }
-    expect(outcome.meta.calls[0]).toMatchObject({ tool: "get_spatial_context", round: 1, ok: true });
+    expect(outcome.meta.calls[0]).toMatchObject({ tool: "get_spatial_context", round: 1, ok: true, state: "completed", summary: expect.stringMatching(/\d+ places · \d+ needs in context/) });
+    expect(outcome.meta.calls[1]).toMatchObject({ tool: "set_ready_state", round: 1, ok: true,
+      state: "approval_required", summary: "Awaiting your approval; no change applied" });
     expect(outcome.pendingAction).toBeDefined();
     expect(outcome.actions).toEqual([]);
     expect(JSON.stringify(outcome.meta.calls)).not.toContain("arguments");
+    expect(JSON.stringify(outcome.meta.calls)).not.toContain(outcome.pendingAction!.id);
   });
 });
 

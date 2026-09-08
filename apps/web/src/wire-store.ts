@@ -4,11 +4,12 @@
  * draws this as a timeline; nothing in the main UI reads it (CLAUDE.md §6).
  *
  * Privacy floor: never a confirmation nonce, never a token or invite secret,
- * never the text of an agent-private condition. Callers put only wire
- * metadata here; `detail` is rendered verbatim in the drawer.
+ * never the text of an agent-private condition. Explicit viewer-authorized
+ * content stays in this page's bounded memory and is excluded from exports.
  */
 
 import { WIRE_SERVER_SPAN_LIMIT, type WireServerTrace } from "@webmcp-hackathon/contracts";
+import { boundWireContent, type WireContent } from "./wire-content.ts";
 
 export type WireLane = "page" | "http" | "ws" | "tool" | "agent";
 export type WireOutcome = "ok" | "error" | "cancelled" | "blocked";
@@ -46,6 +47,7 @@ export interface WireEvent {
   truncated?: boolean;        // tool result was structurally compacted
   replayed?: boolean;
   steps?: WireStep[];         // nested sub-steps: agent calls, facts stages, route/agent tiers
+  content?: WireContent;     // local conversation / viewer-projected events; never exported
   /** Expanded-row detail. Keys shown as "k v" mono pairs. NEVER a nonce, never private text. */
   detail?: Record<string, string | number | boolean | null | undefined>;
 }
@@ -65,7 +67,7 @@ type BeginInput = Omit<WireEvent, "id" | "at"> & { id?: string; at?: number };
 
 /** History is independent of rendering: only the viewport is mounted. */
 export const WIRE_RING = 5000;
-/** Serialized metadata budget; also bounds recordings with unusually rich traces. */
+/** Serialized recording budget; also bounds content and unusually rich traces. */
 export const WIRE_BYTE_BUDGET = 12 * 1024 * 1024;
 /** Keepalives are kept, but never more than this many: they must not push
  * the spans that matter out of the ring. */
@@ -87,6 +89,8 @@ const parents = new WeakMap<AbortSignal, string>();
 
 function boundedMetadata<T extends Partial<WireEvent>>(event: T): T {
   const next = { ...event };
+  if (next.content) next.content = next.label === "condition" || next.detail?.scope === "agent-private"
+    ? undefined : boundWireContent(next.content);
   for (const key of ["label", "note"] as const) if (typeof next[key] === "string") next[key] = next[key]!.slice(0, 256);
   if (next.detail) next.detail = Object.fromEntries(Object.entries(next.detail).slice(0, 32)
     .filter(([key]) => !/token|secret|nonce|password|authorization|cookie|prompt|condition|payload|^body$/i.test(key))
@@ -174,7 +178,7 @@ export class WireStore {
     for (let i = events.length - 1; i >= 0; i -= 1) {
       if (events[i].id !== id) continue;
       const next = events.slice();
-      next[i] = { ...events[i], ...boundedMetadata(partial), id };
+      next[i] = boundedMetadata({ ...events[i], ...partial, id });
       this.measure(next[i]);
       this.commit(this.trimHistory(next));
       return;

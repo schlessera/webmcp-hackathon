@@ -268,6 +268,9 @@ export function connectRealtime(
         wire.mark({
           lane: "ws",
           label: `event ×${events.length}`,
+          // These texts have already been projected for this viewer. Never
+          // retain raw payloads (which can include approval material).
+          content: { events: events.map(({ type, text, revision, level }) => ({ type, text, revision, level })) },
           dir: "in",
           note: `rev ${message.fromRevision ?? "?"}→${message.revision}`,
           revision: message.revision,
