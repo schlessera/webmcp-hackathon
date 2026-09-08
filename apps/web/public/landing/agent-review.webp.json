@@ -1,0 +1,39 @@
+{
+  "prompt": "Browser screenshot, not AI-generated. Alex asks the built-in agent to put The Barn forward. A scripted route response and tool call pass through the real language endpoint and agent runner. The actual owner-review card names the place and offers Approve change or Dismiss. The proposal has not been applied to the room. Only model transport is scripted; this is not evidence of autonomous model reasoning or an external WebMCP agent. Participants, region scope and place pool are isolated test fixtures. Berlin venue data is checked in and is not fresh factual verification. No DOM or pixel content edits. Captured using scripts/capture-agent-landing.ts. Source commit: 3661e570e5f1ab70ea70dc19dd949d2d32acf9cc.",
+  "createdAt": "2026-09-08T03:56:31.129Z",
+  "sourceCommit": "3661e570e5f1ab70ea70dc19dd949d2d32acf9cc",
+  "viewport": {
+    "width": 980,
+    "height": 932
+  },
+  "clip": {
+    "x": 0,
+    "y": 0,
+    "width": 430,
+    "height": 932
+  },
+  "rasterDimensions": {
+    "width": 430,
+    "height": 932
+  },
+  "scene": "Alex asks the built-in agent to put The Barn forward. A scripted route response and tool call pass through the real language endpoint and agent runner. The actual owner-review card names the place and offers Approve change or Dismiss. The proposal has not been applied to the room.",
+  "limitations": "Only model transport is scripted; this is not evidence of autonomous model reasoning or an external WebMCP agent. Participants, region scope and place pool are isolated test fixtures. Berlin venue data is checked in and is not fresh factual verification. No DOM or pixel content edits.",
+  "captureScript": "scripts/capture-agent-landing.ts",
+  "reviewBounds": {
+    "x": 29,
+    "y": 161.34375,
+    "width": 261,
+    "height": 173
+  },
+  "replyBounds": {
+    "x": 16,
+    "y": 84,
+    "width": 287,
+    "height": 262.34375
+  },
+  "verification": {
+    "revisionUnchanged": true,
+    "unappliedProposals": 0,
+    "pendingOwnerActions": 1
+  }
+}

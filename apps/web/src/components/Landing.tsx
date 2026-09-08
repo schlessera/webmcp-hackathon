@@ -11,13 +11,22 @@ function Mark({ kind }: { kind?: string }) {
   return <span className="mark" data-mark={kind} aria-hidden="true" />;
 }
 
-function Screenshot({ name, alt, caption }: { name: string; alt: string; caption: string }) {
+function Screenshot({ name, alt, caption, crop }: {
+  name: string;
+  alt: string;
+  caption: string;
+  /** Vertical bounds in the original 430 × 932 capture; the original stays intact. */
+  crop: readonly [number, number];
+}) {
   return (
     <figure className="ld-shot">
-      <a href={`/landing/${name}.webp`} target="_blank" rel="noreferrer" aria-label={`Enlarge screenshot: ${caption} (opens in a new tab)`}>
-        <img src={`/landing/${name}.webp`} width="430" height="932" alt={alt} loading="lazy" decoding="async" />
+      <a href={`/landing/${name}.webp`} target="_blank" rel="noreferrer" aria-label={`View full screen: ${caption} (opens in a new tab)`}>
+        <span className="ld-shot-window" style={{ aspectRatio: `430 / ${crop[1] - crop[0]}` }}>
+          <img src={`/landing/${name}.webp`} width="430" height="932" alt={alt} loading="lazy" decoding="async" style={{ transform: `translateY(-${crop[0] / 932 * 100}%)` }} />
+        </span>
+        <span className="ld-shot-open">View full screen</span>
       </a>
-      <figcaption>{caption}</figcaption>
+      <figcaption>{caption} <span className="ld-shot-detail">Screenshot detail.</span></figcaption>
     </figure>
   );
 }
@@ -88,14 +97,15 @@ export function Landing({ onStart }: Props) {
                 <button type="button" className="btn ld-btn-big" data-tone="works" onClick={onStart}>Start a room</button>
                 <a className="ld-link" href="#how-it-works">See how it works <span aria-hidden="true">↓</span></a>
               </div>
-              <p className="ld-note">No account needed. Start with what you want to do.</p>
+              <p className="ld-note ld-trial-note">Interactive demo for Berlin Mitte and San Francisco SoMa.<br />No account or external agent needed.</p>
             </div>
           </div>
           <figure className="ld-hero-fig">
             <div className="ld-plate">
               <picture>
                 <source media="(max-width: 599px)" srcSet="/landing/hero-mobile.webp" width="430" height="932" />
-                <img src="/landing/hero-desktop.webp" width="1440" height="900" alt="A shared Berlin map with four places still working for the group, shared needs, and the effect of a private condition." loading="eager" fetchPriority="high" decoding="async" />
+                {/* React 18 forwards the browser's lowercase priority attribute. */}
+                <img src="/landing/hero-desktop.webp" width="1440" height="900" alt="A shared Berlin map with four places still working for the group, shared needs, and the effect of a private condition." loading="eager" {...{ fetchpriority: "high" }} decoding="async" />
               </picture>
             </div>
             <figcaption>Everyone&rsquo;s needs, in the same place.</figcaption>
@@ -116,7 +126,7 @@ export function Landing({ onStart }: Props) {
               <p className="ld-read">Invite each person with their own link or QR code. Everyone joins the same room, with their own say in what happens next.</p>
               <p className="ld-margin-note">One stop or several. Each decision gives the next one a starting point.</p>
             </div>
-            <Screenshot name="planning-mobile" alt="The current plan review, with two ordered stops and needs that can be removed before opening the room." caption="Review the plan before anyone joins." />
+            <Screenshot name="planning-mobile" crop={[96, 506]} alt="The first step of a two-stop plan, with a kind-of-place selector and needs that can be left out before opening the room." caption="Review the first step before anyone joins." />
           </article>
           <article className="ld-beat">
             <div className="ld-beat-copy">
@@ -129,7 +139,7 @@ export function Landing({ onStart }: Props) {
               </dl>
               <a className="ld-link" href="#privacy-details">How private information is handled</a>
             </div>
-            <Screenshot name="scopes-mobile" alt="A live room with the composer visibility menu open, offering Shared, Private, and Agent only." caption="The visibility choice belongs to you." />
+            <Screenshot name="scopes-mobile" crop={[620, 932]} alt="The room's needs and open composer visibility menu, offering Shared, Private, and Agent only." caption="The visibility choice belongs to you." />
           </article>
           <article className="ld-beat">
             <div className="ld-beat-copy">
@@ -138,7 +148,7 @@ export function Landing({ onStart }: Props) {
               <p className="ld-read">You decide whether to change your need; the organizer handles changes to the search area. You can also explore the map and bring more places into the room.</p>
               <p className="ld-margin-note">See what a change would do before deciding to make it.</p>
             </div>
-            <Screenshot name="impasse-mobile" alt="No place is confirmed yet. An organizer-only offer widens the search from 800 metres to 1.2 kilometres and brings back four places." caption="A way out, with a count and a choice." />
+            <Screenshot name="impasse-mobile" crop={[602, 872]} alt="An organizer-only offer to widen the search from 800 metres to 1.2 kilometres, bringing back four places, with Accept and Decline controls." caption="A way out, with a count and a choice." />
           </article>
           <article className="ld-beat">
             <div className="ld-beat-copy">
@@ -147,7 +157,7 @@ export function Landing({ onStart }: Props) {
               <p className="ld-read">Another stop planned? The next search starts near the place you just agreed on. After the final stop is settled, choose how to travel and open directions in your map app.</p>
               <p className="ld-margin-note">Your agent can prepare the decision. The final confirmation stays on the page.</p>
             </div>
-            <Screenshot name="agreement-mobile" alt="The current app after the group has agreed on a place, with arrival choices and a navigation handoff." caption="An agreed place, and a way to get there." />
+            <Screenshot name="agreement-mobile" crop={[589, 932]} alt="The group's agreement history for The Barn, followed by Walk, Bike, Drive, and Take me there controls." caption="An agreed place, and a way to get there." />
           </article>
         </section>
 
@@ -162,7 +172,7 @@ export function Landing({ onStart }: Props) {
             </dl>
             <p className="ld-note">Guesses stay marked as guesses. Agreement still needs the group&rsquo;s responses and the organizer&rsquo;s confirmation.</p>
           </div>
-          <Screenshot name="details-mobile" alt="A place's current details with evidence for the group's needs and controls to confirm or rule out a fact." caption="The evidence behind a place on the map." />
+          <Screenshot name="details-mobile" crop={[74, 430]} alt="The Barn's per-need results, including shared needs, a private condition, and controls to confirm or rule out a fact." caption="How a place meets the group’s needs." />
         </section>
 
         <section className="ld-ink" ref={inkRef} aria-labelledby="for-agents">
@@ -174,11 +184,15 @@ export function Landing({ onStart }: Props) {
                 <p className="ld-read">Through WebMCP, your personal agent can read the live room, state your needs, investigate places, and act for you. It works with the same places and decisions you see on the page.</p>
               </div>
             </div>
-            <dl className="ld-wire-points">
-              <div><dt>One room, two ways to act</dt><dd>Human actions and agent tool calls use the same commands and checks. Each participant receives the view they are allowed to see.</dd></div>
-              <div><dt>Your agent acts for you</dt><dd>It can bring your context to the decision and catch up on changes. It cannot change another person&rsquo;s needs or grant their consent.</dd></div>
-              <div><dt>A decision you confirm</dt><dd>Agents can stage an agreement or a private adjustment. Final agreement and private grants beyond delegated authority require confirmation on the page.</dd></div>
-            </dl>
+            <div className="ld-wire-example">
+              <div className="ld-wire-example-copy">
+                <h3>Your agent suggests. You approve.</h3>
+                <p className="ld-read">Here, the built-in agent has prepared a proposal for The Barn. The room has not changed yet. Review the place, then approve the suggestion to put it forward to the group, or dismiss it.</p>
+                <p className="ld-note">This review belongs to the built-in agent. An external personal agent uses your authority directly. Both follow the room&rsquo;s commands and checks; neither can change someone else&rsquo;s needs or grant their consent.</p>
+                <p className="ld-note">Final agreement and private grants beyond delegated authority still need confirmation on the page.</p>
+              </div>
+              <Screenshot name="agent-review" crop={[76, 356]} alt="The built-in agent's proposal for The Barn, with the exact place and Approve change and Dismiss controls beside the room's map." caption="A built-in agent suggestion, awaiting your review. Demo scenario." />
+            </div>
             <div className="ld-wire-foot">
               <p>Built for the OpenAI WebMCP Challenge. Open source, with the protocols and limitations documented.</p>
               <nav aria-label="Technical documentation">

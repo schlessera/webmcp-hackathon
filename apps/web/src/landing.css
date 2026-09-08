@@ -22,6 +22,7 @@
 .ld-wrap { width: min(var(--ld-max), calc(100% - var(--ld-gutter) * 2)); margin-inline: auto; }
 .ld-read { margin: 0; font-size: var(--spoke-size-read); line-height: 1.65; font-weight: var(--spoke-weight-quiet); text-wrap: pretty; }
 .ld-note { margin: 14px 0 0; font-size: var(--spoke-size-body); line-height: 1.5; color: var(--spoke-ink-soft); }
+.ld-trial-note { max-width: 52ch; text-wrap: pretty; }
 .ld-skip { position: absolute; top: 8px; left: var(--ld-gutter); z-index: 4; padding: 13px; background: var(--spoke-surface); transform: translateY(-200%); }
 .ld-skip:focus { transform: none; }
 
@@ -60,10 +61,14 @@
 .ld-beat-copy { display: grid; gap: 18px; }
 .ld-step { color: var(--spoke-ink-faint); font-variant-numeric: tabular-nums; }
 .ld-margin-note { margin: 4px 0 0; padding-top: 16px; border-top: var(--spoke-border) solid var(--spoke-line-ghost); font-size: var(--spoke-size-body); font-weight: var(--spoke-weight-body); color: var(--spoke-ink-soft); line-height: 1.5; }
-.ld-shot { width: min(100%, 280px); margin: 0; justify-self: center; }
-.ld-shot > a { display: block; overflow: hidden; border: var(--spoke-border) solid var(--spoke-line); border-radius: var(--spoke-radius-block); background: var(--spoke-surface); box-shadow: var(--spoke-shadow-pop); cursor: zoom-in; }
-.ld-shot img { display: block; width: 100%; height: auto; }
-.ld-shot figcaption { margin-top: 14px; font-size: var(--spoke-size-body); line-height: 1.4; color: var(--spoke-ink-soft); }
+.ld-shot { width: min(100%, 430px); margin: 0; justify-self: center; }
+.ld-shot > a { display: block; color: var(--spoke-ink); text-decoration: none; }
+.ld-shot-window { display: block; position: relative; overflow: hidden; border: var(--spoke-border) solid var(--spoke-line); border-radius: var(--spoke-radius-block); background: var(--spoke-surface); box-shadow: var(--spoke-shadow-pop); cursor: zoom-in; }
+.ld-shot img { position: absolute; top: 0; left: 0; display: block; width: 100%; height: auto; }
+.ld-shot-open { display: flex; align-items: center; min-height: var(--spoke-tap-min); margin-top: 6px; font-size: var(--spoke-size-body); font-weight: var(--spoke-weight-strong); text-decoration: underline; text-underline-offset: 4px; }
+.ld-shot > a:hover .ld-shot-open { text-decoration-thickness: 2px; }
+.ld-shot figcaption { margin-top: 0; font-size: var(--spoke-size-body); line-height: 1.5; color: var(--spoke-ink-soft); }
+.ld-shot-detail { white-space: nowrap; }
 .ld-scopes, .ld-marks { margin: 0; }
 .ld-scopes > div, .ld-marks > div { padding-block: 13px; border-bottom: var(--spoke-border) solid var(--spoke-line-ghost); }
 .ld-scopes dt, .ld-marks dt { display: flex; gap: 10px; align-items: center; font-size: var(--spoke-size-title); font-family: var(--spoke-font-display); font-weight: var(--spoke-weight-strong); }
@@ -79,10 +84,12 @@
 .ld-wire { padding-block: 64px; }
 .ld-wire-intro { display: grid; grid-template-columns: 80px minmax(0, 680px); gap: 32px; }
 .ld-wire-handle { font-family: var(--spoke-font-mono); font-size: var(--spoke-size-count); white-space: nowrap; line-height: 1; color: var(--ld-ink-soft); }
-.ld-wire-intro .ld-read { margin-top: 22px; color: var(--ld-ink-text); }
-.ld-wire-points { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 36px; margin: 40px 0 0; padding-top: 28px; border-top: var(--spoke-border) solid var(--ld-ink-line); }
-.ld-wire-points dt { font-family: var(--spoke-font-display); font-weight: var(--spoke-weight-strong); font-size: var(--spoke-size-title); }
-.ld-wire-points dd { margin: 10px 0 0; font-size: var(--spoke-size-body); font-weight: var(--spoke-weight-quiet); line-height: 1.65; color: var(--ld-ink-text); }
+.ld-wire-intro .ld-read { max-width: 65ch; margin-top: 22px; color: var(--ld-ink-text); }
+.ld-wire-example { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: center; gap: 32px 80px; margin-top: 32px; padding-top: 32px; border-top: var(--spoke-border) solid var(--ld-ink-line); }
+.ld-wire-example-copy { display: grid; gap: 18px; }
+.ld-wire-example-copy :is(.ld-read, .ld-note) { margin: 0; color: var(--ld-ink-text); }
+.ld-wire .ld-shot > a { display: block; }
+.ld-wire .ld-shot figcaption { color: var(--ld-ink-soft); }
 .ld-wire-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 18px 40px; margin-top: 32px; padding-top: 22px; border-top: var(--spoke-border) solid var(--ld-ink-line); }
 .ld-wire-foot p { max-width: 45ch; margin: 0; font-size: var(--spoke-size-body); color: var(--ld-ink-soft); line-height: 1.6; }
 .ld-wire-foot nav { display: flex; flex-wrap: wrap; gap: 4px 22px; }
@@ -97,8 +104,8 @@
 .ld-close .ld-read { margin-top: 14px; }
 .ld-foot { display: flex; align-items: center; gap: 24px; padding-block: 24px; border-top: var(--spoke-border) solid var(--spoke-line-ghost); }
 .ld-foot > .ld-brand { flex-shrink: 0; }
-.ld-foot p { margin: 0; font-size: var(--spoke-size-detail); line-height: 1.5; color: var(--spoke-ink-soft); }
-.ld-foot > .ld-link { margin-left: auto; }
+.ld-foot p { max-width: 75ch; margin: 0; font-size: var(--spoke-size-detail); line-height: 1.5; color: var(--spoke-ink-soft); }
+.ld-foot > .ld-link { min-width: var(--spoke-tap-min); margin-left: auto; }
 
 @media (max-width: 959px) {
   .ld-hero-intro { grid-template-columns: 1fr; gap: 24px; }
@@ -106,6 +113,7 @@
   .ld-intro { gap: 32px; }
   .ld-beat, .ld-evidence { column-gap: 40px; }
   .ld-wire-intro { grid-template-columns: 80px minmax(0, 1fr); }
+  .ld-wire-example { column-gap: 40px; }
   .ld-questions { grid-template-columns: 1fr 2fr; column-gap: 40px; }
 }
 @media (max-width: 719px) {
@@ -117,12 +125,11 @@
   .ld-intro h2 { max-width: none; }
   .ld-beat, .ld-evidence { grid-template-columns: 1fr; gap: 28px; padding-block: 36px; }
   .ld-beat:nth-of-type(even) .ld-beat-copy { order: 0; }
-  .ld-shot { width: min(100%, 340px); }
   .ld-evidence { padding-bottom: 48px; }
   .ld-wire { padding-block: 44px; }
   .ld-wire-intro { grid-template-columns: 1fr; gap: 20px; }
   .ld-wire-handle { font-size: var(--spoke-size-count); }
-  .ld-wire-points { grid-template-columns: 1fr; gap: 24px; margin-top: 28px; }
+  .ld-wire-example { grid-template-columns: 1fr; gap: 28px; margin-top: 28px; padding-top: 28px; }
   .ld-questions { grid-template-columns: 1fr; gap: 24px; padding-block: 44px; }
   .ld-close { align-items: start; flex-direction: column; padding-bottom: 44px; }
   .ld-foot { flex-wrap: wrap; gap: 12px 24px; }
