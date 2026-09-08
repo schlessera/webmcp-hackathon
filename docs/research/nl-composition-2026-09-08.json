@@ -1,0 +1,4780 @@
+{
+  "fixture": "tests/fixtures/nl-composition.jsonl",
+  "fixtureSha256": "26fc005c1042e4e60f43173649d1fdc4974fb75e42c7472decf107d0ff5b0833",
+  "baselineSource": "bccdfa216d7cf633ddb9591e259ad1c809106c89; reasoning config copied from working tree to hold xhigh constant",
+  "runs": {
+    "baseline": {
+      "date": "2026-09-08T18:43:53.613Z",
+      "model": "openai/gpt-5.6-luna",
+      "provider": "openrouter",
+      "effort": "xhigh",
+      "repeats": 3,
+      "cases": 20,
+      "requests": 58,
+      "correct": 49,
+      "total": 60,
+      "failures": 1,
+      "usage": {
+        "calls": 57,
+        "webSearchRequests": 0,
+        "webSearchCalls": 0,
+        "inputTokens": 110721,
+        "outputTokens": 35196,
+        "costUsd": 0.052955900000000035,
+        "serviceTierCalls": {
+          "default": 57,
+          "flex": 0,
+          "auto": 0,
+          "priority": 0,
+          "fast": 0,
+          "scale": 0,
+          "ultrafast": 0,
+          "unknown": 0
+        },
+        "schemaCalls": {
+          "understanding": 57
+        }
+      },
+      "results": [
+        {
+          "run": 1,
+          "id": "neg-en",
+          "pass": false,
+          "ms": 10834,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "step-free-entrance",
+                  "expect": "verified_false"
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 1,
+          "id": "neg-de",
+          "pass": true,
+          "ms": 3795,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "step-free-entrance",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 1,
+          "id": "exclude-en",
+          "pass": true,
+          "ms": 2063,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "outdoor-seating",
+                  "expect": "verified_false"
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 1,
+          "id": "not-required",
+          "pass": false,
+          "ms": 8278,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "wifi",
+                  "expect": "verified_false"
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "quiet",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 1,
+          "id": "diet-qualified",
+          "pass": true,
+          "ms": 6449,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "gluten-free options without cross-contamination",
+                  "evidenceKeys": [
+                    "gluten-free-options"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 1,
+          "id": "dogs-qualified",
+          "pass": true,
+          "ms": 5939,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "dogs allowed inside or on a covered terrace",
+                  "evidenceKeys": [
+                    "dog-friendly",
+                    "outdoor-seating"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 1,
+          "id": "time-qualified",
+          "pass": true,
+          "ms": 3824,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "quiet tonight",
+                  "evidenceKeys": [
+                    "quiet"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 1,
+          "id": "wifi-qualified",
+          "pass": true,
+          "ms": 4732,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "Wi-Fi fast enough for a video call",
+                  "evidenceKeys": [
+                    "wifi"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 1,
+          "id": "toilet-distance",
+          "pass": true,
+          "ms": 4729,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "a toilet within 300 m",
+                  "evidenceKeys": [
+                    "nearby-toilets"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 1,
+          "id": "access-qualified",
+          "pass": true,
+          "ms": 5689,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "step-free entry without staff help",
+                  "evidenceKeys": [
+                    "step-free-entrance"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 1,
+          "id": "mixed-hardness",
+          "pass": true,
+          "ms": 7808,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "dog-friendly",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "quiet",
+                  "expect": "verified_true"
+                },
+                "hardness": "soft"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "step-free-entrance",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 1,
+          "id": "mixed-hardness-de",
+          "pass": true,
+          "ms": 8445,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "dog-friendly",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "quiet",
+                  "expect": "verified_true"
+                },
+                "hardness": "soft"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "step-free-entrance",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 1,
+          "id": "nested-or",
+          "pass": true,
+          "ms": 6034,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "either quiet indoors or outdoor seating with Wi-Fi",
+                  "evidenceKeys": [
+                    "quiet",
+                    "outdoor-seating",
+                    "wifi"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 1,
+          "id": "nested-or-de",
+          "pass": true,
+          "ms": 6432,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "entweder drinnen ruhig oder draußen mit WLAN",
+                  "evidenceKeys": [
+                    "quiet",
+                    "outdoor-seating",
+                    "wifi"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 1,
+          "id": "two-or-groups",
+          "pass": true,
+          "ms": 6456,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "Wi-Fi or quiet",
+                  "evidenceKeys": [
+                    "wifi",
+                    "quiet"
+                  ]
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "takeaway or delivery",
+                  "evidenceKeys": [
+                    "takeaway",
+                    "delivery"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 1,
+          "id": "conditional",
+          "pass": true,
+          "ms": 6340,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "outdoor seating only if it is covered",
+                  "evidenceKeys": [
+                    "outdoor-seating"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 1,
+          "id": "cuisine-or",
+          "pass": true,
+          "ms": 7128,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "inclusion",
+                  "key": "cuisine",
+                  "values": [
+                    "italian",
+                    "spanish"
+                  ],
+                  "lifetime": "session"
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "quiet",
+                  "expect": "verified_true"
+                },
+                "hardness": "soft"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 1,
+          "id": "five-clauses",
+          "pass": true,
+          "ms": 7640,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "vegan-options",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "wifi",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "quiet",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "takeaway",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "delivery",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 1,
+          "id": "six-clauses",
+          "pass": false,
+          "ms": 30066,
+          "error": "The operation was aborted due to timeout"
+        },
+        {
+          "run": 1,
+          "id": "six-quantities",
+          "pass": false,
+          "ms": 2,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "budget",
+                  "perPersonMax": {
+                    "amount": 10,
+                    "currency": "EUR"
+                  }
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "scope",
+                  "dimension": "radius_m",
+                  "max": 100
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "budget",
+                  "perPersonMax": {
+                    "amount": 20,
+                    "currency": "EUR"
+                  }
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "scope",
+                  "dimension": "radius_m",
+                  "max": 200
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "budget",
+                  "perPersonMax": {
+                    "amount": 30,
+                    "currency": "EUR"
+                  }
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 2,
+          "id": "neg-en",
+          "pass": false,
+          "ms": 7587,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "step-free-entrance",
+                  "expect": "verified_false"
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 2,
+          "id": "neg-de",
+          "pass": true,
+          "ms": 4217,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "step-free-entrance",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 2,
+          "id": "exclude-en",
+          "pass": true,
+          "ms": 3577,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "outdoor-seating",
+                  "expect": "verified_false"
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 2,
+          "id": "not-required",
+          "pass": false,
+          "ms": 17226,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "wifi",
+                  "expect": "verified_false"
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "quiet",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 2,
+          "id": "diet-qualified",
+          "pass": true,
+          "ms": 7932,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "gluten-free options without cross-contamination",
+                  "evidenceKeys": [
+                    "gluten-free-options"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 2,
+          "id": "dogs-qualified",
+          "pass": true,
+          "ms": 4735,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "dogs allowed inside or on a covered terrace",
+                  "evidenceKeys": [
+                    "dog-friendly",
+                    "outdoor-seating"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 2,
+          "id": "time-qualified",
+          "pass": true,
+          "ms": 6507,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "quiet tonight",
+                  "evidenceKeys": [
+                    "quiet"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 2,
+          "id": "wifi-qualified",
+          "pass": true,
+          "ms": 4092,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "Wi-Fi fast enough for a video call",
+                  "evidenceKeys": [
+                    "wifi"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 2,
+          "id": "toilet-distance",
+          "pass": true,
+          "ms": 4165,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "a toilet within 300 m",
+                  "evidenceKeys": [
+                    "nearby-toilets"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 2,
+          "id": "access-qualified",
+          "pass": true,
+          "ms": 5363,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "step-free entry without staff help",
+                  "evidenceKeys": [
+                    "step-free-entrance"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 2,
+          "id": "mixed-hardness",
+          "pass": true,
+          "ms": 7524,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "dog-friendly",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "quiet",
+                  "expect": "verified_true"
+                },
+                "hardness": "soft"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "step-free-entrance",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 2,
+          "id": "mixed-hardness-de",
+          "pass": true,
+          "ms": 5239,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "dog-friendly",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "quiet",
+                  "expect": "verified_true"
+                },
+                "hardness": "soft"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "step-free-entrance",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 2,
+          "id": "nested-or",
+          "pass": true,
+          "ms": 4363,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "either quiet indoors or outdoor seating with Wi-Fi",
+                  "evidenceKeys": [
+                    "quiet",
+                    "outdoor-seating",
+                    "wifi"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 2,
+          "id": "nested-or-de",
+          "pass": true,
+          "ms": 6529,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "entweder drinnen ruhig oder draußen mit WLAN",
+                  "evidenceKeys": [
+                    "quiet",
+                    "outdoor-seating",
+                    "wifi"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 2,
+          "id": "two-or-groups",
+          "pass": true,
+          "ms": 22128,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "Wi-Fi or quiet",
+                  "evidenceKeys": [
+                    "wifi",
+                    "quiet"
+                  ]
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "takeaway or delivery",
+                  "evidenceKeys": [
+                    "takeaway",
+                    "delivery"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 2,
+          "id": "conditional",
+          "pass": true,
+          "ms": 8624,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "outdoor seating only if it is covered",
+                  "evidenceKeys": [
+                    "outdoor-seating"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 2,
+          "id": "cuisine-or",
+          "pass": true,
+          "ms": 6130,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "inclusion",
+                  "key": "cuisine",
+                  "values": [
+                    "italian",
+                    "spanish"
+                  ],
+                  "lifetime": "session"
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "quiet",
+                  "expect": "verified_true"
+                },
+                "hardness": "soft"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 2,
+          "id": "five-clauses",
+          "pass": true,
+          "ms": 7216,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "vegan-options",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "wifi",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "quiet",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "takeaway",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "delivery",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 2,
+          "id": "six-clauses",
+          "pass": false,
+          "ms": 9451,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "vegan-options",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "wifi",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "quiet",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "takeaway",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "delivery",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 2,
+          "id": "six-quantities",
+          "pass": false,
+          "ms": 1,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "budget",
+                  "perPersonMax": {
+                    "amount": 10,
+                    "currency": "EUR"
+                  }
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "scope",
+                  "dimension": "radius_m",
+                  "max": 100
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "budget",
+                  "perPersonMax": {
+                    "amount": 20,
+                    "currency": "EUR"
+                  }
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "scope",
+                  "dimension": "radius_m",
+                  "max": 200
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "budget",
+                  "perPersonMax": {
+                    "amount": 30,
+                    "currency": "EUR"
+                  }
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 3,
+          "id": "neg-en",
+          "pass": true,
+          "ms": 5256,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "step-free-entrance",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 3,
+          "id": "neg-de",
+          "pass": true,
+          "ms": 3367,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "step-free-entrance",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 3,
+          "id": "exclude-en",
+          "pass": false,
+          "ms": 4362,
+          "actual": {
+            "intent": "unclear",
+            "needs": [],
+            "clarify": false
+          }
+        },
+        {
+          "run": 3,
+          "id": "not-required",
+          "pass": true,
+          "ms": 7190,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "quiet",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 3,
+          "id": "diet-qualified",
+          "pass": true,
+          "ms": 4764,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "gluten-free options without cross-contamination",
+                  "evidenceKeys": [
+                    "gluten-free-options"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 3,
+          "id": "dogs-qualified",
+          "pass": true,
+          "ms": 4604,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "dogs allowed inside or on a covered terrace",
+                  "evidenceKeys": [
+                    "dog-friendly",
+                    "outdoor-seating"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 3,
+          "id": "time-qualified",
+          "pass": true,
+          "ms": 4761,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "quiet tonight",
+                  "evidenceKeys": [
+                    "quiet"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 3,
+          "id": "wifi-qualified",
+          "pass": true,
+          "ms": 2008,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "Wi-Fi fast enough for a video call",
+                  "evidenceKeys": [
+                    "wifi"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 3,
+          "id": "toilet-distance",
+          "pass": true,
+          "ms": 4381,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "a toilet within 300 m",
+                  "evidenceKeys": [
+                    "nearby-toilets"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 3,
+          "id": "access-qualified",
+          "pass": true,
+          "ms": 4464,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "step-free entry without staff help",
+                  "evidenceKeys": [
+                    "step-free-entrance"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 3,
+          "id": "mixed-hardness",
+          "pass": true,
+          "ms": 7532,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "dog-friendly",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "quiet",
+                  "expect": "verified_true"
+                },
+                "hardness": "soft"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "step-free-entrance",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 3,
+          "id": "mixed-hardness-de",
+          "pass": true,
+          "ms": 7257,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "dog-friendly",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "quiet",
+                  "expect": "verified_true"
+                },
+                "hardness": "soft"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "step-free-entrance",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 3,
+          "id": "nested-or",
+          "pass": true,
+          "ms": 5461,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "either quiet indoors or outdoor seating with Wi-Fi",
+                  "evidenceKeys": [
+                    "quiet",
+                    "outdoor-seating",
+                    "wifi"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 3,
+          "id": "nested-or-de",
+          "pass": true,
+          "ms": 6740,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "entweder drinnen ruhig oder draußen mit WLAN",
+                  "evidenceKeys": [
+                    "quiet",
+                    "outdoor-seating",
+                    "wifi"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 3,
+          "id": "two-or-groups",
+          "pass": true,
+          "ms": 7144,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "Wi-Fi or quiet",
+                  "evidenceKeys": [
+                    "wifi",
+                    "quiet"
+                  ]
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "takeaway or delivery",
+                  "evidenceKeys": [
+                    "takeaway",
+                    "delivery"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 3,
+          "id": "conditional",
+          "pass": true,
+          "ms": 5688,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "outdoor seating only if it is covered",
+                  "evidenceKeys": [
+                    "outdoor-seating"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 3,
+          "id": "cuisine-or",
+          "pass": true,
+          "ms": 5765,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "inclusion",
+                  "key": "cuisine",
+                  "values": [
+                    "italian",
+                    "spanish"
+                  ],
+                  "lifetime": "session"
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "quiet",
+                  "expect": "verified_true"
+                },
+                "hardness": "soft"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 3,
+          "id": "five-clauses",
+          "pass": true,
+          "ms": 7401,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "vegan-options",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "wifi",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "quiet",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "takeaway",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "delivery",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 3,
+          "id": "six-clauses",
+          "pass": false,
+          "ms": 7820,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "vegan-options",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "wifi",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "quiet",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "takeaway",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "delivery",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 3,
+          "id": "six-quantities",
+          "pass": false,
+          "ms": 1,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "budget",
+                  "perPersonMax": {
+                    "amount": 10,
+                    "currency": "EUR"
+                  }
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "scope",
+                  "dimension": "radius_m",
+                  "max": 100
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "budget",
+                  "perPersonMax": {
+                    "amount": 20,
+                    "currency": "EUR"
+                  }
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "scope",
+                  "dimension": "radius_m",
+                  "max": 200
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "budget",
+                  "perPersonMax": {
+                    "amount": 30,
+                    "currency": "EUR"
+                  }
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        }
+      ]
+    },
+    "prompt_and_coverage": {
+      "date": "2026-09-08T18:40:25.033Z",
+      "model": "openai/gpt-5.6-luna",
+      "provider": "openrouter",
+      "effort": "xhigh",
+      "repeats": 3,
+      "cases": 20,
+      "requests": 57,
+      "correct": 58,
+      "total": 60,
+      "failures": 0,
+      "usage": {
+        "calls": 57,
+        "webSearchRequests": 0,
+        "webSearchCalls": 0,
+        "inputTokens": 158145,
+        "outputTokens": 21991,
+        "costUsd": 0.042329019999999995,
+        "serviceTierCalls": {
+          "default": 57,
+          "flex": 0,
+          "auto": 0,
+          "priority": 0,
+          "fast": 0,
+          "scale": 0,
+          "ultrafast": 0,
+          "unknown": 0
+        },
+        "schemaCalls": {
+          "understanding": 57
+        }
+      },
+      "results": [
+        {
+          "run": 1,
+          "id": "neg-en",
+          "pass": true,
+          "ms": 2473,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "step-free-entrance",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 1,
+          "id": "neg-de",
+          "pass": true,
+          "ms": 5708,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "step-free-entrance",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 1,
+          "id": "exclude-en",
+          "pass": true,
+          "ms": 2077,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "outdoor-seating",
+                  "expect": "verified_false"
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 1,
+          "id": "not-required",
+          "pass": true,
+          "ms": 3179,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "quiet",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 1,
+          "id": "diet-qualified",
+          "pass": true,
+          "ms": 2293,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "gluten-free options without cross-contamination",
+                  "evidenceKeys": [
+                    "gluten-free-options"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 1,
+          "id": "dogs-qualified",
+          "pass": true,
+          "ms": 4507,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "dogs allowed inside or on a covered terrace",
+                  "evidenceKeys": [
+                    "dog-friendly",
+                    "outdoor-seating"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 1,
+          "id": "time-qualified",
+          "pass": true,
+          "ms": 4900,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "quiet tonight",
+                  "evidenceKeys": [
+                    "quiet"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 1,
+          "id": "wifi-qualified",
+          "pass": true,
+          "ms": 2231,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "Wi-Fi fast enough for a video call",
+                  "evidenceKeys": [
+                    "wifi"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 1,
+          "id": "toilet-distance",
+          "pass": true,
+          "ms": 1967,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "a toilet within 300 m",
+                  "evidenceKeys": [
+                    "nearby-toilets"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 1,
+          "id": "access-qualified",
+          "pass": true,
+          "ms": 2544,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "step-free entry without staff help",
+                  "evidenceKeys": [
+                    "step-free-entrance"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 1,
+          "id": "mixed-hardness",
+          "pass": true,
+          "ms": 4798,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "dog-friendly",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "quiet",
+                  "expect": "verified_true"
+                },
+                "hardness": "soft"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "step-free-entrance",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 1,
+          "id": "mixed-hardness-de",
+          "pass": true,
+          "ms": 9678,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "dog-friendly",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "quiet",
+                  "expect": "verified_true"
+                },
+                "hardness": "soft"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "step-free-entrance",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 1,
+          "id": "nested-or",
+          "pass": true,
+          "ms": 4528,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "either quiet indoors or outdoor seating with Wi-Fi",
+                  "evidenceKeys": [
+                    "quiet",
+                    "outdoor-seating",
+                    "wifi"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 1,
+          "id": "nested-or-de",
+          "pass": true,
+          "ms": 4592,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "entweder drinnen ruhig oder draußen mit WLAN",
+                  "evidenceKeys": [
+                    "quiet",
+                    "outdoor-seating",
+                    "wifi"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 1,
+          "id": "two-or-groups",
+          "pass": true,
+          "ms": 2212,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "Wi-Fi or quiet",
+                  "evidenceKeys": [
+                    "wifi",
+                    "quiet"
+                  ]
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "takeaway or delivery",
+                  "evidenceKeys": [
+                    "takeaway",
+                    "delivery"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 1,
+          "id": "conditional",
+          "pass": true,
+          "ms": 3599,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "outdoor seating only if it is covered",
+                  "evidenceKeys": [
+                    "outdoor-seating"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 1,
+          "id": "cuisine-or",
+          "pass": true,
+          "ms": 3052,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "inclusion",
+                  "key": "cuisine",
+                  "values": [
+                    "italian",
+                    "spanish"
+                  ],
+                  "lifetime": "session"
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "quiet",
+                  "expect": "verified_true"
+                },
+                "hardness": "soft"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 1,
+          "id": "five-clauses",
+          "pass": true,
+          "ms": 7569,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "vegan-options",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "wifi",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "quiet",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "takeaway",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "delivery",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 1,
+          "id": "six-clauses",
+          "pass": true,
+          "ms": 8141,
+          "actual": {
+            "intent": "clarify",
+            "needs": [],
+            "clarify": true
+          }
+        },
+        {
+          "run": 1,
+          "id": "six-quantities",
+          "pass": true,
+          "ms": 2,
+          "actual": {
+            "intent": "clarify",
+            "needs": [],
+            "clarify": true
+          }
+        },
+        {
+          "run": 2,
+          "id": "neg-en",
+          "pass": true,
+          "ms": 3679,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "step-free-entrance",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 2,
+          "id": "neg-de",
+          "pass": true,
+          "ms": 4679,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "step-free-entrance",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 2,
+          "id": "exclude-en",
+          "pass": true,
+          "ms": 1728,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "outdoor-seating",
+                  "expect": "verified_false"
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 2,
+          "id": "not-required",
+          "pass": true,
+          "ms": 1700,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "quiet",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 2,
+          "id": "diet-qualified",
+          "pass": true,
+          "ms": 5423,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "gluten-free options without cross-contamination",
+                  "evidenceKeys": [
+                    "gluten-free-options"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 2,
+          "id": "dogs-qualified",
+          "pass": true,
+          "ms": 4449,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "dogs allowed inside or on a covered terrace",
+                  "evidenceKeys": [
+                    "dog-friendly",
+                    "outdoor-seating"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 2,
+          "id": "time-qualified",
+          "pass": true,
+          "ms": 3262,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "quiet tonight",
+                  "evidenceKeys": [
+                    "quiet"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 2,
+          "id": "wifi-qualified",
+          "pass": true,
+          "ms": 5679,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "Wi-Fi fast enough for a video call",
+                  "evidenceKeys": [
+                    "wifi"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 2,
+          "id": "toilet-distance",
+          "pass": true,
+          "ms": 2312,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "a toilet within 300 m",
+                  "evidenceKeys": [
+                    "nearby-toilets"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 2,
+          "id": "access-qualified",
+          "pass": true,
+          "ms": 5378,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "step-free entry without staff help",
+                  "evidenceKeys": [
+                    "step-free-entrance"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 2,
+          "id": "mixed-hardness",
+          "pass": true,
+          "ms": 7691,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "dog-friendly",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "quiet",
+                  "expect": "verified_true"
+                },
+                "hardness": "soft"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "step-free-entrance",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 2,
+          "id": "mixed-hardness-de",
+          "pass": true,
+          "ms": 11154,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "dog-friendly",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "quiet",
+                  "expect": "verified_true"
+                },
+                "hardness": "soft"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "step-free-entrance",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 2,
+          "id": "nested-or",
+          "pass": true,
+          "ms": 5480,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "either quiet indoors or outdoor seating with Wi-Fi",
+                  "evidenceKeys": [
+                    "quiet",
+                    "outdoor-seating",
+                    "wifi"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 2,
+          "id": "nested-or-de",
+          "pass": true,
+          "ms": 5298,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "entweder drinnen ruhig oder draußen mit WLAN",
+                  "evidenceKeys": [
+                    "quiet",
+                    "outdoor-seating",
+                    "wifi"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 2,
+          "id": "two-or-groups",
+          "pass": true,
+          "ms": 4301,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "Wi-Fi or quiet",
+                  "evidenceKeys": [
+                    "wifi",
+                    "quiet"
+                  ]
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "takeaway or delivery",
+                  "evidenceKeys": [
+                    "takeaway",
+                    "delivery"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 2,
+          "id": "conditional",
+          "pass": true,
+          "ms": 5400,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "outdoor seating only if it is covered",
+                  "evidenceKeys": [
+                    "outdoor-seating"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 2,
+          "id": "cuisine-or",
+          "pass": true,
+          "ms": 3123,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "inclusion",
+                  "key": "cuisine",
+                  "values": [
+                    "italian",
+                    "spanish"
+                  ],
+                  "lifetime": "session"
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "quiet",
+                  "expect": "verified_true"
+                },
+                "hardness": "soft"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 2,
+          "id": "five-clauses",
+          "pass": true,
+          "ms": 8470,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "vegan-options",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "wifi",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "quiet",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "takeaway",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "delivery",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 2,
+          "id": "six-clauses",
+          "pass": true,
+          "ms": 9040,
+          "actual": {
+            "intent": "clarify",
+            "needs": [],
+            "clarify": true
+          }
+        },
+        {
+          "run": 2,
+          "id": "six-quantities",
+          "pass": true,
+          "ms": 0,
+          "actual": {
+            "intent": "clarify",
+            "needs": [],
+            "clarify": true
+          }
+        },
+        {
+          "run": 3,
+          "id": "neg-en",
+          "pass": true,
+          "ms": 1880,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "step-free-entrance",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 3,
+          "id": "neg-de",
+          "pass": true,
+          "ms": 4954,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "step-free-entrance",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 3,
+          "id": "exclude-en",
+          "pass": true,
+          "ms": 2054,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "outdoor-seating",
+                  "expect": "verified_false"
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 3,
+          "id": "not-required",
+          "pass": true,
+          "ms": 4692,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "quiet",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 3,
+          "id": "diet-qualified",
+          "pass": true,
+          "ms": 6055,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "gluten-free options without cross-contamination",
+                  "evidenceKeys": [
+                    "gluten-free-options"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 3,
+          "id": "dogs-qualified",
+          "pass": true,
+          "ms": 7172,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "dogs allowed inside or on a covered terrace",
+                  "evidenceKeys": [
+                    "dog-friendly",
+                    "outdoor-seating"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 3,
+          "id": "time-qualified",
+          "pass": false,
+          "ms": 2442,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "quiet",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 3,
+          "id": "wifi-qualified",
+          "pass": true,
+          "ms": 4087,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "Wi-Fi fast enough for a video call",
+                  "evidenceKeys": [
+                    "wifi"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 3,
+          "id": "toilet-distance",
+          "pass": true,
+          "ms": 3158,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "a toilet within 300 m",
+                  "evidenceKeys": [
+                    "nearby-toilets"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 3,
+          "id": "access-qualified",
+          "pass": false,
+          "ms": 2289,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "step-free-entrance",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 3,
+          "id": "mixed-hardness",
+          "pass": true,
+          "ms": 3462,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "dog-friendly",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "quiet",
+                  "expect": "verified_true"
+                },
+                "hardness": "soft"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "step-free-entrance",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 3,
+          "id": "mixed-hardness-de",
+          "pass": true,
+          "ms": 4806,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "dog-friendly",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "quiet",
+                  "expect": "verified_true"
+                },
+                "hardness": "soft"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "step-free-entrance",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 3,
+          "id": "nested-or",
+          "pass": true,
+          "ms": 3575,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "either quiet indoors or outdoor seating with Wi-Fi",
+                  "evidenceKeys": [
+                    "quiet",
+                    "outdoor-seating",
+                    "wifi"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 3,
+          "id": "nested-or-de",
+          "pass": true,
+          "ms": 5179,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "entweder drinnen ruhig oder draußen mit WLAN",
+                  "evidenceKeys": [
+                    "quiet",
+                    "outdoor-seating",
+                    "wifi"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 3,
+          "id": "two-or-groups",
+          "pass": true,
+          "ms": 5943,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "Wi-Fi or quiet",
+                  "evidenceKeys": [
+                    "wifi",
+                    "quiet"
+                  ]
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "takeaway or delivery",
+                  "evidenceKeys": [
+                    "takeaway",
+                    "delivery"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 3,
+          "id": "conditional",
+          "pass": true,
+          "ms": 3803,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "outdoor seating only if it is covered",
+                  "evidenceKeys": [
+                    "outdoor-seating"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 3,
+          "id": "cuisine-or",
+          "pass": true,
+          "ms": 3634,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "inclusion",
+                  "key": "cuisine",
+                  "values": [
+                    "italian",
+                    "spanish"
+                  ],
+                  "lifetime": "session"
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "quiet",
+                  "expect": "verified_true"
+                },
+                "hardness": "soft"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 3,
+          "id": "five-clauses",
+          "pass": true,
+          "ms": 9041,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "vegan-options",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "wifi",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "quiet",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "takeaway",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "delivery",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 3,
+          "id": "six-clauses",
+          "pass": true,
+          "ms": 3058,
+          "actual": {
+            "intent": "clarify",
+            "needs": [],
+            "clarify": true
+          }
+        },
+        {
+          "run": 3,
+          "id": "six-quantities",
+          "pass": true,
+          "ms": 1,
+          "actual": {
+            "intent": "clarify",
+            "needs": [],
+            "clarify": true
+          }
+        }
+      ]
+    },
+    "final": {
+      "date": "2026-09-08T18:46:22.879Z",
+      "model": "openai/gpt-5.6-luna",
+      "provider": "openrouter",
+      "effort": "xhigh",
+      "repeats": 3,
+      "cases": 20,
+      "requests": 57,
+      "correct": 59,
+      "total": 60,
+      "failures": 0,
+      "usage": {
+        "calls": 57,
+        "webSearchRequests": 0,
+        "webSearchCalls": 0,
+        "inputTokens": 158145,
+        "outputTokens": 23068,
+        "costUsd": 0.03151284,
+        "serviceTierCalls": {
+          "default": 57,
+          "flex": 0,
+          "auto": 0,
+          "priority": 0,
+          "fast": 0,
+          "scale": 0,
+          "ultrafast": 0,
+          "unknown": 0
+        },
+        "schemaCalls": {
+          "understanding": 57
+        }
+      },
+      "results": [
+        {
+          "run": 1,
+          "id": "neg-en",
+          "pass": true,
+          "ms": 1908,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "step-free-entrance",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 1,
+          "id": "neg-de",
+          "pass": false,
+          "ms": 2454,
+          "actual": {
+            "intent": "clarify",
+            "needs": [],
+            "clarify": true
+          }
+        },
+        {
+          "run": 1,
+          "id": "exclude-en",
+          "pass": true,
+          "ms": 1817,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "outdoor-seating",
+                  "expect": "verified_false"
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 1,
+          "id": "not-required",
+          "pass": true,
+          "ms": 6218,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "quiet",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 1,
+          "id": "diet-qualified",
+          "pass": true,
+          "ms": 5927,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "gluten-free options without cross-contamination",
+                  "evidenceKeys": [
+                    "gluten-free-options"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 1,
+          "id": "dogs-qualified",
+          "pass": true,
+          "ms": 8009,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "dogs allowed inside or on a covered terrace",
+                  "evidenceKeys": [
+                    "dog-friendly",
+                    "outdoor-seating"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 1,
+          "id": "time-qualified",
+          "pass": true,
+          "ms": 5475,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "quiet tonight",
+                  "evidenceKeys": [
+                    "quiet"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 1,
+          "id": "wifi-qualified",
+          "pass": true,
+          "ms": 5123,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "Wi-Fi fast enough for a video call",
+                  "evidenceKeys": [
+                    "wifi"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 1,
+          "id": "toilet-distance",
+          "pass": true,
+          "ms": 2419,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "a toilet within 300 m",
+                  "evidenceKeys": [
+                    "nearby-toilets"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 1,
+          "id": "access-qualified",
+          "pass": true,
+          "ms": 2179,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "step-free entry without staff help",
+                  "evidenceKeys": [
+                    "step-free-entrance"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 1,
+          "id": "mixed-hardness",
+          "pass": true,
+          "ms": 6993,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "dog-friendly",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "quiet",
+                  "expect": "verified_true"
+                },
+                "hardness": "soft"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "step-free-entrance",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 1,
+          "id": "mixed-hardness-de",
+          "pass": true,
+          "ms": 3996,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "dog-friendly",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "quiet",
+                  "expect": "verified_true"
+                },
+                "hardness": "soft"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "step-free-entrance",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 1,
+          "id": "nested-or",
+          "pass": true,
+          "ms": 1893,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "either quiet indoors or outdoor seating with Wi-Fi",
+                  "evidenceKeys": [
+                    "quiet",
+                    "outdoor-seating",
+                    "wifi"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 1,
+          "id": "nested-or-de",
+          "pass": true,
+          "ms": 5066,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "entweder drinnen ruhig oder draußen mit WLAN",
+                  "evidenceKeys": [
+                    "quiet",
+                    "outdoor-seating",
+                    "wifi"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 1,
+          "id": "two-or-groups",
+          "pass": true,
+          "ms": 5434,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "Wi-Fi or quiet",
+                  "evidenceKeys": [
+                    "wifi",
+                    "quiet"
+                  ]
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "takeaway or delivery",
+                  "evidenceKeys": [
+                    "takeaway",
+                    "delivery"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 1,
+          "id": "conditional",
+          "pass": true,
+          "ms": 5140,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "outdoor seating only if it is covered",
+                  "evidenceKeys": [
+                    "outdoor-seating"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 1,
+          "id": "cuisine-or",
+          "pass": true,
+          "ms": 5934,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "inclusion",
+                  "key": "cuisine",
+                  "values": [
+                    "italian",
+                    "spanish"
+                  ],
+                  "lifetime": "session"
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "quiet",
+                  "expect": "verified_true"
+                },
+                "hardness": "soft"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 1,
+          "id": "five-clauses",
+          "pass": true,
+          "ms": 8280,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "vegan-options",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "wifi",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "quiet",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "takeaway",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "delivery",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 1,
+          "id": "six-clauses",
+          "pass": true,
+          "ms": 8376,
+          "actual": {
+            "intent": "clarify",
+            "needs": [],
+            "clarify": true
+          }
+        },
+        {
+          "run": 1,
+          "id": "six-quantities",
+          "pass": true,
+          "ms": 2,
+          "actual": {
+            "intent": "clarify",
+            "needs": [],
+            "clarify": true
+          }
+        },
+        {
+          "run": 2,
+          "id": "neg-en",
+          "pass": true,
+          "ms": 1988,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "step-free-entrance",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 2,
+          "id": "neg-de",
+          "pass": true,
+          "ms": 2037,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "step-free-entrance",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 2,
+          "id": "exclude-en",
+          "pass": true,
+          "ms": 2002,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "outdoor-seating",
+                  "expect": "verified_false"
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 2,
+          "id": "not-required",
+          "pass": true,
+          "ms": 2223,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "quiet",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 2,
+          "id": "diet-qualified",
+          "pass": true,
+          "ms": 3343,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "gluten-free options without cross-contamination",
+                  "evidenceKeys": [
+                    "gluten-free-options"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 2,
+          "id": "dogs-qualified",
+          "pass": true,
+          "ms": 3660,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "dogs allowed inside or on a covered terrace",
+                  "evidenceKeys": [
+                    "dog-friendly",
+                    "outdoor-seating"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 2,
+          "id": "time-qualified",
+          "pass": true,
+          "ms": 6316,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "quiet tonight",
+                  "evidenceKeys": [
+                    "quiet"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 2,
+          "id": "wifi-qualified",
+          "pass": true,
+          "ms": 5446,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "Wi-Fi fast enough for a video call",
+                  "evidenceKeys": [
+                    "wifi"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 2,
+          "id": "toilet-distance",
+          "pass": true,
+          "ms": 2004,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "a toilet within 300 m",
+                  "evidenceKeys": [
+                    "nearby-toilets"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 2,
+          "id": "access-qualified",
+          "pass": true,
+          "ms": 2179,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "step-free entry without staff help",
+                  "evidenceKeys": [
+                    "step-free-entrance"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 2,
+          "id": "mixed-hardness",
+          "pass": true,
+          "ms": 7450,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "dog-friendly",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "quiet",
+                  "expect": "verified_true"
+                },
+                "hardness": "soft"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "step-free-entrance",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 2,
+          "id": "mixed-hardness-de",
+          "pass": true,
+          "ms": 4035,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "dog-friendly",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "quiet",
+                  "expect": "verified_true"
+                },
+                "hardness": "soft"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "step-free-entrance",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 2,
+          "id": "nested-or",
+          "pass": true,
+          "ms": 3622,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "either quiet indoors or outdoor seating with Wi-Fi",
+                  "evidenceKeys": [
+                    "quiet",
+                    "outdoor-seating",
+                    "wifi"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 2,
+          "id": "nested-or-de",
+          "pass": true,
+          "ms": 7397,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "entweder drinnen ruhig oder draußen mit WLAN",
+                  "evidenceKeys": [
+                    "quiet",
+                    "outdoor-seating",
+                    "wifi"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 2,
+          "id": "two-or-groups",
+          "pass": true,
+          "ms": 3628,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "Wi-Fi or quiet",
+                  "evidenceKeys": [
+                    "wifi",
+                    "quiet"
+                  ]
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "takeaway or delivery",
+                  "evidenceKeys": [
+                    "takeaway",
+                    "delivery"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 2,
+          "id": "conditional",
+          "pass": true,
+          "ms": 5713,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "outdoor seating only if it is covered",
+                  "evidenceKeys": [
+                    "outdoor-seating"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 2,
+          "id": "cuisine-or",
+          "pass": true,
+          "ms": 2622,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "inclusion",
+                  "key": "cuisine",
+                  "values": [
+                    "italian",
+                    "spanish"
+                  ],
+                  "lifetime": "session"
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "quiet",
+                  "expect": "verified_true"
+                },
+                "hardness": "soft"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 2,
+          "id": "five-clauses",
+          "pass": true,
+          "ms": 4466,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "vegan-options",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "wifi",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "quiet",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "takeaway",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "delivery",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 2,
+          "id": "six-clauses",
+          "pass": true,
+          "ms": 7994,
+          "actual": {
+            "intent": "clarify",
+            "needs": [],
+            "clarify": true
+          }
+        },
+        {
+          "run": 2,
+          "id": "six-quantities",
+          "pass": true,
+          "ms": 1,
+          "actual": {
+            "intent": "clarify",
+            "needs": [],
+            "clarify": true
+          }
+        },
+        {
+          "run": 3,
+          "id": "neg-en",
+          "pass": true,
+          "ms": 3029,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "step-free-entrance",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 3,
+          "id": "neg-de",
+          "pass": true,
+          "ms": 6936,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "step-free-entrance",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 3,
+          "id": "exclude-en",
+          "pass": true,
+          "ms": 2006,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "outdoor-seating",
+                  "expect": "verified_false"
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 3,
+          "id": "not-required",
+          "pass": true,
+          "ms": 1919,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "quiet",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 3,
+          "id": "diet-qualified",
+          "pass": true,
+          "ms": 9994,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "gluten-free options without cross-contamination",
+                  "evidenceKeys": [
+                    "gluten-free-options"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 3,
+          "id": "dogs-qualified",
+          "pass": true,
+          "ms": 4377,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "dogs allowed inside or on a covered terrace",
+                  "evidenceKeys": [
+                    "dog-friendly",
+                    "outdoor-seating"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 3,
+          "id": "time-qualified",
+          "pass": true,
+          "ms": 5273,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "quiet tonight",
+                  "evidenceKeys": [
+                    "quiet"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 3,
+          "id": "wifi-qualified",
+          "pass": true,
+          "ms": 4988,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "Wi-Fi fast enough for a video call",
+                  "evidenceKeys": [
+                    "wifi"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 3,
+          "id": "toilet-distance",
+          "pass": true,
+          "ms": 3017,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "a toilet within 300 m",
+                  "evidenceKeys": [
+                    "nearby-toilets"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 3,
+          "id": "access-qualified",
+          "pass": true,
+          "ms": 1899,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "step-free entry without staff help",
+                  "evidenceKeys": [
+                    "step-free-entrance"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 3,
+          "id": "mixed-hardness",
+          "pass": true,
+          "ms": 4913,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "dog-friendly",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "quiet",
+                  "expect": "verified_true"
+                },
+                "hardness": "soft"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "step-free-entrance",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 3,
+          "id": "mixed-hardness-de",
+          "pass": true,
+          "ms": 4252,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "dog-friendly",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "quiet",
+                  "expect": "verified_true"
+                },
+                "hardness": "soft"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "step-free-entrance",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 3,
+          "id": "nested-or",
+          "pass": true,
+          "ms": 2100,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "either quiet indoors or outdoor seating with Wi-Fi",
+                  "evidenceKeys": [
+                    "quiet",
+                    "outdoor-seating",
+                    "wifi"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 3,
+          "id": "nested-or-de",
+          "pass": true,
+          "ms": 6429,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "entweder drinnen ruhig oder draußen mit WLAN",
+                  "evidenceKeys": [
+                    "quiet",
+                    "outdoor-seating",
+                    "wifi"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 3,
+          "id": "two-or-groups",
+          "pass": true,
+          "ms": 7627,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "Wi-Fi or quiet",
+                  "evidenceKeys": [
+                    "wifi",
+                    "quiet"
+                  ]
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "takeaway or delivery",
+                  "evidenceKeys": [
+                    "takeaway",
+                    "delivery"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 3,
+          "id": "conditional",
+          "pass": true,
+          "ms": 1818,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "text",
+                  "text": "outdoor seating only if it is covered",
+                  "evidenceKeys": [
+                    "outdoor-seating"
+                  ]
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 3,
+          "id": "cuisine-or",
+          "pass": true,
+          "ms": 2997,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "inclusion",
+                  "key": "cuisine",
+                  "values": [
+                    "italian",
+                    "spanish"
+                  ],
+                  "lifetime": "session"
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "quiet",
+                  "expect": "verified_true"
+                },
+                "hardness": "soft"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 3,
+          "id": "five-clauses",
+          "pass": true,
+          "ms": 8118,
+          "actual": {
+            "intent": "need",
+            "needs": [
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "vegan-options",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "wifi",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "quiet",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "takeaway",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              },
+              {
+                "payload": {
+                  "kind": "attribute",
+                  "key": "delivery",
+                  "expect": "verified_true"
+                },
+                "hardness": "hard"
+              }
+            ],
+            "clarify": false
+          }
+        },
+        {
+          "run": 3,
+          "id": "six-clauses",
+          "pass": true,
+          "ms": 8169,
+          "actual": {
+            "intent": "clarify",
+            "needs": [],
+            "clarify": true
+          }
+        },
+        {
+          "run": 3,
+          "id": "six-quantities",
+          "pass": true,
+          "ms": 0,
+          "actual": {
+            "intent": "clarify",
+            "needs": [],
+            "clarify": true
+          }
+        }
+      ]
+    }
+  }
+}

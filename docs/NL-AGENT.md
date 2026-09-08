@@ -256,3 +256,20 @@ Relevant regression suites are [security](../tests/api/security.test.ts),
 Scripted model tests check application behavior; they are not a benchmark of
 current provider/model interpretation quality.
 
+The standalone [composition benchmark](../scripts/nl-composition-bench.mts)
+runs the [20-case EN/DE fixture](../tests/fixtures/nl-composition.jsonl) three
+times against the real provider. It checks complete need counts, payloads,
+hardness and clarification, while allowing need order and display labels to
+vary. It makes bounded provider calls through the production request-shaping
+and response code with a standalone transport; it does not read or write rooms
+or PostgreSQL admission records. It incurs model usage.
+
+```sh
+BENCH_REPEATS=3 BENCH_OUTPUT=/tmp/nl-composition.json \
+  node --env-file=.env scripts/nl-composition-bench.mts
+```
+
+Use Node 24+ as required by the workspace. The JSON report includes per-case
+results, latency, request counts, and provider-reported token/cost totals.
+See the [2026-09-08 comparison](research/nl-composition-2026-09-08.md) for
+baseline, intermediate and final runs, including the remaining false clarification.
