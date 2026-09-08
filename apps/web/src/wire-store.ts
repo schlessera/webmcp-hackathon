@@ -8,6 +8,8 @@
  * metadata here; `detail` is rendered verbatim in the drawer.
  */
 
+import type { WireServerTrace } from "@webmcp-hackathon/contracts";
+
 export type WireLane = "page" | "http" | "ws" | "tool" | "agent";
 export type WireOutcome = "ok" | "error" | "cancelled" | "blocked";
 export interface WireStep { label: string; ms?: number; ok?: boolean }
@@ -22,6 +24,14 @@ export interface WireEvent {
   /** Spans: set when the span closes. Instants (`mark`) carry `endAt === at`,
    * which is how a zero-length moment is told apart from a span still open. */
   endAt?: number;
+  /** Monotonic elapsed time; unaffected by wall-clock adjustments. */
+  durationMs?: number;
+  headersMs?: number;
+  bodyMs?: number;
+  parseMs?: number;
+  status?: number;
+  failureKind?: "network" | "decode";
+  serverTrace?: WireServerTrace;
   outcome?: WireOutcome;      // spans, once closed
   /** Direction for ws frames: "in" (server→page) | "out" (page→server). */
   dir?: "in" | "out";
@@ -44,6 +54,9 @@ export interface WireState {
   /** Chronological by insertion; the layout sorts by `at` anyway. */
   events: WireEvent[];
   seq: number;
+  dropped?: number;
+  omittedPings?: number;
+  startedAt?: number;
 }
 
 type Listener = () => void;
@@ -69,10 +82,23 @@ function isPing(e: WireEvent): boolean {
    already threads through its downstream requests. */
 const parents = new WeakMap<AbortSignal, string>();
 
-class WireStore {
-  state: WireState = { events: [], seq: 0 };
+function boundedMetadata<T extends Partial<WireEvent>>(event: T): T {
+  const next = { ...event };
+  for (const key of ["label", "note"] as const) if (typeof next[key] === "string") next[key] = next[key]!.slice(0, 256);
+  if (next.detail) next.detail = Object.fromEntries(Object.entries(next.detail).slice(0, 32)
+    .filter(([key]) => !/token|secret|nonce|password|authorization|cookie|prompt|condition|payload|^body$/i.test(key))
+    .map(([key, value]) => [key.slice(0, 64), typeof value === "string" ? value.slice(0, 256) : value]));
+  if (next.steps) next.steps = next.steps.slice(0, 32).map((step) => ({ label: step.label.slice(0, 80),
+    ...(typeof step.ms === "number" && Number.isFinite(step.ms) ? { ms: Math.max(0, step.ms) } : {}),
+    ...(typeof step.ok === "boolean" ? { ok: step.ok } : {}) }));
+  return next;
+}
+
+export class WireStore {
+  state: WireState = { events: [], seq: 0, dropped: 0, startedAt: Date.now() };
   private listeners = new Set<Listener>();
   private pending = false;
+  private clocks = new Map<string, number>();
 
   subscribe(listener: Listener): () => void {
     this.listeners.add(listener);
@@ -84,13 +110,38 @@ class WireStore {
   /** Opens a span; returns its id for `end` / `patch`. */
   begin(e: BeginInput): string {
     const id = e.id ?? newId();
+    this.clocks.set(id, performance.now());
     this.push({ ...e, id, at: e.at ?? Date.now() });
     return id;
   }
 
   /** Closes a span. Unknown ids (fallen off the ring) are ignored. */
   end(id: string, patch: Partial<WireEvent> & { outcome: WireOutcome }): void {
-    this.patch(id, { endAt: Date.now(), ...patch });
+    const started = this.clocks.get(id);
+    this.clocks.delete(id);
+    if (patch.note === "network") {
+      const prior = this.state.events.find((e) => e.id === id);
+      patch = { ...patch, note: prior?.failureKind === "decode" ? "invalid JSON" : "network",
+        failureKind: prior?.failureKind ?? "network" };
+    }
+    this.patch(id, { endAt: Date.now(), ...(started !== undefined ? { durationMs: performance.now() - started } : {}), ...patch });
+  }
+
+  received(id: string, response: Response): void {
+    const started = this.clocks.get(id);
+    const raw = response.headers.get("x-server-ms");
+    const serverMs = raw === null ? undefined : Number(raw);
+    this.patch(id, { status: response.status,
+      ...(started !== undefined ? { headersMs: performance.now() - started } : {}),
+      ...(serverMs !== undefined && Number.isFinite(serverMs) && serverMs >= 0 ? { serverMs } : {}),
+      serverTrace: parseServerTrace(response.headers.get("x-wire-trace")),
+    });
+  }
+
+  clear(): void {
+    this.clocks.clear();
+    this.state = { ...this.state, dropped: 0, omittedPings: 0, startedAt: Date.now() };
+    this.commit([]);
   }
 
   /** Records an instant: no duration, no outcome required. */
@@ -112,7 +163,7 @@ class WireStore {
     for (let i = events.length - 1; i >= 0; i -= 1) {
       if (events[i].id !== id) continue;
       const next = events.slice();
-      next[i] = { ...events[i], ...partial, id };
+      next[i] = { ...events[i], ...boundedMetadata(partial), id };
       this.commit(next);
       return;
     }
@@ -129,15 +180,24 @@ class WireStore {
         pings += 1;
         if (oldest < 0) oldest = i;
       }
-      if (pings >= PING_CAP && oldest >= 0) next.splice(oldest, 1);
+      if (pings >= PING_CAP && oldest >= 0) {
+        next.splice(oldest, 1);
+        this.state = { ...this.state, omittedPings: (this.state.omittedPings ?? 0) + 1 };
+      }
     }
-    if (next.length >= WIRE_RING) next = next.slice(next.length - WIRE_RING + 1);
-    next.push(event);
+    if (next.length >= WIRE_RING) {
+      // A slow in-flight request should not vanish behind heartbeat traffic.
+      const finished = next.findIndex((e) => e.endAt !== undefined);
+      const [evicted] = next.splice(finished < 0 ? 0 : finished, 1);
+      this.clocks.delete(evicted.id);
+      this.state = { ...this.state, dropped: (this.state.dropped ?? 0) + 1 };
+    }
+    next.push(boundedMetadata(event));
     this.commit(next);
   }
 
   private commit(events: WireEvent[]): void {
-    this.state = { events, seq: this.state.seq + 1 };
+    this.state = { ...this.state, events, seq: this.state.seq + 1 };
     if (this.pending) return;
     this.pending = true;
     // One notification per burst: a socket frame fans out into several
@@ -195,4 +255,25 @@ const encoder = typeof TextEncoder === "undefined" ? null : new TextEncoder();
 /** Size on the wire: UTF-8 bytes, not UTF-16 code units. */
 export function utf8Bytes(text: string): number {
   return encoder ? encoder.encode(text).length : text.length;
+}
+
+/** A diagnostic header is untrusted input too. Ignore unsupported versions
+ * and copy only bounded metadata, never arbitrary server objects. */
+export function parseServerTrace(raw: string | null): WireServerTrace | undefined {
+  if (!raw || raw.length > 7000) return undefined;
+  try {
+    const value = JSON.parse(raw);
+    if (value?.version !== 1 || !Array.isArray(value.spans)) return undefined;
+    const number = (v: unknown) => typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : undefined;
+    return { version: 1, durationMs: number(value.durationMs) ?? 0, omitted: number(value.omitted) ?? 0,
+      spans: value.spans.slice(0, 16).flatMap((span: any) => {
+        if (!span || !["model", "outbound", "cache"].includes(span.kind) ||
+          !["running", "ok", "error"].includes(span.outcome) || typeof span.label !== "string") return [];
+        return [{ kind: span.kind, label: span.label.slice(0, 80), outcome: span.outcome,
+          offsetMs: number(span.offsetMs) ?? 0,
+          ...Object.fromEntries(["durationMs", "status", "bytes", "inputTokens", "outputTokens", "costUsd"]
+            .flatMap((key) => number(span[key]) === undefined ? [] : [[key, span[key]]])),
+        }];
+      }) };
+  } catch { return undefined; }
 }

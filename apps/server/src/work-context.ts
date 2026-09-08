@@ -1,10 +1,12 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+import type { RequestTrace } from "./wire-trace.ts";
 
 export type Workload = "interactive" | "background" | "prepopulate";
 export interface WorkContext {
   workload: Workload;
   runId?: string;
   modelReservation?: string;
+  trace?: RequestTrace;
 }
 const context = new AsyncLocalStorage<WorkContext>();
 export function currentWork(): WorkContext {

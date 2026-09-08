@@ -1,6 +1,7 @@
 import { TOOL_CONTRACT_VERSION } from "@webmcp-hackathon/contracts";
 import { currentToken } from "./session.ts";
-import { trim, utf8Bytes, wire } from "./wire-store.ts";
+import { readJson } from "./wire-http.ts";
+import { trim, wire } from "./wire-store.ts";
 import type { ExplorePlace } from "./spatial-types.ts";
 
 /**
@@ -73,7 +74,7 @@ function serverMs(response: Response): number | undefined {
   const raw = response.headers.get("x-server-ms");
   if (raw === null) return undefined;
   const value = Number(raw);
-  return Number.isFinite(value) ? value : undefined;
+  return Number.isFinite(value) && value >= 0 ? value : undefined;
 }
 
 /**
@@ -81,11 +82,7 @@ function serverMs(response: Response): number | undefined {
  * An empty or unparsable body throws, exactly as `response.json()` did, so
  * every caller's transport-failure path stays what it was.
  */
-export async function readJson(response: Response): Promise<{ body: unknown; bytes: number }> {
-  const text = await response.text();
-  if (!text) throw new SyntaxError("Empty response body");
-  return { body: JSON.parse(text), bytes: utf8Bytes(text) };
-}
+export { readJson } from "./wire-http.ts";
 
 /** Timeline label for a route: the method and the path after `/api/`. */
 export function routeLabel(method: string, path: string): string {
@@ -130,6 +127,7 @@ async function post(
         "content-type": "application/json",
         authorization: `Bearer ${token}`,
         "x-correlation-id": correlationId,
+        "x-wire-trace": "1",
         "x-tool-contract-version": TOOL_CONTRACT_VERSION,
         // X3: correlation IDs identify HTTP attempts; this separate key
         // identifies the logical action and survives every retry.
@@ -138,7 +136,7 @@ async function post(
       body: JSON.stringify(body),
       signal,
     });
-    const { body: parsed, bytes } = await readJson(response);
+    const { body: parsed, bytes } = await readJson(response, span);
     const result = parsed as {
       ok?: boolean;
       revision?: number;
@@ -177,7 +175,7 @@ async function post(
     wire.end(span, {
       outcome: "error",
       note: "network",
-      detail: { path, correlation: correlationId, error: trim(err, 120) },
+      detail: { path, correlation: correlationId, error: err instanceof Error ? err.name : "RequestError" },
     });
     const failure = {
       ok: false,
@@ -205,6 +203,7 @@ export async function placeImageBlob(url: string, signal?: AbortSignal): Promise
       headers: { authorization: `Bearer ${token}` },
       signal,
     });
+    wire.received(span, response);
     const blob = response.ok ? await response.blob() : null;
     wire.end(span, {
       outcome: response.ok ? "ok" : "error",
@@ -331,7 +330,7 @@ export async function landmarksRaw(input: unknown, signal?: AbortSignal): Promis
       headers: { authorization: `Bearer ${token}`, "x-correlation-id": correlationId },
       signal,
     });
-    const { body, bytes } = await readJson(response);
+    const { body, bytes } = await readJson(response, span);
     const result = body as { ok?: boolean; error?: { code?: string } } | null;
     const ok = result?.ok === true;
     wire.end(span, {
@@ -379,7 +378,7 @@ export async function fetchExplorePlaces(
       },
       signal,
     });
-    const { body: parsed, bytes } = await readJson(response);
+    const { body: parsed, bytes } = await readJson(response, span);
     const body = parsed as ExplorePlacesResponse & { error?: string };
     if (!response.ok || body.ok !== true) {
       wire.end(span, {
@@ -451,7 +450,7 @@ export async function fetchAreaLandmarks(
       },
       signal,
     });
-    const { body: parsed, bytes } = await readJson(response);
+    const { body: parsed, bytes } = await readJson(response, span);
     const body = parsed as AreaLandmarksResponse;
     if (!response.ok || body.ok !== true) {
       wire.end(span, { outcome: "error", note: `http ${response.status}`, serverMs: serverMs(response), bytes });
@@ -498,7 +497,7 @@ export async function fetchPlaceSearch(
       },
       signal,
     });
-    const { body: parsed, bytes } = await readJson(response);
+    const { body: parsed, bytes } = await readJson(response, span);
     const body = parsed as ExplorePlacesResponse & { error?: string };
     if (!response.ok || body.ok !== true) {
       wire.end(span, {
@@ -668,7 +667,7 @@ export async function fetchAreas(): Promise<AreaSummary[]> {
       wire.end(span, { outcome: "error", note: `http ${response.status}`, serverMs: serverMs(response) });
       throw new Error(`areas ${response.status}`);
     }
-    const { body, bytes } = await readJson(response);
+    const { body, bytes } = await readJson(response, span);
     wire.end(span, { outcome: "ok", note: "ok", serverMs: serverMs(response), bytes });
     return (body as { areas: AreaSummary[] }).areas;
   } catch (err) {
@@ -686,16 +685,20 @@ export async function previewPlan(
 ): Promise<PlanPreview | null> {
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+  const correlationId = newCorrelationId();
+  const span = wire.begin({ lane: "http", label: "POST plans/preview", correlationId });
   try {
     const response = await fetch("/api/plans/preview", {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", "x-correlation-id": correlationId, "x-wire-trace": "1" },
       body: JSON.stringify(input),
       signal: controller.signal,
     });
-    if (!response.ok) return null;
-    return (await response.json()) as PlanPreview;
+    const { body } = await readJson(response, span);
+    wire.end(span, { outcome: response.ok ? "ok" : "error", note: response.ok ? "preview" : `http ${response.status}` });
+    return response.ok ? body as PlanPreview : null;
   } catch {
+    wire.end(span, { outcome: controller.signal.aborted ? "cancelled" : "error", note: controller.signal.aborted ? "timeout · offline fallback" : "failed · offline fallback" });
     return null;
   } finally {
     window.clearTimeout(timeout);
@@ -725,7 +728,7 @@ export async function createRoom(input: {
       body: JSON.stringify(input),
     });
     // Parsed inside the try: a non-JSON body closes the span through the catch.
-    const { body: parsed, bytes } = await readJson(response);
+    const { body: parsed, bytes } = await readJson(response, span);
     const body = parsed as CreatedRoom & { error?: string };
     wire.end(span, {
       outcome: response.ok ? "ok" : "error",

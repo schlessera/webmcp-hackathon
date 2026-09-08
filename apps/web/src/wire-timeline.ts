@@ -3,6 +3,7 @@
  * rows with span extents and connectors, the way a git graph is laid out
  * before it is drawn. Pure; no DOM, no React; unit-tested in node.
  */
+import { wireRelations } from "./wire-insights.ts";
 import type { WireEvent, WireLane } from "./wire-store.ts";
 
 export const LANES: WireLane[] = ["page", "http", "ws", "tool", "agent"];
@@ -63,40 +64,7 @@ function minuteKey(at: number): number {
 
 /** Soft relationships between events that no `parentId` states. Source first. */
 export function linkPairs(events: WireEvent[]): Array<[source: string, target: string]> {
-  const sorted = events.slice().sort(byAt);
-  const pairs: Array<[string, string]> = [];
-  for (let i = 0; i < sorted.length; i += 1) {
-    const e = sorted[i];
-    if (isWsEventFrame(e)) {
-      let source: WireEvent | undefined;
-      if (e.correlationId) {
-        source = sorted.find((h) => h.lane === "http" && h.correlationId === e.correlationId && h.id !== e.id);
-      }
-      if (!source && e.revision !== undefined) {
-        // Revision fallback only from spans that could have committed (they
-        // carry an idempotency key). A read that merely observed the same
-        // room head, such as a sync page, is never drawn as a cause: that
-        // would attribute a peer's move to this page.
-        for (let j = i - 1; j >= 0; j -= 1) {
-          const h = sorted[j];
-          if (h.lane === "http" && h.outcome === "ok" && h.idempotencyKey && h.revision === e.revision) {
-            source = h;
-            break;
-          }
-        }
-      }
-      if (source) pairs.push([source.id, e.id]);
-    } else if (e.lane === "http" && e.idempotencyKey) {
-      for (let j = i - 1; j >= 0; j -= 1) {
-        const h = sorted[j];
-        if (h.lane === "http" && h.idempotencyKey === e.idempotencyKey) {
-          pairs.push([h.id, e.id]);
-          break;
-        }
-      }
-    }
-  }
-  return pairs;
+  return wireRelations(events).filter((r) => r.kind !== "parent").map((r) => [r.source, r.target]);
 }
 
 export function buildTimeline(events: WireEvent[], opts: TimelineOptions): TimelineRow[] {

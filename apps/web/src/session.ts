@@ -7,6 +7,7 @@
  */
 
 import { wire } from "./wire-store.ts";
+import { readJson } from "./wire-http.ts";
 
 const TOKEN_KEY = "participantToken";
 const IDENTITY_KEY = "participantIdentity";
@@ -100,14 +101,21 @@ export function deviceId(): string {
  * a join link) before the page has navigated anywhere.
  */
 export async function exchangeInvite(inviteSecret: string): Promise<SessionIdentity | null> {
+  const span = wire.begin({ lane: "http", label: "POST session/exchange" });
   try {
     const response = await fetch("/api/session/exchange", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ inviteSecret }),
     });
-    if (!response.ok) return null;
-    const body = await response.json();
+    if (!response.ok) {
+      wire.received(span, response);
+      wire.end(span, { outcome: "error", note: String(response.status) });
+      return null;
+    }
+    const { body: parsed } = await readJson(response, span);
+    const body = parsed as SessionIdentity & { participantToken: string };
+    wire.end(span, { outcome: "ok", note: String(response.status) });
     const identity: SessionIdentity = {
       participantId: body.participantId,
       displayName: body.displayName,
@@ -117,6 +125,7 @@ export async function exchangeInvite(inviteSecret: string): Promise<SessionIdent
     adoptSession(identity, body.participantToken);
     return identity;
   } catch {
+    wire.end(span, { outcome: "error", note: "network" });
     return null;
   }
 }
@@ -159,20 +168,23 @@ export async function establishSession(): Promise<SessionState> {
     wire.end(span, { outcome: "error", note: "network" });
     throw err;
   }
-  const serverMs = Number(response.headers.get("x-server-ms"));
-  wire.end(span, {
-    outcome: response.ok ? "ok" : "error",
-    note: String(response.status),
-    serverMs: Number.isFinite(serverMs) && response.headers.has("x-server-ms") ? serverMs : undefined,
-  });
   if (!response.ok) {
+    wire.received(span, response);
+    wire.end(span, { outcome: "error", note: String(response.status) });
     return {
       token: null,
       identity: null,
       error: `Invite exchange failed (${response.status}).`,
     };
   }
-  const body = await response.json();
+  let body: SessionIdentity & { participantToken: string };
+  try {
+    body = (await readJson(response, span)).body as typeof body;
+    wire.end(span, { outcome: "ok", note: String(response.status) });
+  } catch (error) {
+    wire.end(span, { outcome: "error", note: "network" });
+    throw error;
+  }
   const fresh: SessionIdentity = {
     participantId: body.participantId,
     displayName: body.displayName,

@@ -1,4 +1,5 @@
 import { admit, resourceLimit, settleAttempt } from "../admission.ts";
+import { traceWork } from "../wire-trace.ts";
 import { WorkError, workFailure } from "../work-outcome.ts";
 import { createHash, randomUUID } from "node:crypto";
 import { isIP } from "node:net";
@@ -756,6 +757,7 @@ async function oneAttempt(
   }
   let attempt: string | undefined;
   let closeSlot: (() => void) | undefined;
+  const finishTrace = traceWork("outbound", `${options.purpose} / ${route}`);
   let event: AttemptEvent = {
     at: started,
     host: target.hostname.toLowerCase(),
@@ -819,6 +821,7 @@ async function oneAttempt(
     const commit = () => {
       if (closed) return;
       closed = true;
+      finishTrace({ outcome: event.success ? "ok" : "error", status: response.status, bytes: event.bytes });
       close();
       void dispatcher?.close();
     };
@@ -842,6 +845,7 @@ async function oneAttempt(
     return wrapped;
   } catch (error) {
     closeSlot?.();
+    finishTrace({ outcome: "error" });
     if (attempt) await settleAttempt(attempt, { outcome: "failed", failure: workFailure(error, options.purpose) }).catch(() => undefined);
     event.latencyMs = Date.now() - started;
     const classified = route === "proxy"
@@ -1010,7 +1014,10 @@ export async function outboundFetch(url: string | URL, options: OutboundOptions)
   let cached: MetadataCacheRow | null = null;
   try {
     cached = await loadMetadata(canonical);
-    if (cached?.fresh) return cachedMetadataResponse(cached);
+    if (cached?.fresh) {
+      traceWork("cache", options.purpose)({ outcome: "ok", bytes: cached.body.length });
+      return cachedMetadataResponse(cached);
+    }
   } catch {
     // Cache availability must not turn a reusable public metadata read into a
     // provider failure. The migration runs before app startup in production.

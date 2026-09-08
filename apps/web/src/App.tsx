@@ -1,4 +1,6 @@
 import {
+  lazy,
+  Suspense,
   useCallback,
   useEffect,
   useMemo,
@@ -45,7 +47,6 @@ import { Composer } from "./components/Composer.tsx";
 import { ConsentCards } from "./components/ConsentCards.tsx";
 import { PlaceDetails } from "./components/PlaceDetails.tsx";
 import { ArrivalBar } from "./components/ArrivalBar.tsx";
-import { Drawer } from "./components/Drawer.tsx";
 import { Onboarding } from "./components/Onboarding.tsx";
 import { Join } from "./components/Join.tsx";
 import { InviteDialog } from "./components/InviteDialog.tsx";
@@ -57,6 +58,8 @@ import {
   shouldSendSharedPosition,
   type SentPosition,
 } from "./origin-sharing.ts";
+
+const Drawer = lazy(() => import("./components/Drawer.tsx").then((module) => ({ default: module.Drawer })));
 
 /**
  * The room is the whole app: one screen, no nav bar, no tab bar, no
@@ -1139,20 +1142,22 @@ export function App() {
 
       {inviteOpen && <InviteDialog onClose={() => setInviteOpen(false)} />}
       {drawerOpen && (
-        <Drawer
-          identity={id}
-          diagnostics={diag}
-          context={context}
-          revision={revision}
-          busy={spatialState.busy}
-          busyReason={spatialState.busyReason}
-          stages={spatialState.stages}
-          pipeline={spatialState.pipeline}
-          interactive={spatialState.interactive}
-          pendingNeeds={pendingNeeds}
-          onClose={() => setDrawerOpen(false)}
-          run={run}
-        />
+        <Suspense fallback={null}>
+          <Drawer
+            identity={id}
+            diagnostics={diag}
+            context={context}
+            revision={revision}
+            busy={spatialState.busy}
+            busyReason={spatialState.busyReason}
+            stages={spatialState.stages}
+            pipeline={spatialState.pipeline}
+            interactive={spatialState.interactive}
+            pendingNeeds={pendingNeeds}
+            onClose={() => setDrawerOpen(false)}
+            run={run}
+          />
+        </Suspense>
       )}
     </div>
   );

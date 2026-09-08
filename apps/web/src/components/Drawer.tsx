@@ -1,12 +1,12 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { PROTOCOL_VERSIONS, TOOL_CONTRACT_VERSION } from "@webmcp-hackathon/contracts";
 import { diagnostics, type DiagnosticsState } from "../diagnostics-store.ts";
-import { WireTimeline } from "./WireTimeline.tsx";
+import { WireWorkbench } from "./WireWorkbench.tsx";
 import type { SessionIdentity } from "../session.ts";
 import type { CommandEnvelope, SpatialContext } from "../spatial-types.ts";
 import type { LookupReason, PendingNeed, PipelineStage, PipelineView, InteractivePlan } from "../spatial-store.ts";
 import { COPY } from "../ui/copy.ts";
-import { currentToken } from "../session.ts";
+import { OutboundDiagnostics } from "./OutboundDiagnostics.tsx";
 
 /**
  * The `{ }` drawer.
@@ -49,7 +49,7 @@ function Section({
 }: {
   title: string;
   open?: boolean;
-  children: ReactNode;
+  children: ReactNode | (() => ReactNode);
 }) {
   // The reader's own choice outlives the drawer (store, not DOM): a fold
   // closed before the drawer was dismissed is still closed when it returns.
@@ -66,7 +66,7 @@ function Section({
       }}
     >
       <summary className="drawer-section-title">{title}</summary>
-      {children}
+      {(remembered ?? open) ? typeof children === "function" ? children() : children : null}
     </details>
   );
 }
@@ -85,31 +85,16 @@ export function Drawer({
   onClose,
   run,
 }: Props) {
-  const [lookups, setLookups] = useState<Array<Record<string, unknown>>>([]);
-  useEffect(() => {
-    const token = currentToken();
-    if (!token) return;
-    const controller = new AbortController();
-    void fetch("/api/diag/outbound", {
-      headers: { authorization: `Bearer ${token}` },
-      signal: controller.signal,
-    }).then(async (response) => {
-      if (!response.ok) return;
-      const body = await response.json() as { rows?: Array<Record<string, unknown>> };
-      setLookups((body.rows ?? []).slice(0, 20));
-    }).catch(() => {
-      /* Diagnostics are optional; the rest of the drawer remains useful. */
-    });
-    return () => controller.abort();
-  }, []);
+  const [wide, setWide] = useState(false);
 
   return (
     <div className="drawer" data-testid="diagnostics" role="dialog" aria-label="Under the hood">
       <button className="drawer-scrim" aria-label="Close" onClick={onClose} />
-      <div className="drawer-panel">
+      <div className="drawer-panel" data-wide={wide || undefined}>
         <div className="drawer-head">
           <div className="drawer-head-row">
             <span className="drawer-title">{"{ } under the hood"}</span>
+            <button className="wire-control drawer-expand" aria-pressed={wide} onClick={() => setWide(!wide)}>{wide ? "Compact" : "Expand"}</button>
             <button className="drawer-close" data-testid="close-drawer" onClick={onClose}>
               Close
             </button>
@@ -119,7 +104,7 @@ export function Drawer({
 
         <div className="drawer-body">
           <Section title="wire" open>
-            <WireTimeline
+            <WireWorkbench
               live={diagnostics.wsState === "open" && !diagnostics.wsStale}
               hidden={diagnostics.wireHidden}
               onHiddenChange={(wireHidden) => diagnosticsStore.update({ wireHidden })}
@@ -276,22 +261,20 @@ export function Drawer({
             </div>
           </Section>
           <Section title="Lookups">
-            <pre className="drawer-json" data-testid="diag-outbound">
-              {lookups.length ? JSON.stringify(lookups, null, 1) : "no outbound rows"}
-            </pre>
+            <OutboundDiagnostics />
           </Section>
 
           {context && (
             <>
               <Section title={`candidates (raw, ${context.candidates.length})`}>
-                <pre className="drawer-json" data-testid="raw-candidates">
+                {() => <pre className="drawer-json" data-testid="raw-candidates">
                   {JSON.stringify(context.candidates, null, 1)}
-                </pre>
+                </pre>}
               </Section>
               <Section title={`facets (raw, ${context.facets.length})`}>
-                <pre className="drawer-json" data-testid="raw-facets">
+                {() => <pre className="drawer-json" data-testid="raw-facets">
                   {JSON.stringify(context.facets, null, 1)}
-                </pre>
+                </pre>}
               </Section>
             </>
           )}

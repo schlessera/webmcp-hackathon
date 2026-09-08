@@ -1,4 +1,5 @@
 import { WorkError, workFailure } from "../work-outcome.ts";
+import { traceWork } from "../wire-trace.ts";
 import { createHash } from "node:crypto";
 import type pg from "pg";
 import {
@@ -564,6 +565,7 @@ export async function evaluateMatrix(
     }
   }
   if (cachedAnswered.length) {
+    traceWork("cache", "requirement matrix")({ outcome: "ok" });
     const batch = { input: clean, claims: cachedClaims, answered: cachedAnswered };
     if (persistBatch) await persistBatch(batch);
     claims.push(...cachedClaims);

@@ -348,6 +348,11 @@ export function connectRealtime(
           bytes,
           detail: {
             outstanding: `${frame.outstanding.fetch} fetch · ${frame.outstanding.process} process`,
+            done: frame.done,
+            total: frame.total,
+            stalled: frame.stalled.length,
+            reset: frame.reset,
+            paused: frame.paused,
             eta: typeof frame.etaMs === "number" ? `${Math.round(frame.etaMs / 1000)}s` : undefined,
             stages: Array.isArray(message.stages) ? message.stages.length : undefined,
           },
@@ -371,8 +376,10 @@ export function connectRealtime(
           bytes,
           steps: steps.map((step) => ({ label: step.stage, ms: step.ms })),
           detail: {
-            costUsd: costUsd === null ? undefined : `$${costUsd.toFixed(4)}`,
+            costUsd: costUsd ?? undefined,
             candidates: ids.length,
+            stage: isStage(message.stage) ? message.stage : undefined,
+            done: message.done === true,
           },
         });
         callbacks.onFacts(ids, message.reason, {

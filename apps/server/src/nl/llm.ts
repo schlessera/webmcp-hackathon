@@ -1,5 +1,6 @@
 import { admit, modelResource, modelCostReservation, settleAttempt } from "../admission.ts";
 import { currentWork, withWork } from "../work-context.ts";
+import { traceWork } from "../wire-trace.ts";
 import { WorkError, workFailure } from "../work-outcome.ts";
 import { config, type LlmReasoningEffort } from "../config.ts";
 import { WindowBudget, WorkSlots, securityLimit } from "../security.ts";
@@ -403,9 +404,14 @@ async function sendWithRetries(
   while (true) {
     const remaining = deadlineAt - Date.now();
     if (remaining <= 0) throw new NlError("llm request timed out", 504);
+    const finishTrace = traceWork("model", String(body.model ?? "model"));
     try {
-      return await transport(body, remaining) as RawResponse;
+      const raw = await transport(body, remaining) as RawResponse;
+      finishTrace({ outcome: "ok", inputTokens: Number(raw.usage?.input_tokens),
+        outputTokens: Number(raw.usage?.output_tokens), costUsd: Number(raw.usage?.cost) });
+      return raw;
     } catch (error) {
+      finishTrace({ outcome: "error", ...(error instanceof NlError ? { status: error.status } : {}) });
       if (!retryable(error) || retry >= 3) throw error;
       const delay = jitteredDelay(retry, error.retryAfterMs);
       retry += 1;

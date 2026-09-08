@@ -3,6 +3,8 @@ import { dirname, join } from "node:path";
 import { existsSync } from "node:fs";
 import { createHash } from "node:crypto";
 import Fastify from "fastify";
+import { RequestTrace } from "./wire-trace.ts";
+import { withWork } from "./work-context.ts";
 import AjvModule from "ajv";
 import {
   INSPECT_CANDIDATES_INPUT,
@@ -94,6 +96,16 @@ export { app };
 installHttpSecurity(app, !config.dev);
 startOutboundDiagnosticLogging((fields, message) => app.log.info(fields, message));
 
+const requestTraces = new WeakMap<object, RequestTrace>();
+// Start after body parsing so its event emitter cannot break async context.
+// Recording is opt-in; every field is timing/counter metadata for this request.
+app.addHook("preValidation", (req, _reply, done) => {
+  if (req.headers["x-wire-trace"] !== "1") return done();
+  const trace = new RequestTrace();
+  requestTraces.set(req, trace);
+  withWork({ trace }, done);
+});
+
 // HTTP payloads negotiate Brotli or gzip. This onSend-based plugin is
 // registered before routes and does not participate in WebSocket upgrades.
 await app.register(import("@fastify/compress"), {
@@ -112,7 +124,15 @@ app.addHook("onSend", async (req, reply, payload) => {
   const requestId = requestCorrelationId(req);
   if (requestId) reply.header("x-correlation-id", requestId);
   reply.header("x-server-ms", String(Math.round(reply.elapsedTime)));
+  const trace = requestTraces.get(req);
+  if (trace) reply.header("x-wire-trace", JSON.stringify(trace.finish()));
   return payload;
+});
+
+app.addHook("onResponse", async (req, reply) => {
+  if (!requestTraces.has(req)) return;
+  app.log.info({ correlationId: correlationId(req), route: req.routeOptions.url,
+    status: reply.statusCode, durationMs: Math.round(reply.elapsedTime) }, "wire request");
 });
 
 app.get("/api/meta", async () => ({

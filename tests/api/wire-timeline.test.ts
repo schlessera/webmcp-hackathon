@@ -299,6 +299,25 @@ describe("wire timeline: an agent-private condition's own frame", () => {
     await nlServer.stop();
   });
 
+  it("attaches isolated content-free server spans only when requested", async () => {
+    const requests = ["wire-one", "wire-two"];
+    const responses = await Promise.all(requests.map((id, i) => fetch(`${nlServer.baseUrl}/api/nl/say`, {
+      method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${i ? nlRoom.tokens.joe : nlRoom.tokens.org}`,
+        "x-correlation-id": id, "x-wire-trace": "1" },
+      body: JSON.stringify({ text: "a quiet place with a particular atmosphere", visibility: "shared" }),
+    })));
+    for (let i=0;i<responses.length;i++) {
+      expect(responses[i].status).toBe(200);
+      expect(responses[i].headers.get("x-correlation-id")).toBe(requests[i]);
+      const trace = JSON.parse(responses[i].headers.get("x-wire-trace")!);
+      expect(trace.spans).toHaveLength(1);
+      expect(trace.spans[0]).toMatchObject({kind:"model",outcome:"ok",inputTokens:12,outputTokens:3});
+      expect(JSON.stringify(trace)).not.toMatch(/quiet|atmosphere|Bearer|prompt/);
+    }
+    const plain = await fetch(`${nlServer.baseUrl}/api/meta`);
+    expect(plain.headers.has("x-wire-trace")).toBe(false);
+  });
+
   it("reaches the owner's socket with causedBy naming the condition request", async () => {
     const owner = await openRealtime(nlServer.baseUrl, nlRoom.tokens.joe);
     const peer = await openRealtime(nlServer.baseUrl, nlRoom.tokens.sarah);

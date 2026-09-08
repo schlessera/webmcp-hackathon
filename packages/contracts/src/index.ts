@@ -1,4 +1,5 @@
 export * from "./versions.ts";
+export * from "./wire.ts";
 export * from "./manifest.ts";
 export * from "./errors.ts";
 export * from "./envelope.ts";

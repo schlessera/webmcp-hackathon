@@ -9,6 +9,7 @@ setTransport(async (body) => {
     throw new Error("only the route model is scripted in wire-timeline tests");
   }
   return {
+    usage: { input_tokens: 12, output_tokens: 3 },
     output: [{
       type: "message",
       content: [{
