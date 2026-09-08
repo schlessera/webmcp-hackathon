@@ -1,0 +1,4922 @@
+{
+  "checkedAt": "2026-09-08T10:34:09.673Z",
+  "scope": "All 168 catalogue entries; up to 3 records per source, not a complete data-quality audit",
+  "sources": [
+    {
+      "sourceId": "Bxx2ekr8iguaDTzHR",
+      "name": "HVV-Aufzüge",
+      "group": "equipment / status",
+      "decision": "hold / unavailable",
+      "use": "Context for explicitly linked station or venue; later phase",
+      "selected": false,
+      "catalogueDocuments": 0,
+      "importType": "equipmentInfos",
+      "sampleEndpoint": null,
+      "sampled": 0,
+      "probeStatuses": "equipment-infos:200; place-infos:200; disruptions:404",
+      "observedFamilies": [],
+      "relevantFields": [],
+      "observedRegionalRecords": {},
+      "licence": "Copyright © 2018 HVV GmbH",
+      "licenceClass": "restricted",
+      "terms": "permission / terms review",
+      "notes": [
+        "No rows from place/equipment probes; not proof of no upstream data"
+      ],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/Bxx2ekr8iguaDTzHR",
+      "originUrl": "https://www.hvv.de"
+    },
+    {
+      "sourceId": "GaRjxFAmzo59826M2",
+      "name": "AWO Düsseldorf",
+      "group": "venue survey / place guide",
+      "decision": "future region / capability",
+      "use": "Existing places plus explicit practical facts; no broad suitability inference",
+      "selected": false,
+      "catalogueDocuments": 29,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "dog policy",
+        "Wi-Fi",
+        "entrances",
+        "toilet detail",
+        "access summary",
+        "hearing/media support"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair",
+        "accessibility.animalPolicy.allowsAssistanceDogs",
+        "accessibility.entrances[]",
+        "accessibility.entrances[].properties.isLevel",
+        "accessibility.entrances[].properties.door.isGlassDoor",
+        "accessibility.entrances[].properties.door.hasClearMarkingOnGlassDoor",
+        "accessibility.entrances[].properties.door.isAutomatic",
+        "accessibility.entrances[].properties.door.needsDoorbell",
+        "accessibility.entrances[].properties.door.hasIntercom",
+        "accessibility.hasBrailleSignage",
+        "accessibility.hasInductionLoop",
+        "accessibility.media[]",
+        "accessibility.restrooms[]",
+        "accessibility.restrooms[].isAccessibleWithWheelchair",
+        "accessibility.restrooms[].hasEmergencyPullstring",
+        "accessibility.restrooms[].hasChangingTableForAdults",
+        "accessibility.wifi.isOpenToEveryone"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "Open Data Licence Version 2.0",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/GaRjxFAmzo59826M2",
+      "originUrl": "https://www.awo-duesseldorf.de/"
+    },
+    {
+      "sourceId": "57HZPLZfYaDwNxLFY",
+      "name": "Bochum Places",
+      "group": "venue survey / place guide",
+      "decision": "future region / capability",
+      "use": "Existing places plus explicit practical facts; no broad suitability inference",
+      "selected": false,
+      "catalogueDocuments": 13,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "dog policy",
+        "Wi-Fi",
+        "entrances",
+        "toilet detail",
+        "access summary",
+        "hearing/media support"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair",
+        "accessibility.media[]",
+        "accessibility.animalPolicy.allowsAssistanceDogs",
+        "accessibility.entrances[]",
+        "accessibility.entrances[].properties.isLevel",
+        "accessibility.entrances[].properties.stairs.hasHandRail",
+        "accessibility.entrances[].properties.door.isGlassDoor",
+        "accessibility.entrances[].properties.door.hasClearMarkingOnGlassDoor",
+        "accessibility.entrances[].properties.door.isAutomatic",
+        "accessibility.entrances[].properties.door.needsDoorbell",
+        "accessibility.hasBrailleSignage",
+        "accessibility.hasInductionLoop",
+        "accessibility.restrooms[]",
+        "accessibility.restrooms[].isAccessibleWithWheelchair",
+        "accessibility.restrooms[].toilet.grabBars.onUsersLeftSide",
+        "accessibility.restrooms[].toilet.grabBars.onUsersRightSide",
+        "accessibility.wifi.isOpenToEveryone",
+        "accessibility.media[].hasPlainLanguageOption",
+        "accessibility.media[].isAudio",
+        "accessibility.restrooms[].hasEmergencyPullstring"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "Test",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/57HZPLZfYaDwNxLFY",
+      "originUrl": "https://bochum.wheelmap.pro"
+    },
+    {
+      "sourceId": "Yra2ze6vW9ttX7Tiz",
+      "name": "Pfotenpiloten",
+      "group": "dog policy",
+      "decision": "consider for current regions",
+      "use": "Pet policy; assistance-dog policy separately",
+      "selected": false,
+      "catalogueDocuments": 5,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "dog policy"
+      ],
+      "relevantFields": [
+        "accessibility.allowsDogs",
+        "accessibility.allowsGuideDogs"
+      ],
+      "observedRegionalRecords": {
+        "berlin-mitte": 2
+      },
+      "licence": "Open Data Commons Open Database License",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/Yra2ze6vW9ttX7Tiz",
+      "originUrl": null
+    },
+    {
+      "sourceId": "htHDFsGFJirDM2ypw",
+      "name": "barrierefrei.konstanz.de",
+      "group": "venue survey / place guide",
+      "decision": "consider for current regions",
+      "use": "Existing places plus explicit practical facts; no broad suitability inference",
+      "selected": false,
+      "catalogueDocuments": 19,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "entrances",
+        "toilet detail",
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair",
+        "accessibility.entrances[]",
+        "accessibility.entrances[].properties.stairs.count",
+        "accessibility.restrooms[]",
+        "accessibility.restrooms[].isAccessibleWithWheelchair",
+        "accessibility.entrances[].geometry.type",
+        "accessibility.entrances[].properties.isMainEntrance",
+        "accessibility.entrances[].properties.hasFixedRamp",
+        "accessibility.entrances[].properties.isLevel",
+        "accessibility.restrooms[].toilet.grabBars.onUsersLeftSide",
+        "accessibility.restrooms[].toilet.grabBars.onUsersRightSide"
+      ],
+      "observedRegionalRecords": {
+        "berlin-mitte": 2
+      },
+      "licence": "ODbL v1.0",
+      "licenceClass": "CCSA",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/htHDFsGFJirDM2ypw",
+      "originUrl": null
+    },
+    {
+      "sourceId": "o4LX2WGnJDpPdhgto",
+      "name": "Konstanz Elevators",
+      "group": "equipment / status",
+      "decision": "later / arrival context",
+      "use": "Context for explicitly linked station or venue; later phase",
+      "selected": false,
+      "catalogueDocuments": 1,
+      "importType": "equipmentInfos",
+      "sampleEndpoint": "equipment-infos",
+      "sampled": 1,
+      "probeStatuses": "equipment-infos:200",
+      "observedFamilies": [
+        "equipment status"
+      ],
+      "relevantFields": [
+        "isWorking",
+        "stateLastUpdate"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "ODbL",
+      "licenceClass": "CCSA",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/o4LX2WGnJDpPdhgto",
+      "originUrl": null
+    },
+    {
+      "sourceId": "nwccXsd9WMekvFs3r",
+      "name": "FaSta",
+      "group": "equipment / status",
+      "decision": "hold / unavailable",
+      "use": "Context for explicitly linked station or venue; later phase",
+      "selected": false,
+      "catalogueDocuments": 0,
+      "importType": "equipmentInfos",
+      "sampleEndpoint": null,
+      "sampled": 0,
+      "probeStatuses": "equipment-infos:200; place-infos:200; disruptions:404",
+      "observedFamilies": [],
+      "relevantFields": [],
+      "observedRegionalRecords": {},
+      "licence": "CC-BY 4.0 International",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [
+        "OSM identifier mapping: ref:operator_inventory",
+        "No rows from place/equipment probes; not proof of no upstream data"
+      ],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/nwccXsd9WMekvFs3r",
+      "originUrl": "https://developer.deutschebahn.com/store/apis/info?name=FaSta-Station_Facilities_Status&version=v1&provider=DBOpenData"
+    },
+    {
+      "sourceId": "ghEw4XyFpQNLMC45w",
+      "name": "Places from ‘Places and Facilities Survey’",
+      "group": "venue survey / place guide",
+      "decision": "consider for current regions",
+      "use": "Existing places plus explicit practical facts; no broad suitability inference",
+      "selected": true,
+      "catalogueDocuments": 1,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 1,
+      "probeStatuses": "equipment-infos:200; place-infos:200",
+      "observedFamilies": [
+        "entrances",
+        "toilet detail",
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair",
+        "accessibility.entrances[]",
+        "accessibility.entrances[].properties.isLevel",
+        "accessibility.entrances[].properties.hasFixedRamp",
+        "accessibility.entrances[].properties.hasRemovableRamp",
+        "accessibility.entrances[].properties.door.isAutomaticOrAlwaysOpen",
+        "accessibility.entrances[].properties.door.isRevolving",
+        "accessibility.entrances[].properties.door.isTurnstile",
+        "accessibility.entrances[].properties.door.needsDoorbell",
+        "accessibility.entrances[].properties.door.hasIntercom",
+        "accessibility.entrances[].properties.needsAppointment",
+        "accessibility.entrances[].geometry.type",
+        "accessibility.restrooms[]",
+        "accessibility.restrooms[].isAccessibleWithWheelchair"
+      ],
+      "observedRegionalRecords": {
+        "berlin-mitte": 1
+      },
+      "licence": "ODbL",
+      "licenceClass": "CCSA",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/ghEw4XyFpQNLMC45w",
+      "originUrl": null
+    },
+    {
+      "sourceId": "nD9gxnEBgnvaDMXRX",
+      "name": "Facilities from ‘Places and Facilities Survey’",
+      "group": "equipment / status",
+      "decision": "later / arrival context",
+      "use": "Context for explicitly linked station or venue; later phase",
+      "selected": false,
+      "catalogueDocuments": 1,
+      "importType": "equipmentInfos",
+      "sampleEndpoint": "equipment-infos",
+      "sampled": 2,
+      "probeStatuses": "equipment-infos:200",
+      "observedFamilies": [
+        "hearing/media support"
+      ],
+      "relevantFields": [
+        "hasBrailleText"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "ODbL",
+      "licenceClass": "CCSA",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/nD9gxnEBgnvaDMXRX",
+      "originUrl": null
+    },
+    {
+      "sourceId": "Q9jzJMxydegZYfFbK",
+      "name": "StaDa",
+      "group": "transit stops",
+      "decision": "consider for current regions",
+      "use": "Arrival context; no route accessibility inference",
+      "selected": true,
+      "catalogueDocuments": 5408,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair"
+      ],
+      "observedRegionalRecords": {
+        "berlin-mitte": 8
+      },
+      "licence": "CC-BY 4.0 International",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/Q9jzJMxydegZYfFbK",
+      "originUrl": "https://developer.deutschebahn.com/store/apis/info?name=StaDa-Station_Data&version=v2&provider=DBOpenData"
+    },
+    {
+      "sourceId": "K6z97TJMt47eb8n4K",
+      "name": "Orte von Langen barrierefrei",
+      "group": "venue survey / place guide",
+      "decision": "hold / unavailable",
+      "use": "Existing places plus explicit practical facts; no broad suitability inference",
+      "selected": false,
+      "catalogueDocuments": 0,
+      "importType": "placeInfos",
+      "sampleEndpoint": null,
+      "sampled": 0,
+      "probeStatuses": "place-infos:200; equipment-infos:200; disruptions:404",
+      "observedFamilies": [],
+      "relevantFields": [],
+      "observedRegionalRecords": {},
+      "licence": "CC-BY 4.0 International",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [
+        "No rows from place/equipment probes; not proof of no upstream data"
+      ],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/K6z97TJMt47eb8n4K",
+      "originUrl": null
+    },
+    {
+      "sourceId": "ktcpjkz9nAHW7rK83",
+      "name": "Aufzüge von Langen barrierefrei",
+      "group": "equipment / status",
+      "decision": "hold / unavailable",
+      "use": "Context for explicitly linked station or venue; later phase",
+      "selected": false,
+      "catalogueDocuments": 0,
+      "importType": "equipmentInfos",
+      "sampleEndpoint": null,
+      "sampled": 0,
+      "probeStatuses": "equipment-infos:200; place-infos:200; disruptions:404",
+      "observedFamilies": [],
+      "relevantFields": [],
+      "observedRegionalRecords": {},
+      "licence": "CC-BY 4.0 International",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [
+        "No rows from place/equipment probes; not proof of no upstream data"
+      ],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/ktcpjkz9nAHW7rK83",
+      "originUrl": null
+    },
+    {
+      "sourceId": "sAhF3tjgphjWM4Mtg",
+      "name": "Norwegian Parking Places",
+      "group": "parking",
+      "decision": "future region / capability",
+      "use": "Nearby designated parking; no live vacancy claim",
+      "selected": false,
+      "catalogueDocuments": 463,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "Norwegian Licence for Open Government Data (NLOD)",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/sAhF3tjgphjWM4Mtg",
+      "originUrl": null
+    },
+    {
+      "sourceId": "LnmJGWXfxwbdDDi2u",
+      "name": "Norwegian Bathing Ramps",
+      "group": "outdoor places / amenities",
+      "decision": "future region / capability",
+      "use": "Outing destinations or nearby amenities; region-specific",
+      "selected": false,
+      "catalogueDocuments": 98,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "Norwegian Licence for Open Government Data (NLOD)",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/LnmJGWXfxwbdDDi2u",
+      "originUrl": null
+    },
+    {
+      "sourceId": "P6eAEqB5ERwWNNqhp",
+      "name": "Norwegian Outdoor Cabins",
+      "group": "outdoor places / amenities",
+      "decision": "future region / capability",
+      "use": "Outing destinations or nearby amenities; region-specific",
+      "selected": false,
+      "catalogueDocuments": 22,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [],
+      "relevantFields": [],
+      "observedRegionalRecords": {},
+      "licence": "Norwegian Licence for Open Government Data (NLOD)",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/P6eAEqB5ERwWNNqhp",
+      "originUrl": null
+    },
+    {
+      "sourceId": "ucuGtwhFa4gbWopH4",
+      "name": "Norwegian Fishing Places",
+      "group": "outdoor places / amenities",
+      "decision": "future region / capability",
+      "use": "Outing destinations or nearby amenities; region-specific",
+      "selected": false,
+      "catalogueDocuments": 549,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "Norwegian Licence for Open Government Data (NLOD)",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/ucuGtwhFa4gbWopH4",
+      "originUrl": null
+    },
+    {
+      "sourceId": "uwscLWLH2FyyXDDf3",
+      "name": "Norwegian Cities Parking Places",
+      "group": "parking",
+      "decision": "future region / capability",
+      "use": "Nearby designated parking; no live vacancy claim",
+      "selected": false,
+      "catalogueDocuments": 5992,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "Norwegian Licence for Open Government Data (NLOD)",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/uwscLWLH2FyyXDDf3",
+      "originUrl": null
+    },
+    {
+      "sourceId": "SZC28Pv3gYRohdmSt",
+      "name": "Norwegian Public Toilets",
+      "group": "public toilets",
+      "decision": "future region / capability",
+      "use": "Nearby toilet and any explicit access/payment facts",
+      "selected": false,
+      "catalogueDocuments": 811,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "Norwegian Licence for Open Government Data (NLOD)",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/SZC28Pv3gYRohdmSt",
+      "originUrl": null
+    },
+    {
+      "sourceId": "arJbYmDPMtK5XtHzt",
+      "name": "Norwegian Building Entrances",
+      "group": "venue survey / place guide",
+      "decision": "future region / capability",
+      "use": "Existing places plus explicit practical facts; no broad suitability inference",
+      "selected": false,
+      "catalogueDocuments": 9666,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "Norwegian Licence for Open Government Data (NLOD)",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/arJbYmDPMtK5XtHzt",
+      "originUrl": null
+    },
+    {
+      "sourceId": "WxikXc2QdGx22o8io",
+      "name": "Norwegian Public Benches",
+      "group": "outdoor places / amenities",
+      "decision": "future region / capability",
+      "use": "Outing destinations or nearby amenities; region-specific",
+      "selected": false,
+      "catalogueDocuments": 1452,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "Norwegian Licence for Open Government Data (NLOD)",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [
+        "Sample category is park; source title alone does not establish usable seating"
+      ],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/WxikXc2QdGx22o8io",
+      "originUrl": null
+    },
+    {
+      "sourceId": "5km2SLdXqfZwrZgDB",
+      "name": "Norwegian Outdoor Benches",
+      "group": "outdoor places / amenities",
+      "decision": "future region / capability",
+      "use": "Outing destinations or nearby amenities; region-specific",
+      "selected": false,
+      "catalogueDocuments": 3243,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "Norwegian Licence for Open Government Data (NLOD)",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [
+        "Sample category is park; source title alone does not establish usable seating"
+      ],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/5km2SLdXqfZwrZgDB",
+      "originUrl": null
+    },
+    {
+      "sourceId": "xvJQAJiu28wG8THaH",
+      "name": "Norwegian BBQ places",
+      "group": "outdoor places / amenities",
+      "decision": "future region / capability",
+      "use": "Outing destinations or nearby amenities; region-specific",
+      "selected": false,
+      "catalogueDocuments": 648,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "Norwegian Licence for Open Government Data (NLOD)",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/xvJQAJiu28wG8THaH",
+      "originUrl": null
+    },
+    {
+      "sourceId": "erfctmkM6wv4L9ita",
+      "name": "Norwegian Gapahuk Cabins",
+      "group": "outdoor places / amenities",
+      "decision": "future region / capability",
+      "use": "Outing destinations or nearby amenities; region-specific",
+      "selected": false,
+      "catalogueDocuments": 258,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "Norwegian Licence for Open Government Data (NLOD)",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/erfctmkM6wv4L9ita",
+      "originUrl": null
+    },
+    {
+      "sourceId": "wiEXXjhbrbS5eW4e4",
+      "name": "Places in Starnberg",
+      "group": "venue survey / place guide",
+      "decision": "hold / unavailable",
+      "use": "Existing places plus explicit practical facts; no broad suitability inference",
+      "selected": false,
+      "catalogueDocuments": 0,
+      "importType": null,
+      "sampleEndpoint": null,
+      "sampled": 0,
+      "probeStatuses": "place-infos:200; equipment-infos:200; disruptions:404",
+      "observedFamilies": [],
+      "relevantFields": [],
+      "observedRegionalRecords": {},
+      "licence": "Creative Commons Attribution License (cc-by)",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [
+        "No rows from place/equipment probes; not proof of no upstream data"
+      ],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/wiEXXjhbrbS5eW4e4",
+      "originUrl": null
+    },
+    {
+      "sourceId": "HBXeYJxqxijXq6CSy",
+      "name": "Starnberg Place Survey",
+      "group": "venue survey / place guide",
+      "decision": "future region / capability",
+      "use": "Existing places plus explicit practical facts; no broad suitability inference",
+      "selected": false,
+      "catalogueDocuments": 31,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "entrances",
+        "toilet detail",
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair",
+        "accessibility.entrances[]",
+        "accessibility.entrances[].hasFixedRamp",
+        "accessibility.entrances[].stairs[]",
+        "accessibility.entrances[].stairs[].count",
+        "accessibility.entrances[].doors[]",
+        "accessibility.restrooms[]",
+        "accessibility.restrooms[].entrance.isLevel",
+        "accessibility.restrooms[].toilet.hasFoldingHandles",
+        "accessibility.restrooms[].toilet.foldingHandles.onUsersLeftSide",
+        "accessibility.restrooms[].toilet.foldingHandles.onUsersRightSide",
+        "accessibility.restrooms[].washBasin.accessibleWithWheelchair",
+        "accessibility.restrooms[].washBasin.isLocatedInsideRestroom",
+        "accessibility.restrooms[].isAccessibleWithWheelchair",
+        "accessibility.entrances[].hasRemovableRamp",
+        "accessibility.entrances[].doors[].isAutomaticOrAlwaysOpen",
+        "accessibility.entrances"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "Creative Commons Attribution 4.0 International Public License",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/HBXeYJxqxijXq6CSy",
+      "originUrl": null
+    },
+    {
+      "sourceId": "tGzD9DzEswmtnBuq2",
+      "name": "GM SH Aufzüge",
+      "group": "equipment / status",
+      "decision": "later / arrival context",
+      "use": "Context for explicitly linked station or venue; later phase",
+      "selected": false,
+      "catalogueDocuments": 4,
+      "importType": "equipmentInfos",
+      "sampleEndpoint": "equipment-infos",
+      "sampled": 3,
+      "probeStatuses": "equipment-infos:200",
+      "observedFamilies": [
+        "equipment status"
+      ],
+      "relevantFields": [
+        "isWorking",
+        "stateLastUpdate"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "CC-BY 4.0 International",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/tGzD9DzEswmtnBuq2",
+      "originUrl": null
+    },
+    {
+      "sourceId": "WsbmSk2ujen5daLry",
+      "name": "Schleswig Holstein GMSH",
+      "group": "venue survey / place guide",
+      "decision": "future region / capability",
+      "use": "Existing places plus explicit practical facts; no broad suitability inference",
+      "selected": false,
+      "catalogueDocuments": 0,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 2,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "entrances",
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair",
+        "accessibility.entrances[]",
+        "accessibility.entrances[].geometry.type",
+        "accessibility.entrances[].properties.isLevel",
+        "accessibility.entrances[].properties.stairs.count",
+        "accessibility.entrances[].properties.hasFixedRamp"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "Creative Commons Attribution 4.0 International Public License",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/WsbmSk2ujen5daLry",
+      "originUrl": null
+    },
+    {
+      "sourceId": "Q867R8vjqg9wEJ3SW",
+      "name": "Toiletten für alle",
+      "group": "specialist support",
+      "decision": "review terms",
+      "use": "Only when a stated condition needs it",
+      "selected": false,
+      "catalogueDocuments": 167,
+      "importType": "images",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary",
+        "website"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair",
+        "placeWebsiteUrl"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "© All rights reserved",
+      "licenceClass": "restricted",
+      "terms": "permission / terms review",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/Q867R8vjqg9wEJ3SW",
+      "originUrl": "https://www.toiletten-fuer-alle.de/"
+    },
+    {
+      "sourceId": "55HNke5PmDcYn7bKz",
+      "name": "Behindertenparkplaetze Stadt Salzburg",
+      "group": "parking",
+      "decision": "future region / capability",
+      "use": "Nearby designated parking; no live vacancy claim",
+      "selected": false,
+      "catalogueDocuments": 309,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "Creative Commons Namensnennung 3.0 Österreich",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/55HNke5PmDcYn7bKz",
+      "originUrl": null
+    },
+    {
+      "sourceId": "6LHxeyQAhHuyhA9Ke",
+      "name": "Aufzüge der Stationen der Stadt Wien",
+      "group": "equipment / status",
+      "decision": "later / arrival context",
+      "use": "Context for explicitly linked station or venue; later phase",
+      "selected": false,
+      "catalogueDocuments": 919,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "equipment-infos:200; place-infos:200",
+      "observedFamilies": [
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "Creative Commons Namensnennung 3.0 Österreich",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/6LHxeyQAhHuyhA9Ke",
+      "originUrl": null
+    },
+    {
+      "sourceId": "XWATLf3NA778iPJTp",
+      "name": "Berlin Behindertenparkplätze",
+      "group": "parking",
+      "decision": "review terms",
+      "use": "Nearby designated parking; no live vacancy claim",
+      "selected": true,
+      "catalogueDocuments": 1344,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair"
+      ],
+      "observedRegionalRecords": {
+        "berlin-mitte": 12
+      },
+      "licence": "Data licence Germany - Zero - Version 2.0",
+      "licenceClass": "CC0",
+      "terms": "conflicting metadata; resolve attribution",
+      "notes": [
+        "Licence says Zero; source description says attribution (BY)"
+      ],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/XWATLf3NA778iPJTp",
+      "originUrl": "https://fbinter.stadt-berlin.de/fb?loginkey=showMap&mapId=k_bparkplatz@senstadt"
+    },
+    {
+      "sourceId": "zFpoqetHjgGbmyHnR",
+      "name": "Ginto.Guide",
+      "group": "venue survey / place guide",
+      "decision": "consider for current regions",
+      "use": "Existing places plus explicit practical facts; no broad suitability inference",
+      "selected": true,
+      "catalogueDocuments": 4379,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary",
+        "website"
+      ],
+      "relevantFields": [
+        "placeWebsiteUrl",
+        "accessibility.accessibleWith.wheelchair"
+      ],
+      "observedRegionalRecords": {
+        "berlin-mitte": 1
+      },
+      "licence": "ODbL v1.0",
+      "licenceClass": "CCSA",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/zFpoqetHjgGbmyHnR",
+      "originUrl": "https://www.ginto.guide/"
+    },
+    {
+      "sourceId": "ZgrxE24pTiDfv7J5P",
+      "name": "Public toilets in Berlin",
+      "group": "public toilets",
+      "decision": "consider for current regions",
+      "use": "Nearby toilet and any explicit access/payment facts",
+      "selected": true,
+      "catalogueDocuments": 258,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary",
+        "payment detail"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair",
+        "accessibility.payment.acceptsCoins",
+        "accessibility.payment.customPaymentMetaInfo"
+      ],
+      "observedRegionalRecords": {
+        "berlin-mitte": 13
+      },
+      "licence": "Namensnennung 3.0 Deutschland (CC BY 3.0 DE)",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/ZgrxE24pTiDfv7J5P",
+      "originUrl": "https://www.berlin.de/sen/uvk/verkehr/infrastruktur/oeffentliche-toiletten/download/"
+    },
+    {
+      "sourceId": "sHeyuep6ezZCd9Bn5",
+      "name": "Südtirol für alle",
+      "group": "regional destination guide",
+      "decision": "review terms",
+      "use": "Place identity and scoped access facts; mostly future regions",
+      "selected": false,
+      "catalogueDocuments": 855,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "© All rights reserved",
+      "licenceClass": "restricted",
+      "terms": "permission / terms review",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/sHeyuep6ezZCd9Bn5",
+      "originUrl": "https://www.altoadigepertutti.it/"
+    },
+    {
+      "sourceId": "stEnnLY25JNhNA5YN",
+      "name": "Leipziger Messe Places",
+      "group": "venue survey / place guide",
+      "decision": "future region / capability",
+      "use": "Existing places plus explicit practical facts; no broad suitability inference",
+      "selected": false,
+      "catalogueDocuments": 3,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "entrances",
+        "access summary",
+        "website"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair",
+        "accessibility.entrances[]",
+        "accessibility.entrances[].properties.hasFixedRamp",
+        "accessibility.entrances[].properties.hasRemovableRamp",
+        "accessibility.entrances[].properties.door.isAutomaticOrAlwaysOpen",
+        "accessibility.entrances[].properties.door.isRevolving",
+        "accessibility.entrances[].properties.door.isTurnstile",
+        "accessibility.entrances[].properties.door.needsDoorbell",
+        "accessibility.entrances[].properties.door.hasIntercom",
+        "accessibility.entrances[].properties.needsAppointment",
+        "accessibility.entrances[].geometry.type",
+        "placeWebsiteUrl",
+        "accessibility.entrances[].properties.isLevel"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "CC-BY 4.0 International",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/stEnnLY25JNhNA5YN",
+      "originUrl": "https://www.leipziger-messe.de"
+    },
+    {
+      "sourceId": "oHeidAeqG39Rakt2c",
+      "name": "Leipziger Messe Facilities",
+      "group": "equipment / status",
+      "decision": "later / arrival context",
+      "use": "Context for explicitly linked station or venue; later phase",
+      "selected": false,
+      "catalogueDocuments": 3,
+      "importType": "equipmentInfos",
+      "sampleEndpoint": "equipment-infos",
+      "sampled": 3,
+      "probeStatuses": "equipment-infos:200",
+      "observedFamilies": [
+        "equipment status"
+      ],
+      "relevantFields": [
+        "isWorking",
+        "stateLastUpdate"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "CC-BY 4.0 International",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/oHeidAeqG39Rakt2c",
+      "originUrl": "https://www.leipziger-messe.de"
+    },
+    {
+      "sourceId": "rsanCCQLE8yq26CZ6",
+      "name": "Reisen für Alle",
+      "group": "regional destination guide",
+      "decision": "review terms",
+      "use": "Place identity and scoped access facts; mostly future regions",
+      "selected": false,
+      "catalogueDocuments": 1823,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "entrances",
+        "toilet detail",
+        "access summary",
+        "hearing/media support",
+        "website"
+      ],
+      "relevantFields": [
+        "placeWebsiteUrl",
+        "accessibility.areas[].entrances[]",
+        "accessibility.areas[].entrances[].isLevel",
+        "accessibility.areas[].restrooms[]",
+        "accessibility.areas[].restrooms[].isAccessibleWithWheelchair",
+        "accessibility.areas[].restrooms[].toilet.foldableHandles.onAtLeastOneSide",
+        "accessibility.areas[].services.hasInductionLoop",
+        "accessibility.accessibleWith.wheelchair",
+        "accessibility.accessibleWith.guideDog"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "© Deutsches Seminar für Tourismus (DSFT) Berlin e. V.",
+      "licenceClass": "restricted",
+      "terms": "permission / terms review",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/rsanCCQLE8yq26CZ6",
+      "originUrl": "https://www.reisen-fuer-alle.de"
+    },
+    {
+      "sourceId": "bWaRzazK7tEq2hcGA",
+      "name": "Behindertenparkplätze Fhain Kberg",
+      "group": "parking",
+      "decision": "consider for current regions",
+      "use": "Nearby designated parking; no live vacancy claim",
+      "selected": true,
+      "catalogueDocuments": 89,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair"
+      ],
+      "observedRegionalRecords": {
+        "berlin-mitte": 10
+      },
+      "licence": "Namensnennung 3.0 Deutschland (CC BY 3.0 DE)",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/bWaRzazK7tEq2hcGA",
+      "originUrl": null
+    },
+    {
+      "sourceId": "QxyZ7vAMS695Bhvii",
+      "name": "Strut",
+      "group": "regional destination guide",
+      "decision": "review terms",
+      "use": "Place identity and scoped access facts; mostly future regions",
+      "selected": false,
+      "catalogueDocuments": 32203,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "entrances",
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair",
+        "accessibility.areas[].entrances[]",
+        "accessibility.areas[].entrances[].door.isAutomaticOrAlwaysOpen"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "© Canadian Abilities Foundation",
+      "licenceClass": "restricted",
+      "terms": "permission / terms review",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/QxyZ7vAMS695Bhvii",
+      "originUrl": "https://www.strutcanada.com/"
+    },
+    {
+      "sourceId": "kLmSomNZnXTBH2W7v",
+      "name": "KONE Buildings",
+      "group": "venue survey / place guide",
+      "decision": "review terms",
+      "use": "Existing places plus explicit practical facts; no broad suitability inference",
+      "selected": false,
+      "catalogueDocuments": 3,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 1,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "website"
+      ],
+      "relevantFields": [
+        "placeWebsiteUrl"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "© Kone Terms and Conditions",
+      "licenceClass": "restricted",
+      "terms": "permission / terms review",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/kLmSomNZnXTBH2W7v",
+      "originUrl": null
+    },
+    {
+      "sourceId": "xm6XdcZiP6bgy6Cjf",
+      "name": "Kone Elevators",
+      "group": "equipment / status",
+      "decision": "review terms",
+      "use": "Context for explicitly linked station or venue; later phase",
+      "selected": false,
+      "catalogueDocuments": 1,
+      "importType": "equipmentInfos",
+      "sampleEndpoint": "equipment-infos",
+      "sampled": 1,
+      "probeStatuses": "equipment-infos:200",
+      "observedFamilies": [
+        "equipment status"
+      ],
+      "relevantFields": [
+        "isWorking"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "© Kone Terms and Conditions",
+      "licenceClass": "restricted",
+      "terms": "permission / terms review",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/xm6XdcZiP6bgy6Cjf",
+      "originUrl": null
+    },
+    {
+      "sourceId": "zhL6MnyfRepEzHByx",
+      "name": "ACE-Clubinitiative",
+      "group": "venue survey / place guide",
+      "decision": "consider for current regions",
+      "use": "Existing places plus explicit practical facts; no broad suitability inference",
+      "selected": false,
+      "catalogueDocuments": 411,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair"
+      ],
+      "observedRegionalRecords": {
+        "berlin-mitte": 1
+      },
+      "licence": "Open Data Commons Open Database License",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/zhL6MnyfRepEzHByx",
+      "originUrl": "https://www.ace.de/"
+    },
+    {
+      "sourceId": "Piy5sjn7eSG5ie3Ma",
+      "name": "Blue Badge Parking",
+      "group": "parking",
+      "decision": "review terms",
+      "use": "Nearby designated parking; no live vacancy claim",
+      "selected": false,
+      "catalogueDocuments": 6690,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "Blue Badge Parking",
+      "licenceClass": "restricted",
+      "terms": "permission / terms review",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/Piy5sjn7eSG5ie3Ma",
+      "originUrl": "https://bluebadgeparking.com"
+    },
+    {
+      "sourceId": "Qmn3bxmtE7bFrdqY4",
+      "name": "Swimming pools - Brisbane City Council",
+      "group": "venue survey / place guide",
+      "decision": "future region / capability",
+      "use": "Existing places plus explicit practical facts; no broad suitability inference",
+      "selected": false,
+      "catalogueDocuments": 22,
+      "importType": null,
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "Creative Commons Attribution 4.0 International Public License",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/Qmn3bxmtE7bFrdqY4",
+      "originUrl": "https://www.data.brisbane.qld.gov.au/data/dataset/swimming-pools/resource/c09546c8-9526-4358-a1eb-81dbb224cdca?view_id=c8e8a95a-b7a7-423c-b28a-f8239b9eff32"
+    },
+    {
+      "sourceId": "dvxYrDLdMv3tdiHck",
+      "name": "San Francisco Disabled Parking",
+      "group": "parking",
+      "decision": "refresh before relying on it",
+      "use": "Nearby designated parking; no live vacancy claim",
+      "selected": true,
+      "catalogueDocuments": 732,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair"
+      ],
+      "observedRegionalRecords": {
+        "sf-soma": 260
+      },
+      "licence": "ODC Public Domain Dedication and Licence",
+      "licenceClass": "CC0",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [
+        "Description dates dataset to September 2011; refresh before relying on it"
+      ],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/dvxYrDLdMv3tdiHck",
+      "originUrl": "https://data.sfgov.org/Transportation/Disabled-parking-spaces/76ec-bw8s/about"
+    },
+    {
+      "sourceId": "d4eXEsjFLPtn4yGEi",
+      "name": "Accessible historical buildings in Flanders",
+      "group": "regional destination guide",
+      "decision": "future region / capability",
+      "use": "Place identity and scoped access facts; mostly future regions",
+      "selected": false,
+      "catalogueDocuments": 12,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "GRATIS OPEN DATA LICENTIE v1.2",
+      "licenceClass": "CCSA",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/d4eXEsjFLPtn4yGEi",
+      "originUrl": "http://data.visitflanders.org/accessibility/attractions/historical_buildings"
+    },
+    {
+      "sourceId": "BBQwnkLokb9xADdNK",
+      "name": "Australian National Public Toilet Map",
+      "group": "public toilets",
+      "decision": "future region / capability",
+      "use": "Nearby toilet and any explicit access/payment facts",
+      "selected": false,
+      "catalogueDocuments": 16756,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "Open Database License",
+      "licenceClass": "CCSA",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/BBQwnkLokb9xADdNK",
+      "originUrl": "http://www.civicdata.io/dataset/national-public-toilet-map-data/resource/8a7cc861-b49b-4506-872e-2153aff575c6"
+    },
+    {
+      "sourceId": "KAxoZRxfES47ohjW4",
+      "name": "British Parking",
+      "group": "parking",
+      "decision": "future region / capability",
+      "use": "Nearby designated parking; no live vacancy claim",
+      "selected": false,
+      "catalogueDocuments": 4652,
+      "importType": null,
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "Open Government Licence for public sector information UK v3.0",
+      "licenceClass": "CCSA",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/KAxoZRxfES47ohjW4",
+      "originUrl": "https://data.gov.uk/dataset/car-parks-bpa/resource/2ca14bee-37b8-4420-b77e-77ed39c0ed2c"
+    },
+    {
+      "sourceId": "QFhBLeny7zhZs5TzE",
+      "name": "Southern Grampians Disabled Parking",
+      "group": "parking",
+      "decision": "future region / capability",
+      "use": "Nearby designated parking; no live vacancy claim",
+      "selected": false,
+      "catalogueDocuments": 29,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "Creative Commons Attribution 3.0 Australia",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/QFhBLeny7zhZs5TzE",
+      "originUrl": "http://data.gov.au/dataset/southern-grampians-disabled-parking/resource/86121432-39b3-41bf-9f2c-c5a2a2e3cc6c"
+    },
+    {
+      "sourceId": "FXQ4NZTdausoXNJbm",
+      "name": "Accessibility parking places  in France",
+      "group": "parking",
+      "decision": "future region / capability",
+      "use": "Nearby designated parking; no live vacancy claim",
+      "selected": false,
+      "catalogueDocuments": 675,
+      "importType": null,
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "Open Database License",
+      "licenceClass": "CCSA",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/FXQ4NZTdausoXNJbm",
+      "originUrl": "https://www.europeandataportal.eu/data/en/dataset/accessibilite-places-de-stationnement"
+    },
+    {
+      "sourceId": "5nYmGtWywwYasksqQ",
+      "name": "Wheelmap Kobo Survey",
+      "group": "venue survey / place guide",
+      "decision": "candidate / regional check",
+      "use": "Existing places plus explicit practical facts; no broad suitability inference",
+      "selected": false,
+      "catalogueDocuments": 7648,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "entrances",
+        "toilet detail",
+        "access summary",
+        "website"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair",
+        "accessibility.entrances[]",
+        "accessibility.entrances[].hasFixedRamp",
+        "accessibility.entrances[].doors",
+        "accessibility.restrooms",
+        "accessibility.entrances[].stairs",
+        "accessibility.entrances[].doors[]",
+        "accessibility.entrances[].doors[].isAutomaticOrAlwaysOpen",
+        "accessibility.restrooms[]",
+        "accessibility.restrooms[].entrance.isLevel",
+        "accessibility.restrooms[].toilet.hasFoldingHandles",
+        "accessibility.restrooms[].toilet.foldingHandles.onUsersLeftSide",
+        "accessibility.restrooms[].toilet.foldingHandles.onUsersRightSide",
+        "accessibility.restrooms[].washBasin.accessibleWithWheelchair",
+        "accessibility.restrooms[].washBasin.isLocatedInsideRestroom",
+        "accessibility.restrooms[].isAccessibleWithWheelchair",
+        "placeWebsiteUrl"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "ODbL v1.0",
+      "licenceClass": "CCSA",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [
+        "Survey is not automatically an OSM mirror; check actual lineage"
+      ],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/5nYmGtWywwYasksqQ",
+      "originUrl": "https://wheelmap.org"
+    },
+    {
+      "sourceId": "yFxbY6A8LgPxgRtBD",
+      "name": "City of Melbourne, Australia, Buildings Accessibility",
+      "group": "venue survey / place guide",
+      "decision": "future region / capability",
+      "use": "Existing places plus explicit practical facts; no broad suitability inference",
+      "selected": false,
+      "catalogueDocuments": 5693,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [],
+      "relevantFields": [],
+      "observedRegionalRecords": {},
+      "licence": "CC-BY 4.0 International",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/yFxbY6A8LgPxgRtBD",
+      "originUrl": "https://data.melbourne.vic.gov.au/explore/dataset/buildings-with-name-age-size-accessibility-and-bicycle-facilities/information/?disjunctive.clue_small_area&disjunctive.number_of_floors_above_ground&disjunctive.predominant_space_use&disjunctive.accessibility_type&disjunctive.accessibility_type_description&disjunctive.accessibility_rating&disjunctive.block_id"
+    },
+    {
+      "sourceId": "QgAwyzRsQGBp76n92",
+      "name": "Public toilets in Plymouth",
+      "group": "public toilets",
+      "decision": "future region / capability",
+      "use": "Nearby toilet and any explicit access/payment facts",
+      "selected": false,
+      "catalogueDocuments": null,
+      "importType": null,
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "Open Government Licence for public sector information UK v3.0",
+      "licenceClass": "CCSA",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/QgAwyzRsQGBp76n92",
+      "originUrl": "https://data.gov.uk/dataset/plymouth-public-toilets1/resource/b8797ac6-e2a0-4fed-a98b-726ae6dfd5bf"
+    },
+    {
+      "sourceId": "PgaYjWmGWrxBpEbyr",
+      "name": "Odense Kommune -  Disabled Parking",
+      "group": "parking",
+      "decision": "future region / capability",
+      "use": "Nearby designated parking; no live vacancy claim",
+      "selected": false,
+      "catalogueDocuments": 83,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "Vilkår for brug af danske offentlige data  v1.0",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/PgaYjWmGWrxBpEbyr",
+      "originUrl": "http://portal.opendata.dk/dataset/parkering5b2ad/resource/e22310b4-8ac4-4b19-94f4-8690e13dee46"
+    },
+    {
+      "sourceId": "4PHKp247rmi7yaRZH",
+      "name": "Odense Kommune - Toiletter",
+      "group": "public toilets",
+      "decision": "future region / capability",
+      "use": "Nearby toilet and any explicit access/payment facts",
+      "selected": false,
+      "catalogueDocuments": 33,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "Vilkår for brug af danske offentlige data  v1.0",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/4PHKp247rmi7yaRZH",
+      "originUrl": "http://portal.opendata.dk/dataset/handicap-toiletter"
+    },
+    {
+      "sourceId": "csJ982wGWz5WHYPts",
+      "name": "Vozejkmap.cz",
+      "group": "regional destination guide",
+      "decision": "future region / capability",
+      "use": "Place identity and scoped access facts; mostly future regions",
+      "selected": false,
+      "catalogueDocuments": 7239,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "entrances",
+        "toilet detail",
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair",
+        "accessibility.areas[].entrances[]",
+        "accessibility.areas[].entrances[].isLevel",
+        "accessibility.areas[].entrances[].hasRemovableRamp",
+        "accessibility.areas[].entrances[].stairs.hasStairLift",
+        "accessibility.areas[].entrances[].stairs.hasHoist",
+        "accessibility.areas[].restrooms[]",
+        "accessibility.areas[].restrooms[].isAccessibleWithWheelchair"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "Creative Commons Attribution 4.0 International Public License",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/csJ982wGWz5WHYPts",
+      "originUrl": "http://www.vozejkmap.cz/opendata-informace"
+    },
+    {
+      "sourceId": "uCWkcqJoatN5SsGfh",
+      "name": "Craven District Council - Public Toilet",
+      "group": "public toilets",
+      "decision": "future region / capability",
+      "use": "Nearby toilet and any explicit access/payment facts",
+      "selected": false,
+      "catalogueDocuments": 11,
+      "importType": null,
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "Open Government Licence for public sector information UK v3.0",
+      "licenceClass": "CCSA",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/uCWkcqJoatN5SsGfh",
+      "originUrl": "http://www.cravendc.gov.uk/article/4923/Public-toilets"
+    },
+    {
+      "sourceId": "xhrfD2D7H7mzjMeEC",
+      "name": "Mid and East Antrim Borough Council Off Street Car Parks",
+      "group": "parking",
+      "decision": "future region / capability",
+      "use": "Nearby designated parking; no live vacancy claim",
+      "selected": false,
+      "catalogueDocuments": 143,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary",
+        "payment detail"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair",
+        "accessibility.payment.customPaymentMetaInfo"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "Open Government Licence for public sector information UK v3.0",
+      "licenceClass": "CCSA",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/xhrfD2D7H7mzjMeEC",
+      "originUrl": "https://www.opendatani.gov.uk/dataset/mid-and-east-antrim-borough-council-off-street-car-parks#"
+    },
+    {
+      "sourceId": "eeqsThLommhZmgkG4",
+      "name": "City of Port Phillip Accessible Parking",
+      "group": "parking",
+      "decision": "future region / capability",
+      "use": "Nearby designated parking; no live vacancy claim",
+      "selected": false,
+      "catalogueDocuments": 402,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "Attribution 2.5 Australia (CC BY 2.5 AU)",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/eeqsThLommhZmgkG4",
+      "originUrl": "https://data.gov.au/dataset/city-of-port-phillip-accessible-parking"
+    },
+    {
+      "sourceId": "2s8QZiNEtNsr3YgCe",
+      "name": "Antrim and Newtownabbey Borough Council Car Parks",
+      "group": "parking",
+      "decision": "future region / capability",
+      "use": "Nearby designated parking; no live vacancy claim",
+      "selected": false,
+      "catalogueDocuments": 11,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "Open Government Licence for public sector information UK v3.0",
+      "licenceClass": "CCSA",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/2s8QZiNEtNsr3YgCe",
+      "originUrl": "https://www.opendatani.gov.uk/dataset/anbc-car-parking/resource/edb0b0b6-a656-45d0-8c50-38e5b8e1dcff"
+    },
+    {
+      "sourceId": "EzQTyL2c7ixMwgnmQ",
+      "name": "Disabled parking spaces in the City of Nottingham",
+      "group": "parking",
+      "decision": "future region / capability",
+      "use": "Nearby designated parking; no live vacancy claim",
+      "selected": false,
+      "catalogueDocuments": 62,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "Open Government Licence for public sector information UK v3.0",
+      "licenceClass": "CCSA",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/EzQTyL2c7ixMwgnmQ",
+      "originUrl": "http://www.opendatanottingham.org.uk/dataset.aspx?id=25"
+    },
+    {
+      "sourceId": "Zydk7ptZfKGzTaDaF",
+      "name": "Blueflag.Global",
+      "group": "outdoor places / amenities",
+      "decision": "review terms",
+      "use": "Outing destinations or nearby amenities; region-specific",
+      "selected": false,
+      "catalogueDocuments": 4531,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair",
+        "accessibility.accessibleWith.visualImpairment"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "© All rights reserved",
+      "licenceClass": "restricted",
+      "terms": "permission / terms review",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/Zydk7ptZfKGzTaDaF",
+      "originUrl": "https://www.blueflag.global"
+    },
+    {
+      "sourceId": "Rf3E4jqTcyTQvGNcP",
+      "name": "Travelable Booking.com Mapathon",
+      "group": "venue survey / place guide",
+      "decision": "extend existing mapping",
+      "use": "Existing places plus explicit practical facts; no broad suitability inference",
+      "selected": true,
+      "catalogueDocuments": 323,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "Wi-Fi",
+        "quietness",
+        "entrances",
+        "toilet detail",
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair",
+        "accessibility.entrances[]",
+        "accessibility.entrances[].isLevel",
+        "accessibility.restrooms.isAccessibleWithWheelchair",
+        "accessibility.isQuiet",
+        "accessibility.hasFreeWifi"
+      ],
+      "observedRegionalRecords": {
+        "berlin-mitte": 1
+      },
+      "licence": "Open Data Commons Open Database License",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/Rf3E4jqTcyTQvGNcP",
+      "originUrl": null
+    },
+    {
+      "sourceId": "pb6fBNtFbKn3fLPGN",
+      "name": "Wheelmap place survey",
+      "group": "venue survey / place guide",
+      "decision": "candidate / regional check",
+      "use": "Existing places plus explicit practical facts; no broad suitability inference",
+      "selected": false,
+      "catalogueDocuments": 6,
+      "importType": null,
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "entrances",
+        "toilet detail",
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair",
+        "accessibility.entrances[]",
+        "accessibility.entrances[].properties.stairs.count",
+        "accessibility.restrooms[]",
+        "accessibility.restrooms[].toilet.grabBars.onUsersLeftSide",
+        "accessibility.restrooms[].toilet.grabBars.onUsersRightSide",
+        "accessibility.restrooms[].isAccessibleWithWheelchair"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "Open Data Commons Open Database License",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [
+        "Survey is not automatically an OSM mirror; check actual lineage"
+      ],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/pb6fBNtFbKn3fLPGN",
+      "originUrl": "https://wheelmap.org"
+    },
+    {
+      "sourceId": "sPSreQtMg8Soy5TDr",
+      "name": "Wheelmap Pro Demo Places",
+      "group": "test / obsolete",
+      "decision": "skip",
+      "use": "Keep out of ordinary place selection",
+      "selected": false,
+      "catalogueDocuments": 83,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "entrances"
+      ],
+      "relevantFields": [
+        "accessibility.entrances[]",
+        "accessibility.entrances[].properties.isLevel",
+        "accessibility.entrances[].properties.stairs.count",
+        "accessibility.entrances[].properties.stairs.hasHandRail",
+        "accessibility.entrances[].properties.stairs.hasHighContrastNosing",
+        "accessibility.entrances[].properties.stairs.hasTactileSafetyStrips",
+        "accessibility.entrances[].geometry.type",
+        "accessibility.entrances[].properties.hasFixedRamp",
+        "accessibility.entrances[].properties.hasRemovableRamp",
+        "accessibility.entrances[].properties.door.needsDoorbell",
+        "accessibility.entrances[].properties.door.hasIntercom",
+        "accessibility.entrances[].properties.door.hasSwitch"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "CC-BY 4.0 International",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [
+        "Survey is not automatically an OSM mirror; check actual lineage"
+      ],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/sPSreQtMg8Soy5TDr",
+      "originUrl": "https://demo.wheelmap.pro"
+    },
+    {
+      "sourceId": "v276kHvMWZkk4WFFA",
+      "name": "Wheelmap Facility Survey",
+      "group": "equipment / status",
+      "decision": "hold / unavailable",
+      "use": "Context for explicitly linked station or venue; later phase",
+      "selected": false,
+      "catalogueDocuments": 0,
+      "importType": "equipmentInfos",
+      "sampleEndpoint": null,
+      "sampled": 0,
+      "probeStatuses": "equipment-infos:200; place-infos:200; disruptions:404",
+      "observedFamilies": [],
+      "relevantFields": [],
+      "observedRegionalRecords": {},
+      "licence": "Open Data Commons Open Database License",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [
+        "Survey is not automatically an OSM mirror; check actual lineage",
+        "No rows from place/equipment probes; not proof of no upstream data"
+      ],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/v276kHvMWZkk4WFFA",
+      "originUrl": null
+    },
+    {
+      "sourceId": "vp32burgzy4nThz6C",
+      "name": "IncluScience (Live Survey)",
+      "group": "specialist support",
+      "decision": "on demand only",
+      "use": "Only when a stated condition needs it",
+      "selected": false,
+      "catalogueDocuments": 284,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "entrances",
+        "access summary",
+        "hearing/media support",
+        "website"
+      ],
+      "relevantFields": [
+        "accessibility.entrances[]",
+        "accessibility.entrances[].properties.isLevel",
+        "accessibility.media[]",
+        "accessibility.entrances[].properties.stairs.count",
+        "accessibility.accessibleWith.wheelchair",
+        "accessibility.entrances[].geometry.type",
+        "accessibility.entrances[].properties.isMainEntrance",
+        "placeWebsiteUrl"
+      ],
+      "observedRegionalRecords": {
+        "berlin-mitte": 1
+      },
+      "licence": "ODbL v1.0",
+      "licenceClass": "CCSA",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/vp32burgzy4nThz6C",
+      "originUrl": "https://incluscience.org"
+    },
+    {
+      "sourceId": "LB5rYeCZ9PxthQ3Rg",
+      "name": "Sozialhelden e.V. - Wheelmap S",
+      "group": "venue survey / place guide",
+      "decision": "candidate / regional check",
+      "use": "Existing places plus explicit practical facts; no broad suitability inference",
+      "selected": false,
+      "catalogueDocuments": 10484,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "entrances",
+        "toilet detail",
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair",
+        "accessibility.entrances[]",
+        "accessibility.entrances[].geometry.type",
+        "accessibility.entrances[].properties.isMainEntrance",
+        "accessibility.entrances[].properties.isLevel",
+        "accessibility.restrooms[]",
+        "accessibility.restrooms[].isAccessibleWithWheelchair",
+        "accessibility.restrooms[].toilet.grabBars.onUsersLeftSide",
+        "accessibility.restrooms[].toilet.grabBars.onUsersRightSide",
+        "accessibility.restrooms[].washBasin.accessibleWithWheelchair"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "CC-BY 4.0 International",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [
+        "Survey is not automatically an OSM mirror; check actual lineage"
+      ],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/LB5rYeCZ9PxthQ3Rg",
+      "originUrl": null
+    },
+    {
+      "sourceId": "hfbzcs3bWaXp94cxh",
+      "name": "IncluScience E-Health Survey (deprecated)",
+      "group": "test / obsolete",
+      "decision": "skip",
+      "use": "Keep out of ordinary place selection",
+      "selected": false,
+      "catalogueDocuments": 9,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "entrances",
+        "toilet detail",
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair",
+        "accessibility.entrances[]",
+        "accessibility.entrances[].properties.hasFixedRamp",
+        "accessibility.entrances[].properties.hasRemovableRamp",
+        "accessibility.entrances[].properties.door.isAutomaticOrAlwaysOpen",
+        "accessibility.entrances[].properties.door.isRevolving",
+        "accessibility.entrances[].properties.door.isTurnstile",
+        "accessibility.entrances[].properties.door.needsDoorbell",
+        "accessibility.entrances[].properties.door.hasIntercom",
+        "accessibility.entrances[].properties.needsAppointment",
+        "accessibility.entrances[].geometry.type",
+        "accessibility.entrances[].properties.stairs.count",
+        "accessibility.entrances[].properties.isLevel",
+        "accessibility.restrooms[]",
+        "accessibility.restrooms[].isAccessibleWithWheelchair"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "needs clarification",
+      "licenceClass": "restricted",
+      "terms": "permission / terms review",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/hfbzcs3bWaXp94cxh",
+      "originUrl": null
+    },
+    {
+      "sourceId": "3CNSD8rHrEyBWenef",
+      "name": "IncluScience E-Health Survey Equipment (deprecated)",
+      "group": "test / obsolete",
+      "decision": "skip",
+      "use": "Keep out of ordinary place selection",
+      "selected": false,
+      "catalogueDocuments": 2,
+      "importType": "equipmentInfos",
+      "sampleEndpoint": null,
+      "sampled": 0,
+      "probeStatuses": "equipment-infos:200; place-infos:200; disruptions:404",
+      "observedFamilies": [],
+      "relevantFields": [],
+      "observedRegionalRecords": {},
+      "licence": "ODbL",
+      "licenceClass": "CCSA",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [
+        "No rows from place/equipment probes; not proof of no upstream data"
+      ],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/3CNSD8rHrEyBWenef",
+      "originUrl": null
+    },
+    {
+      "sourceId": "LiBTS67TjmBcXdEmX",
+      "name": "Wheelmap OSM Mirror",
+      "group": "OSM derivative",
+      "decision": "deduplicate",
+      "use": "Refresh/link OSM records; not independent corroboration",
+      "selected": false,
+      "catalogueDocuments": 1571047,
+      "importType": "placeInfos",
+      "sampleEndpoint": null,
+      "sampled": 0,
+      "probeStatuses": "place-infos:0; equipment-infos:200; disruptions:404",
+      "observedFamilies": [],
+      "relevantFields": [],
+      "observedRegionalRecords": {},
+      "licence": "ODbL v1.0",
+      "licenceClass": "CCSA",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [
+        "Global sample timed out; prior regional mirror records exist"
+      ],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/LiBTS67TjmBcXdEmX",
+      "originUrl": "https://wheelmap.org"
+    },
+    {
+      "sourceId": "cQDnWPGJmwPYGcgqx",
+      "name": "Clean your Cup",
+      "group": "toilet detail",
+      "decision": "consider for current regions",
+      "use": "Private wash basin inside toilet; use only when requested",
+      "selected": false,
+      "catalogueDocuments": 1601,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "toilet detail",
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair",
+        "accessibility.areas[].restrooms[]",
+        "accessibility.areas[].restrooms[].washBasin.isLocatedInsideRestroom"
+      ],
+      "observedRegionalRecords": {
+        "berlin-mitte": 7,
+        "sf-soma": 2
+      },
+      "licence": "ODbL v1.0",
+      "licenceClass": "CCSA",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/cQDnWPGJmwPYGcgqx",
+      "originUrl": null
+    },
+    {
+      "sourceId": "Z2BJufkyvfpbNJYXH",
+      "name": "Karlsruhe barrierefrei (original source)",
+      "group": "venue survey / place guide",
+      "decision": "review terms",
+      "use": "Existing places plus explicit practical facts; no broad suitability inference",
+      "selected": false,
+      "catalogueDocuments": 445,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "entrances",
+        "toilet detail",
+        "access summary",
+        "website"
+      ],
+      "relevantFields": [
+        "placeWebsiteUrl",
+        "accessibility.accessibleWith.wheelchair",
+        "accessibility.entrances[]",
+        "accessibility.entrances[].isLevel",
+        "accessibility.entrances[].doors[]",
+        "accessibility.entrances[].doors[].isAutomaticOrAlwaysOpen",
+        "accessibility.entrances[].hasFixedRamp",
+        "accessibility.entrances[].stairs.alternativeMobileEquipmentIds",
+        "accessibility.entrances[].stairs.hasHighContrastNosing",
+        "accessibility.entrances[].stairs.hasTactileSafetyStrips",
+        "accessibility.entrances[].stairs.count",
+        "accessibility.restrooms[]",
+        "accessibility.restrooms[].isAccessibleWithWheelchair",
+        "accessibility.rooms[].entrances[]",
+        "accessibility.rooms[].entrances[].isLevel"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "© All rights reserved",
+      "licenceClass": "restricted",
+      "terms": "permission / terms review",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/Z2BJufkyvfpbNJYXH",
+      "originUrl": "https://geoportal.karlsruhe.de/karlsruhe_barrierefrei/"
+    },
+    {
+      "sourceId": "nrGCbNqEDHiSyFk3f",
+      "name": "Elevators in Karlsruhe (original source)",
+      "group": "equipment / status",
+      "decision": "review terms",
+      "use": "Context for explicitly linked station or venue; later phase",
+      "selected": false,
+      "catalogueDocuments": 171,
+      "importType": "equipmentInfos",
+      "sampleEndpoint": "equipment-infos",
+      "sampled": 3,
+      "probeStatuses": "equipment-infos:200",
+      "observedFamilies": [],
+      "relevantFields": [],
+      "observedRegionalRecords": {},
+      "licence": "© All rights reserved",
+      "licenceClass": "restricted",
+      "terms": "permission / terms review",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/nrGCbNqEDHiSyFk3f",
+      "originUrl": "https://geoportal.karlsruhe.de/karlsruhe_barrierefrei/"
+    },
+    {
+      "sourceId": "LTZFSAHp7TnKSDPAq",
+      "name": "Elevators in Karlsruhe (long survey)",
+      "group": "equipment / status",
+      "decision": "later / arrival context",
+      "use": "Context for explicitly linked station or venue; later phase",
+      "selected": false,
+      "catalogueDocuments": 72,
+      "importType": "equipmentInfos",
+      "sampleEndpoint": "equipment-infos",
+      "sampled": 3,
+      "probeStatuses": "equipment-infos:200",
+      "observedFamilies": [
+        "hearing/media support"
+      ],
+      "relevantFields": [
+        "hasBrailleText"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "Open Data Commons Open Database License",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/LTZFSAHp7TnKSDPAq",
+      "originUrl": "https://geoportal.karlsruhe.de/karlsruhe_barrierefrei/"
+    },
+    {
+      "sourceId": "ck3gjWWq9tSdBjo3h",
+      "name": "Places in Karlsruhe (long survey)",
+      "group": "venue survey / place guide",
+      "decision": "consider for current regions",
+      "use": "Existing places plus explicit practical facts; no broad suitability inference",
+      "selected": false,
+      "catalogueDocuments": 505,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "entrances",
+        "access summary",
+        "hearing/media support",
+        "website"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair",
+        "accessibility.entrances[]",
+        "accessibility.entrances[].properties.isLevel",
+        "accessibility.entrances[].properties.hasFixedRamp",
+        "accessibility.entrances[].properties.hasRemovableRamp",
+        "accessibility.entrances[].properties.door.isAutomaticOrAlwaysOpen",
+        "accessibility.entrances[].properties.door.isRevolving",
+        "accessibility.entrances[].properties.door.isTurnstile",
+        "accessibility.entrances[].properties.door.needsDoorbell",
+        "accessibility.entrances[].properties.door.hasIntercom",
+        "accessibility.entrances[].properties.needsAppointment",
+        "accessibility.entrances[].properties.stairs.count",
+        "accessibility.entrances[].properties.stairs.hasHandRail",
+        "accessibility.entrances[].properties.stairs.hasHighContrastNosing",
+        "accessibility.entrances[].properties.stairs.hasTactileSafetyStrips",
+        "accessibility.entrances[].geometry.type",
+        "placeWebsiteUrl",
+        "accessibility.entrances[].properties.stairs.alternativeMobileEquipmentIds[]",
+        "accessibility.hasBrailleSignage",
+        "accessibility.hasInductionLoop"
+      ],
+      "observedRegionalRecords": {
+        "berlin-mitte": 3
+      },
+      "licence": "Open Data Commons Open Database License",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/ck3gjWWq9tSdBjo3h",
+      "originUrl": "https://geoportal.karlsruhe.de/karlsruhe_barrierefrei/"
+    },
+    {
+      "sourceId": "rYg2LC7kQosBFBzgy",
+      "name": "Places in Karlsruhe (short survey)",
+      "group": "venue survey / place guide",
+      "decision": "future region / capability",
+      "use": "Existing places plus explicit practical facts; no broad suitability inference",
+      "selected": false,
+      "catalogueDocuments": 2,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 2,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "entrances",
+        "toilet detail",
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair",
+        "accessibility.entrances[]",
+        "accessibility.entrances[].geometry.type",
+        "accessibility.entrances[].properties.isMainEntrance",
+        "accessibility.entrances[].properties.isLevel",
+        "accessibility.restrooms[]",
+        "accessibility.restrooms[].toilet.grabBars.onUsersLeftSide",
+        "accessibility.restrooms[].toilet.grabBars.onUsersRightSide",
+        "accessibility.restrooms[].washBasin.accessibleWithWheelchair",
+        "accessibility.restrooms[].isAccessibleWithWheelchair",
+        "accessibility.entrances[].properties.stairs.count"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "ODbL",
+      "licenceClass": "CCSA",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/rYg2LC7kQosBFBzgy",
+      "originUrl": "https://geoportal.karlsruhe.de/karlsruhe_barrierefrei/"
+    },
+    {
+      "sourceId": "f2EwSR5vmzfS5Hjox",
+      "name": "VBB Stations (GTFS stops.txt) v1 (DEPRECATED)",
+      "group": "test / obsolete",
+      "decision": "skip",
+      "use": "Keep out of ordinary place selection",
+      "selected": false,
+      "catalogueDocuments": 873,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [],
+      "relevantFields": [],
+      "observedRegionalRecords": {},
+      "licence": "CC-BY 4.0 International",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [
+        "OSM identifier mapping: ref:operator_inventory"
+      ],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/f2EwSR5vmzfS5Hjox",
+      "originUrl": "https://www.vbb.de/vbb-services/api-open-data/datensaetze/"
+    },
+    {
+      "sourceId": "ZpdNXw3AJpphwn68T",
+      "name": "VBB Facilities (DB Regio)",
+      "group": "equipment / status",
+      "decision": "later / arrival context",
+      "use": "Context for explicitly linked station or venue; later phase",
+      "selected": false,
+      "catalogueDocuments": 85,
+      "importType": "equipmentInfos",
+      "sampleEndpoint": "equipment-infos",
+      "sampled": 3,
+      "probeStatuses": "equipment-infos:200",
+      "observedFamilies": [],
+      "relevantFields": [],
+      "observedRegionalRecords": {},
+      "licence": "CC-BY 4.0 International",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/ZpdNXw3AJpphwn68T",
+      "originUrl": "https://www.vbb.de/vbb-services/api-open-data/"
+    },
+    {
+      "sourceId": "2QM4o9wv89Cv7wiBf",
+      "name": "VBB Facility Status (DB Regio via Fasta API)",
+      "group": "equipment / status",
+      "decision": "hold / unavailable",
+      "use": "Context for explicitly linked station or venue; later phase",
+      "selected": false,
+      "catalogueDocuments": 0,
+      "importType": null,
+      "sampleEndpoint": null,
+      "sampled": 0,
+      "probeStatuses": "equipment-infos:200; place-infos:200; disruptions:404",
+      "observedFamilies": [],
+      "relevantFields": [],
+      "observedRegionalRecords": {},
+      "licence": "CC-BY 4.0 International",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [
+        "No rows from place/equipment probes; not proof of no upstream data"
+      ],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/2QM4o9wv89Cv7wiBf",
+      "originUrl": "https://data.deutschebahn.com/dataset/fasta-station-facilities-status.html"
+    },
+    {
+      "sourceId": "884rq25kfFsasMGLB",
+      "name": "VBB GTFS stops v2",
+      "group": "transit stops",
+      "decision": "hold / unavailable",
+      "use": "Arrival context; no route accessibility inference",
+      "selected": false,
+      "catalogueDocuments": 0,
+      "importType": "placeInfos",
+      "sampleEndpoint": null,
+      "sampled": 0,
+      "probeStatuses": "place-infos:200; equipment-infos:200; disruptions:404",
+      "observedFamilies": [],
+      "relevantFields": [],
+      "observedRegionalRecords": {},
+      "licence": "CC-BY 4.0 International",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [
+        "OSM identifier mapping: ref:IFOPT",
+        "No rows from place/equipment probes; not proof of no upstream data"
+      ],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/884rq25kfFsasMGLB",
+      "originUrl": "https://unternehmen.vbb.de/en/digital-services/datasets/"
+    },
+    {
+      "sourceId": "Wkd92kW7X2rAsbTdH",
+      "name": "VBB Facilities (S-Bahn)",
+      "group": "equipment / status",
+      "decision": "later / arrival context",
+      "use": "Context for explicitly linked station or venue; later phase",
+      "selected": false,
+      "catalogueDocuments": 235,
+      "importType": "equipmentInfos",
+      "sampleEndpoint": "equipment-infos",
+      "sampled": 3,
+      "probeStatuses": "equipment-infos:200",
+      "observedFamilies": [
+        "equipment status"
+      ],
+      "relevantFields": [
+        "isWorking",
+        "lastDisruptionProperties.originalId",
+        "lastDisruptionProperties.originalPlaceInfoIdField",
+        "lastDisruptionProperties.isEquipmentWorking",
+        "lastDisruptionProperties.stateExplanation",
+        "lastDisruptionProperties.sourceId",
+        "lastDisruptionProperties.sourceImportId",
+        "lastDisruptionProperties.lastUpdate"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "CC-BY 4.0 International",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [
+        "OSM identifier mapping: ref:operator_inventory"
+      ],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/Wkd92kW7X2rAsbTdH",
+      "originUrl": "https://www.vbb.de/vbb-services/api-open-data/"
+    },
+    {
+      "sourceId": "LPJ4hnp6ZBakMu9fq",
+      "name": "GastRollCity",
+      "group": "venue survey / place guide",
+      "decision": "hold / unavailable",
+      "use": "Existing places plus explicit practical facts; no broad suitability inference",
+      "selected": false,
+      "catalogueDocuments": 0,
+      "importType": "placeInfos",
+      "sampleEndpoint": null,
+      "sampled": 0,
+      "probeStatuses": "place-infos:200; equipment-infos:200; disruptions:404",
+      "observedFamilies": [],
+      "relevantFields": [],
+      "observedRegionalRecords": {},
+      "licence": "CC-BY 4.0 International",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [
+        "No rows from place/equipment probes; not proof of no upstream data"
+      ],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/LPJ4hnp6ZBakMu9fq",
+      "originUrl": null
+    },
+    {
+      "sourceId": "caoYmnFxR9NxK98a7",
+      "name": "Menschen-in-Hanau",
+      "group": "venue survey / place guide",
+      "decision": "future region / capability",
+      "use": "Existing places plus explicit practical facts; no broad suitability inference",
+      "selected": false,
+      "catalogueDocuments": 105,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "entrances",
+        "access summary",
+        "hearing/media support",
+        "website"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair",
+        "accessibility.entrances[]",
+        "accessibility.entrances[].properties.isLevel",
+        "accessibility.entrances[].properties.hasFixedRamp",
+        "accessibility.entrances[].properties.hasRemovableRamp",
+        "accessibility.entrances[].properties.door.isAutomaticOrAlwaysOpen",
+        "accessibility.entrances[].properties.door.isRevolving",
+        "accessibility.entrances[].properties.door.isTurnstile",
+        "accessibility.entrances[].properties.door.needsDoorbell",
+        "accessibility.entrances[].properties.door.hasIntercom",
+        "accessibility.entrances[].geometry.type",
+        "placeWebsiteUrl",
+        "accessibility.media[]"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "ODbL v1.0",
+      "licenceClass": "CCSA",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/caoYmnFxR9NxK98a7",
+      "originUrl": "https://menschen-in-hanau.eu/community-mitmachen/unsere-projekte/hanau-barrierefrei-stadtplan/"
+    },
+    {
+      "sourceId": "3otMCdwt9F7N25Fs4",
+      "name": "Menschen in Hanau (Aufzüge)",
+      "group": "equipment / status",
+      "decision": "later / arrival context",
+      "use": "Context for explicitly linked station or venue; later phase",
+      "selected": false,
+      "catalogueDocuments": 15,
+      "importType": "equipmentInfos",
+      "sampleEndpoint": "equipment-infos",
+      "sampled": 3,
+      "probeStatuses": "equipment-infos:200",
+      "observedFamilies": [
+        "hearing/media support"
+      ],
+      "relevantFields": [
+        "hasBrailleText"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "CC-BY 4.0 International",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/3otMCdwt9F7N25Fs4",
+      "originUrl": null
+    },
+    {
+      "sourceId": "dNktPxQgrrTzrMrHZ",
+      "name": "Visit Flanders Open Data",
+      "group": "regional destination guide",
+      "decision": "future region / capability",
+      "use": "Place identity and scoped access facts; mostly future regions",
+      "selected": false,
+      "catalogueDocuments": 492,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary",
+        "website"
+      ],
+      "relevantFields": [
+        "placeWebsiteUrl",
+        "accessibility.accessibleWith.wheelchair"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "Free Open Data License Flanders v. 1.0",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/dNktPxQgrrTzrMrHZ",
+      "originUrl": "https://opendata.visitflanders.org/accessibility/basic_all_v2"
+    },
+    {
+      "sourceId": "7QyJzTRyrDGK73SaZ",
+      "name": "Infoportal Barrierefrei",
+      "group": "venue survey / place guide",
+      "decision": "future region / capability",
+      "use": "Existing places plus explicit practical facts; no broad suitability inference",
+      "selected": false,
+      "catalogueDocuments": 38601,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary",
+        "website"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair",
+        "accessibility.accessibleWith.hearingImpairment",
+        "placeWebsiteUrl"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "Data licence Germany – attribution – Version 2.0",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/7QyJzTRyrDGK73SaZ",
+      "originUrl": "https://www.dresden.de/apps_ext/InfoportalBarrierefreiheit_de/"
+    },
+    {
+      "sourceId": "JeJgZKn6NnLF3HoXH",
+      "name": "Kreis Herzogtum Lauenburg barrierefrei",
+      "group": "venue survey / place guide",
+      "decision": "future region / capability",
+      "use": "Existing places plus explicit practical facts; no broad suitability inference",
+      "selected": false,
+      "catalogueDocuments": 83,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "dog policy",
+        "Wi-Fi",
+        "entrances",
+        "toilet detail",
+        "access summary",
+        "hearing/media support"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair",
+        "accessibility.animalPolicy.allowsAssistanceDogs",
+        "accessibility.entrances[]",
+        "accessibility.entrances[].properties.isLevel",
+        "accessibility.entrances[].properties.stairs.hasHandRail",
+        "accessibility.entrances[].properties.door.isGlassDoor",
+        "accessibility.entrances[].properties.door.hasClearMarkingOnGlassDoor",
+        "accessibility.entrances[].properties.door.isAutomatic",
+        "accessibility.entrances[].properties.door.needsDoorbell",
+        "accessibility.hasBrailleSignage",
+        "accessibility.media[]",
+        "accessibility.restrooms[]",
+        "accessibility.restrooms[].isAccessibleWithWheelchair",
+        "accessibility.restrooms[].hasEmergencyPullstring",
+        "accessibility.restrooms[].hasChangingTableForAdults",
+        "accessibility.wifi.isOpenToEveryone",
+        "accessibility.hasInductionLoop"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "Open Data Licence Version 2.0",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/JeJgZKn6NnLF3HoXH",
+      "originUrl": "https://wheelmap.org/?appId=HPH3JySbXxDv3Ybp6"
+    },
+    {
+      "sourceId": "dTRMcvagLtr2eYWZL",
+      "name": "BIG IDeA Ontario",
+      "group": "venue survey / place guide",
+      "decision": "future region / capability",
+      "use": "Existing places plus explicit practical facts; no broad suitability inference",
+      "selected": false,
+      "catalogueDocuments": 95,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "ODbL v1.0",
+      "licenceClass": "CCSA",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/dTRMcvagLtr2eYWZL",
+      "originUrl": null
+    },
+    {
+      "sourceId": "ZyDaF8ZrJeGL3m4Cq",
+      "name": "DogMap.info",
+      "group": "dog policy",
+      "decision": "first addition",
+      "use": "Pet policy; assistance-dog policy separately",
+      "selected": false,
+      "catalogueDocuments": 51205,
+      "importType": null,
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "dog policy"
+      ],
+      "relevantFields": [
+        "accessibility.animalPolicy.allowsDogs",
+        "accessibility.animalPolicy.allowsAssistanceDogs"
+      ],
+      "observedRegionalRecords": {
+        "berlin-mitte": 236
+      },
+      "licence": "Creative Commons Attribution License (cc-by)",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/ZyDaF8ZrJeGL3m4Cq",
+      "originUrl": "http://dogmap.info/"
+    },
+    {
+      "sourceId": "CqKRWeGt2TKXho3Bv",
+      "name": "FHTW_Mistkuebel",
+      "group": "test / obsolete",
+      "decision": "skip",
+      "use": "Keep out of ordinary place selection",
+      "selected": false,
+      "catalogueDocuments": 0,
+      "importType": "placeInfos",
+      "sampleEndpoint": null,
+      "sampled": 0,
+      "probeStatuses": "place-infos:200; equipment-infos:200; disruptions:404",
+      "observedFamilies": [],
+      "relevantFields": [],
+      "observedRegionalRecords": {},
+      "licence": "Public Domain",
+      "licenceClass": "CC0",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [
+        "No rows from place/equipment probes; not proof of no upstream data"
+      ],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/CqKRWeGt2TKXho3Bv",
+      "originUrl": null
+    },
+    {
+      "sourceId": "3uquEis5eGbg6eNkK",
+      "name": "Corona Test Practices in Germany",
+      "group": "test / obsolete",
+      "decision": "skip",
+      "use": "Keep out of ordinary place selection",
+      "selected": false,
+      "catalogueDocuments": 343,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary",
+        "website"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair",
+        "placeWebsiteUrl"
+      ],
+      "observedRegionalRecords": {
+        "berlin-mitte": 1
+      },
+      "licence": "Public Domain",
+      "licenceClass": "CC0",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/3uquEis5eGbg6eNkK",
+      "originUrl": null
+    },
+    {
+      "sourceId": "K3CJDcsCWjhfjZJEL",
+      "name": "Behindertenparkplätze in Köln",
+      "group": "parking",
+      "decision": "future region / capability",
+      "use": "Nearby designated parking; no live vacancy claim",
+      "selected": false,
+      "catalogueDocuments": 421,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "Namensnennung 3.0 Deutschland (CC BY 3.0 DE)",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/K3CJDcsCWjhfjZJEL",
+      "originUrl": "https://offenedaten-koeln.de/dataset/behindertenparkpl%C3%A4tze-k%C3%B6ln"
+    },
+    {
+      "sourceId": "SjQ5jfFbLBd5vzB9f",
+      "name": "Elevators of Projekt Elevate",
+      "group": "equipment / status",
+      "decision": "later / arrival context",
+      "use": "Context for explicitly linked station or venue; later phase",
+      "selected": false,
+      "catalogueDocuments": 6,
+      "importType": "equipmentInfos",
+      "sampleEndpoint": "equipment-infos",
+      "sampled": 3,
+      "probeStatuses": "equipment-infos:200",
+      "observedFamilies": [
+        "equipment status",
+        "hearing/media support"
+      ],
+      "relevantFields": [
+        "isWorking",
+        "hasBrailleText"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "CC-BY 4.0 International",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/SjQ5jfFbLBd5vzB9f",
+      "originUrl": null
+    },
+    {
+      "sourceId": "ezk9GRXhw2iWyFQxy",
+      "name": "BVG Elevators (DEPRECATED)",
+      "group": "test / obsolete",
+      "decision": "skip",
+      "use": "Keep out of ordinary place selection",
+      "selected": false,
+      "catalogueDocuments": 214,
+      "importType": "placeInfos",
+      "sampleEndpoint": "equipment-infos",
+      "sampled": 3,
+      "probeStatuses": "equipment-infos:200",
+      "observedFamilies": [
+        "equipment status"
+      ],
+      "relevantFields": [
+        "isWorking",
+        "lastDisruptionProperties.originalId",
+        "lastDisruptionProperties.isEquipmentWorking",
+        "lastDisruptionProperties.stateExplanation",
+        "lastDisruptionProperties.sourceId",
+        "lastDisruptionProperties.sourceImportId",
+        "lastDisruptionProperties.lastUpdate"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "Copyright © 2018 BVG AöR",
+      "licenceClass": "restricted",
+      "terms": "permission / terms review",
+      "notes": [
+        "OSM identifier mapping: ref:operator_inventory"
+      ],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/ezk9GRXhw2iWyFQxy",
+      "originUrl": "https://www.bvg.de"
+    },
+    {
+      "sourceId": "v7c7T5ivwqdbffXQn",
+      "name": "BVG Elevators (2025)",
+      "group": "equipment / status",
+      "decision": "later / arrival context",
+      "use": "Context for explicitly linked station or venue; later phase",
+      "selected": false,
+      "catalogueDocuments": 185,
+      "importType": "placeInfos",
+      "sampleEndpoint": "equipment-infos",
+      "sampled": 3,
+      "probeStatuses": "equipment-infos:200",
+      "observedFamilies": [
+        "equipment status"
+      ],
+      "relevantFields": [
+        "isWorking",
+        "lastDisruptionProperties.originalId",
+        "lastDisruptionProperties.isEquipmentWorking",
+        "lastDisruptionProperties.stateExplanation",
+        "lastDisruptionProperties.sourceId",
+        "lastDisruptionProperties.sourceImportId",
+        "lastDisruptionProperties.lastUpdate"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "CC-BY 4.0 International",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/v7c7T5ivwqdbffXQn",
+      "originUrl": null
+    },
+    {
+      "sourceId": "5uyobWxG33k6fosFE",
+      "name": "Mapy bez barier",
+      "group": "regional destination guide",
+      "decision": "future region / capability",
+      "use": "Place identity and scoped access facts; mostly future regions",
+      "selected": false,
+      "catalogueDocuments": 48242,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary",
+        "website"
+      ],
+      "relevantFields": [
+        "placeWebsiteUrl",
+        "accessibility.accessibleWith.wheelchair"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "Charta 77 Foundation  licence policy",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/5uyobWxG33k6fosFE",
+      "originUrl": "https://mapybezbarier.cz/en/export-dat"
+    },
+    {
+      "sourceId": "cZ8BAkgE8BKEAHmoY",
+      "name": "Accessible parking in Göppingen",
+      "group": "parking",
+      "decision": "review terms",
+      "use": "Nearby designated parking; no live vacancy claim",
+      "selected": false,
+      "catalogueDocuments": 37,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "© All rights reserved",
+      "licenceClass": "restricted",
+      "terms": "permission / terms review",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/cZ8BAkgE8BKEAHmoY",
+      "originUrl": "https://www.goeppingen.de/start.html"
+    },
+    {
+      "sourceId": "gELM3Kkfvg8KN7BR8",
+      "name": "Bus stations in Göppingen",
+      "group": "transit stops",
+      "decision": "review terms",
+      "use": "Arrival context; no route accessibility inference",
+      "selected": false,
+      "catalogueDocuments": 248,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "© All rights reserved",
+      "licenceClass": "restricted",
+      "terms": "permission / terms review",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/gELM3Kkfvg8KN7BR8",
+      "originUrl": "https://www.goeppingen.de/start.html"
+    },
+    {
+      "sourceId": "FGLQXtarhRZb4LEip",
+      "name": "Public toilets in Göppingen",
+      "group": "public toilets",
+      "decision": "review terms",
+      "use": "Nearby toilet and any explicit access/payment facts",
+      "selected": false,
+      "catalogueDocuments": 8,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "© All rights reserved",
+      "licenceClass": "restricted",
+      "terms": "permission / terms review",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/FGLQXtarhRZb4LEip",
+      "originUrl": "https://www.goeppingen.de/start.html"
+    },
+    {
+      "sourceId": "FaQXu2tMNhFXidzwZ",
+      "name": "Buildings in Göppingen",
+      "group": "venue survey / place guide",
+      "decision": "review terms",
+      "use": "Existing places plus explicit practical facts; no broad suitability inference",
+      "selected": false,
+      "catalogueDocuments": 106,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "toilet detail",
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair",
+        "accessibility.restrooms.isAccessibleWithWheelchair"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "© All rights reserved",
+      "licenceClass": "restricted",
+      "terms": "permission / terms review",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/FaQXu2tMNhFXidzwZ",
+      "originUrl": "https://www.goeppingen.de/start.html"
+    },
+    {
+      "sourceId": "XggSEXg6R8t36eXtv",
+      "name": "Öffentliche Aufzüge mit Sensoren (Pilotprojekt)",
+      "group": "equipment / status",
+      "decision": "review terms",
+      "use": "Context for explicitly linked station or venue; later phase",
+      "selected": false,
+      "catalogueDocuments": 2,
+      "importType": "equipmentInfos",
+      "sampleEndpoint": "equipment-infos",
+      "sampled": 2,
+      "probeStatuses": "equipment-infos:200",
+      "observedFamilies": [
+        "equipment status",
+        "hearing/media support"
+      ],
+      "relevantFields": [
+        "hasBrailleText",
+        "isWorking"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "© All rights reserved",
+      "licenceClass": "restricted",
+      "terms": "permission / terms review",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/XggSEXg6R8t36eXtv",
+      "originUrl": null
+    },
+    {
+      "sourceId": "7Wt8bgqpBSZiMZwt6",
+      "name": "RBK-barrierefrei - Fragebogen v1 (Kobo)",
+      "group": "venue survey / place guide",
+      "decision": "future region / capability",
+      "use": "Existing places plus explicit practical facts; no broad suitability inference",
+      "selected": false,
+      "catalogueDocuments": 88,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "dog policy",
+        "Wi-Fi",
+        "entrances",
+        "toilet detail",
+        "access summary",
+        "hearing/media support",
+        "website"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair",
+        "accessibility.animalPolicy.allowsAssistanceDogs",
+        "accessibility.entrances[]",
+        "accessibility.entrances[].isLevel",
+        "accessibility.entrances[].door.isAutomaticOrAlwaysOpen",
+        "accessibility.hasBrailleSignage",
+        "accessibility.hasFreeWifi",
+        "accessibility.hasInductionLoop",
+        "accessibility.media[]",
+        "accessibility.media[].name.de",
+        "accessibility.media[].name.en",
+        "accessibility.media[].isBraille",
+        "accessibility.media[].hasPlainLanguageOption",
+        "accessibility.media[].hasAudio",
+        "accessibility.restrooms[]",
+        "placeWebsiteUrl",
+        "accessibility.entrances[].hasMobileRamp",
+        "accessibility.restrooms[].isAccessibleWithWheelchair"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "Open Data Licence Version 2.0",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/7Wt8bgqpBSZiMZwt6",
+      "originUrl": "https://rbk-barrierefrei.de"
+    },
+    {
+      "sourceId": "9wFxkE2pa111MDnt9",
+      "name": "RBK-barrierefrei (Fragebogen v2 Herbst 2023)",
+      "group": "venue survey / place guide",
+      "decision": "consider for current regions",
+      "use": "Existing places plus explicit practical facts; no broad suitability inference",
+      "selected": false,
+      "catalogueDocuments": 8,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "dog policy",
+        "Wi-Fi",
+        "entrances",
+        "toilet detail",
+        "access summary",
+        "hearing/media support"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair",
+        "accessibility.entrances[]",
+        "accessibility.entrances[].properties.isLevel",
+        "accessibility.hasBrailleSignage",
+        "accessibility.hasInductionLoop",
+        "accessibility.media[]",
+        "accessibility.restrooms[]",
+        "accessibility.restrooms[].isAccessibleWithWheelchair",
+        "accessibility.restrooms[].hasEmergencyPullstring",
+        "accessibility.animalPolicy.allowsAssistanceDogs",
+        "accessibility.entrances[].properties.stairs.count",
+        "accessibility.entrances[].properties.stairs.hasHandRail",
+        "accessibility.entrances[].properties.stairs.hasHighContrastNosing",
+        "accessibility.entrances[].properties.door.isGlassDoor",
+        "accessibility.entrances[].properties.door.isAutomatic",
+        "accessibility.entrances[].properties.door.needsDoorbell",
+        "accessibility.entrances[].properties.door.hasIntercom",
+        "accessibility.restrooms[].washBasin.accessibleWithWheelchair",
+        "accessibility.restrooms[].toilet.grabBars.onUsersLeftSide",
+        "accessibility.restrooms[].toilet.grabBars.onUsersRightSide"
+      ],
+      "observedRegionalRecords": {
+        "berlin-mitte": 1
+      },
+      "licence": "Open Data Licence Version 2.0",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/9wFxkE2pa111MDnt9",
+      "originUrl": "https://rbk-barrierefrei.de"
+    },
+    {
+      "sourceId": "3cnJwhqR9En4nY94C",
+      "name": "Vienna Handicapped Parking",
+      "group": "parking",
+      "decision": "future region / capability",
+      "use": "Nearby designated parking; no live vacancy claim",
+      "selected": false,
+      "catalogueDocuments": 559,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "Creative Commons Namensnennung 3.0 Österreich",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/3cnJwhqR9En4nY94C",
+      "originUrl": "https://www.wien.gv.at/verkehr/parken/behindertenparkplaetze/"
+    },
+    {
+      "sourceId": "M8674omNtnuyZojWG",
+      "name": "Toilets in Vienna",
+      "group": "public toilets",
+      "decision": "future region / capability",
+      "use": "Nearby toilet and any explicit access/payment facts",
+      "selected": false,
+      "catalogueDocuments": 191,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "Creative Commons Namensnennung 3.0 Österreich",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/M8674omNtnuyZojWG",
+      "originUrl": "https://www.wien.gv.at/umwelt/ma48/sauberestadt/wc/"
+    },
+    {
+      "sourceId": "fDaAEt4yCA2EZHH6X",
+      "name": "Comune di Torino - Bagni pubblici",
+      "group": "public toilets",
+      "decision": "future region / capability",
+      "use": "Nearby toilet and any explicit access/payment facts",
+      "selected": false,
+      "catalogueDocuments": 7,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "Creative Commons Attribution 3.0 Unported",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/fDaAEt4yCA2EZHH6X",
+      "originUrl": "http://www.datiopen.it/it/opendata/Comune_di_Torino_Bagni_pubblici_?t=Tabella"
+    },
+    {
+      "sourceId": "rXQSEWEasPTstSbTb",
+      "name": "Offentlige toalett",
+      "group": "public toilets",
+      "decision": "future region / capability",
+      "use": "Nearby toilet and any explicit access/payment facts",
+      "selected": false,
+      "catalogueDocuments": 13,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "Norwegian Licence for Open Government Data (NLOD)",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/rXQSEWEasPTstSbTb",
+      "originUrl": "http://hotell.difi.no/?dataset=stavanger/offentligetoalett"
+    },
+    {
+      "sourceId": "tjNSHGpnMjpLc57MR",
+      "name": "Copenhagen Toiletter",
+      "group": "public toilets",
+      "decision": "future region / capability",
+      "use": "Nearby toilet and any explicit access/payment facts",
+      "selected": false,
+      "catalogueDocuments": 218,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "Open Data DK licens",
+      "licenceClass": "CC0",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/tjNSHGpnMjpLc57MR",
+      "originUrl": "http://data.kk.dk/dataset/toiletter"
+    },
+    {
+      "sourceId": "SophBrr6MKFdZW7zi",
+      "name": "Public toilets in Newcastle",
+      "group": "public toilets",
+      "decision": "future region / capability",
+      "use": "Nearby toilet and any explicit access/payment facts",
+      "selected": false,
+      "catalogueDocuments": 8,
+      "importType": null,
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "Open Government Licence for public sector information UK v3.0",
+      "licenceClass": "CCSA",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/SophBrr6MKFdZW7zi",
+      "originUrl": "https://datamillnorth.org/dataset/public-toilet-data"
+    },
+    {
+      "sourceId": "fwTXZmJzb2e6jRSeh",
+      "name": "Public conveniences in Milton Keynes",
+      "group": "public toilets",
+      "decision": "future region / capability",
+      "use": "Nearby toilet and any explicit access/payment facts",
+      "selected": false,
+      "catalogueDocuments": 8,
+      "importType": null,
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "Open Government Licence for public sector information UK v3.0",
+      "licenceClass": "CCSA",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/fwTXZmJzb2e6jRSeh",
+      "originUrl": "https://datahub.mksmart.org/dataset/public-conveniences-in-milton-keynes/"
+    },
+    {
+      "sourceId": "hkesW6y8BqRXGcBTb",
+      "name": "Vancouver -  Public washrooms",
+      "group": "public toilets",
+      "decision": "review terms",
+      "use": "Nearby toilet and any explicit access/payment facts",
+      "selected": false,
+      "catalogueDocuments": 105,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "The Open Government Licence – Vancouver",
+      "licenceClass": "restricted",
+      "terms": "permission / terms review",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/hkesW6y8BqRXGcBTb",
+      "originUrl": "http://vancouver.ca/your-government/open-data-catalogue.aspx#tab19099"
+    },
+    {
+      "sourceId": "3PJgwk2WwXx9as6a6",
+      "name": "Public Toilets - Bournemouth",
+      "group": "public toilets",
+      "decision": "future region / capability",
+      "use": "Nearby toilet and any explicit access/payment facts",
+      "selected": false,
+      "catalogueDocuments": 39,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "Open Government Licence for public sector information UK v3.0",
+      "licenceClass": "CCSA",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/3PJgwk2WwXx9as6a6",
+      "originUrl": "https://data.gov.uk/dataset/public-toilets-bournemouth/resource/761b5163-33ec-47cc-9187-ccd6ac9fa14a"
+    },
+    {
+      "sourceId": "dmoaDGJTriGjTjY4G",
+      "name": "Accessible public toilets in Flanders & Brussels",
+      "group": "public toilets",
+      "decision": "future region / capability",
+      "use": "Nearby toilet and any explicit access/payment facts",
+      "selected": false,
+      "catalogueDocuments": 45,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "GRATIS OPEN DATA LICENTIE v1.2",
+      "licenceClass": "CCSA",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/dmoaDGJTriGjTjY4G",
+      "originUrl": null
+    },
+    {
+      "sourceId": "u74JRKubTNQ8imZYG",
+      "name": "Toilettes publiques dans le réseau RATP - France",
+      "group": "public toilets",
+      "decision": "future region / capability",
+      "use": "Nearby toilet and any explicit access/payment facts",
+      "selected": false,
+      "catalogueDocuments": 41,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "ODC Open Database License",
+      "licenceClass": "CCSA",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/u74JRKubTNQ8imZYG",
+      "originUrl": "http://www.data.gouv.fr/en/datasets/toilettes-publiques-dans-le-reseau-ratp/"
+    },
+    {
+      "sourceId": "pcfyWwKNDvBNcbw92",
+      "name": "Public toilets in the Borough of Scarborough",
+      "group": "public toilets",
+      "decision": "future region / capability",
+      "use": "Nearby toilet and any explicit access/payment facts",
+      "selected": false,
+      "catalogueDocuments": 51,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "Open Government Licence for public sector information UK v3.0",
+      "licenceClass": "CCSA",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/pcfyWwKNDvBNcbw92",
+      "originUrl": "https://data.gov.uk/dataset/public-toilets/resource/107dacff-6f0c-4001-8623-34e8a367295b"
+    },
+    {
+      "sourceId": "y9GSpvTQsMuZDjjyw",
+      "name": "Surf Coast Shire Public Toilets",
+      "group": "public toilets",
+      "decision": "future region / capability",
+      "use": "Nearby toilet and any explicit access/payment facts",
+      "selected": false,
+      "catalogueDocuments": 56,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "Creative Commons Attribution 3.0 Australia",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/y9GSpvTQsMuZDjjyw",
+      "originUrl": "https://geelongaustralia.com.au/data/item/surf-coast-shire-public-toilets.aspx"
+    },
+    {
+      "sourceId": "H7WHXo662Bt9nEiwS",
+      "name": "Belfast City Council Public Toilet",
+      "group": "public toilets",
+      "decision": "future region / capability",
+      "use": "Nearby toilet and any explicit access/payment facts",
+      "selected": false,
+      "catalogueDocuments": 14,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "Open Government Licence for public sector information UK v3.0",
+      "licenceClass": "CCSA",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/H7WHXo662Bt9nEiwS",
+      "originUrl": "https://www.opendatani.gov.uk/dataset/public-toilets"
+    },
+    {
+      "sourceId": "cWfog8fnwZghH37Y3",
+      "name": "Open Data DK - Toilets",
+      "group": "public toilets",
+      "decision": "future region / capability",
+      "use": "Nearby toilet and any explicit access/payment facts",
+      "selected": false,
+      "catalogueDocuments": 33,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "Odense licens",
+      "licenceClass": "CC0",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/cWfog8fnwZghH37Y3",
+      "originUrl": "https://www.europeandataportal.eu/data/en/dataset/handicap-toiletter"
+    },
+    {
+      "sourceId": "rhZR6ByP3xdgf9nCf",
+      "name": "Toiletter ved parker og skove i Aarhus Kommune",
+      "group": "public toilets",
+      "decision": "future region / capability",
+      "use": "Nearby toilet and any explicit access/payment facts",
+      "selected": false,
+      "catalogueDocuments": 28,
+      "importType": null,
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "Vilkår for brug af danske offentlige data  v1.0",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/rhZR6ByP3xdgf9nCf",
+      "originUrl": "http://portal.opendata.dk/dataset/toiletter-ved-parker-og-skove-i-aarhus-kommune"
+    },
+    {
+      "sourceId": "dgqz8b4D3b4bsdRYx",
+      "name": "Public washrooms in City of Ottawa",
+      "group": "public toilets",
+      "decision": "future region / capability",
+      "use": "Nearby toilet and any explicit access/payment facts",
+      "selected": false,
+      "catalogueDocuments": 174,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "Open Data Licence Version 2.0",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/dgqz8b4D3b4bsdRYx",
+      "originUrl": "http://data.ottawa.ca/dataset/publicwashrooms"
+    },
+    {
+      "sourceId": "wKtRH79AXcAjhA4FM",
+      "name": "Open Data Toilet Map for England & Wales",
+      "group": "public toilets",
+      "decision": "future region / capability",
+      "use": "Nearby toilet and any explicit access/payment facts",
+      "selected": false,
+      "catalogueDocuments": 1623,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "Open Government Licence for public sector information UK v3.0",
+      "licenceClass": "CCSA",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/wKtRH79AXcAjhA4FM",
+      "originUrl": null
+    },
+    {
+      "sourceId": "2JnMhNvfAuGziPNoZ",
+      "name": "WWSC Public Toilets",
+      "group": "public toilets",
+      "decision": "future region / capability",
+      "use": "Nearby toilet and any explicit access/payment facts",
+      "selected": false,
+      "catalogueDocuments": 12,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "Attribution 2.5 Australia (CC BY 2.5 AU)",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/2JnMhNvfAuGziPNoZ",
+      "originUrl": "https://www.data.gov.au/dataset/wwsc-public-toilets"
+    },
+    {
+      "sourceId": "FgSamQ7ix5iHnesk2",
+      "name": "Melbourne  Wheelchair-accessible public toilets",
+      "group": "public toilets",
+      "decision": "future region / capability",
+      "use": "Nearby toilet and any explicit access/payment facts",
+      "selected": false,
+      "catalogueDocuments": 48,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "Creative Commons Attribution 4.0 International Public License",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/FgSamQ7ix5iHnesk2",
+      "originUrl": "https://data.melbourne.vic.gov.au/Assets-Infrastructure/Wheelchair-accessible-public-toilets/tx8h-2jgi/data"
+    },
+    {
+      "sourceId": "ebDL8JthTPELJHcNy",
+      "name": "Edinburgh - Public Conveniences",
+      "group": "public toilets",
+      "decision": "future region / capability",
+      "use": "Nearby toilet and any explicit access/payment facts",
+      "selected": false,
+      "catalogueDocuments": 29,
+      "importType": null,
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "Open Government Licence for public sector information UK v3.0",
+      "licenceClass": "CCSA",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/ebDL8JthTPELJHcNy",
+      "originUrl": "http://data.edinburghopendata.info/dataset/public-conveniences/resource/af078ecd-f1de-487e-962a-d6557d94426e"
+    },
+    {
+      "sourceId": "ek6L9PhrnWzbmbjrR",
+      "name": "Barnet Public Toilet",
+      "group": "public toilets",
+      "decision": "future region / capability",
+      "use": "Nearby toilet and any explicit access/payment facts",
+      "selected": false,
+      "catalogueDocuments": 26,
+      "importType": null,
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "Open Government Licence for public sector information UK v3.0",
+      "licenceClass": "CCSA",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/ek6L9PhrnWzbmbjrR",
+      "originUrl": "https://open.barnet.gov.uk/dataset/public-toilets-2014-15"
+    },
+    {
+      "sourceId": "Y2G2j8BJLKHekXbQE",
+      "name": "Galway City Public WCs",
+      "group": "public toilets",
+      "decision": "future region / capability",
+      "use": "Nearby toilet and any explicit access/payment facts",
+      "selected": false,
+      "catalogueDocuments": 7,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "Creative Commons Attribution 4.0 International Public License",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/Y2G2j8BJLKHekXbQE",
+      "originUrl": "http://opendata.galwaycity.opendata.arcgis.com/datasets/1fd88efc0fc145e49248e4c249a9a23b_0"
+    },
+    {
+      "sourceId": "xmg5RkdYSpQrXSkTu",
+      "name": "Wheelmap.Pro Würzburg",
+      "group": "venue survey / place guide",
+      "decision": "candidate / regional check",
+      "use": "Existing places plus explicit practical facts; no broad suitability inference",
+      "selected": false,
+      "catalogueDocuments": 81,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "dog policy",
+        "Wi-Fi",
+        "entrances",
+        "toilet detail",
+        "access summary",
+        "hearing/media support"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair",
+        "accessibility.animalPolicy.allowsAssistanceDogs",
+        "accessibility.entrances[]",
+        "accessibility.entrances[].properties.isLevel",
+        "accessibility.entrances[].properties.door.isGlassDoor",
+        "accessibility.entrances[].properties.door.hasClearMarkingOnGlassDoor",
+        "accessibility.entrances[].properties.door.isAutomatic",
+        "accessibility.entrances[].properties.door.needsDoorbell",
+        "accessibility.hasBrailleSignage",
+        "accessibility.hasInductionLoop",
+        "accessibility.media[]",
+        "accessibility.restrooms[]",
+        "accessibility.restrooms[].isAccessibleWithWheelchair",
+        "accessibility.wifi.isOpenToEveryone",
+        "accessibility.restrooms[].hasEmergencyPullstring",
+        "accessibility.restrooms[].hasChangingTableForAdults"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "ODbL",
+      "licenceClass": "CCSA",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [
+        "Survey is not automatically an OSM mirror; check actual lineage"
+      ],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/xmg5RkdYSpQrXSkTu",
+      "originUrl": null
+    },
+    {
+      "sourceId": "P43dfNujrRawpohfS",
+      "name": "Be. Lab",
+      "group": "regional destination guide",
+      "decision": "review terms",
+      "use": "Place identity and scoped access facts; mostly future regions",
+      "selected": false,
+      "catalogueDocuments": 71,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "toilet detail",
+        "access summary",
+        "payment detail",
+        "website"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair",
+        "accessibility.payment.hasPortablePaymentSystem",
+        "accessibility.restrooms.isAccessibleWithWheelchair",
+        "accessibility.restrooms.toilet.heightOfBase",
+        "accessibility.restrooms.toilet.hasFoldingHandles",
+        "accessibility.restrooms.signIcons",
+        "placeWebsiteUrl",
+        "accessibility.restrooms.washBasin.isLocatedInsideRestroom"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "© 2019-2020 Be Institute Charitable Trust.",
+      "licenceClass": "restricted",
+      "terms": "permission / terms review",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/P43dfNujrRawpohfS",
+      "originUrl": "https://www.belab.co.nz"
+    },
+    {
+      "sourceId": "btgS3PHdXkP7FaimH",
+      "name": "Viadrina Aufzüge",
+      "group": "equipment / status",
+      "decision": "later / arrival context",
+      "use": "Context for explicitly linked station or venue; later phase",
+      "selected": false,
+      "catalogueDocuments": 8,
+      "importType": "equipmentInfos",
+      "sampleEndpoint": "equipment-infos",
+      "sampled": 3,
+      "probeStatuses": "equipment-infos:200",
+      "observedFamilies": [
+        "equipment status"
+      ],
+      "relevantFields": [
+        "isWorking",
+        "stateLastUpdate"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "CC-BY 4.0 International",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/btgS3PHdXkP7FaimH",
+      "originUrl": null
+    },
+    {
+      "sourceId": "9RMgX4FEg6CTRKZhz",
+      "name": "Viadrina-Orte",
+      "group": "venue survey / place guide",
+      "decision": "future region / capability",
+      "use": "Existing places plus explicit practical facts; no broad suitability inference",
+      "selected": false,
+      "catalogueDocuments": 0,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 1,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "entrances"
+      ],
+      "relevantFields": [
+        "accessibility.entrances[]",
+        "accessibility.entrances[].geometry.type",
+        "accessibility.entrances[].properties.isMainEntrance",
+        "accessibility.entrances[].properties.stairs.count",
+        "accessibility.entrances[].properties.isLevel"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "CC-BY 4.0 International",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/9RMgX4FEg6CTRKZhz",
+      "originUrl": null
+    },
+    {
+      "sourceId": "nifTBY9t2yePpNbwh",
+      "name": "Projekt Elevate IoT-Sensoren",
+      "group": "equipment / status",
+      "decision": "later / arrival context",
+      "use": "Context for explicitly linked station or venue; later phase",
+      "selected": false,
+      "catalogueDocuments": 4,
+      "importType": "equipmentInfos",
+      "sampleEndpoint": "equipment-infos",
+      "sampled": 3,
+      "probeStatuses": "equipment-infos:200",
+      "observedFamilies": [
+        "equipment status",
+        "hearing/media support"
+      ],
+      "relevantFields": [
+        "isWorking",
+        "hasBrailleText"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "Creative Commons Attribution 4.0 International Public License",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [
+        "OSM identifier mapping: ref:operator_inventory"
+      ],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/nifTBY9t2yePpNbwh",
+      "originUrl": "https://projekt-elevate.de"
+    },
+    {
+      "sourceId": "C8z6H7P8Lm6gHgnBy",
+      "name": "VRR-Stations",
+      "group": "transit stops",
+      "decision": "review terms",
+      "use": "Arrival context; no route accessibility inference",
+      "selected": false,
+      "catalogueDocuments": 195,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "© All rights reserved",
+      "licenceClass": "restricted",
+      "terms": "permission / terms review",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/C8z6H7P8Lm6gHgnBy",
+      "originUrl": null
+    },
+    {
+      "sourceId": "ivjZJzDuyjgkws4zz",
+      "name": "VRR-Equipment",
+      "group": "equipment / status",
+      "decision": "later / arrival context",
+      "use": "Context for explicitly linked station or venue; later phase",
+      "selected": false,
+      "catalogueDocuments": 1793,
+      "importType": "equipmentInfos",
+      "sampleEndpoint": "equipment-infos",
+      "sampled": 3,
+      "probeStatuses": "equipment-infos:200",
+      "observedFamilies": [
+        "equipment status"
+      ],
+      "relevantFields": [
+        "isWorking"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "Creative Commons Attribution 4.0 International Public License",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/ivjZJzDuyjgkws4zz",
+      "originUrl": null
+    },
+    {
+      "sourceId": "xKKHGdJEzhga9u46M",
+      "name": "Wheelmap ERGO Kobo Survey",
+      "group": "venue survey / place guide",
+      "decision": "candidate / regional check",
+      "use": "Existing places plus explicit practical facts; no broad suitability inference",
+      "selected": false,
+      "catalogueDocuments": 48,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "dog policy",
+        "entrances",
+        "toilet detail",
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair",
+        "accessibility.entrances[]",
+        "accessibility.entrances[].hasFixedRamp",
+        "accessibility.entrances[].stairs",
+        "accessibility.entrances[].doors[]",
+        "accessibility.entrances[].doors[].isAutomaticOrAlwaysOpen",
+        "accessibility.restrooms[]",
+        "accessibility.restrooms[].entrance.isLevel",
+        "accessibility.restrooms[].toilet.hasFoldingHandles",
+        "accessibility.restrooms[].toilet.foldingHandles.onUsersLeftSide",
+        "accessibility.restrooms[].toilet.foldingHandles.onUsersRightSide",
+        "accessibility.restrooms[].washBasin.accessibleWithWheelchair",
+        "accessibility.restrooms[].washBasin.isLocatedInsideRestroom",
+        "accessibility.restrooms[].isAccessibleWithWheelchair",
+        "accessibility.animalPolicy.allowsServiceAnimals"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "ODbL v1.0",
+      "licenceClass": "CCSA",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [
+        "Survey is not automatically an OSM mirror; check actual lineage"
+      ],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/xKKHGdJEzhga9u46M",
+      "originUrl": null
+    },
+    {
+      "sourceId": "pHRM59xa6LTArvExH",
+      "name": "Barrierefrei in Potsdam",
+      "group": "venue survey / place guide",
+      "decision": "future region / capability",
+      "use": "Existing places plus explicit practical facts; no broad suitability inference",
+      "selected": false,
+      "catalogueDocuments": 181,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "entrances",
+        "access summary",
+        "hearing/media support"
+      ],
+      "relevantFields": [
+        "accessibility.entrances[]",
+        "accessibility.entrances[].properties.isLevel",
+        "accessibility.entrances[].properties.hasFixedRamp",
+        "accessibility.entrances[].geometry.type",
+        "accessibility.entrances[].properties.door.isAutomaticOrAlwaysOpen",
+        "accessibility.entrances[].properties.door.isRevolving",
+        "accessibility.entrances[].properties.door.isTurnstile",
+        "accessibility.entrances[].properties.door.needsDoorbell",
+        "accessibility.entrances[].properties.door.hasIntercom",
+        "accessibility.entrances[].properties.stairs.hasHandRail",
+        "accessibility.hasBrailleSignage",
+        "accessibility.accessibleWith.wheelchair",
+        "accessibility.entrances[].properties.isMainEntrance"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "Open Data Commons Open Database License",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/pHRM59xa6LTArvExH",
+      "originUrl": null
+    },
+    {
+      "sourceId": "urviWLbxqebasnxu3",
+      "name": "MIT KIDZ",
+      "group": "venue survey / place guide",
+      "decision": "future region / capability",
+      "use": "Existing places plus explicit practical facts; no broad suitability inference",
+      "selected": false,
+      "catalogueDocuments": 39,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "toilet detail",
+        "access summary",
+        "website"
+      ],
+      "relevantFields": [
+        "placeWebsiteUrl",
+        "accessibility.accessibleWith.wheelchair",
+        "accessibility.accessibleWith.visualImpairment",
+        "accessibility.accessibleWith.hearingImpairment",
+        "accessibility.accessibleWith.mobilityImpairment",
+        "accessibility.restrooms.isAccessibleWithWheelchair"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "Open Data Commons Open Database License",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/urviWLbxqebasnxu3",
+      "originUrl": null
+    },
+    {
+      "sourceId": "bhnw4faLn7qdT26iY",
+      "name": "nvbw Elevators",
+      "group": "equipment / status",
+      "decision": "later / arrival context",
+      "use": "Context for explicitly linked station or venue; later phase",
+      "selected": false,
+      "catalogueDocuments": 1,
+      "importType": "equipmentInfos",
+      "sampleEndpoint": "equipment-infos",
+      "sampled": 1,
+      "probeStatuses": "equipment-infos:200",
+      "observedFamilies": [],
+      "relevantFields": [],
+      "observedRegionalRecords": {},
+      "licence": "ODbL v1.0",
+      "licenceClass": "CCSA",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/bhnw4faLn7qdT26iY",
+      "originUrl": "https://nvbw.de"
+    },
+    {
+      "sourceId": "KNpSzMvwdqDBZDmH5",
+      "name": "On Wheels",
+      "group": "venue survey / place guide",
+      "decision": "hold / unavailable",
+      "use": "Existing places plus explicit practical facts; no broad suitability inference",
+      "selected": false,
+      "catalogueDocuments": 0,
+      "importType": "placeInfos",
+      "sampleEndpoint": null,
+      "sampled": 0,
+      "probeStatuses": "place-infos:200; equipment-infos:200; disruptions:404",
+      "observedFamilies": [],
+      "relevantFields": [],
+      "observedRegionalRecords": {},
+      "licence": "Open Database License",
+      "licenceClass": "CCSA",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [
+        "No rows from place/equipment probes; not proof of no upstream data"
+      ],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/KNpSzMvwdqDBZDmH5",
+      "originUrl": "https://www.onwheelsapp.com/nl/app"
+    },
+    {
+      "sourceId": "xBakbYDCsCcBTrnhC",
+      "name": "Places in Mainz",
+      "group": "venue survey / place guide",
+      "decision": "future region / capability",
+      "use": "Existing places plus explicit practical facts; no broad suitability inference",
+      "selected": false,
+      "catalogueDocuments": 1,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 1,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "entrances"
+      ],
+      "relevantFields": [
+        "accessibility.entrances[]",
+        "accessibility.entrances[].geometry.type"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "CC-BY 4.0 International",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/xBakbYDCsCcBTrnhC",
+      "originUrl": null
+    },
+    {
+      "sourceId": "poqpYn7xxmiTw84iW",
+      "name": "Elevators in Mainz",
+      "group": "equipment / status",
+      "decision": "later / arrival context",
+      "use": "Context for explicitly linked station or venue; later phase",
+      "selected": false,
+      "catalogueDocuments": 2,
+      "importType": "equipmentInfos",
+      "sampleEndpoint": "equipment-infos",
+      "sampled": 2,
+      "probeStatuses": "equipment-infos:200",
+      "observedFamilies": [
+        "equipment status"
+      ],
+      "relevantFields": [
+        "isWorking",
+        "stateLastUpdate"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "CC-BY 4.0 International",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/poqpYn7xxmiTw84iW",
+      "originUrl": null
+    },
+    {
+      "sourceId": "sTn5oLurukrRuoTdi",
+      "name": "KVB-Haltestellen",
+      "group": "transit stops",
+      "decision": "future region / capability",
+      "use": "Arrival context; no route accessibility inference",
+      "selected": false,
+      "catalogueDocuments": 853,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [],
+      "relevantFields": [],
+      "observedRegionalRecords": {},
+      "licence": "Namensnennung 3.0 Deutschland (CC BY 3.0 DE)",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/sTn5oLurukrRuoTdi",
+      "originUrl": "https://www.kvb.koeln/service/open_data.html"
+    },
+    {
+      "sourceId": "f469sczTu2DcAHdmc",
+      "name": "KVB-Fahrtreppenstörungen",
+      "group": "equipment / status",
+      "decision": "hold / unavailable",
+      "use": "Context for explicitly linked station or venue; later phase",
+      "selected": false,
+      "catalogueDocuments": 264,
+      "importType": "disruptions",
+      "sampleEndpoint": null,
+      "sampled": 0,
+      "probeStatuses": "disruptions:404; place-infos:200; equipment-infos:200",
+      "observedFamilies": [],
+      "relevantFields": [],
+      "observedRegionalRecords": {},
+      "licence": "Namensnennung 3.0 Deutschland (CC BY 3.0 DE)",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [
+        "Disruption endpoint returned 404; inspect attached equipment status instead"
+      ],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/f469sczTu2DcAHdmc",
+      "originUrl": "https://www.kvb.koeln/service/open_data.html"
+    },
+    {
+      "sourceId": "zSQ99xYrQ3Mx7a4ed",
+      "name": "KVB Aufzugsstörungen",
+      "group": "equipment / status",
+      "decision": "hold / unavailable",
+      "use": "Context for explicitly linked station or venue; later phase",
+      "selected": false,
+      "catalogueDocuments": 304,
+      "importType": "disruptions",
+      "sampleEndpoint": null,
+      "sampled": 0,
+      "probeStatuses": "disruptions:404; place-infos:200; equipment-infos:200",
+      "observedFamilies": [],
+      "relevantFields": [],
+      "observedRegionalRecords": {},
+      "licence": "Namensnennung 3.0 Deutschland (CC BY 3.0 DE)",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [
+        "Disruption endpoint returned 404; inspect attached equipment status instead"
+      ],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/zSQ99xYrQ3Mx7a4ed",
+      "originUrl": "https://www.kvb.koeln/service/open_data.html"
+    },
+    {
+      "sourceId": "GwwA3diA4pabsSL8z",
+      "name": "KVB-Fahrtreppen",
+      "group": "equipment / status",
+      "decision": "later / arrival context",
+      "use": "Context for explicitly linked station or venue; later phase",
+      "selected": false,
+      "catalogueDocuments": 262,
+      "importType": "placeInfos",
+      "sampleEndpoint": "equipment-infos",
+      "sampled": 3,
+      "probeStatuses": "equipment-infos:200",
+      "observedFamilies": [
+        "equipment status"
+      ],
+      "relevantFields": [
+        "isWorking",
+        "lastDisruptionProperties.originalId",
+        "lastDisruptionProperties.isEquipmentWorking",
+        "lastDisruptionProperties.sourceId",
+        "lastDisruptionProperties.sourceImportId",
+        "lastDisruptionProperties.lastUpdate"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "Namensnennung 3.0 Deutschland (CC BY 3.0 DE)",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/GwwA3diA4pabsSL8z",
+      "originUrl": "https://www.kvb.koeln/service/open_data.html"
+    },
+    {
+      "sourceId": "9kNbftmN9H4njTQQr",
+      "name": "KVB-Aufzüge",
+      "group": "equipment / status",
+      "decision": "later / arrival context",
+      "use": "Context for explicitly linked station or venue; later phase",
+      "selected": false,
+      "catalogueDocuments": 63,
+      "importType": "placeInfos",
+      "sampleEndpoint": "equipment-infos",
+      "sampled": 3,
+      "probeStatuses": "equipment-infos:200",
+      "observedFamilies": [
+        "equipment status"
+      ],
+      "relevantFields": [
+        "isWorking",
+        "lastDisruptionProperties.originalId",
+        "lastDisruptionProperties.isEquipmentWorking",
+        "lastDisruptionProperties.sourceId",
+        "lastDisruptionProperties.sourceImportId",
+        "lastDisruptionProperties.lastUpdate"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "Namensnennung 3.0 Deutschland (CC BY 3.0 DE)",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/9kNbftmN9H4njTQQr",
+      "originUrl": "https://www.kvb.koeln/service/open_data.html"
+    },
+    {
+      "sourceId": "nhwd59iv6nMPcHkuW",
+      "name": "Behindertenparkplätze Spandau und Tempelhof-Schöneberg",
+      "group": "parking",
+      "decision": "consider for current regions",
+      "use": "Nearby designated parking; no live vacancy claim",
+      "selected": true,
+      "catalogueDocuments": 68,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair"
+      ],
+      "observedRegionalRecords": {
+        "berlin-mitte": 1
+      },
+      "licence": "Namensnennung 3.0 Deutschland (CC BY 3.0 DE)",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/nhwd59iv6nMPcHkuW",
+      "originUrl": null
+    },
+    {
+      "sourceId": "rumaT5NQruxmwDPLW",
+      "name": "Kreis Olpe (Neues Survey Herbst 2023)",
+      "group": "venue survey / place guide",
+      "decision": "hold / unavailable",
+      "use": "Existing places plus explicit practical facts; no broad suitability inference",
+      "selected": false,
+      "catalogueDocuments": 0,
+      "importType": "placeInfos",
+      "sampleEndpoint": null,
+      "sampled": 0,
+      "probeStatuses": "place-infos:200; equipment-infos:200; disruptions:404",
+      "observedFamilies": [],
+      "relevantFields": [],
+      "observedRegionalRecords": {},
+      "licence": "needs clarification",
+      "licenceClass": "restricted",
+      "terms": "permission / terms review",
+      "notes": [
+        "No rows from place/equipment probes; not proof of no upstream data"
+      ],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/rumaT5NQruxmwDPLW",
+      "originUrl": "https://kreisolpe.wheelmap.pro/"
+    },
+    {
+      "sourceId": "4fMnuha37nZeotkJ8",
+      "name": "MeiningerHotelData",
+      "group": "venue survey / place guide",
+      "decision": "review terms",
+      "use": "Existing places plus explicit practical facts; no broad suitability inference",
+      "selected": false,
+      "catalogueDocuments": 22,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "dog policy",
+        "entrances",
+        "toilet detail",
+        "access summary",
+        "website"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair",
+        "accessibility.accessibleWith.guideDog",
+        "accessibility.animalPolicy.allowsGuideDogs",
+        "accessibility.restrooms.isAccessibleWithWheelchair",
+        "accessibility.restrooms.entrance.door.width",
+        "accessibility.restrooms.shower.isLevel",
+        "accessibility.restrooms.shower.hasShowerSeat",
+        "accessibility.restrooms.washBasin.accessibleWithWheelchair",
+        "accessibility.restrooms.mirror.isAccessibleWhileSeated",
+        "accessibility.entrances.door.width",
+        "accessibility.entrances.door.isAutomaticOrAlwaysOpen",
+        "placeWebsiteUrl"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "needs clarification",
+      "licenceClass": "restricted",
+      "terms": "permission / terms review",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/4fMnuha37nZeotkJ8",
+      "originUrl": null
+    },
+    {
+      "sourceId": "BENfmcs8ZQwYc2fce",
+      "name": "photos of VBB stations",
+      "group": "place imagery",
+      "decision": "hold / unavailable",
+      "use": "Station identification; supplementary only",
+      "selected": false,
+      "catalogueDocuments": 0,
+      "importType": null,
+      "sampleEndpoint": null,
+      "sampled": 0,
+      "probeStatuses": "place-infos:200; equipment-infos:200; disruptions:404",
+      "observedFamilies": [],
+      "relevantFields": [],
+      "observedRegionalRecords": {},
+      "licence": "ISC license",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [
+        "No rows from place/equipment probes; not proof of no upstream data"
+      ],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/BENfmcs8ZQwYc2fce",
+      "originUrl": "https://www.npmjs.com/package/vbb-station-photos"
+    },
+    {
+      "sourceId": "MxC2aZRo385MHZdRe",
+      "name": "lieux accessibles à Nantes, association handidactique",
+      "group": "venue survey / place guide",
+      "decision": "future region / capability",
+      "use": "Existing places plus explicit practical facts; no broad suitability inference",
+      "selected": false,
+      "catalogueDocuments": 67,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary",
+        "hearing/media support"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair",
+        "accessibility.accessibleWith.limitedSight",
+        "accessibility.offersActivitiesFor.hearingImpaired",
+        "accessibility.offersActivitiesFor.learningImpaired"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "ODbL",
+      "licenceClass": "CCSA",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/MxC2aZRo385MHZdRe",
+      "originUrl": "http://www.handidactique.org"
+    },
+    {
+      "sourceId": "TXMAAx5dmohFdZy5D",
+      "name": "Accessible places in France - Accessible.net",
+      "group": "regional destination guide",
+      "decision": "review terms",
+      "use": "Place identity and scoped access facts; mostly future regions",
+      "selected": false,
+      "catalogueDocuments": 2153,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary",
+        "hearing/media support"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair",
+        "accessibility.accessibleWith.limitedSight",
+        "accessibility.offersActivitiesFor.hearingImpaired",
+        "accessibility.offersActivitiesFor.learningImpaired"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "needs clarification",
+      "licenceClass": "restricted",
+      "terms": "permission / terms review",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/TXMAAx5dmohFdZy5D",
+      "originUrl": "http://accessible.net"
+    },
+    {
+      "sourceId": "Tgj8PziHi66X8wpe8",
+      "name": "Lieux touristiques - commune d'Entre deux mers",
+      "group": "regional destination guide",
+      "decision": "review terms",
+      "use": "Place identity and scoped access facts; mostly future regions",
+      "selected": false,
+      "catalogueDocuments": 32,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary",
+        "hearing/media support"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair",
+        "accessibility.accessibleWith.limitedSight",
+        "accessibility.offersActivitiesFor.hearingImpaired",
+        "accessibility.offersActivitiesFor.learningImpaired"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "needs clarification",
+      "licenceClass": "restricted",
+      "terms": "permission / terms review",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/Tgj8PziHi66X8wpe8",
+      "originUrl": "https://www.entredeuxmers.com"
+    },
+    {
+      "sourceId": "2XMR4QPYK4iMcddn3",
+      "name": "Equipements accessibles Ville de Paris",
+      "group": "venue survey / place guide",
+      "decision": "future region / capability",
+      "use": "Existing places plus explicit practical facts; no broad suitability inference",
+      "selected": false,
+      "catalogueDocuments": 2323,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.hearingImpairment",
+        "accessibility.accessibleWith.visualImpairment",
+        "accessibility.accessibleWith.wheelchair"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "ODbL",
+      "licenceClass": "CCSA",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/2XMR4QPYK4iMcddn3",
+      "originUrl": "https://www.data.gouv.fr/fr/datasets/accessibilite-des-equipements-de-la-ville-de-paris/"
+    },
+    {
+      "sourceId": "bwaFcbM6qnE4gL8xx",
+      "name": "Marque d'État Tourisme et Handicap",
+      "group": "regional destination guide",
+      "decision": "future region / capability",
+      "use": "Place identity and scoped access facts; mostly future regions",
+      "selected": false,
+      "catalogueDocuments": 5500,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary",
+        "hearing/media support"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair",
+        "accessibility.accessibleWith.limitedSight",
+        "accessibility.offersActivitiesFor.hearingImpaired",
+        "accessibility.offersActivitiesFor.learningImpaired",
+        "accessibility.offersActivitiesFor.physicallyImpaired"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "LICENCE OUVERTE",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/bwaFcbM6qnE4gL8xx",
+      "originUrl": "https://www.data.gouv.fr/fr/datasets/marque-detat-tourisme-handicap/#_"
+    },
+    {
+      "sourceId": "jMWSQZgfvGNvq2so5",
+      "name": "Toilettes référencées par l'association afa Crohn RCH France",
+      "group": "public toilets",
+      "decision": "review terms",
+      "use": "Nearby toilet and any explicit access/payment facts",
+      "selected": false,
+      "catalogueDocuments": 887,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "needs clarification",
+      "licenceClass": "restricted",
+      "terms": "permission / terms review",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/jMWSQZgfvGNvq2so5",
+      "originUrl": "https://www.afa.asso.fr/article/vivre-avec/toilettes/application-afamici.html"
+    },
+    {
+      "sourceId": "2eBXGa3raxR7sdjRa",
+      "name": "Cinemas with movie description (visual impairment) in France",
+      "group": "cinema support",
+      "decision": "review terms",
+      "use": "Cinema capability leads; verify requested screening separately",
+      "selected": false,
+      "catalogueDocuments": 124,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "hearing/media support"
+      ],
+      "relevantFields": [
+        "accessibility.offersActivitiesFor.visuallyImpaired"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "needs clarification",
+      "licenceClass": "restricted",
+      "terms": "permission / terms review",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/2eBXGa3raxR7sdjRa",
+      "originUrl": "http://retourdimage.eu/"
+    },
+    {
+      "sourceId": "6iNXuduSLsR7uej2G",
+      "name": "Lieux touristiques en France",
+      "group": "regional destination guide",
+      "decision": "future region / capability",
+      "use": "Place identity and scoped access facts; mostly future regions",
+      "selected": false,
+      "catalogueDocuments": 11980,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "LICENCE OUVERTE",
+      "licenceClass": "CCBY",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/6iNXuduSLsR7uej2G",
+      "originUrl": "https://www.datatourisme.gouv.fr/"
+    },
+    {
+      "sourceId": "GGWs6LeYtkZiAaaTC",
+      "name": "Sex shops in France",
+      "group": "venue survey / place guide",
+      "decision": "review terms",
+      "use": "Existing places plus explicit practical facts; no broad suitability inference",
+      "selected": false,
+      "catalogueDocuments": 44,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "needs clarification",
+      "licenceClass": "restricted",
+      "terms": "permission / terms review",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/GGWs6LeYtkZiAaaTC",
+      "originUrl": null
+    },
+    {
+      "sourceId": "L9AQnY7zp8dMNMoPE",
+      "name": "Maison_de_la_reussite_Ladapt",
+      "group": "specialist support",
+      "decision": "review terms",
+      "use": "Only when a stated condition needs it",
+      "selected": false,
+      "catalogueDocuments": 27,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.hearingImpairment",
+        "accessibility.accessibleWith.visualImpairment",
+        "accessibility.accessibleWith.wheelchair"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "needs clarification",
+      "licenceClass": "restricted",
+      "terms": "permission / terms review",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/L9AQnY7zp8dMNMoPE",
+      "originUrl": null
+    },
+    {
+      "sourceId": "73qzgZYL6FwBrsRFB",
+      "name": "SplashElec",
+      "group": "venue survey / place guide",
+      "decision": "future region / capability",
+      "use": "Existing places plus explicit practical facts; no broad suitability inference",
+      "selected": false,
+      "catalogueDocuments": 10,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair",
+        "accessibility.accessibleWith.electricWheelchair"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "ODbL v1.0",
+      "licenceClass": "CCSA",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/73qzgZYL6FwBrsRFB",
+      "originUrl": null
+    },
+    {
+      "sourceId": "a7hEpRxZ9c5AxdtBx",
+      "name": "Handisport clubs in France",
+      "group": "specialist support",
+      "decision": "review terms",
+      "use": "Only when a stated condition needs it",
+      "selected": false,
+      "catalogueDocuments": 1393,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary",
+        "hearing/media support"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair",
+        "accessibility.accessibleWith.electricWheelchair",
+        "accessibility.accessibleWith.limitedSight",
+        "accessibility.offersActivitiesFor.hearingImpaired",
+        "accessibility.offersActivitiesFor.visuallyImpaired",
+        "accessibility.offersActivitiesFor.physicallyImpaired"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "needs clarification",
+      "licenceClass": "restricted",
+      "terms": "permission / terms review",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/a7hEpRxZ9c5AxdtBx",
+      "originUrl": "http://www.handisport.org/"
+    },
+    {
+      "sourceId": "Q7jM4aCZDX7acDk8a",
+      "name": "Movie theaters in France with audio-description and subtitles",
+      "group": "cinema support",
+      "decision": "review terms",
+      "use": "Cinema capability leads; verify requested screening separately",
+      "selected": false,
+      "catalogueDocuments": 86,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "hearing/media support"
+      ],
+      "relevantFields": [
+        "accessibility.offersActivitiesFor.hearingImpaired",
+        "accessibility.offersActivitiesFor.visuallyImpaired"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "needs clarification",
+      "licenceClass": "restricted",
+      "terms": "permission / terms review",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/Q7jM4aCZDX7acDk8a",
+      "originUrl": "https://www.twavox.com/fr/cine.php"
+    },
+    {
+      "sourceId": "tdPYDwi7PWE3KBnHJ",
+      "name": "I Wheel Share",
+      "group": "venue survey / place guide",
+      "decision": "future region / capability",
+      "use": "Existing places plus explicit practical facts; no broad suitability inference",
+      "selected": false,
+      "catalogueDocuments": 2160,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "ODbL v1.0",
+      "licenceClass": "CCSA",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/tdPYDwi7PWE3KBnHJ",
+      "originUrl": "http://www.iwheelshare.com"
+    },
+    {
+      "sourceId": "ya6piAtfdynXKKNkQ",
+      "name": "Toilettes Ratp",
+      "group": "public toilets",
+      "decision": "future region / capability",
+      "use": "Nearby toilet and any explicit access/payment facts",
+      "selected": false,
+      "catalogueDocuments": 44,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "ODbL v1.0",
+      "licenceClass": "CCSA",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/ya6piAtfdynXKKNkQ",
+      "originUrl": "http://data.iledefrance.fr"
+    },
+    {
+      "sourceId": "3H7vWGaLzWqRKqtMS",
+      "name": "Cinemas in France",
+      "group": "OSM derivative",
+      "decision": "deduplicate",
+      "use": "Refresh/link OSM records; not independent corroboration",
+      "selected": false,
+      "catalogueDocuments": 1769,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary",
+        "hearing/media support"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair",
+        "accessibility.accessibleWith.limitedSight",
+        "accessibility.offersActivitiesFor.visuallyImpaired",
+        "accessibility.offersActivitiesFor.hearingImpaired"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "ODbL v1.0",
+      "licenceClass": "CCSA",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/3H7vWGaLzWqRKqtMS",
+      "originUrl": "https://openstreetmap.org/"
+    },
+    {
+      "sourceId": "auy3kM4nL72qD4T6X",
+      "name": "Liste des services disponibles en La Poste",
+      "group": "venue survey / place guide",
+      "decision": "future region / capability",
+      "use": "Existing places plus explicit practical facts; no broad suitability inference",
+      "selected": false,
+      "catalogueDocuments": 4283,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.wheelchair",
+        "accessibility.accessibleWith.limitedSight"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "ODbL",
+      "licenceClass": "CCSA",
+      "terms": "catalogue marks reusable; verify source terms",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/auy3kM4nL72qD4T6X",
+      "originUrl": "https://datanova.laposte.fr/explore/dataset/laposte_poincont"
+    },
+    {
+      "sourceId": "23cYGtMD6kzHWKbYx",
+      "name": "Boussolus",
+      "group": "venue survey / place guide",
+      "decision": "review terms",
+      "use": "Existing places plus explicit practical facts; no broad suitability inference",
+      "selected": false,
+      "catalogueDocuments": 6,
+      "importType": "placeInfos",
+      "sampleEndpoint": "place-infos",
+      "sampled": 3,
+      "probeStatuses": "place-infos:200",
+      "observedFamilies": [
+        "access summary"
+      ],
+      "relevantFields": [
+        "accessibility.accessibleWith.hearingImpairment",
+        "accessibility.accessibleWith.visualImpairment",
+        "accessibility.accessibleWith.wheelchair"
+      ],
+      "observedRegionalRecords": {},
+      "licence": "needs clarification",
+      "licenceClass": "restricted",
+      "terms": "permission / terms review",
+      "notes": [],
+      "catalogueUrl": "https://www.accessibility.cloud/sources/23cYGtMD6kzHWKbYx",
+      "originUrl": null
+    }
+  ]
+}
