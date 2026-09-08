@@ -420,7 +420,7 @@ describe("shared sources and page reads", () => {
             },
             properties: {
               _id: id,
-              name,
+              name: { en: name, de: name },
               sourceId,
               originalId: "survey-1",
               accessibility: { accessibleWith: { wheelchair: false } },

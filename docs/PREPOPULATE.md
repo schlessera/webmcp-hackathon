@@ -74,6 +74,8 @@ The integration uses the documented cached tile endpoint with bounded pagination
 
 Only explicit boolean `accessibleWith.wheelchair` values map to likely accessibility facts. Partial/unknown values and equipment/disruption data do not imply whole-venue accessibility. Wheelmap/OSM sources are excluded as duplicate evidence. Source and licence links are included in the dossier. Token-bearing request URLs are neither cached nor logged.
 
+Live responses can contain language maps for place names; the parser accepts these alongside plain strings. ODbL licences marked `CCSA` are recognized by their canonical Open Data Commons URL, while restricted and unsupported Creative Commons variants remain excluded. The [September 8 activation check](research/accessibility-cloud-2026-09-08.md) records the selected sources and measured regional coverage.
+
 Neither source is enabled by deployment alone: Overture needs an imported extract and its flag; accessibility.cloud needs credentials and suitable source IDs.
 
 ## Repair and maintenance

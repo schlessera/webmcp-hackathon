@@ -169,6 +169,45 @@ export function overtureRecord(
   };
 }
 
+/** Unlocalized API responses use language maps; older responses use strings. */
+function accessibilityName(value: unknown): string {
+  if (typeof value === "string") return label(value);
+  if (!value || typeof value !== "object" || Array.isArray(value)) return "";
+  const translations = Object.entries(value)
+    .filter(([locale]) => /^[a-z]{2,3}(?:[-_][a-z0-9]{2,8})*$/i.test(locale))
+    .sort(([a], [b]) => a.localeCompare(b));
+  const preferred = [
+    ...translations.filter(([locale]) => /^en(?:[-_]|$)/i.test(locale)),
+    ...translations,
+  ];
+  return preferred.map(([, name]) => label(name)).find(Boolean) ?? "";
+}
+
+function accessibilityOpenLicense(license: Record<string, unknown>): boolean {
+  const name = label(license.name),
+    url = discoveryUrl(license.websiteURL);
+  if (
+    license.consideredAs === "restricted" ||
+    /non.?commercial|no.?derivatives|share.?alike|by[ -](?:nc|nd|sa)/i.test(
+      `${name} ${url ?? ""}`,
+    )
+  )
+    return false;
+  // The live catalogue classifies ODbL as CCSA. Recognize its canonical URL
+  // without admitting every licence grouped into that broad category.
+  if (url) {
+    const parsed = new URL(url);
+    if (
+      /^(?:www\.)?opendatacommons\.org$/.test(parsed.hostname) &&
+      /^\/licenses\/odbl(?:\/|$)/.test(parsed.pathname)
+    )
+      return true;
+  }
+  return ["CC0", "CCBY", "ODbL", "public-domain", "Public Domain"].includes(
+    String(license.consideredAs ?? name),
+  );
+}
+
 export function accessibilityRecords(
   body: unknown,
   allowed: string[],
@@ -204,9 +243,7 @@ export function accessibilityRecords(
       !license ||
       !label(source.name) ||
       !label(license.name) ||
-      !["CC0", "CCBY", "ODbL", "public-domain", "Public Domain"].includes(
-        license.consideredAs ?? license.name,
-      )
+      !accessibilityOpenLicense(license)
     )
       return [];
     if (
@@ -225,7 +262,7 @@ export function accessibilityRecords(
       Math.abs(lng) > 180
     )
       return [];
-    const name = label(p.name),
+    const name = accessibilityName(p.name),
       id = label(p._id),
       wheelchair = p.accessibility?.accessibleWith?.wheelchair;
     if (!name || !id || typeof wheelchair !== "boolean") return [];
@@ -291,7 +328,7 @@ async function readAccessibilityTile(
   const scope = createHash("sha256")
     .update(JSON.stringify([token, allowed]))
     .digest("hex");
-  const key = `accessibility:${scope}:${tile.z}/${tile.x}/${tile.y}`;
+  const key = `accessibility:v2:${scope}:${tile.z}/${tile.x}/${tile.y}`;
   const cached = async () =>
     (
       await db.query(

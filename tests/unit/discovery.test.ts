@@ -119,6 +119,48 @@ describe("conservative discovery", () => {
       accessibilityRecords({ error: "denied" }, ["partner"]),
     ).toThrow("invalid_response");
   });
+  it("reads live language maps and sanitizes the selected place name", () => {
+    const body = cloud();
+    (body.features[0].properties as any).name = {
+      de: "Andere Ecke",
+      en: "<b>Distinct Corner</b>",
+    };
+    expect(accessibilityRecords(body, ["partner"])[0].name).toBe("Distinct Corner");
+    (body.features[0].properties as any).name = { en: "", de: "Andere Ecke" };
+    expect(accessibilityRecords(body, ["partner"])[0].name).toBe("Andere Ecke");
+    (body.features[0].properties as any).name = { "en-US": "Distinct Corner" };
+    expect(accessibilityRecords(body, ["partner"])[0].name).toBe("Distinct Corner");
+  });
+  it.each([null, [], { en: { text: "Distinct Corner" } }, { text: "Distinct Corner" }])(
+    "abstains when the name has no usable translation: %j",
+    (name) => {
+      const body = cloud();
+      (body.features[0].properties as any).name = name;
+      expect(accessibilityRecords(body, ["partner"])).toEqual([]);
+    },
+  );
+  it("accepts canonical ODbL metadata classified as CCSA by the live API", () => {
+    const body = cloud();
+    body.related.licenses.cc = {
+      name: "ODbL v1.0",
+      consideredAs: "CCSA",
+      websiteURL: "https://opendatacommons.org/licenses/odbl/summary/",
+    };
+    expect(accessibilityRecords(body, ["partner"])[0].license).toBe("ODbL v1.0");
+    body.related.licenses.cc.websiteURL = "https://example.org/licenses/odbl/";
+    expect(accessibilityRecords(body, ["partner"])).toEqual([]);
+    body.related.licenses.cc.websiteURL = "https://opendatacommons.org/licenses/odbl/";
+    body.related.licenses.cc.consideredAs = "restricted";
+    expect(accessibilityRecords(body, ["partner"])).toEqual([]);
+  });
+  it.each(["by-nc-sa", "by-nd", "by-sa"])(
+    "does not trust a broad CCBY classification for %s",
+    (slug) => {
+      const body = cloud();
+      body.related.licenses.cc.websiteURL = `https://creativecommons.org/licenses/${slug}/4.0/`;
+      expect(accessibilityRecords(body, ["partner"])).toEqual([]);
+    },
+  );
   it("covers a tile boundary with bounded cached tile requests", () => {
     const tiles = accessibilityTiles({ lat: 0, lng: 0 });
     expect(tiles).toHaveLength(4);
