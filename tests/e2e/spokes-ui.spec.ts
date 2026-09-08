@@ -3184,8 +3184,10 @@ test("opening a place fills the panel step by step on the fast track, and hoveri
   );
   expect(inspectBodies).toHaveLength(readsAtDone);
 
-  // The drawer keeps the plan.
+  // The drawer keeps the plan inside its collapsed Pipeline section.
   await page.getByTestId("open-drawer").click();
+  await expect(page.getByTestId("diag-interactive")).toHaveCount(0);
+  await page.getByTestId("diagnostics").locator("summary").filter({ hasText: /^Pipeline$/ }).click();
   await expect(page.getByTestId("diag-interactive")).toContainText("site 420ms → needs 900ms");
   await expect(page.getByTestId("diag-interactive")).toContainText("$0.0012");
   await browserContext.close();

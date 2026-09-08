@@ -24,9 +24,12 @@ async function ready(page: Page, participant: keyof TestRoom["participantIds"] =
   await expect.poll(async () => (await call(page, "sync_session")).identity?.participantId).toBe(room.participantIds[participant]);
   // The command runner mounts after authentication; the UI identity proves
   // that its effect has installed the same command bus used by the tools.
-  if (!await page.getByTestId("diagnostics").isVisible()) {
+  // Shim pages open the lazy-loaded drawer automatically, including after
+  // reload. Wait for it instead of racing its mount with another open click.
+  if (native && !await page.getByTestId("diagnostics").isVisible()) {
     await page.getByTestId("open-drawer").click({ timeout: 10_000 });
   }
+  await expect(page.getByTestId("diagnostics")).toBeVisible();
   await expect(page.getByTestId("participant-id")).toHaveText(room.participantIds[participant]);
 }
 
