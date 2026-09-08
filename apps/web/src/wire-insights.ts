@@ -82,7 +82,7 @@ export function eventMatches(event: WireEvent, query: string): boolean {
  * additions (especially payloads) out of downloadable diagnostics by default. */
 export function wireExport(state: WireState, events = state.events) {
   return { version: 1, exportedAt: new Date().toISOString(), startedAt: state.startedAt,
-    dropped: state.dropped ?? 0, omittedPings: state.omittedPings ?? 0, coverage: "This page only; server spans end at response headers; metadata only",
+    dropped: state.dropped ?? 0, omittedPings: state.omittedPings ?? 0, retainedBytes: state.retainedBytes ?? 0, coverage: "This page only; server spans end at response headers; metadata only",
     events: events.map(({ id, lane, label, note, at, endAt, durationMs, headersMs, bodyMs, parseMs, status,
       failureKind, outcome, dir, parentId, correlationId, idempotencyKey, revision, fromRevision, serverMs,
       bytes, budget, truncated, replayed, steps, serverTrace }) => ({ id, lane, label, note, at, endAt,

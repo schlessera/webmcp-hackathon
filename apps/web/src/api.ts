@@ -327,7 +327,7 @@ export async function landmarksRaw(input: unknown, signal?: AbortSignal): Promis
   });
   try {
     const response = await fetch(`/api/landmarks?q=${encodeURIComponent(query)}`, {
-      headers: { authorization: `Bearer ${token}`, "x-correlation-id": correlationId },
+      headers: { authorization: `Bearer ${token}`, "x-correlation-id": correlationId, "x-wire-trace": "1" },
       signal,
     });
     const { body, bytes } = await readJson(response, span);
@@ -375,6 +375,7 @@ export async function fetchExplorePlaces(
       headers: {
         authorization: `Bearer ${token}`,
         "x-correlation-id": correlationId,
+        "x-wire-trace": "1",
       },
       signal,
     });
@@ -447,6 +448,7 @@ export async function fetchAreaLandmarks(
       headers: {
         authorization: `Bearer ${token}`,
         "x-correlation-id": correlationId,
+        "x-wire-trace": "1",
       },
       signal,
     });
@@ -494,6 +496,7 @@ export async function fetchPlaceSearch(
       headers: {
         authorization: `Bearer ${token}`,
         "x-correlation-id": correlationId,
+        "x-wire-trace": "1",
       },
       signal,
     });
