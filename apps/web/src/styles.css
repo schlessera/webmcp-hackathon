@@ -352,7 +352,7 @@ body { overflow: hidden; }
   pointer-events: auto;
   transform: translate(var(--map-pin-shift-x, 0px), var(--map-pin-shift-y, 0px));
 }
-.map-pin-needles {
+.map-pin-needles, .map-pin-heads {
   position: absolute;
   inset: 0;
   width: 100%; height: 100%;

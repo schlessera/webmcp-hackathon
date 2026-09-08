@@ -1,18 +1,29 @@
-import { MercatorCoordinate, type LngLatLike, type Map as MapLibreMap } from "maplibre-gl";
+import {
+  MercatorCoordinate, type LngLatLike, type Map as MapLibreMap, type CustomLayerInterface,
+  type DataDrivenPropertyValueSpecification, type TransitionSpecification,
+} from "maplibre-gl";
 import { MAP_THEME } from "./map-theme.ts";
 
 // Every room pin reserves the space a label will need, before it has a name.
 const PIN_HEIGHT = 42;
 const EXPLORE_PIN_HEIGHT = 24;
+// Include feet just outside the viewport when their elevated heads are visible.
+export const PIN_QUERY_PADDING = PIN_HEIGHT * 4;
 
 export function pinLift(pitch: number, explore = false): number {
   return (explore ? EXPLORE_PIN_HEIGHT : PIN_HEIGHT) *
     Math.sin(Math.max(0, Math.min(90, pitch)) * Math.PI / 180);
 }
 
-function canvasPinTranslation(pitch: number, explore = false): number {
-  // Counter the map plane's foreshortening so the stem clears the head.
-  return pinLift(pitch, explore) / Math.max(0.25, Math.cos(pitch * Math.PI / 180));
+const PROJECTION_LAYER = "pin-projection";
+type PinOpacity = "circle-opacity" | "circle-stroke-opacity" | "icon-opacity";
+type SuppressedPaint = PinOpacity | `${PinOpacity}-transition`;
+type SuppressedValue = DataDrivenPropertyValueSpecification<number> | TransitionSpecification | undefined;
+const projectionMatrices = new WeakMap<MapLibreMap, ArrayLike<number>>();
+const ringAngles = new WeakMap<MapLibreMap, number>();
+
+export function setPinRingAngle(map: MapLibreMap, angle: number) {
+  ringAngles.set(map, angle);
 }
 
 /** Local coordinates: head at (0, 0), tip at the geographic point. */
@@ -55,16 +66,26 @@ export const PIN_ICON_PAINT = {
   "icon-translate-transition": { duration: 0 },
 } as const;
 
-/** MapLibre applies circle/icon-translate in tile space, even with a viewport
- * anchor. Match that Mercator displacement before projecting: simply moving
- * the projected point upward loses both perspective and bearing. */
+/** Raise only Z, using the same full-precision Mercator camera matrix as 3D
+ * buildings. Moving X/Y toward the horizon would make the heads lean inward.
+ * The altitude is zoom-normalized to keep these UI pins a readable size. */
 export function canvasPinPoint(map: MapLibreMap, location: LngLatLike, explore = false) {
+  const point = map.project(location);
+  const matrix = projectionMatrices.get(map);
+  if (!matrix || map.getPitch() === 0) return point;
   const coordinate = MercatorCoordinate.fromLngLat(location);
-  const shift = canvasPinTranslation(map.getPitch(), explore) / (512 * 2 ** map.getZoom());
-  const angle = map.getBearing() * Math.PI / 180;
-  coordinate.x += shift * Math.sin(angle);
-  coordinate.y -= shift * Math.cos(angle);
-  return map.project(coordinate.toLngLat());
+  // Retract continuously near 2D, including the otherwise-visible outward
+  // displacement when looking straight down at an elevated point.
+  const t = Math.min(1, Math.max(0, map.getPitch()) / 12);
+  const altitude = (explore ? EXPLORE_PIN_HEIGHT : PIN_HEIGHT) * t * t * (3 - 2 * t);
+  const z = altitude / (512 * 2 ** map.getZoom());
+  const centerX = MercatorCoordinate.fromLngLat(map.getCenter()).x;
+  const x = coordinate.x + Math.round(centerX - coordinate.x);
+  const y = coordinate.y;
+  const w = matrix[3] * x + matrix[7] * y + matrix[11] * z + matrix[15];
+  point.x = ((matrix[0] * x + matrix[4] * y + matrix[8] * z + matrix[12]) / w + 1) * map.getCanvas().clientWidth / 2;
+  point.y = (1 - (matrix[1] * x + matrix[5] * y + matrix[9] * z + matrix[13]) / w) * map.getCanvas().clientHeight / 2;
+  return point;
 }
 
 // Source points use MapLibre's tile precision. Reuse them when a canvas pin
@@ -76,35 +97,54 @@ export function roomPinPoint(map: MapLibreMap, candidateId: string, location: Ln
   return canvasPinPoint(map, roomCoordinates.get(map)?.get(candidateId) ?? location);
 }
 
-/** One transparent canvas for visible GL needles. Cutting out every head
- * keeps strokes behind hollow/translucent dots too, including neighbours.
- * HTML cards sit above the canvas and keep their own geographic SVG needle.
- * No features are re-tiled and React does not render animation frames. */
+/** Circle layers cannot take an altitude. In 3D, draw their evaluated styles
+ * at the elevated camera projection, with needles on a separate canvas below
+ * the heads. Keep the native layers for 2D, tiling, state/style evaluation and
+ * queries. No features are re-tiled and React does not render camera frames. */
 export function bindMapPins(map: MapLibreMap): () => void {
   const container = map.getContainer();
-  const canvas = document.createElement("canvas");
-  canvas.className = "map-pin-needles";
-  canvas.setAttribute("aria-hidden", "true");
-  map.getCanvasContainer().append(canvas);
+  const makeCanvas = (className: string) => {
+    const canvas = document.createElement("canvas");
+    canvas.className = className;
+    canvas.setAttribute("aria-hidden", "true");
+    map.getCanvasContainer().append(canvas);
+    return canvas;
+  };
+  const canvas = makeCanvas("map-pin-needles");
+  const headCanvas = makeCanvas("map-pin-heads");
   const drawing = canvas.getContext("2d")!;
+  const headDrawing = headCanvas.getContext("2d")!;
+  const suppressed = new Map<string, Map<SuppressedPaint, SuppressedValue>>();
+  const restoring = new Map<string, Map<SuppressedPaint, SuppressedValue>>();
   let syncing = false;
 
   const draw = () => {
     const mapCanvas = map.getCanvas();
-    if (canvas.width !== mapCanvas.width || canvas.height !== mapCanvas.height) {
-      canvas.width = mapCanvas.width;
-      canvas.height = mapCanvas.height;
+    for (const surface of [canvas, headCanvas]) {
+      if (surface.width !== mapCanvas.width || surface.height !== mapCanvas.height) {
+        surface.width = mapCanvas.width;
+        surface.height = mapCanvas.height;
+      }
     }
     drawing.clearRect(0, 0, canvas.width, canvas.height);
+    headDrawing.clearRect(0, 0, headCanvas.width, headCanvas.height);
     if (map.getPitch() === 0 || !mapCanvas.clientWidth) return;
     const pixelRatio = canvas.width / mapCanvas.clientWidth;
     drawing.save();
     drawing.scale(pixelRatio, pixelRatio);
     drawing.fillStyle = MAP_THEME.pinNeedle.color;
+    headDrawing.save();
+    headDrawing.scale(pixelRatio, pixelRatio);
     const heads: Array<{ x: number; y: number; radius: number }> = [];
     const seen = new Set<string>();
     const layers = ["mark-dots", "explore-dots"].filter((id) => Boolean(map.getLayer(id)));
-    for (const feature of map.queryRenderedFeatures({ layers })) {
+    // Queries return topmost first. Paint in the opposite order so the
+    // existing status sort order still determines which head is on top.
+    const features = map.queryRenderedFeatures([
+      [-PIN_QUERY_PADDING, -PIN_QUERY_PADDING],
+      [mapCanvas.clientWidth + PIN_QUERY_PADDING, mapCanvas.clientHeight + PIN_QUERY_PADDING],
+    ], { layers });
+    for (const feature of features.reverse()) {
       if (feature.geometry.type !== "Point" || feature.state.hidden) continue;
       const key = `${feature.source}:${feature.id}`;
       if (seen.has(key)) continue;
@@ -114,11 +154,10 @@ export function bindMapPins(map: MapLibreMap): () => void {
       const explore = feature.layer.id === "explore-dots";
       const head = canvasPinPoint(map, location, explore);
       const status = (feature.state.status ?? "works") as keyof typeof GL_MARK_RADIUS;
-      const radius = explore ? 5 :
-        status === "works" ? GL_MARK_RADIUS.works + 2.5 :
-        status === "act" ? GL_MARK_RADIUS.act + 3 :
-        status === "unsure" ? GL_MARK_RADIUS.unsure + 2.5 :
-        ["likely", "unlikely", "return"].includes(status) ? 9 : GL_MARK_RADIUS.out;
+      const paint = feature.layer.paint as Record<string, unknown>;
+      const fillRadius = Number(paint["circle-radius"]);
+      const stroke = Number(paint["circle-stroke-width"]);
+      const radius = Math.max(fillRadius + stroke, !explore && ["likely", "unlikely", "return"].includes(status) ? 9 : 0);
       // Meet the antialiased border instead of leaving a clear pixel outside it.
       const clearance = Math.max(0, radius - 0.5);
       heads.push({ x: head.x, y: head.y, radius: clearance });
@@ -133,6 +172,43 @@ export function bindMapPins(map: MapLibreMap): () => void {
         drawing.closePath();
         drawing.fill();
       }
+      headDrawing.globalAlpha = drawing.globalAlpha;
+      headDrawing.fillStyle = String(paint["circle-color"]);
+      headDrawing.beginPath();
+      headDrawing.arc(head.x, head.y, fillRadius, 0, Math.PI * 2);
+      headDrawing.fill();
+      if (stroke > 0) {
+        headDrawing.globalAlpha = 1;
+        headDrawing.strokeStyle = String(paint["circle-stroke-color"]);
+        headDrawing.lineWidth = stroke;
+        headDrawing.beginPath();
+        headDrawing.arc(head.x, head.y, fillRadius + stroke / 2, 0, Math.PI * 2);
+        headDrawing.stroke();
+      }
+      if (!explore) {
+        const ringColor = status === "out" ? MAP_THEME.marks.out :
+          status === "unsure" || status === "unlikely" ? MAP_THEME.marks.unsure :
+          status === "act" ? MAP_THEME.marks.act : MAP_THEME.marks.works;
+        const ring = (size: number, dash: number[], angle = 0, sweep = Math.PI * 2) => {
+          headDrawing.strokeStyle = ringColor;
+          headDrawing.lineWidth = 1.5;
+          headDrawing.lineCap = "round";
+          headDrawing.setLineDash(dash);
+          headDrawing.beginPath();
+          headDrawing.arc(head.x, head.y, (size - 1.5) / 2 - 1, angle, angle + sweep);
+          headDrawing.stroke();
+          headDrawing.setLineDash([]);
+        };
+        headDrawing.globalAlpha = 1;
+        if (["likely", "unlikely", "return"].includes(status)) ring(18, [3, 2.5]);
+        const stage = feature.state.stage;
+        if (stage) {
+          headDrawing.globalAlpha = stage === "queued" ? 0.4 : 1;
+          ring(28, stage === "processing" ? [] : [3.5, 3],
+            stage === "queued" ? 0 : ringAngles.get(map) ?? 0,
+            stage === "processing" ? Math.PI * 1.5 : Math.PI * 2);
+        }
+      }
     }
     drawing.globalAlpha = 1;
     drawing.globalCompositeOperation = "destination-out";
@@ -142,9 +218,64 @@ export function bindMapPins(map: MapLibreMap): () => void {
       drawing.fill();
     }
     drawing.restore();
+    headDrawing.restore();
   };
 
-  const sync = () => {
+  const syncCoordinates = () => {
+    const coordinates = new Map<string, [number, number]>();
+    if (map.getSource("marks")) {
+      for (const feature of map.querySourceFeatures("marks")) {
+        if (feature.geometry.type === "Point") {
+          coordinates.set(String(feature.id), feature.geometry.coordinates as [number, number]);
+        }
+      }
+    }
+    roomCoordinates.set(map, coordinates);
+  };
+
+  const syncMarkers = () => {
+    for (const marker of container.querySelectorAll<HTMLElement>(".marker")) {
+      const location: [number, number] = [Number(marker.dataset.lng), Number(marker.dataset.lat)];
+      const ground = map.project(location);
+      const head = roomPinPoint(map, marker.dataset.candidateId!, location);
+      const dx = head.x - ground.x;
+      const dy = head.y - ground.y;
+      marker.style.setProperty("--map-pin-shift-x", `${dx}px`);
+      marker.style.setProperty("--map-pin-shift-y", `${dy}px`);
+      const path = marker.querySelector<SVGPathElement>(".marker-needle path");
+      if (path) path.setAttribute("d", pinStemPath(
+        -dx - Number(path.dataset.offsetX),
+        -dy - Number(path.dataset.offsetY),
+        Number(path.dataset.clearance),
+      ));
+    }
+  };
+
+  const restoreLayers = () => {
+    for (const [id, properties] of suppressed) {
+      if (!map.getLayer(id)) continue;
+      const transitions = new Map<SuppressedPaint, SuppressedValue>();
+      for (const [property, value] of properties) {
+        if (property.endsWith("-transition")) transitions.set(property, value);
+        else map.setPaintProperty(id, property, value);
+      }
+      restoring.set(id, transitions);
+    }
+    suppressed.clear();
+  };
+
+  const restoreTransitions = () => {
+    // Render the first flat frame with zero-duration opacity restoration.
+    // Restoring its 420ms duration in the same style update would fade the
+    // native circles in from nothing after the elevated canvas disappears.
+    for (const [id, properties] of restoring) {
+      if (!map.getLayer(id)) continue;
+      for (const [property, value] of properties) map.setPaintProperty(id, property, value);
+    }
+    restoring.clear();
+  };
+
+  const syncLayers = () => {
     if (syncing) return;
     syncing = true;
     try {
@@ -152,53 +283,62 @@ export function bindMapPins(map: MapLibreMap): () => void {
       const lift = pinLift(pitch);
       container.style.setProperty("--map-pin-lift", `${lift}px`);
       container.style.setProperty("--map-pin-visible", lift > 0 ? "1" : "0");
-      const coordinates = new Map<string, [number, number]>();
-      if (map.getSource("marks")) {
-        for (const feature of map.querySourceFeatures("marks")) {
-          if (feature.geometry.type === "Point") {
-            coordinates.set(String(feature.id), feature.geometry.coordinates as [number, number]);
-          }
-        }
-      }
-      roomCoordinates.set(map, coordinates);
-      for (const marker of container.querySelectorAll<HTMLElement>(".marker")) {
-        const location: [number, number] = [Number(marker.dataset.lng), Number(marker.dataset.lat)];
-        const ground = map.project(location);
-        const head = roomPinPoint(map, marker.dataset.candidateId!, location);
-        const dx = head.x - ground.x;
-        const dy = head.y - ground.y;
-        marker.style.setProperty("--map-pin-shift-x", `${dx}px`);
-        marker.style.setProperty("--map-pin-shift-y", `${dy}px`);
-        const path = marker.querySelector<SVGPathElement>(".marker-needle path");
-        if (path) path.setAttribute("d", pinStemPath(
-          -dx - Number(path.dataset.offsetX),
-          -dy - Number(path.dataset.offsetY),
-          Number(path.dataset.clearance),
-        ));
+      if (pitch === 0) {
+        restoreLayers();
+        return;
       }
       for (const id of ["mark-dots", "explore-dots", "mark-dashes", "mark-busy", "mark-arc"]) {
         if (!map.getLayer(id)) continue;
-        const property = id.endsWith("dots") ? "circle-translate" : "icon-translate";
-        const current = map.getPaintProperty(id, property) as [number, number] | undefined;
-        const translation = canvasPinTranslation(pitch, id === "explore-dots");
-        if (current?.[1] !== -translation) map.setPaintProperty(id, property, [0, -translation]);
+        const properties = suppressed.get(id) ?? new Map<SuppressedPaint, SuppressedValue>();
+        suppressed.set(id, properties);
+        const opacityProperties: PinOpacity[] = id.endsWith("dots") ? ["circle-opacity", "circle-stroke-opacity"] : ["icon-opacity"];
+        for (const property of opacityProperties) {
+          const current = map.getPaintProperty(id, property);
+          if (current === 0) continue;
+          properties.set(property, current);
+          const transition = `${property}-transition` as const;
+          if (!properties.has(transition)) properties.set(transition,
+            restoring.get(id)?.has(transition) ? restoring.get(id)!.get(transition) : map.getPaintProperty(id, transition));
+          map.setPaintProperty(id, transition, { duration: 0 });
+          map.setPaintProperty(id, property, 0);
+        }
+        restoring.delete(id);
       }
     } finally {
       syncing = false;
     }
   };
 
-  sync();
-  draw();
-  map.on("move", sync);
-  map.on("sourcedata", sync);
-  map.on("styledata", sync);
-  map.on("render", draw);
+  const projection: CustomLayerInterface = {
+    id: PROJECTION_LAYER,
+    type: "custom",
+    render(_gl, frame) {
+      projectionMatrices.set(map, frame.defaultProjectionData.mainMatrix);
+    },
+  };
+  const render = () => {
+    syncMarkers();
+    draw();
+    restoreTransitions();
+  };
+  map.addLayer(projection);
+  syncCoordinates();
+  syncLayers();
+  map.on("move", syncLayers);
+  map.on("sourcedata", syncCoordinates);
+  map.on("styledata", syncLayers);
+  map.on("render", render);
   return () => {
-    map.off("move", sync);
-    map.off("sourcedata", sync);
-    map.off("styledata", sync);
-    map.off("render", draw);
+    map.off("move", syncLayers);
+    map.off("sourcedata", syncCoordinates);
+    map.off("styledata", syncLayers);
+    map.off("render", render);
+    if (map.getLayer(PROJECTION_LAYER)) map.removeLayer(PROJECTION_LAYER);
+    restoreLayers();
+    restoreTransitions();
+    projectionMatrices.delete(map);
+    roomCoordinates.delete(map);
     canvas.remove();
+    headCanvas.remove();
   };
 }

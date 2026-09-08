@@ -6,8 +6,8 @@ import "../map-worker.ts";
 import { BASEMAP_SOURCE, MAP_THEME, TILE_STYLE } from "../map-theme.ts";
 import { loadTileStyle, type TileStyle } from "../map-style.ts";
 import {
-  bindMapPins, canvasPinPoint, roomPinPoint, pinStemPath, GL_MARK_RADIUS,
-  PIN_CIRCLE_PAINT, PIN_ICON_LAYOUT, PIN_ICON_PAINT,
+  bindMapPins, canvasPinPoint, roomPinPoint, pinStemPath, setPinRingAngle, GL_MARK_RADIUS,
+  PIN_CIRCLE_PAINT, PIN_ICON_LAYOUT, PIN_ICON_PAINT, PIN_QUERY_PADDING,
 } from "../map-pins.ts";
 import { spatial } from "../spatial-store.ts";
 import { fetchAreaLandmarks, type AreaLandmark } from "../api.ts";
@@ -1479,6 +1479,7 @@ export function MapView({
     const arcRing = (angle: number) =>
       ringImage(arcCanvas, 28 * ringPixelRatio, 1.5 * ringPixelRatio, [], angle, ARC_SWEEP);
     const paint = (angle: number) => {
+      setPinRingAngle(map, angle);
       if (map.hasImage(busyImage)) map.updateImage(busyImage, busyRing(angle));
       if (map.hasImage(arcImage)) map.updateImage(arcImage, arcRing(angle));
       map.triggerRepaint();
@@ -1769,7 +1770,7 @@ export function MapView({
     const map = mapRef.current?.getMap();
     if (!loaded || !map) return;
     return bindMapPins(map);
-  }, [loaded, collisionOffsets]);
+  }, [loaded]);
 
   /* 3D is a camera state as much as a layer: extruded bodies only read as
      bodies from an angle. An explicit toggle is the user's own action, so
@@ -2270,10 +2271,14 @@ export function MapView({
             dispatchSelect(null);
             return;
           }
+          // The source's query geometry stays on the ground in 3D. Include
+          // the feet beneath the raised heads, then resolve the actual tap
+          // distance against the elevated projection below.
+          const queryReach = TAP_REACH + ((map?.getPitch() ?? 0) > 0 ? PIN_QUERY_PADDING : 0);
           const features = map?.queryRenderedFeatures(
             [
-              [event.point.x - TAP_REACH, event.point.y - TAP_REACH],
-              [event.point.x + TAP_REACH, event.point.y + TAP_REACH],
+              [event.point.x - queryReach, event.point.y - queryReach],
+              [event.point.x + queryReach, event.point.y + queryReach],
             ],
             { layers: ["explore-dots"] },
           ) ?? [];
