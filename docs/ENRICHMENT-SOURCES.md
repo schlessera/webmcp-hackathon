@@ -1,6 +1,6 @@
 # Enriching a place beyond the map
 
-Implementation reference, checked against `main` on 2026-09-07. The
+Implementation reference, updated for the shared pipeline changes on 2026-09-08. The
 [base inventory](DATA-QUALITY.md) is a prepared OSM snapshot. Enrichment adds
 source-labelled facts, links, evidence, and images to places already known to
 the application. It does not replace the inventory with worldwide live search.
@@ -20,6 +20,8 @@ are historical measurements, not current coverage or provider-price guarantees.
 | Venue website and linked menu | JSON-LD and visible text, hours, cuisine, price range, accessibility, self-published rating, menu/reservation/delivery links | Parsed facts and evidence with venue source URLs |
 | Wikidata | Tagged entity, description, official website, Wikipedia link, awards, image metadata | Source-labelled supplemental facts; not a general name-based Wikidata crawl |
 | DataForSEO business listings | Category-filtered businesses near the room or prepared region, joined locally to known places | Likely Google-profile claims, published hours/rating, and website discovery |
+| Overture Places | Pinned regional extracts, conservatively matched to OSM places | Website/identity discovery with release and source attribution; no inferred accessibility or dietary facts |
+| accessibility.cloud | Selected, openly licensed tile records with explicit wheelchair accessibility | Attributed likely accessibility claims; partial/unknown and duplicate OSM/Wheelmap records are excluded |
 | Search provider | Bounded results for unanswered admissible criteria | Cited evidence passed to a separate tool-less evaluator |
 | Participant | An attestation or fact confirmation submitted by an authenticated member | Evidence confined to that room, with actor and provenance |
 
@@ -37,8 +39,7 @@ separate evidence source, not an OSM fact.
 
 Venue, menu, image, metadata, search, and listings requests use the policy-aware
 [outbound client](../apps/server/src/net/outbound.ts). The model Responses
-transport has its own direct keyed-API path and shares process-wide resource
-limits. Browsers request venue images from authenticated same-origin routes;
+transport has its own direct keyed-API path. Both paths use database-coordinated hourly/daily admission and workload allocations, plus process-local concurrency guards. See [configuration and recovery](PREPOPULATE.md). Browsers request venue images from authenticated same-origin routes;
 map tiles are a separate browser-side OpenFreeMap dependency.
 
 Configured residential proxy routing applies to eligible venue-site, menu,

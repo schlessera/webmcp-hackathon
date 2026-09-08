@@ -1,3 +1,6 @@
+import { withFetchLease } from "../net/fetch-lease.ts";
+import { currentWork } from "../work-context.ts";
+import { discoverSources, sourceEnabled, type Discoveries } from "./discovery.ts";
 import { createHash, randomUUID } from "node:crypto";
 import type pg from "pg";
 import {
@@ -113,6 +116,7 @@ export interface Enrichment {
   website: PersistedWebFacts | null;
   wikidata: WikiFacts | null;
   listing?: ListingFacts | null;
+  discoveries?: Discoveries;
   inferred?: Record<string, StoredCriterionInference>;
   inferredAt?: string | null;
   error: string | null;
@@ -176,6 +180,7 @@ export type InferenceSourceBucket =
   | "record"
   | "own_site_explicit"
   | "listing"
+  | "accessibility"
   | "own_site_inferred"
   | "domain_search"
   | "open_web"
@@ -188,6 +193,7 @@ export const INFERENCE_SOURCE_BUCKET_RANK: Readonly<Record<InferenceSourceBucket
   domain_search: 2,
   own_site_inferred: 3,
   listing: 4,
+  accessibility: 4,
   own_site_explicit: 5,
   record: 6,
 };
@@ -207,6 +213,7 @@ function inferenceSourceBucket(
     return "record";
   }
   if (inference.source === LISTING_SOURCE) return "listing";
+  if (inference.source.startsWith("accessibility.cloud:")) return "accessibility";
   const bucket = inference.source.split(":").at(-1);
   if (bucket === "venue_site" || bucket === "menu") {
     return inference.explicit === true ? "own_site_explicit" : "own_site_inferred";
@@ -230,6 +237,9 @@ export function resolveInference(
   if (!previous) return fresh;
   if (isOmitted(fresh)) {
     if (!isOmitted(previous)) return previous;
+    // Replaying a cached abstention cannot erase a paid attempt from its audit metadata.
+    if (!fresh.searchDay && previous.searchDay) return { ...fresh,
+      searchDay: previous.searchDay, searchAttempts: previous.searchAttempts };
     if (fresh.searchDay && fresh.searchDay === previous.searchDay) {
       return {
         ...fresh,
@@ -378,8 +388,9 @@ function pipelineImageFetch(
 /** The website reader validates DNS before invoking its transport. For the
  * injected test transport there is no network to protect, so resolve against
  * a public numeric placeholder and translate requests back for the fixture. */
-function pageCache(db: pg.Pool): WebsitePageCache {
+export function pageCache(db: Pick<pg.Pool,"query">): WebsitePageCache {
   return {
+    coordinate: (url,run) => withFetchLease(db,`page:${new URL(url).toString()}`,run),
     load: (url) => loadPageCache(db, url),
     store: (input) => storePageCache(db, input),
     refresh: (url, ttlMs) => refreshPageCache(db, url, ttlMs),
@@ -401,6 +412,7 @@ function translatedPageCache(
     return url.toString();
   };
   return {
+    coordinate: (url,run) => cache.coordinate?.(translate(url),run) ?? run(),
     load: (url) => cache.load(translate(url)),
     store: (input) => cache.store({ ...input, url: translate(input.url) }),
     refresh: (url, ttlMs) => cache.refresh(translate(url), ttlMs),
@@ -408,7 +420,7 @@ function translatedPageCache(
   };
 }
 
-async function cachedPageText(
+export async function cachedPageText(
   db: pg.Pool,
   target: LookupTarget,
   enrichment: Enrichment | undefined,
@@ -420,7 +432,10 @@ async function cachedPageText(
       ? loadPageCache(db, enrichment.website.menuUrl)
       : Promise.resolve(null),
   ]);
-  return transientTextFromPages(home?.fresh ? home : null, menu?.fresh ? menu : null);
+  const base=transientTextFromPages(home?.fresh ? home : null, menu?.fresh ? menu : null);
+  const related=(await Promise.all((home?.links??[]).filter(url=>url!==enrichment?.website?.menuUrl).slice(0,2)
+    .map(url=>loadPageCache(db,url)))).flatMap(page=>page?.fresh&&page.text?[{url:page.url,text:page.text}]:[]);
+  return related.length?{...base,related}:base;
 }
 
 function fetchInjectedWebsiteFacts(
@@ -489,6 +504,7 @@ interface Row {
   website: PersistedWebFacts | null;
   wikidata: WikiFacts | null;
   listing: ListingFacts | null;
+  discoveries: Discoveries;
   inferred: Record<string, StoredCriterionInference>;
   inferred_at: Date | null;
   error: string | null;
@@ -538,6 +554,7 @@ const rowToEnrichment = (r: Row): Enrichment => {
     website: cleanWebFacts(r.website),
     wikidata: cleanWikiFacts(r.wikidata),
     listing,
+    discoveries: r.discoveries ?? {},
     inferred: cleanStoredInferences(inferred),
     inferredAt: r.inferred_at?.toISOString() ?? null,
     error: r.error,
@@ -665,9 +682,6 @@ async function imageCandidatesFor(
     );
     if (image) out.push(image);
   }
-  if (target.placeName && target.location) {
-    out.push(...await geosearchCommonsImages(target.placeName, target.location, wikiApiFetch));
-  }
   out.push(...websiteCandidates);
   return [...new Map(out.map((candidate) => [candidate.url, candidate])).values()];
 }
@@ -792,6 +806,13 @@ async function lookup(
   signal?: AbortSignal,
 ): Promise<LookupPass> {
   signal?.throwIfAborted();
+  let initial = (await loadCached(db,[target.osmRef])).get(target.osmRef);
+  if (target.placeName && target.location && currentWork().workload !== "prepopulate" &&
+    (sourceEnabled("overture") || sourceEnabled("accessibility"))) {
+    await discoverSources(db,[{osmRef:target.osmRef,name:target.placeName,location:target.location,website:target.website}]);
+    initial=(await loadCached(db,[target.osmRef])).get(target.osmRef);
+  }
+  target={...target,website:target.website??initial?.listing?.website??initial?.discoveries?.overture?.website};
   const interactive = intent === "interactive";
   // No session is minted here on purpose: a per-pass session pins a fresh exit
   // IP and rebuilds the tunnel for every place. Left undefined, the outbound
@@ -801,7 +822,6 @@ async function lookup(
     ...target,
     ...(scheduledRoute ? { direct: scheduledRoute === "direct" } : interactive ? { direct: true } : {}),
   };
-  const initial = (await loadCached(db, [target.osmRef])).get(target.osmRef);
   if (reuseFreshPage) {
     const [pageText, cachedHome] = await Promise.all([
       cachedPageText(db, target, initial),
@@ -917,7 +937,8 @@ export async function ensureEnrichments(
   const wanted = targets.filter(hasLookupSource);
   const found = await loadCached(db, wanted.map((t) => t.osmRef));
   const stale = wanted.filter(
-    (target) => Object.values(dueProviders(target, found.get(target.osmRef))).some(Boolean),
+    (target) => Object.values(dueProviders(target, found.get(target.osmRef))).some(Boolean) ||
+      Boolean(target.placeName && target.location && (sourceEnabled("overture") || sourceEnabled("accessibility"))),
   );
   if (stale.length === 0) return found;
 
@@ -1044,7 +1065,8 @@ async function refreshPipelineImages(
   signal?: AbortSignal,
 ): Promise<void> {
   if (!(await imageRefreshDue(db, target.osmRef, INTERACTIVE_STALE_MS))) return;
-  const passTarget: LookupTarget = { ...target, direct: true };
+  const bulk = currentWork().workload === "prepopulate";
+  const passTarget: LookupTarget = { ...target, ...(bulk ? {} : { direct: true }) };
   const imageWork = { commonsApiCalls: 0 };
   const routedWikiFetch = wikiFetch();
   const countedWikiFetch: FetchLike = (url, init) => {
@@ -1069,19 +1091,27 @@ async function refreshPipelineImages(
     websiteCandidates,
     countedWikiFetch,
   );
-  await refreshAssetsThroughPipeline({
+  const canFallback=Boolean(target.placeName&&target.location);
+  const materialize=(images:ImageCandidate[],deferEmpty=false)=>refreshAssetsThroughPipeline({
     db,
     roomId,
     candidateId: row.id,
     osmRef: target.osmRef,
     placeName: target.placeName ?? row.name,
-    candidates,
-    intent: "interactive",
+    candidates:images,
+    deferEmpty,
+    intent: bulk ? "background" : "interactive",
+    materialize: true,
     signal,
     imageWork,
     ...(budget ? { consumeVision: () => budget.take("vision") } : {}),
     fetchForRoute: (route, purpose) => pipelineImageFetch(passTarget, route, purpose),
   });
+  const stored=await materialize(candidates,canFallback);
+  if(stored===0&&canFallback){
+    const fallback=await geosearchCommonsImages(target.placeName!,target.location!,countedWikiFetch);
+    await materialize(fallback);
+  }
 }
 
 interface LookupCandidateRow {
@@ -1190,6 +1220,7 @@ export function inferenceTexts(
       ...webIdentity,
     });
   }
+  for (const page of transient?.related ?? []) texts.push({source:"web",text:page.text,url:page.url,...webIdentity});
   if (enrichment?.wikidata?.description) {
     texts.push({
       source: "wikidata",
@@ -1459,15 +1490,11 @@ export async function refreshRoomListings(
   pool: pg.Pool,
   roomId: string,
 ): Promise<RoomListingRefresh | null> {
+  const previous = (await pool.query(
+    "SELECT e.osm_ref,e.listing FROM enrichments e JOIN candidates c ON c.osm_ref=e.osm_ref WHERE c.room_id=$1",[roomId],
+  )).rows as Array<{osm_ref:string;listing:ListingFacts|null}>;
   const batch = await fetchRoomListings(pool, roomId);
   if (!batch) return null;
-  const refs = batch.matches.map((match) => match.candidate.osmRef);
-  const previous = refs.length
-    ? (await pool.query(
-        "SELECT osm_ref, listing FROM enrichments WHERE osm_ref = ANY($1::text[])",
-        [refs],
-      )).rows as Array<{ osm_ref: string; listing: ListingFacts | null }>
-    : [];
   const previousByRef = new Map(previous.map((row) => [row.osm_ref, row.listing]));
   await persistListingMatches(pool, batch.matches);
   const changedCandidateIds = batch.matches.flatMap((match) =>
@@ -1646,7 +1673,7 @@ async function runLookupNow(
   }
   for (const row of rows) {
     const target = targetById.get(row.id);
-    const listingWebsite = initialCache.get(row.osm_ref!)?.listing?.website;
+    const listingWebsite = initialCache.get(row.osm_ref!)?.listing?.website ?? initialCache.get(row.osm_ref!)?.discoveries?.overture?.website;
     if (target && !target.website && listingWebsite) target.website = listingWebsite;
   }
 
@@ -1773,7 +1800,7 @@ async function runLookupNow(
       osmRef: evaluation.row.osm_ref!,
       name: evaluation.row.name,
       category: evaluation.row.category,
-      ...(evaluation.row.extras?.website ? { website: evaluation.row.extras.website } : {}),
+      website: evaluation.row.extras?.website ?? evaluation.current?.listing?.website ?? evaluation.current?.discoveries?.overture?.website,
       cuisine: cuisineTokens(evaluation.base),
       texts: evaluation.texts,
     });
@@ -1884,23 +1911,31 @@ async function runLookupNow(
     });
   }
 
+  let imageFailure: unknown;
   if (intent === "interactive" && !options.skipImages && !options.signal?.aborted) {
     options.onInteractiveStage?.("images");
     for (const evaluation of evaluations.values()) {
       const target = targetById.get(evaluation.row.id);
       if (!target) continue;
       if (options.onlyUnclassifiedImages && initialImageVersions.has(evaluation.row.osm_ref!)) continue;
-      await refreshPipelineImages(
-        pool,
-        roomId,
-        evaluation.row,
-        target,
-        evaluation.current,
-        evaluation.imageCandidates ?? [],
-        options.budget,
-        !options.siteOnly,
-        options.signal,
-      );
+      try {
+        await refreshPipelineImages(
+          pool,
+          roomId,
+          evaluation.row,
+          target,
+          evaluation.current,
+          evaluation.imageCandidates ?? [],
+          options.budget,
+          !options.siteOnly,
+          options.signal,
+        );
+      } catch (error) {
+        // Publish facts already saved by the independent site/model stages,
+        // then surface the image failure so the caller can retry that work.
+        imageFailure = error;
+        break;
+      }
       evaluation.current = (await loadCached(pool, [evaluation.row.osm_ref!])).get(evaluation.row.osm_ref!);
       if (shouldPublishInteractiveStage()) {
         publishFacts(roomId, {
@@ -1957,6 +1992,7 @@ async function runLookupNow(
       });
     }
   }
+  if (imageFailure !== undefined) throw imageFailure;
   return [...new Set([
     ...changed,
     ...imageChanged,
@@ -2247,6 +2283,9 @@ export function enrichmentView(
       text: cleanSummary(extras.description.text, 300),
     };
   }
+  const discovery = enrichment?.discoveries?.overture;
+  if(discovery?.website&&!enrichment?.listing?.website&&!has("website"))links.push({kind:"website",label:"website",url:discovery.website,
+    source:`overture:${discovery.id}`});
   const listing = enrichment?.listing;
   if (listing) {
     if (listing.website && !has("website")) {
@@ -2289,8 +2328,14 @@ export function enrichmentView(
     const awards = wiki.awards.filter((a) => a.label).map((a) => ({ label: cleanInlineText(a.label), source }));
     if (awards.length) view.awards = awards;
   }
+  for(const [provider,record]of Object.entries(enrichment?.discoveries??{})) {
+    if(!record)continue;
+    const attribution=provider==="overture"?"Overture Maps contributors":`${record.sourceName} via accessibility.cloud`;
+    links.push({kind:"attribution",label:attribution,url:record.sourceUrl,source:`${provider}:${record.id}`});
+    if(record.licenseUrl)links.push({kind:"attribution",label:record.license,url:record.licenseUrl,source:`${provider}:${record.id}`});
+  }
   // The place's own site first, then the menu, then the rest.
-  const order = ["website", "menu", "hours", "reservations", "delivery", "wikipedia", "instagram"];
+  const order = ["website", "menu", "hours", "reservations", "delivery", "wikipedia", "instagram", "attribution"];
   links.sort((a, b) => order.indexOf(a.kind) - order.indexOf(b.kind));
   return view;
 }
@@ -2353,6 +2398,7 @@ export async function warmCachedImages(
   pass: LookupPass,
 ): Promise<void> {
   if (process.env.ENRICH_NETWORK === "0" || !(await imageRefreshDue(db, target.osmRef))) return;
+  await db.query("INSERT INTO enrichments(osm_ref,expires_at) VALUES($1,now()) ON CONFLICT(osm_ref) DO NOTHING",[target.osmRef]);
   await refreshPipelineImages(
     db,
     "prepopulate",

@@ -26,6 +26,33 @@ afterEach(() => {
 beforeEach(() => vi.stubEnv("LLM_PROVIDER", "openrouter"));
 
 describe("refinement web search", () => {
+  it("retains a rate limit and its retry time instead of returning an empty search", async () => {
+    vi.stubEnv("TAVILY_API_KEY", "fixture");
+    setSearchFetch(async () => new Response("busy", {status:429,headers:{"retry-after":"120"}}));
+    await expect(tavilySearchProvider.search("Alpha free wifi")).rejects.toMatchObject({
+      failure:{provider:"tavily",code:"rate_limit",deferred:true,httpStatus:429},
+    });
+  });
+
+  it("tries another result page after unreadable top hits and surfaces total extraction failure", async () => {
+    vi.stubEnv("PARALLEL_API_KEY", "fixture");
+    let readable=true;
+    const reads:string[]=[];
+    const sentence="Free wireless internet is available throughout the dining room.";
+    setParallelFetch(async url=>{
+      if(url.includes("api.parallel.ai"))return Response.json({results:[1,2,3].map(n=>({
+        url:`https://result.example/${n}`,title:`Result ${n}`,excerpts:[sentence],
+      }))});
+      reads.push(url);
+      return url.endsWith("/3")&&readable?new Response(`<html><p>${sentence}</p></html>`,{headers:{"content-type":"text/html"}})
+        :new Response("busy",{status:503});
+    });
+    expect(await parallelSearchProvider.search("Alpha free wifi")).toHaveLength(1);
+    expect(reads).toHaveLength(3);
+    readable=false;
+    await expect(parallelSearchProvider.search("Alpha free wifi")).rejects.toMatchObject({failure:{code:"http",httpStatus:503}});
+  });
+
   it("uses one low-context domain search and reads the statement a marker cites", async () => {
     let wire: Record<string, unknown> | undefined;
     // OpenRouter supplies a source excerpt on each zero-offset annotation.

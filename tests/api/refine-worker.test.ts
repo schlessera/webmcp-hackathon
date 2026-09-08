@@ -149,6 +149,11 @@ describe("continuous refinement over the API", () => {
     const gammaSearches = () => server.logs().split("\n").filter((line) =>
       line.includes("parallel-search-request") && line.includes("Gamma Berlin free wifi")
     ).length;
+    // A later sweep can include this criterion after another label in its
+    // query. Count every actual leg involving it, regardless of label order.
+    const gammaPaidLegs = () => server.logs().split("\n").filter((line) =>
+      line.includes("parallel-search-request") && line.includes("Gamma Berlin") && line.includes("free wifi")
+    ).length;
     const roomTickCount = () => server.logs().split("\n").filter((line) =>
       line.includes('"msg":"pipeline tick"') && line.includes(`"roomId":"${room.roomId}"`)
     ).length;
@@ -181,16 +186,16 @@ describe("continuous refinement over the API", () => {
         "SELECT inferred->$2 AS entry FROM enrichments WHERE osm_ref = $1",
         [gammaRef, key],
       )).rows[0]?.entry as Record<string, unknown> | undefined;
-      return entry !== undefined && !Object.hasOwn(entry, "searchAttempts");
+      return entry?.searchAttempts === Math.min(3, gammaPaidLegs());
     }, 8_000);
     const attempt = (await room.pool.query(
       "SELECT inferred->$2 AS entry FROM enrichments WHERE osm_ref = $1",
       [gammaRef, key],
     )).rows[0].entry as Record<string, unknown>;
     expect(attempt).toMatchObject({ omitted: true });
-    // Revisiting the need replays the cached negative result. It is not a
-    // second paid search attempt and therefore carries no new attempt marker.
-    expect(attempt).not.toHaveProperty("searchAttempts");
+    // Replayed cache entries do not increase the count; additional combined
+    // queries really were paid and must remain in the accounting.
+    expect(attempt).toHaveProperty("searchAttempts", Math.min(3, gammaPaidLegs()));
     await toggle(false);
     await toggle(true);
     await new Promise((resolve) => setTimeout(resolve, 1_200));

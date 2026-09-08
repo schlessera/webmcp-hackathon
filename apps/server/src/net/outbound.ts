@@ -1,4 +1,6 @@
-import { randomUUID } from "node:crypto";
+import { admit, resourceLimit, settleAttempt } from "../admission.ts";
+import { WorkError, workFailure } from "../work-outcome.ts";
+import { createHash, randomUUID } from "node:crypto";
 import { isIP } from "node:net";
 import { lookup } from "node:dns/promises";
 import { Agent, Pool, ProxyAgent, fetch as undiciFetch } from "undici";
@@ -25,6 +27,7 @@ export type OutboundPurpose =
   | "tavily"
   | "parallel"
   | "dataforseo"
+  | "accessibility"
   | "openai";
 
 export type OutboundRoute = "direct" | "proxy";
@@ -51,6 +54,7 @@ export interface OutboundOptions extends Omit<RequestInit, "redirect"> {
   timeoutMs: number;
   /** Durable body caching is restricted below to freely reusable metadata. */
   cacheResponse?: boolean;
+  estimatedCostUsd?: number;
 }
 
 export interface OutboundDiagRow {
@@ -698,6 +702,36 @@ function limitedResponse(
   return wrapped;
 }
 
+const responseAttempts = new WeakMap<Response, string>();
+/** Reconcile provider-reported spend without retaining raw responses. */
+export async function recordOutboundCost(response: Response, cost: number): Promise<void> {
+  const id = responseAttempts.get(response);
+  if (id && Number.isFinite(cost) && cost >= 0) await settleAttempt(id, {
+    outcome: response.ok ? "ok" : "failed", httpStatus: response.status, actualCostUsd: cost,
+  });
+}
+export async function recordOutboundFailure(response:Response,error:unknown):Promise<void>{
+  const id=responseAttempts.get(response);
+  if(id)await settleAttempt(id,{outcome:"failed",httpStatus:response.status,failure:workFailure(error,"provider")});
+}
+export async function recordOutboundTask(response:Response,status:unknown,taskId:unknown):Promise<void>{
+  const id=responseAttempts.get(response);
+  if(!id)return;
+  await pool.query("UPDATE provider_attempts SET provider_status=$2,provider_task_id=$3 WHERE id=$1",[
+    id,typeof status==="number"&&Number.isSafeInteger(status)?status:null,
+    typeof taskId==="string"&&/^[a-zA-Z0-9-]{1,128}$/.test(taskId)?taskId:null,
+  ]);
+}
+const costReservations: Partial<Record<OutboundPurpose, number>> = { parallel: 0.001, tavily: 0.008, dataforseo: 0.372 };
+function outboundResources(purpose: OutboundPurpose) {
+  const overall = resourceLimit("outbound", "OUTBOUND", 5000, 20000);
+  if (!["parallel", "tavily", "dataforseo", "accessibility"].includes(purpose)) return [overall];
+  const account = purpose === "parallel" ? process.env.PARALLEL_API_KEY : purpose === "tavily" ? process.env.TAVILY_API_KEY
+    : purpose === "dataforseo" ? process.env.DATAFORSEO_LOGIN : process.env.ACCESSIBILITY_CLOUD_TOKEN;
+  const hash = createHash("sha256").update(account ?? "").digest("hex").slice(0, 24);
+  return [overall, resourceLimit(`${purpose}:${hash}`, purpose.toUpperCase(), overall.hourly, overall.daily)];
+}
+
 async function oneAttempt(
   target: URL,
   options: OutboundOptions,
@@ -720,6 +754,8 @@ async function oneAttempt(
     if (!proxy || !session) throw new Error("proxy route unavailable");
     dispatcher = proxyAgent(proxy, options.country, session, proxyEndpoint);
   }
+  let attempt: string | undefined;
+  let closeSlot: (() => void) | undefined;
   let event: AttemptEvent = {
     at: started,
     host: target.hostname.toLowerCase(),
@@ -732,17 +768,22 @@ async function oneAttempt(
   };
   try {
     const release = outboundSlots.acquire("all", securityLimit("OUTBOUND_CONCURRENCY", 24));
-    if (!release) throw new Error("outbound capacity reached");
+    if (!release) throw new WorkError({ provider: "outbound", code: "capacity", deferred: true, retryAt: new Date(Date.now() + 1000).toISOString() });
     // Kept until the timeout as well as stream completion: unread bodies
     // cannot permanently pin capacity. release() is idempotent.
     signal.addEventListener("abort", release, { once: true });
     const close = () => { signal.removeEventListener("abort", release); release(); };
+    closeSlot = close;
     if (!outboundHourly.take("all") || !outboundDaily.take("all")) {
       close();
-      throw new Error("outbound budget reached");
+      throw new WorkError({ provider: "outbound", code: "quota", deferred: true, retryAt: new Date(Math.max(outboundHourly.nextAvailableAt("all"), outboundDaily.nextAvailableAt("all"))).toISOString() });
     }
     let response: Response;
     try {
+    if (!testTransport) attempt = await admit(outboundResources(options.purpose), {
+      provider: options.purpose, estimatedCostUsd: options.estimatedCostUsd ?? costReservations[options.purpose] ?? 0,
+    });
+    signal.throwIfAborted();
     response = await (testTransport ?? productionTransport)(target.toString(), {
       method: options.method,
       headers,
@@ -758,6 +799,12 @@ async function oneAttempt(
       referrerPolicy: options.referrerPolicy,
     }, { route, session, country: options.country, dispatcher });
     } catch (error) { close(); throw error; }
+    if (attempt) {
+      responseAttempts.set(response, attempt);
+      await settleAttempt(attempt, { outcome: response.ok ? "ok" : "failed", httpStatus: response.status,
+        ...(!costReservations[options.purpose] ? { actualCostUsd: 0 } : {}),
+      });
+    }
     event.latencyMs = Date.now() - started;
     if (route === "proxy") lastProxySuccess = Date.now();
     const statusClass = response.status >= 500 ? "5xx" : response.status >= 400 ? "4xx" : undefined;
@@ -780,7 +827,7 @@ async function oneAttempt(
       commit();
       return response;
     }
-    return limitedResponse(
+    const wrapped = limitedResponse(
       response,
       options.maxBytes,
       abort,
@@ -791,7 +838,11 @@ async function oneAttempt(
         event.targetFailure = "network";
       },
     );
+    if (attempt) responseAttempts.set(wrapped, attempt);
+    return wrapped;
   } catch (error) {
+    closeSlot?.();
+    if (attempt) await settleAttempt(attempt, { outcome: "failed", failure: workFailure(error, options.purpose) }).catch(() => undefined);
     event.latencyMs = Date.now() - started;
     const classified = route === "proxy"
       ? classifyOutboundFailure(error, proxy?.host ?? "")

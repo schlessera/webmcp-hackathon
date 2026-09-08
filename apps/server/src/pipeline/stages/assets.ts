@@ -36,6 +36,9 @@ export interface PipelineAssetContext {
   placeName: string;
   candidates: ImageCandidate[];
   intent: "interactive" | "background";
+  /** Explicit bulk warm-up, distinct from passive background refresh. */
+  materialize?: boolean;
+  deferEmpty?: boolean;
   needsEpoch?: number;
   imageWork?: { commonsApiCalls?: number };
   /** The focused open that owns this materialisation. */
@@ -69,7 +72,7 @@ function withAbort<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
 
 /** On-demand asset materialisation with one scheduler item per real stage. */
 export function refreshAssetsThroughPipeline(context: PipelineAssetContext): Promise<number> {
-  if (context.intent !== "interactive") return Promise.resolve(0);
+  if (context.intent !== "interactive" && !context.materialize) return Promise.resolve(0);
   const scheduler = context.scheduler ?? pipelineScheduler;
   const needsEpoch = context.needsEpoch ?? 0;
   const prepare = async (candidate: ImageCandidate): Promise<ProcessedImage> => {
@@ -83,8 +86,8 @@ export function refreshAssetsThroughPipeline(context: PipelineAssetContext): Pro
       osmRef: context.osmRef,
       kind: "fetch.asset" as const,
       criteria: [],
-      priority: 0 as const,
-      intent: "interactive" as const,
+      priority: context.intent === "interactive" ? 0 as const : 4 as const,
+      intent: context.intent,
       host,
       purpose,
       evidenceHash,
@@ -108,7 +111,7 @@ export function refreshAssetsThroughPipeline(context: PipelineAssetContext): Pro
           actualRoute: route ?? "direct",
         };
       },
-      { reason: { kind: "place" }, present: true },
+      { reason: { kind: "place" }, present: context.intent === "interactive" },
     );
     const decodeBase = {
       ...fetchBase,
@@ -130,7 +133,7 @@ export function refreshAssetsThroughPipeline(context: PipelineAssetContext): Pro
         ), context.signal && signal ? AbortSignal.any([context.signal, signal]) : context.signal ?? signal),
         actualRoute: "direct",
       }),
-      { reason: { kind: "place" }, present: true },
+      { reason: { kind: "place" }, present: context.intent === "interactive" },
     );
     return { ...decoded, ttlMs: downloaded.ttlMs };
   };
@@ -151,8 +154,8 @@ export function refreshAssetsThroughPipeline(context: PipelineAssetContext): Pro
       osmRef: context.osmRef,
       kind: "process.vision" as const,
       criteria: [],
-      priority: 0 as const,
-      intent: "interactive" as const,
+      priority: context.intent === "interactive" ? 0 as const : 4 as const,
+      intent: context.intent,
       evidenceHash,
       needsEpoch,
       enqueuedAt: Date.now(),
@@ -166,7 +169,7 @@ export function refreshAssetsThroughPipeline(context: PipelineAssetContext): Pro
         ),
         actualRoute: "direct",
       }),
-      { reason: { kind: "place" }, present: true },
+      { reason: { kind: "place" }, present: context.intent === "interactive" },
     );
   };
   return refreshPlaceImages(
@@ -176,6 +179,6 @@ export function refreshAssetsThroughPipeline(context: PipelineAssetContext): Pro
     context.candidates,
     undefined,
     context.imageWork,
-    { prepare, classify },
+    { prepare, classify, deferEmpty: context.deferEmpty },
   );
 }

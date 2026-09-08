@@ -170,7 +170,7 @@ describe("listing provider over API projections", () => {
     });
   });
 
-  it("enforces one fetch per room per day and grants one on scope change", async () => {
+  it("enforces room admission and reuses identical regional work after a scope revision", async () => {
     expect(await refreshRoomListings(room.pool, room.roomId)).toBeNull();
     expect(calls).toBe(1);
     await room.pool.query(
@@ -178,10 +178,10 @@ describe("listing provider over API projections", () => {
       [room.roomId],
     );
     expect(await refreshRoomListings(room.pool, room.roomId)).not.toBeNull();
-    expect(calls).toBe(2);
+    expect(calls).toBe(1);
     process.env.LISTINGS = "0";
     expect(await refreshRoomListings(room.pool, room.roomId)).toBeNull();
-    expect(calls).toBe(2);
+    expect(calls).toBe(1);
     delete process.env.LISTINGS;
   });
 });
@@ -244,6 +244,7 @@ describe("listing matching over a real-shaped fixture", () => {
     process.env.DATAFORSEO_PASSWORD = "scripted-password";
     delete process.env.LISTINGS;
     setListingFetch(async () => Response.json({
+      status_code: 20000,
       tasks: [{
         status_code: 20_000,
         cost: 0.0142,
@@ -335,7 +336,7 @@ describe("a real ref-bearing Berlin pool", () => {
             },
           ]
         : [];
-      return Response.json({ tasks: [{ status_code: 20_000, cost: 0.012 + 0.00036 * items.length, result: [{ items }] }] });
+      return Response.json({ status_code:20000,tasks: [{ status_code: 20_000, cost: 0.012 + 0.00036 * items.length, result: [{ items }] }] });
     });
   });
 

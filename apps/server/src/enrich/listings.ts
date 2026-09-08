@@ -1,6 +1,8 @@
 import type pg from "pg";
 import { PLACE_CLASSES, PRICE_LEVEL_EUR, type PlaceClass } from "@webmcp-hackathon/contracts";
-import { outboundFetchFor } from "../net/outbound.ts";
+import { createHash, randomUUID } from "node:crypto";
+import { WorkError, httpFailure, workFailure } from "../work-outcome.ts";
+import { outboundFetchFor, recordOutboundCost, recordOutboundFailure, recordOutboundTask } from "../net/outbound.ts";
 import { LIVE_POOL } from "../live-pool.ts";
 
 export const LISTING_SOURCE = "listing:google" as const;
@@ -127,7 +129,7 @@ export function listingCategoryBatches(classes: readonly string[]): string[][] {
   for (let at = 0; at < names.length; at += DATAFORSEO_CATEGORIES_PER_REQUEST) {
     batches.push(names.slice(at, at + DATAFORSEO_CATEGORIES_PER_REQUEST));
   }
-  return batches.slice(0, DATAFORSEO_MAX_REQUESTS);
+  return batches;
 }
 
 type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
@@ -717,6 +719,7 @@ async function reserveRoomFetch(
        cost_usd = 0
      WHERE room_listing_fetches.scope_id IS DISTINCT FROM EXCLUDED.scope_id
         OR room_listing_fetches.fetched_at <= now() - interval '24 hours'
+        OR (room_listing_fetches.status='error' AND room_listing_fetches.fetched_at <= now()-interval '1 minute')
      RETURNING room_id`,
     [roomId, room.scope_id],
   );
@@ -725,22 +728,27 @@ async function reserveRoomFetch(
     : null;
 }
 
-function responseListings(body: unknown): { items: DataForSeoListing[]; cost?: number } {
-  if (!body || typeof body !== "object") return { items: [] };
-  const root = body as {
-    cost?: unknown;
-    tasks?: Array<{
-      status_code?: unknown;
-      cost?: unknown;
-      result?: Array<{ items?: unknown }>;
-    }>;
-  };
-  const task = root.tasks?.find((entry) => Number(entry.status_code) === 20_000) ?? root.tasks?.[0];
-  const items = task?.result?.flatMap((result) => Array.isArray(result.items)
-    ? result.items.filter((item): item is DataForSeoListing => Boolean(item && typeof item === "object"))
-    : []) ?? [];
-  const suppliedCost = Number(task?.cost ?? root.cost);
-  return { items, ...(Number.isFinite(suppliedCost) && suppliedCost >= 0 ? { cost: suppliedCost } : {}) };
+export function responseListings(body: unknown): { items: DataForSeoListing[]; cost?: number; total: number } {
+  const invalid = () => new WorkError({ provider: "dataforseo", code: "invalid_response", deferred: false });
+  if (!body || typeof body !== "object") throw invalid();
+  const root = body as { status_code?: number; cost?: unknown; tasks?: Array<{
+    status_code?: number; cost?: unknown; result?: Array<{ items?: unknown; total_count?: number }>;
+  }> };
+  if (root.status_code !== 20000 || !Array.isArray(root.tasks) || root.tasks.length !== 1) throw invalid();
+  const task = root.tasks[0];
+  if (task.status_code !== 20000) throw new WorkError({ provider: "dataforseo",
+    code: task.status_code === 40202 || task.status_code === 40209 ? "rate_limit" : "invalid_response",
+    deferred: [40202, 40209, 50000, 50301].includes(task.status_code ?? 0),
+    retryAt: new Date(Date.now() + 60_000).toISOString() });
+  if (!Array.isArray(task.result) || task.result.length !== 1) throw invalid();
+  const result = task.result[0];
+  if (!Array.isArray(result.items) && !(result.items === null && result.total_count === 0)) throw invalid();
+  const items = (result.items ?? []) as DataForSeoListing[];
+  if (items.some(item => !item || typeof item !== "object")) throw invalid();
+  const total = Number(result.total_count ?? items.length);
+  if (!Number.isSafeInteger(total) || total < items.length) throw invalid();
+  const suppliedCost = Number(task.cost ?? root.cost);
+  return { items, total, ...(Number.isFinite(suppliedCost) && suppliedCost >= 0 ? { cost: suppliedCost } : {}) };
 }
 
 export function listingsEnabled(): boolean {
@@ -751,9 +759,9 @@ export function listingsEnabled(): boolean {
 
 /**
  * Reserve and fetch the whole current room pool once. The reservation is
- * durable, so concurrent processes and repeated warm-up batches cannot spend
- * a second request inside 24 hours; changing scopeId grants exactly one new
- * request immediately.
+ * durable, so concurrent processes and repeated warm-up batches reuse its
+ * 24-hour result. Changed scopes and backed-off errors can try again; shared
+ * regional batch checkpoints still prevent repeating completed provider pages.
  */
 export async function fetchRoomListings(
   q: Pick<pg.Pool, "query"> | Pick<pg.PoolClient, "query">,
@@ -815,7 +823,11 @@ export async function fetchRoomListings(
     const result = await fetchListingsForCandidates(candidates, {
       center: { lat: Number(room.center.lat), lng: Number(room.center.lng) },
       radiusM: room.radius_m,
-    }, observedAt);
+    }, observedAt, { db: q, onPage: async (matches) => {
+      const { persistListingMatches, publishInferenceChanges } = await import("./index.ts");
+      await persistListingMatches(q as pg.Pool, matches);
+      await publishInferenceChanges(q as pg.Pool,roomId,matches.map(m=>m.candidate.candidateId),"lookup");
+    } });
     const { costUsd } = result;
     unreportedSpendByRoom.set(roomId, (unreportedSpendByRoom.get(roomId) ?? 0) + costUsd);
     await q.query(
@@ -840,6 +852,7 @@ export async function fetchListingsForCandidates(
   candidates: ListingCandidate[],
   scope: { center: { lat: number; lng: number }; radiusM: number },
   observedAt = new Date().toISOString(),
+  persistence?: { db: Pick<pg.Pool, "query">; onPage: (matches: MatchedListing[]) => Promise<void> },
 ): Promise<Omit<ListingBatchResult, "roomId" | "scopeId">> {
   // The provider rejects a radius under a kilometre, so a tighter scope is
   // fetched at the floor and the 60 m match rule discards the overshoot.
@@ -862,36 +875,97 @@ export async function fetchListingsForCandidates(
             .some((name) => asked.has(name)))
       : poolClasses,
   );
-  const items: DataForSeoListing[] = [];
-  let costUsd = 0;
+  const scopeHash = createHash("sha256").update(JSON.stringify({ coordinate, candidates: candidates.map(({candidateId: _id,...candidate})=>candidate).sort((a,b)=>a.osmRef.localeCompare(b.osmRef)) })).digest("hex");
+  const allMatches = new Map<string, MatchedListing>();
+  const seenItems: DataForSeoListing[] = [];
+  let costUsd = 0, returnedItems = 0, requestCount = 0;
+  const pageLimit = Number(process.env.LISTINGS_MAX_PAGES_PER_BATCH ?? 5);
+  if (!Number.isSafeInteger(pageLimit) || pageLimit < 1 || pageLimit > 100) throw new Error("Invalid LISTINGS_MAX_PAGES_PER_BATCH");
   for (const categories of requests) {
-    const response = await listingFetch(
-      "https://api.dataforseo.com/v3/business_data/business_listings/search/live",
-      {
-        method: "POST",
-        headers: {
-          authorization: `Basic ${Buffer.from(`${process.env.DATAFORSEO_LOGIN}:${process.env.DATAFORSEO_PASSWORD}`).toString("base64")}`,
-          "content-type": "application/json",
-        },
-        body: JSON.stringify([{
-          location_coordinate: coordinate,
-          limit: listingRequestLimit(candidates.length, categories?.length ?? DATAFORSEO_CATEGORIES_PER_REQUEST),
-          ...(categories ? { categories } : {}),
-        }]),
-      },
-    );
-    if (!response.ok) {
-      await response.body?.cancel();
-      throw new Error(`DataForSEO returned ${response.status}`);
+    const batchKey = createHash("sha256").update(JSON.stringify(categories)).digest("hex");
+    const owner = randomUUID();
+    let offset = 0;
+    let batchMatches: MatchedListing[] = [];
+    if (persistence) {
+      const previous = (await persistence.db.query(
+        "SELECT * FROM listing_batches WHERE scope_hash=$1 AND batch_key=$2", [scopeHash, batchKey],
+      )).rows[0];
+      if (previous && (previous.status !== "ok" || new Date(previous.expires_at).getTime() > Date.now())) {
+        const currentByRef=new Map(candidates.map(c=>[c.osmRef,c]));
+        batchMatches = (previous.results as MatchedListing[]).flatMap(match=>{
+          const candidate=currentByRef.get(match.candidate.osmRef);return candidate?[{...match,candidate}]:[];
+        });
+        for (const match of batchMatches) allMatches.set(match.candidate.candidateId, match);
+        await persistence.onPage(batchMatches);
+        if (previous.status === "ok") continue;
+        offset = previous.next_offset;
+      }
+      const admitted = await persistence.db.query(
+        `INSERT INTO listing_batches(scope_hash,batch_key,status,owner,expires_at)
+         VALUES ($1,$2,'running',$3,now()+interval '10 minutes')
+         ON CONFLICT(scope_hash,batch_key) DO UPDATE SET status='running',owner=$3,
+         expires_at=now()+interval '10 minutes',
+         next_offset=CASE WHEN listing_batches.status='ok' THEN 0 ELSE listing_batches.next_offset END,
+         results=CASE WHEN listing_batches.status='ok' THEN '[]'::jsonb ELSE listing_batches.results END
+         WHERE listing_batches.expires_at <= now() RETURNING next_offset`, [scopeHash,batchKey,owner]);
+      if (!admitted.rowCount) throw new WorkError({ provider:"dataforseo",code:"capacity",deferred:true,
+        retryAt: new Date(previous?.expires_at ?? Date.now()+60_000).toISOString() });
+      offset = admitted.rows[0].next_offset;
     }
-    const parsed = responseListings(await response.json());
-    items.push(...parsed.items);
-    costUsd += parsed.cost ?? DATAFORSEO_REQUEST_USD + DATAFORSEO_ITEM_USD * parsed.items.length;
+    try {
+      for (let page = 0; page < pageLimit; page++) {
+        const limit = listingRequestLimit(candidates.length, categories?.length ?? DATAFORSEO_CATEGORIES_PER_REQUEST);
+        const response = await listingFetch("https://api.dataforseo.com/v3/business_data/business_listings/search/live", {
+          method: "POST", headers: {
+            authorization: `Basic ${Buffer.from(`${process.env.DATAFORSEO_LOGIN}:${process.env.DATAFORSEO_PASSWORD}`).toString("base64")}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify([{ location_coordinate: coordinate, limit, offset, ...(categories ? { categories } : {}) }]),
+        });
+        if (!response.ok) { await response.body?.cancel(); throw httpFailure("dataforseo", response); }
+        const body = await response.json();
+        await recordOutboundTask(response,body?.tasks?.[0]?.status_code??body?.status_code,body?.tasks?.[0]?.id);
+        // Reconcile even an HTTP-200 task error if the provider reports a bill.
+        const billed = body?.cost ?? body?.tasks?.[0]?.cost;
+        if (typeof billed === "number") await recordOutboundCost(response, billed);
+        let parsed: ReturnType<typeof responseListings>;
+        try { parsed = responseListings(body); } catch(error) { await recordOutboundFailure(response,error);throw error; }
+        seenItems.push(...parsed.items);
+        const cost = parsed.cost ?? DATAFORSEO_REQUEST_USD + DATAFORSEO_ITEM_USD * parsed.items.length;
+        await recordOutboundCost(response, cost);
+        costUsd += cost; returnedItems += parsed.items.length; requestCount++;
+        const matches = matchListingsWithDiagnostics(candidates, parsed.items, observedAt, requestedClasses).matches;
+        for (const match of matches) allMatches.set(match.candidate.candidateId, match);
+        batchMatches = [...new Map([...batchMatches, ...matches].map(m => [m.candidate.candidateId,m])).values()];
+        offset += parsed.items.length;
+        const complete = offset >= parsed.total;
+        if (!complete && !parsed.items.length) throw new WorkError({provider:"dataforseo",code:"invalid_response",deferred:false});
+        if (persistence) {
+          await persistence.db.query(
+            `UPDATE listing_batches SET results=$4, next_offset=$5, returned_items=returned_items+$6,
+             requests=requests+1,cost_usd=cost_usd+$7,status=$8,
+             expires_at=now()+CASE WHEN $8='ok' THEN interval '7 days' ELSE interval '10 minutes' END
+             WHERE scope_hash=$1 AND batch_key=$2 AND owner=$3`,
+            [scopeHash,batchKey,owner,JSON.stringify(batchMatches),offset,parsed.items.length,cost,complete?"ok":"running"]);
+          await persistence.onPage(matches);
+        }
+        if (complete) break;
+        if (page === pageLimit-1) throw new WorkError({provider:"dataforseo",code:"capacity",deferred:true,
+          retryAt:new Date(Date.now()+60_000).toISOString()});
+      }
+    } catch(error) {
+      if (persistence) {
+        const failure = workFailure(error,"dataforseo");
+        await persistence.db.query(`UPDATE listing_batches SET status=$4,failure=$5,expires_at=$6
+          WHERE scope_hash=$1 AND batch_key=$2 AND owner=$3`,
+          [scopeHash,batchKey,owner,failure.deferred?"deferred":"failed",JSON.stringify(failure),
+            failure.retryAt ?? new Date(Date.now()+60_000).toISOString()]);
+      }
+      throw error;
+    }
   }
-  const { matches, diagnostics } =
-    matchListingsWithDiagnostics(candidates, items, observedAt, requestedClasses);
-  return {
-    observedAt, returnedItems: items.length, requests: requests.length,
-    costUsd, matches, diagnostics,
-  };
+  const matches = [...allMatches.values()];
+  const {diagnostics}=matchListingsWithDiagnostics(candidates.filter(c=>!allMatches.has(c.candidateId)),seenItems,observedAt,requestedClasses);
+  return { observedAt, returnedItems, requests: requestCount, costUsd, matches,
+    diagnostics: {...diagnostics,matched:matches.length} };
 }

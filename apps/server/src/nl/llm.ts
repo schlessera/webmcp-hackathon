@@ -1,3 +1,6 @@
+import { admit, modelResource, modelCostReservation, settleAttempt } from "../admission.ts";
+import { currentWork, withWork } from "../work-context.ts";
+import { WorkError, workFailure } from "../work-outcome.ts";
 import { config, type LlmReasoningEffort } from "../config.ts";
 import { WindowBudget, WorkSlots, securityLimit } from "../security.ts";
 
@@ -187,14 +190,17 @@ async function responseFetch(
   timeoutMs: number,
 ): Promise<unknown> {
   const release = modelSlots.acquire("provider", securityLimit("LLM_CONCURRENCY", 6));
-  if (!release) throw new NlError("Model capacity reached", 429, 60_000);
+  if (!release) throw new WorkError({ provider: "model", code: "capacity", deferred: true, retryAt: new Date(Date.now() + 1000).toISOString() });
   if (!modelHourly.take("all") || !modelDaily.take("all")) {
     release();
-    throw new NlError("Model budget reached", 429, 3_600_000);
+    throw new WorkError({ provider: "model", code: "quota", deferred: true, retryAt: new Date(Math.max(modelHourly.nextAvailableAt("all"), modelDaily.nextAvailableAt("all"))).toISOString() });
   }
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let attempt: string | undefined;
+  let httpStatus: number | undefined;
   try {
+    attempt = await admit([modelResource()], { provider, reservation: currentWork().modelReservation, estimatedCostUsd: modelCostReservation() });
     const response = await fetch(url, {
       method: "POST",
       headers: {
@@ -205,6 +211,7 @@ async function responseFetch(
       body: JSON.stringify(body),
       signal: controller.signal,
     });
+    httpStatus = response.status;
     if (!response.ok) {
       // Preserve only the compatibility signal needed for flex fallback;
       // provider error prose can echo private input and must not reach logs.
@@ -216,7 +223,13 @@ async function responseFetch(
         retryAfterMs(response),
       );
     }
-    return await response.json();
+    const raw = await response.json() as { usage?: { cost?: number | string } };
+    const cost = raw.usage?.cost === undefined ? undefined : Number(raw.usage.cost);
+    await settleAttempt(attempt, { outcome: "ok", httpStatus, actualCostUsd: cost });
+    return raw;
+  } catch (error) {
+    if (attempt) await settleAttempt(attempt, { outcome: "failed", httpStatus, failure: workFailure(error, provider) });
+    throw error;
   } finally {
     clearTimeout(timer);
     release();
@@ -550,13 +563,13 @@ async function respondWithPolicy(call: Call, privatePath: boolean): Promise<Repl
 }
 
 export function respond(call: Call): Promise<Reply> {
-  return respondWithPolicy(call, false);
+  return withWork({ workload: call.intent ?? "interactive" }, () => respondWithPolicy(call, false));
 }
 
 /** The private-condition and participant-agent paths require no-collection,
  * zero-retention routing in addition to the stateless Responses contract. */
 export function respondPrivate(call: Call): Promise<Reply> {
-  return respondWithPolicy(call, true);
+  return withWork({ workload: call.intent ?? "interactive" }, () => respondWithPolicy(call, true));
 }
 
 /** Parse the assistant's JSON, or null when it is not the shape asked for. */

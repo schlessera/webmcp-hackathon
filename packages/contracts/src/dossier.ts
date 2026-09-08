@@ -51,7 +51,7 @@ export const BOOLEAN_ATTRS: ReadonlyArray<{ key: string; tag: string }> = [
 /** A link the place panel can offer. `label` is server-authored and the
  * client renders it verbatim — link kinds are data, not chrome. */
 export interface DossierLink {
-  kind: "website" | "menu" | "hours" | "instagram" | "wikipedia" | "reservations" | "delivery";
+  kind: "website" | "menu" | "hours" | "instagram" | "wikipedia" | "reservations" | "delivery" | "attribution";
   label: string;
   url: string;
   source: string;

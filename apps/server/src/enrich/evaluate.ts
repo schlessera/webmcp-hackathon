@@ -1,3 +1,4 @@
+import { WorkError, workFailure } from "../work-outcome.ts";
 import { createHash } from "node:crypto";
 import type pg from "pg";
 import {
@@ -438,7 +439,7 @@ async function evaluateBounded(
   });
   const answer = parseJson<{ claims?: unknown }>(reply.text);
   if (!answer || !Array.isArray(answer.claims)) {
-    throw new Error("matrix response was not parseable structured output");
+    throw new WorkError({ provider: "model", code: "invalid_response", deferred: false });
   }
   return matrixBatchFromAnswer(answer, input, reply.model);
 }
@@ -586,14 +587,18 @@ export async function evaluateMatrix(
         const criteria = group.criteria.slice(criterionAt, criterionAt + MAX_MATRIX_CRITERIA);
         try {
           const batch = await evaluateBounded({ places, criteria }, intent);
-          if (cacheDb) {
-            await storeMatrixBatch(cacheDb, batch).catch(() => undefined);
+          try {
+            if (cacheDb) await storeMatrixBatch(cacheDb, batch);
+            if (persistBatch) await persistBatch(batch);
+          } catch {
+            throw new WorkError({provider:"evidence-store",code:"persistence",deferred:true,
+              retryAt:new Date(Date.now()+60_000).toISOString()});
           }
-          if (persistBatch) await persistBatch(batch);
           claims.push(...batch.claims);
-        } catch {
-          // A transport, parse, or persistence failure is not an answer. Other
-          // bounded batches remain independent and may still be persisted.
+        } catch (error) {
+          // Earlier batches are already durable. Surface unfinished work so neither
+          // caller can record a failed evaluator as a researched omission.
+          throw new WorkError(workFailure(error, "model"));
         }
       }
     }

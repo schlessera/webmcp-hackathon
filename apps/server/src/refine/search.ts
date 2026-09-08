@@ -1,8 +1,10 @@
+import { WorkError, httpFailure, workFailure, rethrowDeferred } from "../work-outcome.ts";
 import { config } from "../config.ts";
-import { outboundFetchFor } from "../net/outbound.ts";
+import { outboundFetchFor, recordOutboundFailure } from "../net/outbound.ts";
 import { normalizeEvidence } from "../enrich/infer.ts";
 import { cleanInlineText, cleanSummary, cleanTitle } from "../enrich/text.ts";
-import { extractVisibleText } from "../enrich/website.ts";
+import type pg from "pg";
+import { extractVisibleText, fetchEvidencePage } from "../enrich/website.ts";
 import { respond } from "../nl/llm.ts";
 
 export interface SearchResult {
@@ -14,6 +16,7 @@ export interface SearchResult {
 export interface SearchOptions {
   domains?: string[];
   signal?: AbortSignal;
+  cacheDb?: Pick<pg.Pool,"query">;
 }
 
 export interface SearchProvider {
@@ -155,6 +158,7 @@ const liveParallelPageFetch: FetchLike = outboundFetchFor("venue-site", {
   maxBytes: 1_500_000,
   timeoutMs: 15_000,
 });
+let injectedParallelFetch = false;
 let parallelFetch: FetchLike = (url, init) =>
   new URL(url).hostname === "api.parallel.ai"
     ? liveParallelApiFetch(url, init)
@@ -167,6 +171,7 @@ export function setSearchFetch(next: FetchLike | null): void {
 
 /** Test seam for both the Parallel API and its bounded source-page fallback. */
 export function setParallelFetch(next: FetchLike | null): void {
+  injectedParallelFetch = next !== null;
   parallelFetch = next ?? ((url, init) =>
     new URL(url).hostname === "api.parallel.ai"
       ? liveParallelApiFetch(url, init)
@@ -175,7 +180,7 @@ export function setParallelFetch(next: FetchLike | null): void {
 
 export const tavilySearchProvider: SearchProvider = {
   async search(query, opts = {}) {
-    if (!process.env.TAVILY_API_KEY) return [];
+    if (!process.env.TAVILY_API_KEY) throw new WorkError({ provider: "tavily", code: "unavailable", deferred: false });
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 15_000);
     try {
@@ -197,12 +202,16 @@ export const tavilySearchProvider: SearchProvider = {
       });
       if (!response.ok) {
         await response.body?.cancel();
-        return [];
+        throw httpFailure("tavily", response);
       }
       const body = await response.json() as {
         results?: Array<{ url?: unknown; title?: unknown; content?: unknown }>;
       };
-      return (body.results ?? []).flatMap((result) => {
+      if (!Array.isArray(body.results)) {
+        const error=new WorkError({ provider: "tavily", code: "invalid_response", deferred: false });
+        await recordOutboundFailure(response,error);throw error;
+      }
+      return body.results.flatMap((result) => {
         if (typeof result.url !== "string" || typeof result.content !== "string") return [];
         const url = safeHttpUrl(result.url);
         if (!url) return [];
@@ -313,25 +322,35 @@ async function validatedParallelResult(
   result: ParallelRawResult,
   query: string,
   signal?: AbortSignal,
+  cacheDb?: Pick<pg.Pool,"query">,
 ): Promise<SearchResult | null> {
+  let pageText:string;
+  if (cacheDb && !injectedParallelFetch) {
+    const {pageCache}=await import("../enrich/index.ts");
+    const fetcher=outboundFetchFor("venue-site",{maxBytes:512*1024,timeoutMs:20_000});
+    const page=await fetchEvidencePage(result.url,(url,init)=>fetcher(url,{...init,
+      signal:signal&&init?.signal?AbortSignal.any([signal,init.signal]):signal??init?.signal}),pageCache(cacheDb));
+    pageText=page.text;
+  } else {
   let response: Response;
   try {
     response = await parallelFetch(result.url, {
       headers: { accept: "text/html, text/plain;q=0.9" },
       ...(signal ? { signal } : {}),
     });
-  } catch {
-    return null;
+  } catch (error) {
+    throw new WorkError(workFailure(error, "search-page"));
   }
   if (!response.ok) {
     await response.body?.cancel();
-    return null;
+    throw httpFailure("search-page", response);
   }
   const raw = await response.text();
   const contentType = response.headers.get("content-type") ?? "";
-  const pageText = /html/i.test(contentType) || /<html|<body|<p\b/i.test(raw)
+  pageText = /html/i.test(contentType) || /<html|<body|<p\b/i.test(raw)
     ? extractVisibleText(raw, 500_000)
     : raw;
+  }
   for (const excerpt of result.excerpts) {
     const snippet = findVerbatimPageSpan(excerpt, pageText, query);
     if (snippet) return { url: result.url, title: result.title, snippet: snippet.slice(0, 2_000) };
@@ -341,7 +360,7 @@ async function validatedParallelResult(
 
 export const parallelSearchProvider: SearchProvider = {
   async search(query, opts = {}) {
-    if (!process.env.PARALLEL_API_KEY) return [];
+    if (!process.env.PARALLEL_API_KEY) throw new WorkError({ provider: "parallel", code: "unavailable", deferred: false });
     const domains = cleanDomains(opts.domains);
     let response: Response;
     try {
@@ -364,20 +383,36 @@ export const parallelSearchProvider: SearchProvider = {
         }),
         ...(opts.signal ? { signal: opts.signal } : {}),
       });
-    } catch {
-      return [];
+    } catch (error) {
+      throw new WorkError(workFailure(error, "parallel"));
     }
     if (!response.ok) {
       await response.body?.cancel();
-      return [];
+      throw httpFailure("parallel", response);
     }
-    const parsed = parseParallelResponse(await response.json());
+    let body: { results:unknown[] };
+    try {
+      body=await response.json();
+      if(!body||!Array.isArray(body.results))throw new WorkError({provider:"parallel",code:"invalid_response",deferred:false});
+    } catch(error) {await recordOutboundFailure(response,error);throw error;}
+    const parsed = parseParallelResponse(body);
     // Excerpts are discovery hints, not dependable quotations. Fetch at most
     // two result pages and expose only exact spans recovered from those pages.
-    const checked = await Promise.all(parsed.slice(0, 2).map((result) =>
-      validatedParallelResult(result, query, opts.signal)
-    ));
-    return checked.filter((result): result is SearchResult => result !== null);
+    const checked: SearchResult[] = [];
+    let failure: unknown;
+    // Two useful pages; at most four attempts. Unreadable top hits need not end discovery.
+    for (const result of parsed.slice(0, 4)) {
+      if (checked.length >= 2) break;
+      try {
+        const found = await validatedParallelResult(result, query, opts.signal, opts.cacheDb);
+        if (found) checked.push(found);
+      } catch (error) {
+        rethrowDeferred(error, "search-page");
+        failure = error;
+      }
+    }
+    if (!checked.length && failure) throw new WorkError(workFailure(failure, "search-page", "extraction"));
+    return checked;
   },
 };
 
