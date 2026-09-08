@@ -46,6 +46,15 @@ export function pinStemPath(x: number, y: number, clearance: number): string {
   return points ? `M${points[0]} L${points[1]} L${points[2]} Z` : "";
 }
 
+/** Align a DOM needle with its own Y axis. Scaling only its local X axis
+ * then widens the top without moving the head, ground tip or perspective. */
+export function pinStemPose(x: number, y: number, clearance: number) {
+  return {
+    angle: Math.atan2(-x, y),
+    path: pinStemPath(0, Math.hypot(x, y), clearance),
+  };
+}
+
 export const GL_MARK_RADIUS = {
   out: 4, unsure: 8, unlikely: 6, likely: 5.5, return: 7, act: 9.5, works: 7.5,
 } as const;
@@ -242,12 +251,17 @@ export function bindMapPins(map: MapLibreMap): () => void {
       const dy = head.y - ground.y;
       marker.style.setProperty("--map-pin-shift-x", `${dx}px`);
       marker.style.setProperty("--map-pin-shift-y", `${dy}px`);
-      const path = marker.querySelector<SVGPathElement>(".marker-needle path");
-      if (path) path.setAttribute("d", pinStemPath(
-        -dx - Number(path.dataset.offsetX),
-        -dy - Number(path.dataset.offsetY),
-        Number(path.dataset.clearance),
-      ));
+      const needle = marker.querySelector<SVGSVGElement>(".marker-needle");
+      const path = needle?.querySelector("path");
+      if (needle && path) {
+        const stem = pinStemPose(
+          -dx - Number(path.dataset.offsetX),
+          -dy - Number(path.dataset.offsetY),
+          Number(path.dataset.clearance),
+        );
+        needle.style.transform = `rotate(${stem.angle}rad)`;
+        path.setAttribute("d", stem.path);
+      }
     }
   };
 

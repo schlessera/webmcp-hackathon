@@ -6,7 +6,7 @@ import "../map-worker.ts";
 import { BASEMAP_SOURCE, MAP_THEME, TILE_STYLE } from "../map-theme.ts";
 import { loadTileStyle, type TileStyle } from "../map-style.ts";
 import {
-  bindMapPins, canvasPinPoint, roomPinPoint, pinStemPath, setPinRingAngle, GL_MARK_RADIUS,
+  bindMapPins, canvasPinPoint, roomPinPoint, pinStemPose, setPinRingAngle, GL_MARK_RADIUS,
   PIN_CIRCLE_PAINT, PIN_ICON_LAYOUT, PIN_ICON_PAINT, PIN_QUERY_PADDING,
 } from "../map-pins.ts";
 import { spatial } from "../spatial-store.ts";
@@ -2706,6 +2706,7 @@ export function MapView({
           const head = map && roomPinPoint(map, c.candidateId, [c.location.lng, c.location.lat]);
           const shiftX = head && ground ? head.x - ground.x : 0;
           const shiftY = head && ground ? head.y - ground.y : 0;
+          const stem = pinStemPose(-shiftX - offset[0], -shiftY - offset[1], clearance);
           const viewers = viewersOf.get(c.candidateId) ?? [];
           return (
             <Marker
@@ -2788,13 +2789,15 @@ export function MapView({
                   }
                 }}
               >
-                <svg className="marker-needle" aria-hidden="true">
-                  <path
-                    d={pinStemPath(-shiftX - offset[0], -shiftY - offset[1], clearance)}
-                    data-offset-x={offset[0]}
-                    data-offset-y={offset[1]}
-                    data-clearance={clearance}
-                  />
+                <svg className="marker-needle" aria-hidden="true" style={{ transform: `rotate(${stem.angle}rad)` }}>
+                  <g className="marker-needle-width">
+                    <path
+                      d={stem.path}
+                      data-offset-x={offset[0]}
+                      data-offset-y={offset[1]}
+                      data-clearance={clearance}
+                    />
+                  </g>
                 </svg>
                 <i className="marker-dot" aria-hidden="true" />
                 {/* In progress: a dashed ring turning around the dot (§9,

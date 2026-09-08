@@ -3750,6 +3750,20 @@ async function expectOutwardPinPerspective(page: Page) {
   for (const pin of right) { expect(pin.dx).toBeGreaterThan(0.1); expect(pin.dy).toBeLessThan(0); }
 }
 
+function sampleNeedleSpread(page: Page, candidateId: string) {
+  return page.evaluate((id) => new Promise<number[]>((resolve) => {
+    const samples: number[] = [];
+    const start = performance.now();
+    const sample = () => {
+      const needle = document.querySelector(`[data-candidate-id="${id}"] .marker-needle-width`);
+      if (needle) samples.push(new DOMMatrixReadOnly(getComputedStyle(needle).transform).a);
+      if (performance.now() - start < 600) requestAnimationFrame(sample);
+      else resolve(samples);
+    };
+    requestAnimationFrame(sample);
+  }), candidateId);
+}
+
 for (const device of [
   { name: "desktop", width: 1180, height: 900, reducedMotion: "no-preference" as const, deviceScaleFactor: 1 },
   { name: "mobile", width: 390, height: 844, reducedMotion: "no-preference" as const, deviceScaleFactor: 2 },
@@ -3847,6 +3861,7 @@ for (const device of [
       type: "presence", present: ["p_org", "p_sarah"],
       viewing: candidateId ? [{ participantId: "p_sarah", candidateId }] : [],
     });
+    const mountingSpread = sampleNeedleSpread(page, glOnly.candidateId);
     peerViews(glOnly.candidateId);
     const promotedPin = page.getByTestId(`pin-${glOnly.candidateId}`);
     await expect(promotedPin).toHaveAttribute("data-named", "true");
@@ -3857,12 +3872,15 @@ for (const device of [
     });
     expect(promotedHead[0]).toBeCloseTo(glOnly.point[0], 3);
     expect(promotedHead[1]).toBeCloseTo(glOnly.point[1], 3);
+    const mountedWidths = await mountingSpread;
+    expect(mountedWidths.some((width) => width > 1.01 && width < 3.99)).toBe(device.reducedMotion !== "reduce");
+    expect(mountedWidths.at(-1)).toBe(4);
     await page.screenshot({ path: testInfo.outputPath(`pins-canvas-to-label-${device.name}.png`) });
     peerViews(null);
     await expect(promotedPin).toHaveCount(0);
 
-    // Naming an existing DOM dot must also leave both its head and its entire
-    // triangle unchanged, throughout the cross-fade and on returning to a dot.
+    // Widening changes only the triangle's top. Its head, tip and orientation
+    // stay fixed throughout the label transition and on returning to a dot.
     // Some bare dots cannot take a label because nearby dots leave no space.
     // Find an outer dot that can win a name slot when a peer opens it.
     const bareIds = await page.locator('.marker[data-state="works"][data-named="false"]').evaluateAll(
@@ -3881,17 +3899,29 @@ for (const device of [
     const bare = page.getByTestId(`pin-${bareId}`);
     const geometry = () => bare.evaluate((element) => {
       const box = element.getBoundingClientRect();
-      return { x: box.x + box.width / 2, y: box.y + box.height / 2, stem: element.querySelector(".marker-needle path")!.getAttribute("d") };
+      const needle = element.querySelector<SVGSVGElement>(".marker-needle")!;
+      return { x: box.x + box.width / 2, y: box.y + box.height / 2,
+        stem: needle.querySelector("path")!.getAttribute("d"), angle: needle.style.transform };
     });
+    await expect(bare.locator(".marker-needle-width")).toHaveCSS("transform", "matrix(1, 0, 0, 1, 0, 0)");
     const beforeLabel = await geometry();
+    const growingSpread = sampleNeedleSpread(page, bareId!);
     peerViews(bareId);
     await expect(bare).toHaveAttribute("data-named", "true");
     expect(await geometry()).toEqual(beforeLabel);
+    await page.screenshot({ path: testInfo.outputPath(`pins-label-growing-${device.name}.png`) });
+    const growingWidths = await growingSpread;
+    expect(growingWidths.some((width) => width > 1.01 && width < 3.99)).toBe(device.reducedMotion !== "reduce");
+    expect(growingWidths.at(-1)).toBe(4);
     await page.screenshot({ path: testInfo.outputPath(`pins-label-${device.name}.png`) });
     expect(await geometry()).toEqual(beforeLabel);
+    const shrinkingSpread = sampleNeedleSpread(page, bareId!);
     peerViews(null);
     await expect(bare).toHaveAttribute("data-named", "false");
     expect(await geometry()).toEqual(beforeLabel);
+    const shrinkingWidths = await shrinkingSpread;
+    expect(shrinkingWidths.some((width) => width > 1.01 && width < 3.99)).toBe(device.reducedMotion !== "reduce");
+    expect(shrinkingWidths.at(-1)).toBe(1);
 
     const bounds = (await region.boundingBox())!;
     await page.mouse.click(bounds.x + glOnly.point[0], bounds.y + glOnly.point[1]);

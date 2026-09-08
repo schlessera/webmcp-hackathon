@@ -374,6 +374,18 @@ body { overflow: hidden; }
   pointer-events: none;
   opacity: var(--map-pin-visible, 0);
   fill: var(--spoke-ink);
+  transform-origin: 0 0;
+}
+.marker-needle-width {
+  transform-origin: 0 0;
+  transform: scaleX(1);
+  transition: transform var(--spoke-dur-settle) var(--spoke-ease);
+}
+.marker[data-named="true"] .marker-needle-width { transform: scaleX(4); }
+/* Canvas pins can gain a DOM label on this very frame. Give those needles
+   the same narrow starting shape as a dot that was already in the DOM. */
+@starting-style {
+  .marker[data-named="true"] .marker-needle-width { transform: scaleX(1); }
 }
 
 /* Real geography piles stickers on top of each other in dense clusters, where

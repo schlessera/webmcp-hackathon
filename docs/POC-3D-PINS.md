@@ -12,7 +12,10 @@ camera and pins instantly.
 
 Every room dot reserves the height its label needs from the start: about
 31px at the centre of the current 48° view. Explore dots keep their shorter
-stems. Label appearance never changes a room pin's anchor or triangle.
+stems. Label appearance keeps a room pin's head and ground tip fixed while the
+triangle's top widens from 3px to 12px over the label's 420ms transition. The
+width animates perpendicular to the stem, preserving its perspective; newly
+created labels start narrow too. Reduced motion changes the width instantly.
 Heads are projected at a positive Mercator Z using MapLibre's full-precision
 camera matrix, so outer pins lean outward like upright objects above the map.
 X/Y remain at the POI. Height is normalized for zoom to keep the pins readable;
