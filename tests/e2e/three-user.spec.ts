@@ -32,6 +32,7 @@ function startServer(buildId: string): ChildProcess {
       // Test servers never talk to the model: the composer takes its offline path.
       OPENAI_API_KEY: "",
       OPENROUTER_API_KEY: "",
+      ALLOW_LEGACY_MEMBER_INVITES: "1", // local three-person fixtures
       BUILD_ID: buildId,
       LOG_LEVEL: "warn",
     },

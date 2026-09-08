@@ -9,6 +9,7 @@ import {
 import { spawn, type ChildProcess } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { BUDGETS } from "@webmcp-hackathon/contracts";
 import {
   apiPost,
   createTestRoom,
@@ -35,6 +36,7 @@ test.beforeAll(async () => {
       // The fixture installs a throwing scripted transport as a second guard.
       OPENAI_API_KEY: "",
       OPENROUTER_API_KEY: "",
+      ALLOW_LEGACY_MEMBER_INVITES: "1", // local three-person fixtures
       BUILD_ID: "e2e-flow-1",
       LOG_LEVEL: "warn",
     },
@@ -391,7 +393,7 @@ test("demo trajectory through the product UI", async () => {
   }
 
   // Read/focus/propose/inspect through the page's real WebMCP registration
-  // shim, retaining the compact-result budget assertions from the old lane.
+  // shim, checking the current result budgets and structured evidence fields.
   const firstProposal = await pages.org.evaluate(async () => {
     const shim = (window as never as {
       __webmcpTestShim: { executeTool(name: string, args: string): Promise<unknown> };
@@ -432,19 +434,24 @@ test("demo trajectory through the product UI", async () => {
       proposeEffect: propose.parsed.effect ?? propose.parsed.error?.message,
       inspectOk: inspect.parsed.ok,
       inspectLen: inspect.rawLen,
-      inspectAttrsCompact:
-        typeof inspect.parsed.candidates?.[0]?.attributes?.[0] === "string",
+      inspectAttributes: inspect.parsed.candidates?.[0]?.attributes,
     };
   });
   expect(firstProposal.contextOk).toBe(true);
   expect(firstProposal.rows).toBeLessThanOrEqual(8);
   expect(firstProposal.rowHasCoords).toBe(false);
-  expect(firstProposal.contextLen).toBeLessThanOrEqual(2000);
+  expect(firstProposal.contextLen).toBeLessThanOrEqual(BUDGETS.contextResultMax);
   expect(firstProposal.focusOk).toBe(true);
   expect(firstProposal.proposeOk, String(firstProposal.proposeEffect)).toBe(true);
   expect(firstProposal.inspectOk).toBe(true);
-  expect(firstProposal.inspectAttrsCompact).toBe(true);
-  expect(firstProposal.inspectLen).toBeLessThanOrEqual(2000);
+  expect(firstProposal.inspectAttributes).toEqual(expect.arrayContaining([
+    expect.objectContaining({
+      key: expect.any(String),
+      status: expect.any(String),
+      source: expect.any(String),
+    }),
+  ]));
+  expect(firstProposal.inspectLen).toBeLessThanOrEqual(BUDGETS.inspectResultMax);
 
   const proposedPin = pages.org.getByTestId(`pin-${firstProposal.target.candidateId}`);
   await pages.org.getByTestId("place-details").getByTestId("details-close").click();
