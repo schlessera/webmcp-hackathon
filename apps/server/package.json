@@ -10,7 +10,9 @@
     "reclean:text": "node src/reclean-text.ts",
     "seed": "node src/seed.ts",
     "typecheck": "tsc --noEmit",
-    "prepopulate": "node --env-file-if-exists=../../.env src/prepopulate.ts"
+    "prepopulate": "node --env-file-if-exists=../../.env src/prepopulate.ts",
+    "prepopulate:overture": "node --env-file-if-exists=../../.env src/prepopulate/overture.ts",
+    "prepopulate:maintenance": "node --env-file-if-exists=../../.env src/prepopulate/maintenance.ts"
   },
   "dependencies": {
     "@fastify/compress": "^9.2.0",

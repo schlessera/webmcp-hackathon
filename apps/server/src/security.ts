@@ -23,6 +23,10 @@ export class WindowBudget {
     this.windowMs = windowMs;
     this.maxEntries = maxEntries;
   }
+  nextAvailableAt(key: string, now = Date.now()): number {
+    const entry = this.entries.get(key);
+    return entry && entry.count >= this.limit && entry.until > now ? entry.until : now;
+  }
   take(key: string, now = Date.now()): boolean {
     let entry = this.entries.get(key);
     if (entry && entry.until <= now) {

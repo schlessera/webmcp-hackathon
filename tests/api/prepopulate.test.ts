@@ -67,7 +67,7 @@ describe("region cache prepopulation", () => {
     expect([listingCalls, siteCalls]).toEqual(counts);
     expect((await pool.query("SELECT id FROM candidates WHERE osm_ref = $1", [place.ref])).rows).toEqual([]);
     // A failed listing refresh keeps last-known-good data and backs off durably.
-    await pool.query("UPDATE prepopulate_listing_fetches SET expires_at = now() - interval '1 second'");
+    await pool.query("UPDATE listing_batches SET expires_at = now() - interval '1 second'");
     setListingFetch(async () => { listingCalls++; throw new Error("provider unavailable"); });
     const failed = await runPrepopulation(pool, options(), snapshot, [place], report);
     expect(failed.sourceErrors.listings).toBe(1);

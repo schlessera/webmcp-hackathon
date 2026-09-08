@@ -1,3 +1,4 @@
+import { bindWork } from "../work-context.ts";
 import type { LookupsMessage } from "@webmcp-hackathon/contracts";
 import {
   hostGateOpen as outboundHostGateOpen,
@@ -215,7 +216,7 @@ export class PipelineScheduler {
       this.routeCompletions[first.actualRoute] += 1;
       return first.value;
     };
-    const queued = this.queue.enqueue(planned, execute, options.present === false ? 1 : 4);
+    const queued = this.queue.enqueue(planned, bindWork(execute,item.intent), options.present === false ? 1 : 4);
     if (queued.inserted) {
       for (const listener of this.enqueueListeners) listener(planned);
       this.volume.enqueue(planned);
@@ -260,7 +261,7 @@ export class PipelineScheduler {
     };
     const queued = this.queue.enqueue(
       representative,
-      async () => run(),
+      bindWork(async () => run(),items[0].intent),
       options.present === false ? 1 : 4,
     );
     if (queued.inserted) {

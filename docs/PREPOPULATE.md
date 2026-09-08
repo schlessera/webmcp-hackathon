@@ -1,104 +1,99 @@
-# Prepare a demo region
+# Prepare and resume a region
 
-Current CLI reference, checked against the implementation on 2026-09-07.
-
-`pnpm prepopulate` runs the application's ordinary providers ahead of a demo.
-It writes to the same Postgres caches the app reads by OSM reference, so both
-existing and newly opened rooms can reuse the results. It creates no room,
-participant, need or candidate rows. Keep `DATABASE_URL` pointed at the database
-that will serve the demo; warming a different database cannot help it.
-
-From this checkout, with Node.js 24+ and dependencies installed:
+`pnpm prepopulate` warms shared enrichment caches by OSM reference. It creates no rooms, participants, needs or candidates. Use Node.js 24+, the application's provider configuration, and the database that will serve the region.
 
 ```bash
-pnpm prepopulate --area berlin-mitte --dry-run
 node --env-file-if-exists=.env apps/server/src/migrate.ts
-pnpm prepopulate --area berlin-mitte
+pnpm prepopulate --area berlin-mitte --limit 100 --dry-run
+pnpm prepopulate --area berlin-mitte --limit 100 --max-requests 800 --max-cost-usd 5
 ```
 
-The root command reads `.env` when present; exported environment variables take
-precedence. Use the same provider/proxy settings as the application. Postgres
-must already be running and migrations must be current. The preview does not
-connect to Postgres or call providers, and lists unavailable sources explicitly.
+The dry run loads only the committed snapshot and reports configuration availability. It does not contact a database or provider, or verify that an Overture extract has been imported. `sf-soma` selects San Francisco. The default radius is 2,000 metres and the default selection includes every supported place class.
 
-For the production stack in [DEPLOY.md](DEPLOY.md), run from the host's
-deployment directory after rebuilding the app image and running migrations:
+## Checkpoints and limits
+
+Each run prints a `runId`. Stages are stored in `prepopulation_stages`; successful work survives process exits. Eight prepared places form an evaluation buffer, with at most `--concurrency` simultaneous preparation tasks (default 4, maximum 8). The next buffer waits until the current buffer is evaluated and saved. Matrix evaluation still uses the shared eight-place/five-criterion cache and literal-evidence rules.
 
 ```bash
-docker compose -f compose.coolify.yaml -f compose.prod.yaml exec app node apps/server/src/prepopulate.ts --area berlin-mitte --dry-run
-docker compose -f compose.coolify.yaml -f compose.prod.yaml exec app node apps/server/src/prepopulate.ts --area berlin-mitte
+pnpm prepopulate:maintenance --run RUN_UUID
+pnpm prepopulate --area berlin-mitte --limit 100 --resume RUN_UUID --max-requests 1200 --max-cost-usd 8
 ```
 
-This uses the running app container's database and provider environment. It
-does not need a browser or any participants to stay connected.
-For local development with `compose.yaml`, use `docker compose exec app`
-instead. Neither form reads host environment overrides that were not passed
-into the container.
+Resume with the same area, radius, limit, sources and profile. A selection hash rejects accidental changes. A live lease prevents two processes from owning the same run. After an abrupt process exit, its lease expires within two minutes. Completed stages are skipped; deferred stages become eligible at `retryAt`. `--retry-failed` explicitly retries failed/backed-off stages, including stages that reached the normal five-attempt ceiling. Provider and run limits still apply.
 
-Select `sf-soma` for San Francisco. The default is every snapshot place within
-2,000 metres of the selected demo centre, including museums, parks and other
-classes visible in the explore layer. The city-wide snapshot itself is already
-stored locally; this command does not download a new OSM extract.
+A quota refusal stops admission and exits with status `deferred` and exit code **75**. An interruption exits **130** after in-flight work is saved. Failed work exits **1**; a completed run exits **0**. `completed` counts visited places, so use the run's `status` and stage table to decide whether its work finished.
 
-For a smaller trial or a specific source pass:
+`--max-requests` caps cumulative admitted outbound/model attempts, including retries and redirects. Pending model reservations also occupy this allowance before search. `--max-cost-usd` caps **estimated spend at admission**, reconciled when the provider supplies actual cost. It is not a guaranteed billing ceiling: model prices/usage and unreported provider charges can differ from reservations; proxy bandwidth charges are not included. Unknown costs stay reserved; they are never reported as zero. Raising caps on resume does not reset spend. Missing required schema columns stop the CLI before provider work begins.
+
+`provider_attempts` records wire/model attempts, safe task IDs/status codes, workload, reported or reserved costs, failures and durations. Status output separates these from accepted claims and cache hits. For plain fetches, timing ends at response headers; model/provider reconciliation may extend it. Those timings are not end-to-end place latency.
+
+## Shared resource allocation
+
+The app and CLI use Postgres admission for hourly/daily resource limits. Windows follow UTC hour/day boundaries. Existing process concurrency guards, timeouts, retry policies and proxy circuit breakers remain active. Unrelated clients using the same provider account outside this database are not counted.
+
+| Environment | Default |
+|---|---:|
+| `OUTBOUND_CALLS_PER_HOUR` / `OUTBOUND_CALLS_PER_DAY` | 5000 / 20000 |
+| `LLM_CALLS_PER_HOUR` / `LLM_CALLS_PER_DAY` | 600 / 2000 |
+| `OUTBOUND_INTERACTIVE_RESERVE_PERCENT` / `LLM_INTERACTIVE_RESERVE_PERCENT` | 10 |
+| `OUTBOUND_BACKGROUND_RESERVE_PERCENT` / `LLM_BACKGROUND_RESERVE_PERCENT` | 20 |
+| `MODEL_CALL_COST_RESERVATION_USD` | 0.05 |
+
+Interactive work may use the total allowance. Noninteractive work can use at most 90%; prepopulation can use at most 70%, leaving room for ordinary background work too. Keyed fetch providers have additional account counters configured by `PARALLEL_*`, `TAVILY_*`, `DATAFORSEO_*` and `ACCESSIBILITY_*` `CALLS_PER_HOUR`/`CALLS_PER_DAY` settings. These can also override their reserve percentages.
+
+Queue dispatch preserves the submitting workload and reservation. Bulk photos use background routing/priority. Model capacity is reserved before paid discovery, and an evaluator failure cannot become an evidence omission. Successful empty research and explicit abstentions remain distinct from provider, extraction, persistence and admission failures.
+
+## Sources and profiles
+
+`--sources` accepts `overture,accessibility,listings,sites,images,search`; all are selected by default, with unavailable integrations reported and skipped. `--profile` accepts `explore` (default), `dining` and `accessibility`. Accessibility restricts criteria to wheelchair accessibility; general exploration omits food-specific criteria for other place classes. The dining profile visits food venues first within the selected nearest-place set. Both general profiles retain non-food venues. Queries use public place identity and the server's criterion vocabulary; private room needs are never read by the CLI.
+
+- **Listings:** DataForSEO root/task validation, bounded pagination (`LISTINGS_MAX_PAGES_PER_BATCH`, default 5), immediate matched-fact persistence and durable offsets. Equivalent regional requests can reuse successful batches across rooms and CLI runs. Provider errors retain prior matches and costs.
+- **Sites:** websites, linked menus and Wikidata. Readers share permitted extracted-page text, validators and leases. Up to two relevant same-origin navigation pages supplement the homepage/menu. Raw HTML is not retained.
+- **Images:** tagged/explicit and website candidates first; Commons geosearch only if those yield no usable image. No candidate is a normal outcome. Operational failure preserves prior images and remains retryable.
+- **Search:** the configured Parallel/Tavily/OpenAI adapter, followed by the shared evaluator. Parallel tries up to four result pages to obtain two useful literal spans. Public page copies obey their own cache controls. Parallel API excerpts remain excluded from a roomless shared search cache; validated claims and explicit matrix answers can be reused.
+
+### Overture Places
+
+Overture is a regional discovery source for identity and websites. It does not establish dietary/accessibility claims, and `operating_status: open` does not mean open at the current time. Matching requires both strong name agreement and proximity, rejects domain conflicts, and abstains on ambiguous nearby records. Release, upstream source IDs and attribution remain attached.
+
+Install the official [Overture Python client](https://docs.overturemaps.org/getting-data/overturemaps-py/) on the machine doing the import. Choose an explicit available release from `overturemaps releases list`:
 
 ```bash
-pnpm prepopulate --area sf-soma --radius-m 800 --limit 10 --concurrency 2
-pnpm prepopulate --area berlin-mitte --sources sites,images
+pnpm prepopulate:overture --area berlin-mitte --release YYYY-MM-DD.N --file /tmp/berlin.geojsonseq --download
 ```
 
-Places run nearest first. `--limit` applies after deduplication and the radius
-filter; `--radius-m` accepts 1–2,000 metres. The default concurrency is 4, with
-a maximum of 8. Provider calls use
-the configured accounts and their usual billing; `--limit` bounds the number
-of places, not a dollar amount. Search uses the selected `SEARCH_PROVIDER`,
-rather than querying every alternative search vendor for the same evidence.
+The command requests only the region's bounding box, writes a SHA-256 manifest, filters the exact regional radius and replaces that region atomically. An invalid or empty import preserves the previous release. Limits are 128 MiB and 100,000 records. For an existing regional GeoJSON-sequence extract, replace `--download` with `--sha256 EXPECTED_HASH`.
 
-| Source | What runs | Reuse |
-|---|---|---|
-| `listings` | DataForSEO category batches, existing name/distance matching, website discovery, hours and normalized claims | Matched listing facts and regional admission: 7 days; failed batch: 1 hour |
-| `sites` | Venue homepage, linked menus, menu image/PDF reading when enabled, tagged Wikidata, and evidence evaluation | Website facts and bounded evaluator text: 7 days; Wikidata: 30 days; failures: 1 hour |
-| `images` | Website/tagged images, Commons discovery, decoding, classification and blurhash generation | 1–30 days; source max-age/s-maxage is clamped to this range; no-store/private/no-cache responses rejected; image failure backoff applies |
-| `search` | One ordinary search for a place's unresolved vocabulary criteria, followed by evidence validation | Validated claims: 7 days; provider-specific snippet policy below |
+Set **`OVERTURE=1`** in the server/CLI environment after importing. The application reads the same database table; it does not need the Python client at runtime. Attribution follows the [Overture source licence information](https://docs.overturemaps.org/attribution/).
 
-Listings run first so their discovered websites are available to all later
-passes. Unmatched listing records are not stored. Repeating the same regional
-listing selection within its TTL does not spend another batch, even when it
-found no matches. Changing the selected scope creates a separate admission.
+### accessibility.cloud
 
-All passes retain the existing robots, outbound routing, cache-control,
-licence, source citation and evidence validation rules. Page text is bounded
-server-side evaluator input. Raw HTML, menu document bytes and raw model-search
-responses are not retained. Website and image refreshes honor the ordinary
-cache lifetime rather than the panel's ten-minute interactive reread window.
+Configure **`ACCESSIBILITY_CLOUD_TOKEN`** and a comma-separated **`ACCESSIBILITY_CLOUD_SOURCE_IDS`** allowlist in the server/CLI environment. These settings are forwarded by the Compose definitions. Do not paste tokens into commands or reports.
 
-`DATAFORSEO_LOGIN` and `DATAFORSEO_PASSWORD` enable listings. The app's configured
-model key enables evidence and menu/image interpretation, subject to its usual
-feature switches. Search also needs a model for validation and the selected
-provider's credentials: `PARALLEL_API_KEY`, `TAVILY_API_KEY`, or the configured
-model backend for `SEARCH_PROVIDER=openai`. Missing keys skip the relevant
-optional work and appear in the plan. `ENRICH_NETWORK=0` refuses a live run.
+The integration uses the documented cached tile endpoint with bounded pagination and one-day tile caching, following the [API's export guidance](https://github.com/sozialhelden/accessibility-cloud/blob/main/app/docs/json-api.md). It includes source and licence metadata, retains original IDs, and accepts explicitly selected CC0/Public Domain, CC BY or ODbL records. Restricted or unidentified licences are skipped. Review selected sources' terms and attribution when configuring access.
 
-Parallel snippets require a room-specific cache key in the application. A
-regional run supplies no room id, so it does not persist those snippets. It
-still stores validated claims through the normal enrichment path. Tavily can
-reuse its shared seven-day bounded snippet cache; built-in model search stores
-only validated claims and answered-cell metadata. Regional searches use only
-place identity, city and the server's attribute vocabulary. They never load
-participant requirements. Value-specific cuisine questions, opening-at-a-time
-predicates, arrival plans and other live participant context remain demand-driven.
+Only explicit boolean `accessibleWith.wheelchair` values map to likely accessibility facts. Partial/unknown values and equipment/disruption data do not imply whole-venue accessibility. Wheelmap/OSM sources are excluded as duplicate evidence. Source and licence links are included in the dossier. Token-bearing request URLs are neither cached nor logged.
 
-The command prints a plan, progress counts, periodic activity messages and a
-final JSON summary. `completed` counts processed places, including those served
-from cache. `failed` counts places with incomplete work; `sourceErrors` also
-includes a regional listing failure. An unavailable source in the plan is a skip,
-not a provider failure. Exit status is 0 on completion, 1 for errors and 130
-after interruption. If every selected source is unavailable, the run fails.
+Neither source is enabled by deployment alone: Overture needs an imported extract and its flag; accessibility.cloud needs credentials and suitable source IDs.
 
-Ctrl-C stops admitting new places and lets current work finish persisting.
-Rerun the same command to continue: each pass checks durable freshness, so
-successful work is reused. An explicit model abstention stays unknown and
-normally backs off for a day; a local abstention with an unfinished search can
-resume its search on the next run. Provider/model failures do not become facts.
-No guarantee is made that every place has evidence, a working site or a usable
-image; gaps remain unknown in the app.
+## Repair and maintenance
+
+Audit a bounded historical run window first. This command does not make provider requests:
+
+```bash
+pnpm prepopulate:maintenance --area berlin-mitte --from 2026-09-07T19:41:00Z --to 2026-09-07T20:15:00Z
+```
+
+Add `--apply` to requeue website errors explicitly caused by local budget/capacity refusals and remove unsupported search-attempt markers from omissions in that selection/window. It retains the omissions, valid claims, successful provider data and matrix-backed explicit abstentions. Unsupported markers are uncertain work, not proof of incorrect facts. A subsequent bounded search pass can revisit them.
+
+`pnpm prepopulate:maintenance --prune` removes expired leases/reservations, old quota windows, expired source tiles/batches and unowned provider-attempt history older than 30 days. Run-linked audit history is retained.
+
+## Verification and rollout
+
+The implementation is exercised with injected providers and a dedicated local Postgres database. The [200-place scripted replay](research/data-pipeline-replay-2026-09-08.json) retains a fixed stratified Berlin/SF selection: both arms answer 1,000 cells; batching uses 25 model requests instead of 200. These are scripted abstentions, not measured production accuracy or network speed. Reproduce with:
+
+```bash
+node scripts/benchmark-data-pipeline.ts /tmp/data-pipeline-replay.json
+```
+
+Deploy the code and migrations together, configure sources, then use a capped regional pilot and monitor its run ID. Measure incremental website/attribute coverage, entity matches, actual cost, retries and visible-room responsiveness before a broad run. No production repair, new provider activation or production rerun is performed by this implementation.

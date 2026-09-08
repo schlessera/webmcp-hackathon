@@ -71,6 +71,14 @@ describe("monotonic inference resolution", () => {
     });
   });
 
+  it("preserves one paid attempt when a cached abstention is replayed repeatedly", () => {
+    const paid = { omitted: true as const, observedAt: OLD_AT, searchDay: "2026-09-03", searchAttempts: 1 };
+    const replay = { omitted: true as const, observedAt: FRESH_AT };
+    expect(resolveInference(resolveInference(paid, replay), replay)).toEqual({
+      ...replay, searchDay: paid.searchDay, searchAttempts: 1,
+    });
+  });
+
   it("keeps the old same-lean claim at lower confidence in the same bucket", () => {
     const previous = claim();
     const fresh = claim({ confidence: 0.5, observedAt: FRESH_AT });
@@ -158,6 +166,14 @@ describe("monotonic inference resolution", () => {
     ]);
   });
 
+  it("keeps an accessibility survey below an explicit venue record", () => {
+    const previous=claim({key:"wheelchair-accessible",source:"web:venue.example",explicit:true,confidence:0.8});
+    const survey=claim({key:"wheelchair-accessible",source:"accessibility.cloud:partner",lean:"no",confidence:0.65,observedAt:FRESH_AT});
+    expect(resolveInference(previous,survey)).toMatchObject({source:previous.source,lean:"yes"});
+    const weak=claim({key:"wheelchair-accessible",source:"infer:test:open_web_search",confidence:0.5});
+    expect(resolveInference(weak,{...survey,lean:"yes"})).toMatchObject({source:survey.source});
+  });
+
   it("orders every source bucket, with name/category below quoted open web", () => {
     expect(INFERENCE_SOURCE_BUCKET_RANK).toEqual({
       name_category: 0,
@@ -165,6 +181,7 @@ describe("monotonic inference resolution", () => {
       domain_search: 2,
       own_site_inferred: 3,
       listing: 4,
+      accessibility: 4,
       own_site_explicit: 5,
       record: 6,
     });

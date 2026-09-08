@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type pg from "pg";
 import type { EvaluatedInference } from "./evaluate.ts";
-import type { WebsiteImageCandidate, WebsiteTransientText } from "./website.ts";
+import type { WebFacts, WebsiteImageCandidate, WebsiteTransientText } from "./website.ts";
 import { cleanText } from "./text.ts";
 import { cleanEvaluatedInference, cleanSearchResults } from "./stored-text.ts";
 
@@ -38,6 +38,8 @@ export interface PageCacheEntry {
   imageCandidates?: WebsiteImageCandidate[];
   robots?: string | null;
   fresh: boolean;
+  facts?: WebFacts | null;
+  links?: string[];
 }
 
 interface PageCacheRow {
@@ -52,6 +54,8 @@ interface PageCacheRow {
   image_candidates: WebsiteImageCandidate[] | null;
   robots: string | null;
   fresh: boolean;
+  facts?: WebFacts | null;
+  links?: string[];
 }
 
 export function cacheUrlHash(url: string | URL): string {
@@ -77,6 +81,8 @@ function pageEntry(row: PageCacheRow): PageCacheEntry {
     ...(Array.isArray(row.image_candidates) ? { imageCandidates: row.image_candidates } : {}),
     robots: row.robots,
     fresh: row.fresh,
+    facts: row.facts,
+    links: row.links ?? [],
   };
 }
 
@@ -97,6 +103,8 @@ export interface StorePageInput {
   text?: string | null;
   imageCandidates?: WebsiteImageCandidate[] | null;
   robots?: string | null;
+  facts?: WebFacts | null;
+  links?: string[];
 }
 
 /** Store only evaluator material. Cached text is bounded here as well as by a
@@ -109,9 +117,9 @@ export async function storePageCache(q: CacheQuery, input: StorePageInput): Prom
   await q.query(
     `INSERT INTO page_cache
        (url_hash, url, host, fetched_at, expires_at, etag, last_modified,
-        status, text, image_candidates, robots)
+        status, text, image_candidates, robots, facts, links)
      VALUES ($1, $2, $3, now(), now() + ($4 || ' milliseconds')::interval,
-             $5, $6, $7, $8, $9::jsonb, $10)
+             $5, $6, $7, $8, $9::jsonb, $10, $11::jsonb, $12::jsonb)
      ON CONFLICT (url_hash) DO UPDATE SET
        url = EXCLUDED.url,
        host = EXCLUDED.host,
@@ -122,13 +130,13 @@ export async function storePageCache(q: CacheQuery, input: StorePageInput): Prom
        status = EXCLUDED.status,
        text = EXCLUDED.text,
        image_candidates = EXCLUDED.image_candidates,
-       robots = EXCLUDED.robots`,
+       robots = EXCLUDED.robots, facts = EXCLUDED.facts, links = EXCLUDED.links`,
     [
       cacheUrlHash(url), url, new URL(url).hostname.toLowerCase(),
       String(input.ttlMs ?? PAGE_CACHE_TTL_MS), input.etag ?? null,
       input.lastModified ?? null, input.status, text,
       input.imageCandidates == null ? null : JSON.stringify(input.imageCandidates),
-      input.robots ?? null,
+      input.robots ?? null, input.facts ? JSON.stringify(input.facts) : null, JSON.stringify((input.links ?? []).slice(0,3)),
     ],
   );
 }

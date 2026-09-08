@@ -1,3 +1,4 @@
+import { WorkError, httpFailure, rethrowDeferred } from "../work-outcome.ts";
 import { config } from "../config.ts";
 import { assertPublicTarget as assertOutboundPublicTarget, outboundFetchFor } from "../net/outbound.ts";
 import {
@@ -864,7 +865,7 @@ export async function readBoundedHtmlBody(
   return Buffer.concat(chunks.map((chunk) => Buffer.from(chunk)), size).toString("utf8");
 }
 
-export async function fetchAllowed(
+async function fetchAllowedUncoordinated(
   target: URL,
   fetchImpl: FetchLike,
   timeoutMs = TIMEOUT_MS,
@@ -879,7 +880,7 @@ export async function fetchAllowed(
   const robots = await fetchPublic(robotsUrl, {
     headers: robotsHeaders,
     signal: AbortSignal.timeout(timeoutMs),
-  }, fetchImpl).catch(() => null);
+  }, fetchImpl).catch((error) => { rethrowDeferred(error, "website"); return null; });
   if (!robots) return true;
   if (robots.status === 304 && cached) {
     await robots.body?.cancel();
@@ -888,6 +889,7 @@ export async function fetchAllowed(
   }
   if (!robots.ok) {
     await robots.body?.cancel();
+    if(robots.status===429||robots.status>=500)throw httpFailure("website",robots);
     await storeCacheResponse(cache, robots, {
       url: robotsUrl.toString(),
       status: robots.status,
@@ -916,7 +918,7 @@ const isHtmlResponse = (response: Response): boolean =>
 /** A lightweight second chance for image refreshes whose durable website
  * facts predate image extraction. It shares the normal website network
  * boundary, but reads only a bounded homepage prefix and parses no facts. */
-export async function fetchWebsiteImageCandidates(
+async function fetchWebsiteImageCandidatesUncoordinated(
   url: string,
   fetchImpl: FetchLike = outboundFetchFor("venue-site", {
     maxBytes: MAX_HTML,
@@ -943,7 +945,7 @@ export async function fetchWebsiteImageCandidates(
       method: "HEAD",
       headers,
       signal: AbortSignal.timeout(TIMEOUT_MS),
-    }, fetchImpl).catch(() => null);
+    }, fetchImpl).catch((error) => { rethrowDeferred(error, "website"); return null; });
     if (head?.ok) {
       const type = head.headers.get("content-type");
       if (type && !isHtmlResponse(head)) return [];
@@ -978,10 +980,12 @@ export async function fetchWebsiteImageCandidates(
       etag: response.headers.get("etag"),
       lastModified: response.headers.get("last-modified"),
       text: extractVisibleText(html),
+      facts: parseWebsite(html,pageUrl,new Date().toISOString()), links: relevantOwnSiteLinks(html,pageUrl),
       imageCandidates: candidates,
     });
     return candidates;
-  } catch {
+  } catch (error) {
+    rethrowDeferred(error, "images");
     return [];
   }
 }
@@ -1000,6 +1004,7 @@ export interface MenuFile {
 export interface WebsiteTransientText {
   homepage?: string;
   menu?: string;
+  related?: Array<{url:string;text:string}>;
 }
 export interface WebsiteFetchResult {
   facts: WebFacts | null;
@@ -1011,6 +1016,7 @@ export interface WebsiteFetchResult {
 }
 
 export interface WebsitePageCache {
+  coordinate?<T>(url: string | URL, run:()=>Promise<T>):Promise<T>;
   load(url: string | URL): Promise<PageCacheEntry | null>;
   store(input: StorePageInput): Promise<void>;
   refresh(url: string | URL, ttlMs?: number): Promise<void>;
@@ -1036,7 +1042,7 @@ async function storeCacheResponse(
 }
 const MAX_MENU_FILE = 4_000_000;
 
-export async function fetchWebsiteFacts(
+async function fetchWebsiteFactsUncoordinated(
   url: string,
   fetchImpl: FetchLike = outboundFetchFor("venue-site", {
     maxBytes: MAX_HTML,
@@ -1056,8 +1062,9 @@ export async function fetchWebsiteFacts(
     if (!(await fetchAllowed(target, fetchImpl, TIMEOUT_MS, cache))) return { facts: null, error: "robots.txt disallows" };
     const cached = await cache?.load(target);
     if (cached?.fresh) {
-      const facts = previousFacts
-        ? { ...previousFacts, ...(cached.imageCandidates?.length ? { imageCandidates: cached.imageCandidates } : {}) }
+      const prior = previousFacts ?? cached.facts;
+      const facts = prior
+        ? { ...prior, ...(cached.imageCandidates?.length ? { imageCandidates: cached.imageCandidates } : {}) }
         : null;
       const followed = facts?.menuUrl ? await followMenu(facts, fetchImpl, cache) : undefined;
       const pageText = {
@@ -1080,8 +1087,9 @@ export async function fetchWebsiteFacts(
     if (res.status === 304 && cached) {
       await res.body?.cancel();
       await cache?.refresh(target, PAGE_CACHE_TTL_MS);
-      const facts = previousFacts
-        ? { ...previousFacts, ...(cached.imageCandidates?.length ? { imageCandidates: cached.imageCandidates } : {}) }
+      const prior = previousFacts ?? cached.facts;
+      const facts = prior
+        ? { ...prior, ...(cached.imageCandidates?.length ? { imageCandidates: cached.imageCandidates } : {}) }
         : null;
       const followed = facts?.menuUrl ? await followMenu(facts, fetchImpl, cache) : undefined;
       const pageText = {
@@ -1113,6 +1121,7 @@ export async function fetchWebsiteFacts(
       etag: res.headers.get("etag"),
       lastModified: res.headers.get("last-modified"),
       text: homepageText,
+      facts, links: relevantOwnSiteLinks(html, facts.url),
       imageCandidates: facts.imageCandidates ?? [],
     });
     const followed = facts.menuUrl ? await followMenu(facts, fetchImpl, cache) : undefined;
@@ -1126,6 +1135,7 @@ export async function fetchWebsiteFacts(
       ...(Object.keys(pageText).length > 0 ? { pageText } : {}),
     };
   } catch (err) {
+    rethrowDeferred(err, "website");
     const e = err as Error & { cause?: { message?: string } };
     return { facts: null, error: `${e?.name ?? "Error"}: ${e?.cause?.message ?? e?.message ?? String(err)}`.slice(0, 120) };
   }
@@ -1207,7 +1217,7 @@ async function followMenu(
     if (picture) {
       facts.menuKind = "image";
       facts.menuFileUrl = picture;
-      const img = await fetchPublic(new URL(picture), { headers: { ...headers, accept: "image/*" }, signal: AbortSignal.timeout(TIMEOUT_MS) }, fetchImpl).catch(() => null);
+      const img = await fetchPublic(new URL(picture), { headers: { ...headers, accept: "image/*" }, signal: AbortSignal.timeout(TIMEOUT_MS) }, fetchImpl).catch((error) => { rethrowDeferred(error, "website"); return null; });
       const imgType = img?.headers.get("content-type") ?? "";
       if (img?.ok && /^image\//.test(imgType)) {
         const menuFile = await fileOf("image", picture, imgType, img);
@@ -1217,7 +1227,8 @@ async function followMenu(
     }
     facts.menuKind = "html";
     return text ? { text } : undefined;
-  } catch {
+  } catch (error) {
+    rethrowDeferred(error, "menu");
     /* the homepage facts stand; the menu page is a bonus */
     return undefined;
   }
@@ -1244,4 +1255,70 @@ export function menuImageOf(html: string, pageUrl: string): string | undefined {
   const raw = src?.[1] ?? src?.[2];
   if (!raw || /^data:/i.test(raw)) return undefined;
   return resolve(pageUrl, raw);
+}
+
+
+export function relevantOwnSiteLinks(html:string,pageUrl:string):string[]{
+  const base=new URL(pageUrl);
+  return [...new Set(extractAnchors(html).flatMap(a=>{
+    const resolved=resolve(pageUrl,a.href);if(!resolved)return [];
+    const url=new URL(resolved);url.hash="";
+    return url.origin===base.origin&&url.toString()!==base.toString()&&!url.search&&
+      /accessib|barriere|rollstuhl|faq|allergen|dietary|speisekarte|menu/i.test(`${url.pathname} ${a.text}`)
+      ?[url.toString()]:[];
+  }))].slice(0,3);
+}
+export async function fetchWebsiteFacts(...args:Parameters<typeof fetchWebsiteFactsUncoordinated>):Promise<WebsiteFetchResult>{
+  const [url,,cache]=args;
+  const run=()=>fetchWebsiteFactsUncoordinated(...args);
+  const result=cache?.coordinate?await cache.coordinate(url,run):await run();
+  // Only follow explicit same-origin navigation, with two extra content reads.
+  if(result.facts&&cache){
+    const home=await cache.load(url);
+    const related:Array<{url:string;text:string}>=[];
+    for(const link of (home?.links??[]).filter(u=>u!==result.facts?.menuUrl).slice(0,2)){
+      try{const page=await fetchEvidencePage(link,args[1],cache);if(page.text)related.push({url:link,text:page.text});}
+      catch(error){rethrowDeferred(error,"website");}
+    }
+    if(related.length)result.pageText={...result.pageText,related};
+  }
+  return result;
+}
+export function fetchWebsiteImageCandidates(...args:Parameters<typeof fetchWebsiteImageCandidatesUncoordinated>){
+  const [url,,cache]=args;
+  const run=()=>fetchWebsiteImageCandidatesUncoordinated(...args);
+  return cache?.coordinate?cache.coordinate(url,run):run();
+}
+/** Public page evidence, independently fetched with robots and cache-control respected.
+ * Search API excerpts never enter this cache. Literal validation still happens afterwards. */
+export function fetchEvidencePage(url:string,fetcher:FetchLike=outboundFetchFor("venue-site",{
+  maxBytes:MAX_HTML,timeoutMs:TIMEOUT_MS}),cache?:WebsitePageCache):Promise<{text:string}> {
+  const run=async()=>{
+    const target=new URL(url);
+    if(!(await fetchAllowed(target,fetcher,TIMEOUT_MS,cache)))throw new WorkError({provider:"search-page",code:"extraction",deferred:false});
+    const cached=await cache?.load(url);
+    if(cached?.fresh&&cached.text!==undefined)return {text:cached.text};
+    const conditional=new Headers(headers);
+    if(cached?.etag)conditional.set("if-none-match",cached.etag);
+    if(cached?.lastModified)conditional.set("if-modified-since",cached.lastModified);
+    const response=await fetchPublic(target,{headers:conditional,signal:AbortSignal.timeout(TIMEOUT_MS)},fetcher);
+    if(response.status===304&&cached){await response.body?.cancel();await cache?.refresh(url);return {text:cached.text??""};}
+    if(!response.ok){await response.body?.cancel();throw httpFailure("search-page",response);}
+    const type=response.headers.get("content-type")??"";
+    if(!/html|xml|text\/plain/i.test(type)){await response.body?.cancel();throw new WorkError({provider:"search-page",code:"extraction",deferred:false});}
+    const html=await readBoundedHtmlBody(response,MAX_HTML),pageUrl=response.url||url;
+    const text=/html|xml/i.test(type)?extractVisibleText(html):cleanText(html).slice(0,6000);
+    const facts=/html|xml/i.test(type)?parseWebsite(html,pageUrl,new Date().toISOString()):undefined;
+    await storeCacheResponse(cache,response,{url,status:response.status,text,facts,
+      imageCandidates:facts?.imageCandidates,links:facts?relevantOwnSiteLinks(html,pageUrl):[],
+      etag:response.headers.get("etag"),lastModified:response.headers.get("last-modified")});
+    return {text};
+  };
+  return cache?.coordinate?cache.coordinate(url,run):run();
+}
+
+export function fetchAllowed(...args:Parameters<typeof fetchAllowedUncoordinated>):Promise<boolean>{
+  const [target,,,cache]=args;
+  const run=()=>fetchAllowedUncoordinated(...args);
+  return cache?.coordinate?cache.coordinate(new URL("/robots.txt#policy",target.origin),run):run();
 }

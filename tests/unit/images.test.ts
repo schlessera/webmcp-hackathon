@@ -38,6 +38,11 @@ const sharp = createRequire(new URL("../../apps/server/package.json", import.met
 afterEach(() => setTransport(null));
 
 describe("place image candidate extraction", () => {
+  it("keeps a Commons outage distinct from an empty image search",async()=>{
+    await expect(geosearchCommonsImages("Distinct Venue",{lat:52.52,lng:13.4},async()=>
+      new Response("busy",{status:503}))).rejects.toMatchObject({failure:{provider:"commons",httpStatus:503,deferred:true}});
+  });
+
   it("orders structured representative-image declarations before the page image", () => {
     const html = readFileSync(join(fixtures, "place-images.html"), "utf8");
     expect(extractImageCandidates(html, "https://place.example/about").map((image) => image.url)).toEqual([

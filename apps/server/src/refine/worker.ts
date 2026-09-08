@@ -1,3 +1,7 @@
+import { sourceEnabled } from "../enrich/discovery.ts";
+import { withModelReservation } from "../admission.ts";
+import { withWork } from "../work-context.ts";
+import { WorkError, failedOutcome, type WorkOutcome } from "../work-outcome.ts";
 import {
   ATTRIBUTE_LABELS,
   areaById,
@@ -658,7 +662,9 @@ export function refinementPlanSettled(
     timer.unref?.();
     void Promise.allSettled(promises).then((results) => finish(Math.max(
       REFINE_TICK_MS,
-      ...results.flatMap((result) => result.status === "fulfilled" ? [result.value] : []),
+      ...results.map((result) => result.status === "fulfilled" ? result.value
+        : result.reason instanceof WorkError && result.reason.failure.retryAt
+          ? Math.max(REFINE_TICK_MS, Date.parse(result.reason.failure.retryAt) - Date.now()) : result.reason instanceof WorkError ? 60_000 : REFINE_TICK_MS),
     )));
   });
 }
@@ -704,6 +710,7 @@ export interface RefinementSearchRequest {
 export interface RefinementSearchResponse extends RefinementSearchRequest {
   source: "domain_search" | "open_web_search";
   results: SearchResult[];
+  outcome: WorkOutcome<SearchResult[]>;
   /** True when this response replayed the seven-day provider cache. */
   cacheHit?: boolean;
   cachedClaims?: EvaluatedInference[];
@@ -814,6 +821,7 @@ export async function searchRefinementPlaces(
           ...request,
           source: domains ? "domain_search" as const : "open_web_search" as const,
           results: cached.snippets ?? [],
+          outcome: { status: cached.snippets?.length || cached.claims?.length ? "ok" as const : "empty" as const, value: cached.snippets ?? [] },
           cacheHit: true,
           ...(cached.claims ? { cachedClaims: cached.claims.map((claim) => ({
             ...claim,
@@ -827,16 +835,15 @@ export async function searchRefinementPlaces(
       }
     }
     let results: SearchResult[] = [];
-    let succeeded = false;
+    let outcome: WorkOutcome<SearchResult[]>;
     try {
-      results = await provider(query, domains || signal
-        ? { ...(domains ? { domains } : {}), ...(signal ? { signal } : {}) }
-        : undefined);
-      succeeded = true;
-    } catch {
-      results = [];
+      results = await provider(query, { ...(domains ? { domains } : {}), ...(signal ? { signal } : {}),
+        ...(policy.cacheDb ? { cacheDb: policy.cacheDb } : {}) });
+      outcome = { status: results.length ? "ok" : "empty", value: results };
+    } catch (error) {
+      outcome = failedOutcome(error, providerName);
     }
-    if (succeeded && policy.cacheDb && (providerName === "tavily" || providerName === "parallel")) {
+    if ((outcome.status === "ok" || outcome.status === "empty") && policy.cacheDb && (providerName === "tavily" || providerName === "parallel")) {
       await storeSearchCache(policy.cacheDb, {
         osmRef: request.osmRef,
         query,
@@ -850,6 +857,7 @@ export async function searchRefinementPlaces(
       ...request,
       source: domains ? "domain_search" as const : "open_web_search" as const,
       results,
+      outcome,
       cacheQuery: query,
       ...(domains ? { cacheDomains: domains } : {}),
     };
@@ -922,6 +930,7 @@ export async function searchInteractiveCandidate(
   if (signal?.aborted) return empty;
   const candidate = inputs.candidates.find((entry) => entry.id === candidateId);
   if (!candidate?.osm_ref) return empty;
+  const osmRef = candidate.osm_ref;
   const active = activeCriteria(inputs);
   const unresolved = [...active.values()]
     .map((entry) => entry.criterion)
@@ -944,10 +953,14 @@ export async function searchInteractiveCandidate(
     wakeRefinement(roomId);
     return { ...empty, budgetRefused: true };
   }
+  if(!budget.take("model")||!interactiveModelBudget.consume(roomId,1,Date.now())) {
+    wakeRefinement(roomId);return {...empty,budgetRefused:true};
+  }
+  return withWork({workload:"interactive"},()=>withModelReservation(1,async()=>{
   const area = await roomPlace(roomId);
   const request: RefinementSearchRequest = {
     candidateId,
-    osmRef: candidate.osm_ref,
+    osmRef,
     name: candidate.name,
     category: candidate.category,
     website: candidate.extras?.website,
@@ -964,23 +977,18 @@ export async function searchInteractiveCandidate(
     signal,
     pipeline: { roomId, needsEpoch: stateFor(roomId).cursorEpoch, priority: 0, intent: "interactive" },
   });
+  if (found && "failure" in found.outcome) {
+    wakeRefinement(roomId);
+    return { ...empty, budgetRefused: found.outcome.status === "deferred" };
+  }
   const paidSearch = Boolean(process.env.PARALLEL_API_KEY && found && !found.cacheHit);
   if (signal?.aborted) return { ...empty, searched: true, paidSearch };
   if (!found || found.results.length === 0) {
     return { ...empty, searched: true, paidSearch };
   }
-  if (!budget.take("model")) {
-    wakeRefinement(roomId);
-    return { ...empty, searched: true, paidSearch };
-  }
-  if (signal?.aborted) return { ...empty, searched: true, paidSearch };
-  if (!interactiveModelBudget.consume(roomId, 1, Date.now())) {
-    wakeRefinement(roomId);
-    return { ...empty, searched: true, paidSearch, budgetRefused: true };
-  }
   const place = {
     candidateId,
-    osmRef: candidate.osm_ref,
+    osmRef,
     name: candidate.name,
     category: candidate.category,
     cuisine: [],
@@ -996,7 +1004,7 @@ export async function searchInteractiveCandidate(
   const base = {
     roomId,
     candidateId,
-    osmRef: candidate.osm_ref,
+    osmRef,
     kind: "process.judge" as const,
     criteria: interactiveCriteria,
     priority: 0 as const,
@@ -1022,11 +1030,11 @@ export async function searchInteractiveCandidate(
     { present: presentIn(roomId).size > 0, reason: { kind: "place" } },
   );
   await saveInferences(pool, [{
-    osmRef: candidate.osm_ref,
+    osmRef,
     criteria: interactiveCriteria,
     claims,
     answeredCriterionIds: [...answered],
-    searchedCriterionIds: searchCriteria.map((criterion) => criterion.id),
+    searchedCriterionIds: searchCriteria.filter(c=>answered.has(c.id)).map((criterion) => criterion.id),
     observedAt: new Date().toISOString(),
   }]);
   const refreshed = await loadEligibilityInputs(pool, roomId);
@@ -1034,6 +1042,7 @@ export async function searchInteractiveCandidate(
   const changed = updated && stableAttributeHash(updated.attributes as never) !== before ? [candidateId] : [];
   await publishInferenceChanges(pool, roomId, changed, "interactive", "web");
   return { searched: true, paidSearch, modelCall: true, budgetRefused: false, changed };
+  }));
 }
 
 function modelCalls(places: number, criteria: number): number {
@@ -1284,7 +1293,11 @@ async function dispatchPipelineBatchBody(cells: Array<ReadyCell<PipelineReadyVal
       pipelineScheduler.enqueueBatch(items, run, { present, reason }),
   };
   try {
-    const delay = await processRefinementBatch(roomId, prepared, phases);
+    const criteriaCount = new Set(prepared.flatMap((place) => place.item.criteria.map((c) => c.id))).size;
+    const delay = await withWork({ workload: "background" }, () => withModelReservation(
+      modelCalls(prepared.length, criteriaCount) * 2,
+      () => processRefinementBatch(roomId, prepared, phases),
+    ));
     await adjudicateLikelyForRoom(pool, roomId, {
       mode: "proactive",
       consumeModelCall: consumeRefinementModelCall,
@@ -1348,7 +1361,9 @@ async function preparePlace(
   const target = lookupTargetOf(candidate);
   let enrichment = cached.get(candidate.osm_ref!);
   let text: LookupPass["pageText"] | undefined;
-  if (!text && target && (target.website || target.wikidata)) {
+  if (!text && target && (target.website || target.wikidata ||
+    enrichment?.listing?.website || enrichment?.discoveries?.overture?.website ||
+    (target.location && (sourceEnabled("overture") || sourceEnabled("accessibility"))))) {
     const pass = await readRefinementSource(
       pool,
       target,
@@ -1369,6 +1384,7 @@ async function preparePlace(
       osmRef: candidate.osm_ref!,
       name: candidate.name,
       category: candidate.category,
+      website: candidate.extras?.website ?? enrichment?.listing?.website ?? enrichment?.discoveries?.overture?.website,
       cuisine: (() => {
         const value = candidate.attributes.find((attribute) => attribute.key === "cuisine")?.value;
         return typeof value === "string" ? value.split(";").map((part) => part.trim()).filter(Boolean) : [];
@@ -1498,7 +1514,7 @@ async function processRefinementBatch(
         osmRef: preparedPlace.item.candidate.osm_ref!,
         name: preparedPlace.item.candidate.name,
         category: preparedPlace.item.candidate.category,
-        website: preparedPlace.item.candidate.extras?.website,
+        website: preparedPlace.matrix.website,
         address: preparedPlace.item.candidate.extras?.address,
         siteTextUsable: preparedPlace.siteTextUsable,
         criteria: unresolved,
@@ -1525,12 +1541,13 @@ async function processRefinementBatch(
       ...entry,
       prepared: preparedById.get(entry.candidateId)!,
     }));
-    paidSearches = searched.filter((entry) => !entry.cacheHit).length;
+    paidSearches = searched.filter((entry) => !entry.cacheHit && !("failure" in entry.outcome)).length;
+    const searchFailures = searched.filter((entry) => "failure" in entry.outcome);
     for (const entry of searched) {
       // searchAttempts measures paid outbound legs. Replaying snippets or
       // derived claims must not consume another attempt merely because a
       // requirement toggle caused the worker to revisit the cell.
-      if (!entry.cacheHit) {
+      if (!entry.cacheHit && !("failure" in entry.outcome)) {
         const attempted = entry.results.length > 0 || entry.cachedClaims
           ? entry.criteria
           : entry.searchCriteria;
@@ -1620,7 +1637,7 @@ async function processRefinementBatch(
     }
     if (providerName === "openai") {
       await Promise.all(searched
-        .filter((entry) => entry.results.length === 0 && entry.cachedClaims === undefined)
+        .filter((entry) => entry.outcome.status === "empty" && entry.cachedClaims === undefined)
         .map((entry) => storeSearchCache(pool, {
           osmRef: entry.osmRef,
           query: entry.cacheQuery!,
@@ -1649,10 +1666,18 @@ async function processRefinementBatch(
           ),
         searchedCriterionIds: open
           .map((criterion) => criterion.id)
-          .filter((id) => searchedCells.has(`${item.candidate.id}\u0000${id}`)),
+          .filter((id) => searchedCells.has(`${item.candidate.id}\u0000${id}`) &&
+            (answeredCells.has(`${item.candidate.id}\u0000${id}`) ||
+              searched.some(e=>e.candidateId===item.candidate.id&&e.outcome.status==="empty"))),
         observedAt,
       }] : [];
     }));
+
+    const unfinishedModel = withSnippets.some(entry => entry.criteria.some(c =>
+      !answeredCells.has(`${entry.candidateId}\u0000${c.id}`)));
+    if(unfinishedModel)throw new WorkError({provider:"model",code:"invalid_response",deferred:false});
+    const failedSearch = searchFailures[0];
+    if (failedSearch && "failure" in failedSearch.outcome) throw new WorkError(failedSearch.outcome.failure);
 
   // A wake during this batch already cleared the cursor for the need that
     // changed. Writing this batch's cursor back would erase that invalidation

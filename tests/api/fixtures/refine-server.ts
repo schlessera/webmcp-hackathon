@@ -20,6 +20,7 @@ pipelineScheduler.onEnqueue((item) => {
 setEnrichFetch(async (url, init) => {
   const parsedUrl = new URL(url);
   console.info(`scripted-site-fetch ${parsedUrl.hostname}`);
+  if (parsedUrl.hostname === "commons.wikimedia.org") return Response.json({ query: { pages: {} } });
   if (parsedUrl.hostname === "hang-forever.example") {
     return new Promise<Response>(() => undefined);
   }

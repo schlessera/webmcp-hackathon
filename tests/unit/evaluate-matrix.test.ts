@@ -442,9 +442,9 @@ describe("batched matrix evaluation", () => {
   it("writes nothing for transport or parse failures", async () => {
     let persisted = 0;
     setTransport(async () => { throw new Error("transport down"); });
-    expect(await evaluateMatrix(input(), async () => { persisted += 1; })).toEqual([]);
+    await expect(evaluateMatrix(input(), async () => { persisted += 1; })).rejects.toThrow("model:");
     setTransport(async () => ({ output: [{ type: "message", content: [{ type: "output_text", text: "truncated" }] }] }));
-    expect(await evaluateMatrix(input(), async () => { persisted += 1; })).toEqual([]);
+    await expect(evaluateMatrix(input(), async () => { persisted += 1; })).rejects.toThrow("model:");
     expect(persisted).toBe(0);
   });
 
@@ -474,12 +474,11 @@ describe("batched matrix evaluation", () => {
       })),
       criteria: [dog],
     };
-    const claims = await evaluateMatrix(sample, async (batch) => {
+    await expect(evaluateMatrix(sample, async (batch) => {
       persisted.push(...batch.claims.map((claim) => claim.candidateId));
-    });
+    })).rejects.toThrow("model:");
     expect(calls).toBe(2);
     expect(persisted).toEqual(Array.from({ length: 8 }, (_, index) => `p${index}`));
-    expect(claims).toHaveLength(8);
   });
 
   it("keeps the longest source last and trims aggregate text to 6,000 characters", () => {

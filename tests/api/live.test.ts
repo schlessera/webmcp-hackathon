@@ -859,7 +859,7 @@ describe("need-triggered lookup and realtime facts", () => {
     }
   });
 
-  it("looks up only unknown in-scope places and broadcasts a landed fact", async () => {
+  it("looks up only unknown in-scope places and broadcasts landed facts despite a Commons outage", async () => {
     vi.stubEnv("ENRICH_NETWORK", "1");
     vi.stubEnv("INFER", "0");
     const suffix = room.roomId.slice("room_test_".length);
@@ -890,6 +890,7 @@ describe("need-triggered lookup and realtime facts", () => {
     const fetched: string[] = [];
     setEnrichFetch(async (url) => {
       fetched.push(url);
+      if (new URL(url).hostname === "commons.wikimedia.org") return new Response("", { status: 503 });
       if (url.endsWith("/robots.txt")) return new Response("", { status: 200 });
       return new Response(
         `<script type="application/ld+json">${JSON.stringify({

@@ -1,0 +1,1033 @@
+{
+  "mode": "offline-scripted-replay",
+  "networkRequests": 0,
+  "paidCostUsd": 0,
+  "note": "Scripted abstentions over a fixed, stratified snapshot selection. This measures batching, not factual accuracy or production latency.",
+  "selectionHash": "de342e7a95931739ba58c0d2fa9e0ab106d20243ea91294e5ab5991d7027dd63",
+  "places": 200,
+  "criteria": [
+    "wifi",
+    "dog-friendly",
+    "wheelchair-accessible",
+    "outdoor-seating",
+    "vegetarian-options"
+  ],
+  "arms": [
+    {
+      "placesPerBatch": 1,
+      "modelRequests": 200,
+      "answeredCells": 1000,
+      "localReplayP50Ms": 0.05416300000001684,
+      "localReplayP95Ms": 0.15278699999998935
+    },
+    {
+      "placesPerBatch": 8,
+      "modelRequests": 25,
+      "answeredCells": 1000,
+      "localReplayP50Ms": 0.359813000000031,
+      "localReplayP95Ms": 0.6927740000000995
+    }
+  ],
+  "selection": [
+    {
+      "area": "berlin-mitte",
+      "osmRef": "way/18330093",
+      "stratum": "aquarium:true:true"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "node/5335602741",
+      "stratum": "arts_centre:false:false"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "way/33949547",
+      "stratum": "arts_centre:false:true"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "node/6284471183",
+      "stratum": "arts_centre:true:false"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "node/10676187980",
+      "stratum": "arts_centre:true:true"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "node/14068130267",
+      "stratum": "attraction:false:false"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "way/226371533",
+      "stratum": "attraction:false:true"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "way/81361942",
+      "stratum": "attraction:true:false"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "way/330840129",
+      "stratum": "attraction:true:true"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "node/2659342715",
+      "stratum": "bakery:false:false"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "node/1004408258",
+      "stratum": "bakery:true:false"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "node/11152644268",
+      "stratum": "bakery:true:true"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "node/4706749195",
+      "stratum": "bar:false:false"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "node/1607815772",
+      "stratum": "bar:true:false"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "node/891502072",
+      "stratum": "bar:true:true"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "node/573395588",
+      "stratum": "biergarten:false:false"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "node/1907437298",
+      "stratum": "biergarten:true:false"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "way/56919250",
+      "stratum": "biergarten:true:true"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "node/11533446257",
+      "stratum": "books:false:false"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "node/1741288394",
+      "stratum": "books:true:false"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "way/32898110",
+      "stratum": "books:true:true"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "node/12323869355",
+      "stratum": "cafe:false:false"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "node/3668274196",
+      "stratum": "cafe:true:false"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "node/5336742122",
+      "stratum": "cafe:true:true"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "node/79615774",
+      "stratum": "cinema:false:false"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "node/313942258",
+      "stratum": "cinema:false:true"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "node/660899079",
+      "stratum": "cinema:true:false"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "way/23010077",
+      "stratum": "cinema:true:true"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "node/8459383461",
+      "stratum": "coffee:false:false"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "node/6091957730",
+      "stratum": "coffee:true:false"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "node/11813386961",
+      "stratum": "community_centre:false:false"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "way/41454820",
+      "stratum": "community_centre:false:true"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "way/294263893",
+      "stratum": "community_centre:true:false"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "node/11191636900",
+      "stratum": "community_centre:true:true"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "node/5103564057",
+      "stratum": "coworking_space:false:false"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "node/5367928671",
+      "stratum": "coworking_space:true:false"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "way/668108711",
+      "stratum": "dog_park:false:false"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "way/1361655883",
+      "stratum": "dog_park:true:false"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "node/3772689495",
+      "stratum": "fast_food:false:false"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "node/4938911233",
+      "stratum": "fast_food:true:false"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "node/30022140",
+      "stratum": "fast_food:true:true"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "node/9806604950",
+      "stratum": "fitness_centre:false:false"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "node/6497580485",
+      "stratum": "fitness_centre:true:false"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "node/13895755992",
+      "stratum": "gallery:false:false"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "node/4061948104",
+      "stratum": "gallery:true:false"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "node/3641040703",
+      "stratum": "gallery:true:true"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "node/12841678301",
+      "stratum": "garden:false:false"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "way/533429480",
+      "stratum": "garden:false:true"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "way/48904520",
+      "stratum": "garden:true:false"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "way/576052184",
+      "stratum": "garden:true:true"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "node/5031751086",
+      "stratum": "ice_cream:false:false"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "node/7638273416",
+      "stratum": "ice_cream:false:true"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "node/5771640014",
+      "stratum": "ice_cream:true:false"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "node/13366816284",
+      "stratum": "library:false:false"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "node/256922190",
+      "stratum": "library:false:true"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "node/1481377095",
+      "stratum": "library:true:false"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "node/8151138614",
+      "stratum": "library:true:true"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "node/13159699301",
+      "stratum": "museum:false:false"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "way/166709624",
+      "stratum": "museum:false:true"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "node/6834779786",
+      "stratum": "museum:true:false"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "node/11787592208",
+      "stratum": "museum:true:true"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "way/298869118",
+      "stratum": "park:false:false"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "way/26195879",
+      "stratum": "park:false:true"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "way/50876368",
+      "stratum": "park:true:false"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "way/13853629",
+      "stratum": "park:true:true"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "node/13649985104",
+      "stratum": "playground:false:false"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "way/719949191",
+      "stratum": "playground:false:true"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "way/30441431",
+      "stratum": "playground:true:false"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "way/115742762",
+      "stratum": "playground:true:true"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "node/8257529770",
+      "stratum": "pub:false:false"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "node/3379296155",
+      "stratum": "pub:false:true"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "node/3090502396",
+      "stratum": "pub:true:false"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "node/891502069",
+      "stratum": "pub:true:true"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "node/1435395546",
+      "stratum": "restaurant:false:false"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "node/1802913071",
+      "stratum": "restaurant:false:true"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "node/988039506",
+      "stratum": "restaurant:true:false"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "node/11142829198",
+      "stratum": "restaurant:true:true"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "way/45023130",
+      "stratum": "sports_centre:false:false"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "way/438748296",
+      "stratum": "sports_centre:false:true"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "node/1918486517",
+      "stratum": "sports_centre:true:false"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "way/7997204",
+      "stratum": "sports_centre:true:true"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "node/12155113229",
+      "stratum": "tea:false:false"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "node/828086984",
+      "stratum": "tea:true:false"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "node/11871642110",
+      "stratum": "theatre:false:false"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "node/476027573",
+      "stratum": "theatre:false:true"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "node/1256737686",
+      "stratum": "theatre:true:false"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "node/11218737137",
+      "stratum": "theatre:true:true"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "way/30218109",
+      "stratum": "zoo:false:false"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "way/83189024",
+      "stratum": "zoo:true:false"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "way/9393789",
+      "stratum": "zoo:true:true"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "node/6176650529",
+      "stratum": "arts_centre:false:false"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "node/10658564547",
+      "stratum": "arts_centre:true:false"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "node/1478259435",
+      "stratum": "arts_centre:true:true"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "node/14072352562",
+      "stratum": "attraction:false:false"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "relation/57493",
+      "stratum": "attraction:false:true"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "way/239570637",
+      "stratum": "attraction:true:false"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "way/22960067",
+      "stratum": "attraction:true:true"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "node/1305230431",
+      "stratum": "bakery:false:false"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "node/5638236745",
+      "stratum": "bakery:true:false"
+    },
+    {
+      "area": "berlin-mitte",
+      "osmRef": "node/995669472",
+      "stratum": "bar:false:false"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "way/288396169",
+      "stratum": "aquarium:true:true"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "node/5175561848",
+      "stratum": "arts_centre:false:false"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "node/10017145718",
+      "stratum": "arts_centre:true:false"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "way/24563077",
+      "stratum": "arts_centre:true:true"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "node/13829956153",
+      "stratum": "attraction:false:false"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "way/263823315",
+      "stratum": "attraction:false:true"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "node/13578482530",
+      "stratum": "attraction:true:false"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "node/11283438662",
+      "stratum": "attraction:true:true"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "node/4611835603",
+      "stratum": "bakery:false:false"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "node/4833466622",
+      "stratum": "bakery:false:true"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "node/4754013400",
+      "stratum": "bakery:true:false"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "node/2247590960",
+      "stratum": "bakery:true:true"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "node/13027417998",
+      "stratum": "bar:false:false"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "node/984659510",
+      "stratum": "bar:false:true"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "node/9181748926",
+      "stratum": "bar:true:false"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "node/984659529",
+      "stratum": "bar:true:true"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "way/247085040",
+      "stratum": "biergarten:true:false"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "node/4567603391",
+      "stratum": "books:false:false"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "node/2321299128",
+      "stratum": "books:true:false"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "node/1819811589",
+      "stratum": "books:true:true"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "node/1433963042",
+      "stratum": "cafe:false:false"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "node/960932055",
+      "stratum": "cafe:true:false"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "node/331389010",
+      "stratum": "cafe:true:true"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "node/10610255657",
+      "stratum": "cinema:false:false"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "node/2339601284",
+      "stratum": "cinema:false:true"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "node/4611835607",
+      "stratum": "cinema:true:false"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "node/420514871",
+      "stratum": "cinema:true:true"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "node/9491533733",
+      "stratum": "coffee:false:false"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "node/13515684601",
+      "stratum": "coffee:true:false"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "way/427296604",
+      "stratum": "community_centre:false:false"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "node/358803674",
+      "stratum": "community_centre:false:true"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "way/264494855",
+      "stratum": "community_centre:true:false"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "way/260194175",
+      "stratum": "community_centre:true:true"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "node/6604012604",
+      "stratum": "coworking_space:false:false"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "node/9687175468",
+      "stratum": "coworking_space:true:false"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "way/967119898",
+      "stratum": "dog_park:false:false"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "way/417184097",
+      "stratum": "dog_park:true:false"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "node/9948792867",
+      "stratum": "fast_food:false:false"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "node/1822506136",
+      "stratum": "fast_food:false:true"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "node/12740040065",
+      "stratum": "fast_food:true:false"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "node/9718392241",
+      "stratum": "fitness_centre:false:false"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "node/6471102057",
+      "stratum": "fitness_centre:true:false"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "node/4625205008",
+      "stratum": "gallery:false:false"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "node/10251330871",
+      "stratum": "gallery:true:false"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "node/11008350407",
+      "stratum": "gallery:true:true"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "way/382826072",
+      "stratum": "garden:false:false"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "way/120483945",
+      "stratum": "garden:false:true"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "way/1062131979",
+      "stratum": "garden:true:false"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "way/30900516",
+      "stratum": "garden:true:true"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "node/3163318861",
+      "stratum": "ice_cream:false:false"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "node/9061260365",
+      "stratum": "ice_cream:true:false"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "way/415417770",
+      "stratum": "library:false:false"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "way/288633744",
+      "stratum": "library:false:true"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "node/5902652921",
+      "stratum": "library:true:false"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "way/277741614",
+      "stratum": "library:true:true"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "node/12964918428",
+      "stratum": "museum:false:false"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "node/5134621034",
+      "stratum": "museum:true:false"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "node/5038430321",
+      "stratum": "museum:true:true"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "way/710726117",
+      "stratum": "park:false:false"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "way/82480966",
+      "stratum": "park:false:true"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "way/681436080",
+      "stratum": "park:true:false"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "way/545408838",
+      "stratum": "park:true:true"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "way/207682975",
+      "stratum": "playground:false:false"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "way/393263687",
+      "stratum": "playground:false:true"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "relation/17584403",
+      "stratum": "playground:true:false"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "way/375333791",
+      "stratum": "playground:true:true"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "node/819444949",
+      "stratum": "pub:false:false"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "way/121024973",
+      "stratum": "pub:false:true"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "way/148288778",
+      "stratum": "pub:true:false"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "node/344975908",
+      "stratum": "pub:true:true"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "node/4883786622",
+      "stratum": "restaurant:false:false"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "node/4436674292",
+      "stratum": "restaurant:false:true"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "way/460114150",
+      "stratum": "restaurant:true:false"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "node/366701342",
+      "stratum": "restaurant:true:true"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "way/1107106610",
+      "stratum": "sports_centre:false:false"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "way/364222310",
+      "stratum": "sports_centre:false:true"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "way/193054131",
+      "stratum": "sports_centre:true:false"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "node/13459615650",
+      "stratum": "tea:false:false"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "node/9347722230",
+      "stratum": "tea:true:false"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "node/1706520453",
+      "stratum": "theatre:false:false"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "way/260131753",
+      "stratum": "theatre:false:true"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "way/174076537",
+      "stratum": "theatre:true:false"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "node/1617289728",
+      "stratum": "theatre:true:true"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "way/1501253434",
+      "stratum": "zoo:true:false"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "way/404847048",
+      "stratum": "zoo:true:true"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "node/368173914",
+      "stratum": "aquarium:true:true"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "node/6690681482",
+      "stratum": "arts_centre:false:false"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "node/11777394307",
+      "stratum": "arts_centre:true:false"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "way/30675038",
+      "stratum": "arts_centre:true:true"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "way/382805057",
+      "stratum": "attraction:false:false"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "way/27104863",
+      "stratum": "attraction:false:true"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "way/164569681",
+      "stratum": "attraction:true:false"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "way/24222973",
+      "stratum": "attraction:true:true"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "node/6791676289",
+      "stratum": "bakery:false:false"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "node/14007724731",
+      "stratum": "bakery:true:false"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "node/2655525665",
+      "stratum": "bar:false:false"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "node/61675193",
+      "stratum": "bar:false:true"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "node/2454979580",
+      "stratum": "bar:true:false"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "node/1417639584",
+      "stratum": "bar:true:true"
+    },
+    {
+      "area": "sf-soma",
+      "osmRef": "node/1282135989",
+      "stratum": "books:false:false"
+    }
+  ]
+}

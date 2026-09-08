@@ -1,3 +1,4 @@
+import { rethrowDeferred, WorkError, workFailure, httpFailure } from "../work-outcome.ts";
 /**
  * Wikidata as a source (docs/ENRICHMENT-SOURCES.md, S3). CC0, so anything
  * here may be stored and redistributed. Only places carrying an OSM
@@ -265,7 +266,7 @@ export async function geosearchCommonsImages(
       headers: { "user-agent": UA, accept: "application/json" },
       signal: AbortSignal.timeout(10_000),
     });
-    if (!response.ok) return [];
+    if (!response.ok) { await response.body?.cancel();throw httpFailure("commons",response); }
     const hits = (await response.json() as {
       query?: { geosearch?: Array<{ title?: unknown }> };
     }).query?.geosearch ?? [];
@@ -284,10 +285,10 @@ export async function geosearchCommonsImages(
       headers: { "user-agent": UA, accept: "application/json" },
       signal: AbortSignal.timeout(10_000),
     });
-    if (!metadataResponse.ok) return [];
+    if (!metadataResponse.ok) { await metadataResponse.body?.cancel();throw httpFailure("commons",metadataResponse); }
     return parseCommonsGeosearchImageInfo(await metadataResponse.json(), placeName);
-  } catch {
-    return [];
+  } catch (error) {
+    throw new WorkError(workFailure(error,"commons"));
   }
 }
 
@@ -317,11 +318,12 @@ export async function resolveCommonsImage(
     });
     if (!response.ok) {
       await response.body?.cancel();
-      return null;
+      if(response.status===404)return null;
+      throw httpFailure("commons",response);
     }
     return parseCommonsImageInfo(await response.json(), source);
-  } catch {
-    return null;
+  } catch (error) {
+    throw new WorkError(workFailure(error,"commons"));
   }
 }
 
@@ -351,6 +353,7 @@ export async function fetchWikidataFacts(
     }
     return { facts };
   } catch (err) {
+    rethrowDeferred(err, "wikidata");
     const e = err as Error & { cause?: { message?: string } };
     return { facts: null, error: `${e?.name ?? "Error"}: ${e?.cause?.message ?? e?.message ?? String(err)}`.slice(0, 120) };
   }

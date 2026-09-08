@@ -1,3 +1,4 @@
+import { rethrowDeferred, WorkError, httpFailure, workFailure, type WorkFailure } from "../work-outcome.ts";
 import { createHash } from "node:crypto";
 import type pg from "pg";
 import sharp from "sharp";
@@ -222,7 +223,7 @@ export async function fetchPlaceImageBytes(
   );
   if (!response.ok) {
     await response.body?.cancel();
-    throw Object.assign(new Error(`HTTP ${response.status}`), { status: response.status });
+    throw httpFailure("images",response);
   }
   const cacheControl = (response.headers.get("cache-control") ?? "").toLowerCase();
   if (/(?:^|,)\s*(?:no-store|no-cache|private)(?:\s|,|$)/.test(cacheControl)) {
@@ -365,6 +366,7 @@ interface ExistingImage {
 }
 
 export interface RefreshPlaceImageStages {
+  deferEmpty?: boolean;
   prepare(candidate: ImageCandidate): Promise<ProcessedImage>;
   classify(
     placeName: string,
@@ -400,6 +402,7 @@ export async function refreshPlaceImages(
   ].slice(0, MAX_IMAGE_ATTEMPTS);
   const stored: Array<{ candidate: ImageCandidate; image: ProcessedImage }> = [];
   let failures = 0;
+  let lastFailure: WorkFailure | undefined;
   const rejectedByKind: Record<string, number> = {};
   let visionImagesIn = 0;
   let keptByVision = 0;
@@ -419,8 +422,12 @@ export async function refreshPlaceImages(
         candidate,
         image: await (stages?.prepare(candidate) ?? downloadPlaceImage(candidate, fetchImpl)),
       });
-    } catch {
-      failures += 1;
+    } catch (error) {
+      rethrowDeferred(error,"images");
+      if (![404,410].includes(error instanceof WorkError ? error.failure.httpStatus ?? 0 : 0) &&
+        !/unsuitable|too small|dimensions|not an image|forbids shared caching|robots.txt disallows/.test((error as Error)?.message ?? "")) {
+        failures += 1; lastFailure=workFailure(error,"images");
+      }
     }
   }
 
@@ -455,8 +462,12 @@ export async function refreshPlaceImages(
         const image = await (stages?.prepare(candidate) ?? downloadPlaceImage(candidate, fetchImpl));
         if (cached) approved.set(candidate.url, image);
         else pending.push({ candidate, image });
-      } catch {
-        failures += 1;
+      } catch (error) {
+        rethrowDeferred(error,"images");
+        if (![404,410].includes(error instanceof WorkError ? error.failure.httpStatus ?? 0 : 0) &&
+        !/unsuitable|too small|dimensions|not an image|forbids shared caching|robots.txt disallows/.test((error as Error)?.message ?? "")) {
+        failures += 1; lastFailure=workFailure(error,"images");
+      }
       }
     }
 
@@ -489,7 +500,9 @@ export async function refreshPlaceImages(
           rejectedByKind.invalid_answer = pending.length;
           failures += pending.length;
         }
-      } catch {
+      } catch (error) {
+        rethrowDeferred(error,"images");
+        lastFailure=workFailure(error,"images");
         rejectedByKind.classifier_error = pending.length;
         failures += pending.length;
       }
@@ -502,10 +515,11 @@ export async function refreshPlaceImages(
     }
   }
 
+  if (stages?.deferEmpty && stored.length === 0 && failures === 0) return 0;
   const client = await db.connect();
   try {
     await client.query("BEGIN");
-    await client.query("DELETE FROM place_images WHERE osm_ref = $1", [osmRef]);
+    if (stored.length > 0 || failures === 0) await client.query("DELETE FROM place_images WHERE osm_ref = $1", [osmRef]);
     if (stored.length > 0) {
       for (const [idx, entry] of stored.entries()) {
         let blurhash: string | null = null;
@@ -557,7 +571,7 @@ export async function refreshPlaceImages(
       [
         osmRef,
         String(completed ? IMAGE_TTL_MS : IMAGE_FAILURE_TTL_MS),
-        failures > 0 && stored.length === 0 ? "no usable image candidate" : null,
+        failures > 0 && stored.length === 0 ? "image provider failed" : null,
       ],
     );
     await client.query("COMMIT");
@@ -567,6 +581,8 @@ export async function refreshPlaceImages(
   } finally {
     client.release();
   }
+  if (failures > 0 && stored.length === 0) throw new WorkError(lastFailure ?? {provider:"images",code:"transport",deferred:true,
+    retryAt:new Date(Date.now()+IMAGE_FAILURE_TTL_MS).toISOString()});
   console.info(JSON.stringify({
     msg: "place image work",
     place: placeName,

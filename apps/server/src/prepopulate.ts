@@ -30,9 +30,10 @@ try {
       const heartbeat = setInterval(() => report({ event: "working" }), 15_000);
       try {
         const result = await runPrepopulation(pool, options, snapshot, venues, report, controller.signal);
-        report({ event: "complete", ...result });
+        report({ event: "finished", ...result });
         process.exitCode = result.interrupted ? 130
-          : result.failed || Object.keys(result.sourceErrors).length ? 1 : 0;
+          : result.status === "deferred" ? 75
+          : result.status === "failed" || result.failed || Object.keys(result.sourceErrors).length ? 1 : 0;
       } finally {
         clearInterval(heartbeat);
         process.off("SIGINT", stop);
