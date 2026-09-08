@@ -23,10 +23,10 @@
 export const MAP_THEME = {
   /** --spoke-ink at 8%: everything outside the scope circle (SPOKES-UI §3). */
   outsideDim: { color: "#334136", opacity: 0.08 },
-  /** --spoke-ink, 1.5px dashed at 40%: the scope ring itself. */
-  scopeRing: { color: "#334136", width: 1.5, opacity: 0.4, dash: [4, 4.6] },
+  /** --spoke-ink, 2.5px dashed at 40%: the scope ring itself. */
+  scopeRing: { color: "#334136", width: 2.5, opacity: 0.4, dash: [4, 4.6] },
   /** A proposed wider radius: same ink, fainter and finer (mockup 7b). */
-  proposedRing: { color: "#334136", width: 1, opacity: 0.18, dash: [4, 8] },
+  proposedRing: { color: "#334136", width: 2, opacity: 0.18, dash: [4, 8] },
   /** --spoke-works as a colour wash over the basemap, so the plate reads warm. */
   wash: { color: "#2c6b52", opacity: 0.18 },
   /** --spoke-surface-sunk: what shows when tiles fail to load. */
@@ -39,7 +39,7 @@ export const MAP_THEME = {
    * fill, no dimming, so it never competes with the scope ring's mask. Green
    * when it is measured from a place, the owner's person colour when it is
    * measured from a person. */
-  needRing: { color: "#2c6b52", width: 1.5, opacity: 0.55, dash: [2, 4] },
+  needRing: { color: "#2c6b52", width: 2.5, opacity: 0.55, dash: [2, 4] },
   /** --spoke-person-1..5, in the order `personColor` assigns them. */
   person: ["#1649a5", "#a11d67", "#00646b", "#74510b", "#6c2b7c"],
   /** The optional layers (SPOKES-UI "Layers"). Each is context under the
