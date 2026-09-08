@@ -401,3 +401,79 @@ test("an invite link goes straight to the room", async () => {
   await expect(page.getByTestId("landing")).toHaveCount(0);
   await context.close();
 });
+
+for (const scenario of [
+  { api: "missing", query: "", state: "unsupported", title: "WebMCP not detected" },
+  { api: "legacy", query: "", state: "unsupported", title: "WebMCP not detected" },
+  { api: "missing", query: "?shim=webmcp", state: "shim", title: "Test mode · browser support unverified" },
+  { api: "failed", query: "", state: "failed", title: "WebMCP detected, but not ready" },
+  // The shim query never replaces an API already exposed by the browser.
+  { api: "available", query: "?shim=webmcp", state: "registered", title: "WebMCP detected in this browser" },
+] as const) {
+  test(`browser check: ${scenario.api}${scenario.query} reports ${scenario.state}`, async () => {
+    const context = await browser.newContext({ viewport: { width: 390, height: 844 }, reducedMotion: "reduce" });
+    try {
+      await context.addInitScript((api) => {
+        const mc = { registerTool: () => {
+          if (api === "failed") return Promise.reject(new Error("Registration blocked for this test"));
+          return Promise.resolve();
+        } };
+        Object.defineProperty(document, "modelContext", {
+          configurable: true, writable: true, value: api === "available" || api === "failed" ? mc : undefined,
+        });
+        Object.defineProperty(navigator, "modelContext", { configurable: true, value: api === "legacy" ? mc : undefined });
+      }, scenario.api);
+      const page = await context.newPage();
+      await page.goto(`${BASE}/${scenario.query}`);
+      const check = page.getByTestId("browser-support-check");
+      await expect(check).toHaveAttribute("data-state", scenario.state);
+      const details = page.locator("details").filter({ has: check });
+      await expect(page.locator(".ld-answers details").first()).toHaveAttribute("open", "");
+      if (scenario.state === "registered") {
+        await expect(details).toHaveAttribute("open", "");
+      } else {
+        await expect(details).not.toHaveAttribute("open", "");
+        await details.locator("summary").click();
+      }
+      await expect(check.getByRole("status")).toContainText(scenario.title);
+      const requirements = check.getByRole("link", { name: "Check browser requirements" });
+      await expect(requirements).toHaveAttribute("href", "https://developer.chrome.com/docs/ai/webmcp");
+      await expect(requirements).toBeVisible();
+      expect((await requirements.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    } finally {
+      await context.close();
+    }
+  });
+}
+
+test("browser check waits for registration, then updates without reloading", async () => {
+  const context = await browser.newContext({ reducedMotion: "reduce" });
+  try {
+    await context.addInitScript(() => {
+      const ready = new Promise<void>((resolve) => {
+        Object.defineProperty(window, "finishWebMcpRegistration", { value: resolve });
+      });
+      Object.defineProperty(document, "modelContext", { configurable: true, value: { registerTool: () => ready } });
+    });
+    const page = await context.newPage();
+    await page.goto(`${BASE}/`);
+    const check = page.getByTestId("browser-support-check");
+    const details = page.locator("details").filter({ has: check });
+    await expect(details).not.toHaveAttribute("open", "");
+    await expect(check).toHaveAttribute("data-state", "pending");
+    await page.evaluate(() => {
+      (window as unknown as { finishWebMcpRegistration(): void }).finishWebMcpRegistration();
+    });
+    await expect(check).toHaveAttribute("data-state", "registered");
+    await expect(details).toHaveAttribute("open", "");
+    await expect(check.getByRole("status")).toContainText("Spokes has registered its tools");
+    await expect(check).toContainText("You’ll still need a compatible agent");
+    // The default does not prevent closing it or reopen it on a landing rerender.
+    await details.locator("summary").click();
+    await page.getByRole("link", { name: "For agents and builders" }).click();
+    await expect(page.locator(".ld-top")).toHaveAttribute("data-ink", "true");
+    await expect(details).not.toHaveAttribute("open", "");
+  } finally {
+    await context.close();
+  }
+});

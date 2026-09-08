@@ -100,6 +100,23 @@
 .ld-answers details:first-child summary { padding-top: 6px; }
 .ld-answers p { margin: 0 0 18px; max-width: 72ch; font-size: var(--spoke-size-body); line-height: 1.7; font-weight: var(--spoke-weight-quiet); }
 .ld-answers a { display: inline-flex; align-items: center; min-height: var(--spoke-tap-min); margin-bottom: 12px; }
+.ld-browser-check {
+  --ld-check-ink: var(--spoke-unsure-text);
+  --ld-check-line: var(--spoke-unsure);
+  --ld-check-ground: var(--spoke-unsure-tint);
+  margin: 4px 0 24px; padding: 18px 20px 8px;
+  border: var(--spoke-border) solid var(--ld-check-line);
+  border-radius: var(--spoke-radius-card);
+  background: var(--ld-check-ground);
+}
+.ld-browser-check[data-state="registered"] { --ld-check-ink: var(--spoke-works-text); --ld-check-line: var(--spoke-works); --ld-check-ground: var(--spoke-works-tint); }
+.ld-browser-check[data-state="pending"] { --ld-check-ink: var(--spoke-act-text); --ld-check-line: var(--spoke-act); --ld-check-ground: var(--spoke-act-tint); }
+.ld-browser-check[data-state="shim"] { border-style: dashed; }
+.ld-browser-result { display: grid; grid-template-columns: 40px minmax(0, 1fr); gap: 14px; }
+.ld-browser-icon { color: var(--ld-check-ink); }
+.ld-browser-title { display: block; padding-top: 3px; color: var(--ld-check-ink); font-family: var(--spoke-font-display); font-size: var(--spoke-size-title); font-weight: var(--spoke-weight-strong); line-height: 1.3; text-wrap: pretty; }
+.ld-browser-result p { margin: 8px 0 0; color: var(--ld-check-ink); line-height: 1.55; text-wrap: pretty; }
+.ld-browser-check > a { margin: 4px 0 0 54px; color: var(--ld-check-ink); font-size: var(--spoke-size-body); font-weight: var(--spoke-weight-strong); }
 .ld-close { display: flex; align-items: center; justify-content: space-between; gap: 28px; padding-block: 44px 60px; border-top: var(--spoke-border) solid var(--spoke-line); }
 .ld-close .ld-read { margin-top: 14px; }
 .ld-foot { display: flex; align-items: center; gap: 24px; padding-block: 24px; border-top: var(--spoke-border) solid var(--spoke-line-ghost); }

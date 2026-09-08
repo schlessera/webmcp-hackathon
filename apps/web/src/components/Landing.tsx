@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Wordmark } from "./Wordmark.tsx";
+import { BrowserSupportCheck, useBrowserSupportState } from "./BrowserSupportCheck.tsx";
 import "../landing.css";
 
 const REPO = "https://github.com/schlessera/webmcp-hackathon";
@@ -60,6 +61,7 @@ function useInkBar(scrollRef: React.RefObject<HTMLDivElement>, inkRef: React.Ref
 }
 
 export function Landing({ onStart }: Props) {
+  const browserSupport = useBrowserSupportState();
   const scrollRef = useRef<HTMLDivElement>(null);
   const inkRef = useRef<HTMLElement>(null);
   const barInk = useInkBar(scrollRef, inkRef);
@@ -211,10 +213,10 @@ export function Landing({ onStart }: Props) {
               <summary>Where can you try it?</summary>
               <p>This is an interactive demo with prepared place data for Berlin Mitte and San Francisco SoMa. Describe your plan first; the demo region choice comes after you review it. Place information can be incomplete or out of date.</p>
             </details>
-            <details>
+            <details open={browserSupport === "registered"}>
               <summary>Do you need an account or an AI agent?</summary>
               <p>No account or external agent is needed to use the map and take part in a room. Built-in language help depends on the demo&rsquo;s AI service being available. Connecting your own agent requires WebMCP support in your browser.</p>
-              <a href="https://developer.chrome.com/docs/ai/webmcp">Check browser requirements</a>
+              <BrowserSupportCheck />
             </details>
             <details>
               <summary>How do invite links work?</summary>
